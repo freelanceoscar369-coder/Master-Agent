@@ -1,10 +1,20 @@
 """Filesystem capability plugin — a thin Plugin-contract adapter over the
 LocalExecutor (Mission Brief 002). All real logic (idempotency, error
-handling, the actual mkdir) now lives in
-executor/actions/create_folder.py's CreateFolderAction; this class exists
-only so the Orchestrator/PluginRegistry can resolve "create_folder" the
-same way it resolves every other capability (ADR-0003) — nothing about
-that resolution changed.
+handling, the actual mkdir/write) lives in executor/actions/ — this class
+exists only so the Orchestrator/PluginRegistry can resolve each capability
+the same way it resolves every other one (ADR-0003) — nothing about that
+resolution changed.
+
+Mission Brief 003 added two capabilities on top of `create_folder`:
+`write_file` (a second filesystem primitive) and `workspace_bootstrap`
+(a composite action built from the first two — see
+executor/actions/workspace_bootstrap.py and
+docs/adr/0006-composite-action-relay.md). This adapter's job is unchanged
+by that addition: relay the approval it already has, delegate to
+execute(), translate the result shape. It does not know or care that one
+of its three capabilities happens to be composed of the other two
+underneath — that composition is entirely the Executor/Action layer's
+concern.
 
 ## Why this relays a permission grant instead of just calling execute()
 
@@ -31,6 +41,8 @@ from pathlib import Path
 from typing import Any
 
 from master_agent.executor.actions.create_folder import CREATE_FOLDER, CreateFolderAction
+from master_agent.executor.actions.workspace_bootstrap import WORKSPACE_BOOTSTRAP, WorkspaceBootstrapAction
+from master_agent.executor.actions.write_file import WRITE_FILE, WriteFileAction
 from master_agent.executor.executor import LocalExecutor
 from master_agent.permissions.permission_system import GrantScope
 from master_agent.plugins.base import (
@@ -43,25 +55,32 @@ from master_agent.plugins.base import (
 
 
 class FilesystemPlugin(Plugin):
-    """Exposes CreateFolderAction as the `create_folder` capability.
+    """Exposes CreateFolderAction, WriteFileAction, and
+    WorkspaceBootstrapAction as the `create_folder`, `write_file`, and
+    `workspace_bootstrap` capabilities.
 
     `executor` is injected (dependency injection, consistent with the rest
-    of the codebase) — this plugin registers its action on whatever
+    of the codebase) — this plugin registers its actions on whatever
     executor it's given rather than owning one itself, so multiple
     filesystem-backed plugins could someday share one executor's log.
-    `locations` is passed straight through to CreateFolderAction; see that
-    class for why it's injected too (tests point "desktop" at a tmp_path).
+    `locations` is passed straight through to each action; see
+    CreateFolderAction for why it's injected too (tests point "desktop" at
+    a tmp_path).
     """
+
+    _SUPPORTED = {CREATE_FOLDER, WRITE_FILE, WORKSPACE_BOOTSTRAP}
 
     def __init__(self, executor: LocalExecutor, locations: dict[str, Path] | None = None) -> None:
         self._executor = executor
         self._executor.register(CreateFolderAction(locations))
+        self._executor.register(WriteFileAction(locations))
+        self._executor.register(WorkspaceBootstrapAction(executor, locations))
 
     @property
     def manifest(self) -> PluginManifest:
         return PluginManifest(
             name="filesystem",
-            version="0.2.0",
+            version="0.3.0",
             capabilities=[
                 CapabilityManifest(
                     name=CREATE_FOLDER,
@@ -70,11 +89,41 @@ class FilesystemPlugin(Plugin):
                     input_schema={"name": "str", "location": "str (optional, default 'desktop')"},
                     output_schema={"path": "str — absolute path of the created (or existing) folder"},
                 ),
+                CapabilityManifest(
+                    name=WRITE_FILE,
+                    description="Write text content to a file in a known location.",
+                    risk_tier=RiskTier.REVERSIBLE_WRITE,
+                    input_schema={
+                        "path": "str — relative path, may include subfolders",
+                        "content": "str (optional, default '')",
+                        "location": "str (optional, default 'desktop')",
+                    },
+                    output_schema={"path": "str — absolute path of the written file"},
+                ),
+                CapabilityManifest(
+                    name=WORKSPACE_BOOTSTRAP,
+                    description=(
+                        "Create a workspace root folder plus requested subfolders and "
+                        "seed files, composed from create_folder and write_file."
+                    ),
+                    risk_tier=RiskTier.REVERSIBLE_WRITE,
+                    input_schema={
+                        "name": "str — workspace root folder name",
+                        "location": "str (optional, default 'desktop')",
+                        "folders": "list[str] (optional) — relative subfolder paths under the root",
+                        "files": "list[{path: str, content: str}] (optional) — seed files under the root",
+                    },
+                    output_schema={
+                        "root": "str — absolute path of the workspace root",
+                        "created_folders": "list[str]",
+                        "written_files": "list[str]",
+                    },
+                ),
             ],
         )
 
     def invoke(self, capability: str, payload: dict[str, Any]) -> InvocationResult:
-        if capability != CREATE_FOLDER:
+        if capability not in self._SUPPORTED:
             return InvocationResult(success=False, error=f"unsupported capability: {capability}")
 
         # Relay this call's already-obtained approval to the Executor's
@@ -83,7 +132,11 @@ class FilesystemPlugin(Plugin):
         # raised by this check (a fresh ONCE grant always satisfies the
         # very next check for the same key), but if it somehow were, it
         # must propagate to the Orchestrator like any other
-        # ApprovalRequired, not be swallowed here.
+        # ApprovalRequired, not be swallowed here. This is true whether
+        # `capability` resolves to a single primitive action or, for
+        # workspace_bootstrap, a composite that goes on to relay its own
+        # grants to its sub-actions (docs/adr/0006-composite-action-relay.md)
+        # — from this adapter's perspective it's one execute() call either way.
         self._executor.permissions.grant(self._executor.name, capability, GrantScope.ONCE)
 
         result = self._executor.execute(capability, payload)

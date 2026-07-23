@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from master_agent.executor.action import Action, ExecutionResult
+from master_agent.executor.action import Action, ExecutionResult, is_unsafe_relative_path
 from master_agent.plugins.base import RiskTier
 
 CREATE_FOLDER = "create_folder"
@@ -43,6 +43,15 @@ class CreateFolderAction(Action):
         name = (parameters.get("name") or "").strip()
         if not name:
             errors.append("missing required parameter: name")
+        elif is_unsafe_relative_path(name):
+            # Added in Mission Brief 003: `name` started life as a single
+            # user-typed folder name (Mission Brief 001's CLI parser), but
+            # WorkspaceBootstrapAction now generates multi-segment values
+            # like "MyProject/src" programmatically. Closing this gap here
+            # too, not just in the newer actions, so CreateFolderAction is
+            # safe against a caller (composite or direct) supplying '..'
+            # regardless of which path led to it.
+            errors.append(f"unsafe name '{name}': must be relative, no '..' segments")
 
         location_key = (parameters.get("location") or "desktop").strip().lower()
         if location_key not in self._locations:

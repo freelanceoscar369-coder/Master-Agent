@@ -16,19 +16,29 @@ Orchestrator and the filesystem, so every future local capability (file
 ops, shell commands, git, VS Code, Obsidian, ...) plugs into the same
 validated, permission-gated, logged execution path instead of being a
 one-off. `create_folder` runs on this new path today with zero functional
-change from Mission Brief 001 — same transcript, same behavior. See
-`docs/MISSION_BRIEF_001.md` and `docs/MISSION_BRIEF_002.md` for what's
-genuinely production-ready versus still stubbed, and try it yourself:
+change from Mission Brief 001 — same transcript, same behavior.
+**Mission Brief 003** added a second primitive (`write_file`) and proved
+the layer composes: `workspace_bootstrap` builds a folder + files layout
+entirely by calling the other two actions *through* the Executor — never
+bypassing it or the Permission System — with only one human approval for
+the whole composite (see `docs/adr/0006-composite-action-relay.md`). See
+`docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, and
+`docs/MISSION_BRIEF_003.md` for what's genuinely production-ready versus
+still stubbed, and try it yourself:
 
 ```
 pip install -e ".[dev]"
 python -m master_agent.cli
 ```
 
-Everything beyond that one execution path — Planner, Mission Manager,
-Model Router, Memory, ChatGPT/Hermes providers, Voice, Desktop UI, and
-every local action besides `create_folder` — is still the scaffold-stage
-interface described below, not wired to anything real yet.
+Everything beyond that execution path — Planner, Mission Manager, Model
+Router, Memory, ChatGPT/Hermes providers, Voice, Desktop UI, and every
+local action besides `create_folder`/`write_file`/`workspace_bootstrap` —
+is still the scaffold-stage interface described below, not wired to
+anything real yet. `workspace_bootstrap` itself has no conversational
+intent wired to it yet either — it's reachable today only through
+`FilesystemPlugin.invoke()` directly (see the tests), not through
+`cli.py`'s parser.
 
 ## Layout
 
@@ -41,13 +51,15 @@ src/master_agent/
   memory/             # local-first storage (SQLite + local embeddings)
   permissions/        # approval gate for non-read-only plugin actions
   executor/            # Mission Brief 002: LocalExecutor + Action contract + actions/
+                        #   (create_folder, write_file, workspace_bootstrap — Mission Brief 003)
   plugins/            # Plugin contract, registry, filesystem_plugin.py, providers/ (ChatGPT, Hermes)
   voice/              # STT (input) / TTS (output) adapters
   ui/                 # notes on the desktop UI boundary (separate process)
 docs/adr/              # architecture decision records
 docs/MISSION_BRIEF_001.md  # what Mission Brief 001 proved
 docs/MISSION_BRIEF_002.md  # what the Local Executor is and why, and what's next
-tests/                 # unit tests (41 passing — executor, actions, plugin adapter, intent parsing, full session flow)
+docs/MISSION_BRIEF_003.md  # composing actions into a workspace_bootstrap mission
+tests/                 # unit tests (76 passing — executor, actions, composite action, plugin adapter, intent parsing, full session flow)
 ```
 
 ## Getting started

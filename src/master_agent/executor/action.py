@@ -13,9 +13,21 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from master_agent.plugins.base import RiskTier
+
+
+def is_unsafe_relative_path(path: str) -> bool:
+    """Shared by every action that accepts a relative path/name meant to
+    be joined onto a configured location's base directory (CreateFolderAction's
+    `name`, WriteFileAction's `path`, WorkspaceBootstrapAction's `name`/
+    `folders`/`files[].path`). Rejects absolute paths and '..' segments —
+    the one thing standing between that trust and a payload that escapes
+    the base directory entirely."""
+    parts = Path(path).parts
+    return Path(path).is_absolute() or ".." in parts
 
 
 @dataclass

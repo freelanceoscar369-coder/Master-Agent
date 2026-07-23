@@ -68,9 +68,12 @@ answerable to:
     │     │  local-action plugins delegate here:
     │     ▼
     │  Local Executor ──► Action (validate → permission check → run)
-    │     │                  └─► e.g. CreateFolderAction → filesystem
+    │     │                  ├─► e.g. CreateFolderAction/WriteFileAction → filesystem
+    │     │                  └─► e.g. WorkspaceBootstrapAction → relays a grant to,
+    │     │                          then calls, Local Executor again per sub-step
     │     ▼
     │  ExecutionResult + log entry (action, times, duration, status)
+    │     — one entry per sub-step too, for a composite action
     │
     └─ Voice I/O Adapters (STT, TTS)
         │
@@ -169,6 +172,22 @@ permission checks in the same call chain need different keys, and how the
 Plugin adapter relays an already-obtained approval down to the Executor's
 key without asking the human twice.
 
+**Composite actions (Mission Brief 003).** Not every capability has to be
+a filesystem primitive. `WorkspaceBootstrapAction` (`create_folder` +
+`write_file`, composed) is the first example of an Action whose `run()`
+doesn't touch the filesystem itself at all — it orchestrates other
+Actions through the same `LocalExecutor.execute()` path every direct
+caller uses, so every sub-step is independently validated, permission-
+gated, and logged, with no rollback on partial failure (that limitation
+is deliberate, not an oversight — see the ADR). This is the general
+pattern for turning a sequence of primitives into a reusable, higher-
+level mission (a "bootstrap a new workspace" capability, generically
+parameterized by folders/files — not a hardcoded script) instead of
+writing one-off orchestration logic outside the Action Contract. See
+`docs/adr/0006-composite-action-relay.md` for how a composite relays its
+own already-obtained approval down to each sub-action it invokes, the
+same pattern ADR-0005 established one layer up.
+
 ### 4.8 Local Memory (`memory/`)
 Local-first store (SQLite for structured mission/state data, plus a local
 embedding index for semantic recall) — no cloud dependency for the system
@@ -225,12 +244,15 @@ adding a third provider later (e.g. Claude via API) means writing one new
 - **Plugin distribution**: for Founder Edition, plugins can just be local
   Python packages discovered by the registry at startup — no need to build
   a plugin marketplace/installer yet. Confirm that's acceptable for v0.1.
-- **Local-executor-backed plugin base class**: right now `FilesystemPlugin`
-  hand-writes the permission-grant relay described in
-  `docs/adr/0005-executor-permission-relay.md`. Fine with one example;
-  worth factoring into a shared base class once a second local-action
-  plugin (e.g. git operations) is added, so the relay isn't something
-  every new plugin author has to remember by convention.
+- **Local-executor-backed plugin/action base class**: the permission-grant
+  relay pattern (`docs/adr/0005-executor-permission-relay.md`) is now
+  hand-written twice — once in `FilesystemPlugin.invoke()`, once in
+  `WorkspaceBootstrapAction._run_substep()`
+  (`docs/adr/0006-composite-action-relay.md`). Two working examples make a
+  stronger case for extraction than one did, but not yet a strong enough
+  one — worth building a shared helper (e.g.
+  `LocalExecutor.execute_relayed()`) the moment a third Executor-backed
+  plugin or composite action needs the same relay.
 
 See `docs/TIMELINE_RISK.md` for how these choices interact with the Aug 5
 deadline.

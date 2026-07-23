@@ -32,14 +32,26 @@ values imply.
   run PowerShell/CMD, git, VS Code, Obsidian, ...) plugs into the same
   validated, permission-gated, logged execution path instead of being a
   one-off special case. `create_folder` was refactored onto it with zero
-  functional regression (same transcript, same tests passing). 41 tests
-  pass. Full detail: `docs/MISSION_BRIEF_002.md`.
+  functional regression (same transcript, same tests passing). Full
+  detail: `docs/MISSION_BRIEF_002.md`.
+- **Mission Brief 003 proved composition**: added `write_file` (a second
+  filesystem primitive) and `WorkspaceBootstrapAction` (a composite —
+  root folder + subfolders + seed files, generically parameterized, not
+  a hardcoded script) that composes `create_folder`/`write_file` calls
+  *through* the real `LocalExecutor.execute()` path, never by calling
+  their `run()` methods directly — every sub-step stays validated,
+  permission-gated (via a relayed grant, extending ADR-0005's pattern —
+  see ADR-0006), and logged. No transactional rollback on partial
+  failure, flagged as known debt rather than silently accepted. 76 tests
+  pass. Full detail: `docs/MISSION_BRIEF_003.md`.
 - **What's still a stub, unchanged:** Planner (real model-driven
-  planning), Mission Manager (persistence + multi-mission lifecycle),
-  Model Router wiring to live providers, Memory persistence, Voice I/O,
-  Desktop UI, and every local action besides `create_folder` (the
-  Executor now supports adding them cheaply, but none are built yet). See
-  `ROADMAP.md` for what's next and in what order.
+  planning — `workspace_bootstrap` has no real intent wired to it yet,
+  see Mission Brief 003's recommendation), Mission Manager (persistence +
+  multi-mission lifecycle), Model Router wiring to live providers, Memory
+  persistence, Voice I/O, Desktop UI, and every local action besides
+  `create_folder`/`write_file`/`workspace_bootstrap` (the Executor now
+  supports adding them cheaply, but none are built yet). See `ROADMAP.md`
+  for what's next and in what order.
 
 ## Where to go for what
 
@@ -49,8 +61,9 @@ values imply.
 | What do we value / what tradeoffs does that force? | `MANIFESTO.md`, `PRODUCT_PRINCIPLES.md` |
 | How is the system designed? | `ARCHITECTURE.md` |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
-| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md` |
+| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md` |
 | How does a new local capability plug in? | `ARCHITECTURE.md` §4.7, `docs/MISSION_BRIEF_002.md` |
+| How does a *composite* mission (several actions together) plug in? | `docs/MISSION_BRIEF_003.md`, `docs/adr/0006-composite-action-relay.md` |
 | What's next, and in what order? | `ROADMAP.md` |
 | What's known/unknown about the founder and constraints? | `FOUNDER_CONTEXT.md` |
 | How do I set this up on a new machine? | `START_HERE.md` |
