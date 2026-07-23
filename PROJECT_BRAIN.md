@@ -42,11 +42,20 @@ values imply.
   their `run()` methods directly — every sub-step stays validated,
   permission-gated (via a relayed grant, extending ADR-0005's pattern —
   see ADR-0006), and logged. No transactional rollback on partial
-  failure, flagged as known debt rather than silently accepted. 76 tests
-  pass. Full detail: `docs/MISSION_BRIEF_003.md`.
-- **What's still a stub, unchanged:** Planner (real model-driven
-  planning — `workspace_bootstrap` has no real intent wired to it yet,
-  see Mission Brief 003's recommendation), Mission Manager (persistence +
+  failure, flagged as known debt rather than silently accepted. Full
+  detail: `docs/MISSION_BRIEF_003.md`.
+- **Mission Brief 003.1 connected conversation to that capability**:
+  `cli.py`'s rule-based Intent Parser now recognizes "create a project"
+  phrasing (with an optional type — "Python", or a sensible generic
+  default) alongside the original "create a folder" phrasing, and
+  `build_plan()` (still `cli.py`'s stand-in for the real Planner) turns a
+  recognized project intent into a single `workspace_bootstrap` Step. The
+  Orchestrator, Permission System, and approval-relay code are entirely
+  unchanged — proof Mission Brief 003's composite-action design really
+  does let a new mission reach it without touching anything below the
+  Planner. Full detail: `docs/MISSION_BRIEF_003_1.md`.
+- **What's still a stub, unchanged:** the *real* Planner (model-driven,
+  not `cli.py`'s regex stand-in), Mission Manager (persistence +
   multi-mission lifecycle), Model Router wiring to live providers, Memory
   persistence, Voice I/O, Desktop UI, and every local action besides
   `create_folder`/`write_file`/`workspace_bootstrap` (the Executor now
@@ -61,9 +70,10 @@ values imply.
 | What do we value / what tradeoffs does that force? | `MANIFESTO.md`, `PRODUCT_PRINCIPLES.md` |
 | How is the system designed? | `ARCHITECTURE.md` |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
-| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md` |
+| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md` |
 | How does a new local capability plug in? | `ARCHITECTURE.md` §4.7, `docs/MISSION_BRIEF_002.md` |
 | How does a *composite* mission (several actions together) plug in? | `docs/MISSION_BRIEF_003.md`, `docs/adr/0006-composite-action-relay.md` |
+| How does typed/spoken conversation become a mission? | `ARCHITECTURE.md` §4.1-4.2, `docs/MISSION_BRIEF_003_1.md` |
 | What's next, and in what order? | `ROADMAP.md` |
 | What's known/unknown about the founder and constraints? | `FOUNDER_CONTEXT.md` |
 | How do I set this up on a new machine? | `START_HERE.md` |

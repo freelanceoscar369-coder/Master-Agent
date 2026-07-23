@@ -142,5 +142,13 @@ class FilesystemPlugin(Plugin):
         result = self._executor.execute(capability, payload)
 
         if not result.success:
-            return InvocationResult(success=False, error="; ".join(result.errors) or "unknown executor failure")
-        return InvocationResult(success=True, output=result.output)
+            return InvocationResult(
+                success=False,
+                error="; ".join(result.errors) or "unknown executor failure",
+                execution_time_seconds=result.execution_time_seconds,
+            )
+        return InvocationResult(
+            success=True,
+            output=result.output,
+            execution_time_seconds=result.execution_time_seconds,
+        )

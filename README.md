@@ -21,24 +21,27 @@ change from Mission Brief 001 — same transcript, same behavior.
 the layer composes: `workspace_bootstrap` builds a folder + files layout
 entirely by calling the other two actions *through* the Executor — never
 bypassing it or the Permission System — with only one human approval for
-the whole composite (see `docs/adr/0006-composite-action-relay.md`). See
-`docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, and
-`docs/MISSION_BRIEF_003.md` for what's genuinely production-ready versus
-still stubbed, and try it yourself:
+the whole composite (see `docs/adr/0006-composite-action-relay.md`).
+**Mission Brief 003.1** connected that capability to real conversation:
+`python -m master_agent.cli` now understands "Create a Python project
+called Demo." or "Create a project called Expense Tracker." end to end —
+same wake phrase, same one-approval flow, same Orchestrator/Permission
+System path the folder-creation demo has used since Mission Brief 001.
+See `docs/MISSION_BRIEF_001.md` through `docs/MISSION_BRIEF_003_1.md` for
+what's genuinely production-ready versus still stubbed, and try it
+yourself:
 
 ```
 pip install -e ".[dev]"
 python -m master_agent.cli
 ```
 
-Everything beyond that execution path — Planner, Mission Manager, Model
-Router, Memory, ChatGPT/Hermes providers, Voice, Desktop UI, and every
-local action besides `create_folder`/`write_file`/`workspace_bootstrap` —
-is still the scaffold-stage interface described below, not wired to
-anything real yet. `workspace_bootstrap` itself has no conversational
-intent wired to it yet either — it's reachable today only through
-`FilesystemPlugin.invoke()` directly (see the tests), not through
-`cli.py`'s parser.
+Everything beyond that execution path — the real Planner (a model call;
+`cli.py`'s rule-based parser stands in for it today), Mission Manager
+persistence, Model Router, Memory, ChatGPT/Hermes providers, Voice,
+Desktop UI, and every local action besides
+`create_folder`/`write_file`/`workspace_bootstrap` — is still the
+scaffold-stage interface described below, not wired to anything real yet.
 
 ## Layout
 
@@ -59,7 +62,10 @@ docs/adr/              # architecture decision records
 docs/MISSION_BRIEF_001.md  # what Mission Brief 001 proved
 docs/MISSION_BRIEF_002.md  # what the Local Executor is and why, and what's next
 docs/MISSION_BRIEF_003.md  # composing actions into a workspace_bootstrap mission
-tests/                 # unit tests (76 passing — executor, actions, composite action, plugin adapter, intent parsing, full session flow)
+docs/MISSION_BRIEF_003_1.md  # connecting conversation to workspace_bootstrap
+tests/                 # unit tests (93 passing — executor, actions, composite
+                        #   action, plugin adapter, intent parsing, full session
+                        #   flow for both folder AND project-creation missions)
 ```
 
 ## Getting started

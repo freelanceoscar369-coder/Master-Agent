@@ -51,6 +51,12 @@ class InvocationResult:
     success: bool
     output: Any = None
     error: str | None = None
+    # Optional — populated by plugins that have a real timing to report
+    # (e.g. FilesystemPlugin, forwarding LocalExecutor's measured
+    # ExecutionResult.execution_time_seconds; Mission Brief 003.1). 0.0
+    # for any plugin that doesn't set it, not a claim that invocation was
+    # instantaneous.
+    execution_time_seconds: float = 0.0
 
 
 class Plugin(ABC):

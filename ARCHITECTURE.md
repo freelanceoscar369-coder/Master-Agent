@@ -99,12 +99,39 @@ This is deliberately *not* "send the raw string to an LLM" — it's a real
 parsing/clarification step so the Planner never has to guess what the human
 meant. Owns follow-up clarification questions when intent is ambiguous.
 
+**`cli.py`'s rule-based stand-in (Mission Brief 001, extended 003.1).**
+The real Intent Layer above is a stub; `cli.py`'s `parse_intent()` plays
+its role for the CLI demo today — regex-based, not a model call, on
+purpose (see its module docstring). It recognizes two intent shapes as of
+Mission Brief 003.1: "create a folder called X [on Y]" (→ `ParsedIntent`)
+and "create [a/an/a new] [\<type\>] project/application called/named X"
+(→ `ParsedProjectIntent`, extracting a project name and an optional
+type — omitted or unrecognized types fall back to a generic default
+rather than failing the request). Text that structurally looks like a
+project request but has an unusable name (empty, or unsafe per
+`executor/action.py`'s `is_unsafe_relative_path()`) raises a distinct
+`InvalidProjectRequest` so the reply can explain what's wrong with the
+name instead of claiming the whole request wasn't understood.
+
 ### 4.2 Planner (`planner/`)
 Takes an `Intent`, produces a `MissionPlan`: a DAG of `Step` objects, each
 naming a required `Capability` (not a specific plugin — the Orchestrator
 resolves capability → plugin at execution time, so plans stay portable
 across whichever plugins are installed). Planner itself calls a Model
 Provider through the Model Router — planning is a capability like any other.
+
+**`cli.py`'s rule-based stand-in, continued.** The real `Planner` class
+here (`planner/planner.py`) is still a stub (`NotImplementedError` until
+a live Model Router provider exists). `cli.py`'s `build_plan()` plays its
+role too: for a `ParsedIntent` it builds the same single-`Step`
+`create_folder` plan Mission Brief 001 always did; for a
+`ParsedProjectIntent` (Mission Brief 003.1) it looks up a project
+template (folders + seed files — see `docs/MISSION_BRIEF_003_1.md`) and
+builds a single `Step` naming the `workspace_bootstrap` capability with
+that template as its payload. Either way, the Orchestrator receives an
+ordinary `MissionPlan` and has no idea whether its one step will resolve
+to a primitive action or a composite one — which is exactly why nothing
+below the Planner had to change to support project creation.
 
 ### 4.3 Mission Manager (`mission_manager/`)
 Owns the `Mission` entity and its state machine. This is the single source
