@@ -18,45 +18,47 @@ marked Completed here.
 | **003** — Workspace Bootstrap Action | `write_file` (second primitive) + `WorkspaceBootstrapAction` (composite, built entirely through the real Executor — no bypass). Reachable only via direct `invoke()` at this point. |
 | **003.1** — First Real Mission | Real conversation ("Create a Python project called Demo.") reaches `workspace_bootstrap`, through the full stack, with zero changes to the Orchestrator/PermissionSystem/composite-relay logic. |
 | **003.5** — Foundation Freeze | This document set: `ENGINEERING_PRINCIPLES.md`, `MIRACLE_LEDGER.md`, `VISION.md`, `PRODUCT_PRINCIPLES.md` (updated), `ARCHITECTURE_PRINCIPLES.md`, this file, `FOUNDER_PLAYBOOK.md`. Zero code changes. |
+| **004** — The Memory System | `memory/` gets a real six-layer design (`MEMORY_ARCHITECTURE.md`), Layers 1-3 implemented: Conversation Memory, Mission Memory (existing `Mission`, formalized), Persistent Memory (`SQLiteMemoryStore`, first real `MemoryStore` implementation). `MasterAgentSession` persists every mission automatically at every terminal state; two conversational queries ("What was my last mission?", "Show my recent missions.") work end to end, verified across a real process restart. Layers 4-6 are interfaces only. |
 
 Full detail on each: `docs/MISSION_BRIEF_001.md` through
-`docs/MISSION_BRIEF_003_1.md`, and `MIRACLE_LEDGER.md` for the
+`docs/MISSION_BRIEF_004.md`, and `MIRACLE_LEDGER.md` for the
 tag/commit/test-count record.
 
 ## In progress
 
-Nothing is currently in progress — Miracle 003.5 is a deliberate pause
-point ("Foundation Freeze") before the next capability work begins. The
-next Miracle to start is the first item under Planned, below.
+Nothing is currently in progress — Miracle 004 is a completed, shipped
+increment. The next Miracle to start is the first item under Planned,
+below.
 
 ## Planned — next up
 
 In the order the accumulated recommendations across Mission Briefs
-002/003/003.1 converge on:
+002/003/003.1/004 converge on:
 
-1. **A second real project template** (e.g. `node`) — the first test of
-   whether `cli.py`'s `_PROJECT_TEMPLATES` dict-extension pattern
-   actually generalizes, the way Miracle 003 tested whether the `Action`
-   Contract generalized past one example. Small, cheap, and answers a
-   real open question before building more on top of an unproven
-   pattern.
-2. **A third Executor-relay instance** (a new local-action plugin, e.g.
-   git operations, or a third composite action) — settles whether the
-   base-class extraction flagged as debt in ADR-0005/ADR-0006 is worth
-   building yet. Two examples said "not yet"; a third might say "yes."
-3. **The real Planner**, replacing `cli.py`'s regex-based
+1. **The real Planner**, replacing `cli.py`'s regex-based
    `parse_intent()`/`build_plan()` stand-in with an actual model call
    through the Model Router (Hermes first — no API key needed, keeps
    testing fast). This is the point at which `planner/planner.py` stops
-   raising `NotImplementedError`. Verify against the full existing
+   raising `NotImplementedError`, and the natural point to finally wire
+   `MissionManager` into the live path, calling `Memory.persist_mission()`
+   the way `MasterAgentSession._remember()` does today (see
+   `MEMORY_ARCHITECTURE.md` §11-§12). Verify against the full existing
    `test_cli_session.py` suite before intent recognition generalizes
    further — that suite is the regression contract this change must not
    break.
-4. **Memory that matters.** Wire `SQLiteMemoryStore` for real; persist
-   `Mission.outcome` across restarts; recall the last N missions as
-   Planner context. Directly enables "trust through transparency"
-   (`PRODUCT_PRINCIPLES.md`) — a mission history that survives a
-   restart is what makes a track record inspectable.
+2. **Planner context from Memory** — once the real Planner exists, feed it
+   `Memory.recent_missions()`/`Memory.successful_missions()` as context
+   ("have I done something like this before"). This is Miracle 004's
+   whole reason for existing, actually being used by something other than
+   a direct conversational query.
+3. **A second real project template** (e.g. `node`) — the first test of
+   whether `cli.py`'s `_PROJECT_TEMPLATES` dict-extension pattern
+   actually generalizes, the way Miracle 003 tested whether the `Action`
+   Contract generalized past one example.
+4. **A third Executor-relay instance** (a new local-action plugin, e.g.
+   git operations, or a third composite action) — settles whether the
+   base-class extraction flagged as debt in ADR-0005/ADR-0006 is worth
+   building yet. Two examples said "not yet"; a third might say "yes."
 
 ## Founder Edition — reverse-plan checkpoints
 
@@ -88,10 +90,12 @@ so nothing gets built prematurely against them:
 - **A live third `ModelProvider`** (e.g. Claude via API) — the Model
   Router was designed so this is one new plugin, not a router rewrite;
   Version 1 is a reasonable point to actually prove that claim.
-- **Local Memory's semantic recall** (the embedding-index half of
-  `ARCHITECTURE.md` §4.8) — SQLite-only memory (Planned, above) is the
-  prerequisite; semantic recall over mission history is the natural
-  follow-up once there's real history to search.
+- **Memory Layer 5, Vector Memory** (`memory/future.py`'s `VectorMemory`
+  interface, unimplemented) — local-embedding semantic recall over Layer
+  3's mission history, now that Mission Brief 004 gives it real history
+  to search. Layer 4 (Knowledge Memory) and Layer 6 (Cloud Sync,
+  explicitly opt-in) are the same story — interfaces exist
+  (`MEMORY_ARCHITECTURE.md` §12), implementations don't yet.
 - **Desktop UI beyond a shell** — richer mission history views, inline
   approval UX refinements informed by real usage, not speculative design.
 

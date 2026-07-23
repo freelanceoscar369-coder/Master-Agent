@@ -59,12 +59,14 @@ respectively.
   does let a new mission reach it without touching anything below the
   Planner. Full detail: `docs/MISSION_BRIEF_003_1.md`.
 - **What's still a stub, unchanged:** the *real* Planner (model-driven,
-  not `cli.py`'s regex stand-in), Mission Manager (persistence +
-  multi-mission lifecycle), Model Router wiring to live providers, Memory
-  persistence, Voice I/O, Desktop UI, and every local action besides
-  `create_folder`/`write_file`/`workspace_bootstrap` (the Executor now
-  supports adding them cheaply, but none are built yet). See `ROADMAP.md`
-  for what's next and in what order.
+  not `cli.py`'s regex stand-in), the `MissionManager` class specifically
+  (multi-mission lifecycle — mission *persistence* itself is real as of
+  Mission Brief 004, just not through this class yet), Model Router
+  wiring to live providers, Memory Layers 4-6 (Knowledge/Vector/Cloud
+  Sync — interfaces only), Voice I/O, Desktop UI, and every local action
+  besides `create_folder`/`write_file`/`workspace_bootstrap` (the
+  Executor now supports adding them cheaply, but none are built yet). See
+  `ROADMAP.md` for what's next and in what order.
 - **Mission Brief 003.5 froze the project's permanent engineering
   documentation** before Memory, Voice, or Model Routing begin — zero
   code changes, zero runtime behavior changes. Seven documents, some new
@@ -72,6 +74,19 @@ respectively.
   `ARCHITECTURE_PRINCIPLES.md`, `FOUNDER_PLAYBOOK.md`), some updated
   (`PRODUCT_PRINCIPLES.md`, `ROADMAP.md`) — see the table below for what
   each one is for.
+- **Mission Brief 004 built the Memory System** — a six-layer design
+  (`MEMORY_ARCHITECTURE.md`), of which Layers 1-3 are real: Conversation
+  Memory (in-process), Mission Memory (the existing `Mission` object,
+  formalized), and Persistent Memory (`SQLiteMemoryStore`, the first real
+  implementation of the `MemoryStore` interface ADR-0004 sketched).
+  Layers 4-6 are interfaces only (`memory/future.py`), not implemented.
+  `MasterAgentSession` now persists every mission's outcome automatically
+  at every terminal state (completed/failed/cancelled) — no manual save
+  call anywhere in the CLI — and answers two real conversational
+  questions: "What was my last mission?" and "Show my recent missions."
+  Verified across a real process restart (a fresh `python -m
+  master_agent.cli` process reads mission history a prior process wrote).
+  Full detail: `docs/MISSION_BRIEF_004.md`.
 
 ## Where to go for what
 
@@ -83,11 +98,12 @@ respectively.
 | How do those values shape how the product should feel? | `PRODUCT_PRINCIPLES.md` |
 | How is the system designed, and why is it shaped that way? | `ARCHITECTURE.md` (what), `ARCHITECTURE_PRINCIPLES.md` (why) |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
-| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md` |
+| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |
 | How does a new local capability plug in? | `ARCHITECTURE.md` §4.7, `docs/MISSION_BRIEF_002.md` |
 | How does a *composite* mission (several actions together) plug in? | `docs/MISSION_BRIEF_003.md`, `docs/adr/0006-composite-action-relay.md` |
 | How does typed/spoken conversation become a mission? | `ARCHITECTURE.md` §4.1-4.2, `docs/MISSION_BRIEF_003_1.md` |
+| How does mission history get remembered, and how do I query it? | `MEMORY_ARCHITECTURE.md`, `docs/MISSION_BRIEF_004.md`, `docs/adr/0007-sqlite-memory-backend.md` |
 | What's next, and in what order? | `ROADMAP.md` |
 | How should a new Miracle actually be built, reviewed, tested, shipped? | `FOUNDER_PLAYBOOK.md` |
 | What's known/unknown about the founder and constraints? | `FOUNDER_CONTEXT.md` |

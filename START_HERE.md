@@ -36,7 +36,7 @@ cd D:\MasterAgent
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                          # expect: 93 passed (see MIRACLE_LEDGER.md for the current count)
+pytest                          # expect: 124 passed (see MIRACLE_LEDGER.md for the current count)
 ruff check src tests            # expect: All checks passed
 ```
 
@@ -58,6 +58,14 @@ project called Demo.`, then `Yes` — a real project folder (README,
 `.gitignore`, `requirements.txt`, `src/`, `tests/`, `docs/`, `config/`,
 `main.py`) appears on your Desktop. See `docs/MISSION_BRIEF_003_1.md`
 for the full transcript.
+
+Then try Memory: type `What was my last mission?` — it should describe
+the mission you just ran. Exit (`exit`) and run
+`python -m master_agent.cli` again, wake it, and ask again — the answer
+survives the restart, because it's now reading from a real local SQLite
+database (`~/.master_agent/memory.db` by default), not an in-memory
+attribute. `Show my recent missions.` lists up to your last 10. See
+`docs/MISSION_BRIEF_004.md` and `MEMORY_ARCHITECTURE.md` for the design.
 
 ## 5. Layout, at a glance
 

@@ -137,7 +137,14 @@ below the Planner had to change to support project creation.
 Owns the `Mission` entity and its state machine. This is the single source
 of truth for "what is happening right now" — the UI, voice reporter, and
 Orchestrator all read mission state from here rather than tracking it
-themselves. Persists to Local Memory so missions survive a restart.
+themselves. Designed to persist to Local Memory so missions survive a
+restart — as of Mission Brief 004, that persistence is real and wired
+into the actual working conversational path (`cli.py`'s
+`MasterAgentSession`, via the `Memory` facade, automatically at every
+terminal mission state), but the `MissionManager` class itself is still
+not part of that live path; it remains scaffolding pending the real
+Planner (`ROADMAP.md`). See `MEMORY_ARCHITECTURE.md` §11 for the honest
+accounting of this gap.
 
 States: `draft → planned → awaiting_approval → executing → verifying →
 completed | failed | cancelled`.
@@ -216,12 +223,43 @@ own already-obtained approval down to each sub-action it invokes, the
 same pattern ADR-0005 established one layer up.
 
 ### 4.8 Local Memory (`memory/`)
-Local-first store (SQLite for structured mission/state data, plus a local
-embedding index for semantic recall) — no cloud dependency for the system
-to function. Holds mission history, learned user preferences, and the
-plugin capability index cache. This is the "Learn" step of the
-Kalpavriksha loop: outcomes recorded here feed back into future Planner
-calls as context.
+Local-first store — no cloud dependency for the system to function. Full
+design in `MEMORY_ARCHITECTURE.md`; summary here.
+
+As of Mission Brief 004, this is a six-layer model, of which Layers 1-3
+are implemented and Layers 4-6 are interfaces/placeholders only
+(`memory/future.py`):
+
+1. **Conversation Memory** (`memory/conversation.py`) — the current
+   session's turns, in-process, never persisted.
+2. **Mission Memory** — the mission currently executing; not a new class,
+   this is the pre-existing `Mission` object (`mission_manager/mission.py`)
+   plus `MasterAgentSession.last_mission`.
+3. **Persistent Memory** (`memory/store.py`) — `SQLiteMemoryStore`, the
+   first real implementation of the `MemoryStore` interface ADR-0004
+   sketched. Stores mission history (intent, plan, approval status,
+   result, timing, files/folders created, errors) and user preferences,
+   keyed by `mission_id`, queryable by recency and status. See ADR-0007
+   for why stdlib `sqlite3` over an ORM, and JSON columns over a
+   normalized schema.
+4. **Knowledge Memory** (Reserved) — `KnowledgeMemory` interface only.
+5. **Vector Memory** (Future) — `VectorMemory` interface only; the local
+   embedding index this section previously described belongs here once
+   built, reading Layer 3's history rather than replacing it.
+6. **Cloud Sync** (Optional future) — `CloudSyncMemory` interface only;
+   arrives as an opt-in plugin per ADR-0004, never on by default.
+
+`memory/memory.py`'s `Memory` facade is the single seam the rest of the
+system depends on — composes Layers 1 and 3 behind one interface, so
+nothing above it (`MasterAgentSession`, and eventually the Planner) needs
+to know SQLite is involved. `MasterAgentSession` persists a mission's
+outcome automatically at every terminal transition (`COMPLETED`,
+`FAILED`, `CANCELLED`) — no manual save call exists anywhere in the CLI
+loop. This is the "Learn" step of the Kalpavriksha loop: outcomes
+recorded here are what a future Planner call would read as context.
+`MissionManager` (`mission_manager/mission_manager.py`) already imports
+`MemoryStore` but is still unwired into the live conversational path —
+see `MEMORY_ARCHITECTURE.md` §11.
 
 ### 4.9 Voice I/O (`voice/`)
 `input.py` wraps a local speech-to-text engine (default: local, e.g.

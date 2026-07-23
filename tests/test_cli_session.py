@@ -28,6 +28,8 @@ from master_agent.cli import (
     parse_intent,
 )
 from master_agent.executor.executor import LocalExecutor
+from master_agent.memory.memory import Memory
+from master_agent.memory.store import SQLiteMemoryStore
 from master_agent.mission_manager.mission import MissionStatus
 from master_agent.orchestrator.orchestrator import Orchestrator
 from master_agent.permissions.permission_system import PermissionSystem
@@ -59,13 +61,14 @@ def test_parse_intent_rejects_unrelated_text():
 
 # ---- full session -------------------------------------------------------
 
-def build_session(tmp_path) -> MasterAgentSession:
+def build_session(tmp_path, memory: Memory | None = None) -> MasterAgentSession:
     permissions = PermissionSystem()
     executor = LocalExecutor(permissions)
     registry = PluginRegistry()
     registry.register(FilesystemPlugin(executor, locations={"desktop": tmp_path}))
     orchestrator = Orchestrator(registry, permissions)
-    return MasterAgentSession(registry, permissions, orchestrator)
+    memory = memory or Memory(SQLiteMemoryStore(":memory:"))
+    return MasterAgentSession(registry, permissions, orchestrator, memory)
 
 
 def test_wake_returns_greeting(tmp_path):
@@ -361,3 +364,157 @@ def test_unrecognized_command_still_does_not_start_a_mission_with_project_hint(t
 
     assert "don't understand" in reply.lower()
     assert session.last_mission is None
+
+
+# ==== Mission Brief 004: Memory ==============================================
+#
+# Automatic persistence (no manual save calls anywhere in this test file --
+# every assertion below reaches Memory only through conversation, exactly
+# like a real user would) and the two conversational memory queries from
+# the brief. See MEMORY_ARCHITECTURE.md §7 and §9.
+
+def test_successful_mission_is_persisted_automatically(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Create a folder called Demo on my Desktop.")
+    session.handle("Yes")
+
+    record = session.memory.last_mission()
+
+    assert record is not None
+    assert record.title == 'Create Folder "Demo"'
+    assert record.status == "completed"
+    assert record.approval_status == "approved"
+    assert record.folders_created == [str(tmp_path / "Demo")]
+    assert record.files_created == []
+    assert record.errors == []
+
+
+def test_cancelled_mission_is_persisted_automatically(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Create a folder called NoGo on my Desktop.")
+    session.handle("No")
+
+    record = session.memory.last_mission()
+
+    assert record is not None
+    assert record.status == "cancelled"
+    assert record.approval_status == "denied"
+    assert record.folders_created == []
+
+
+def test_project_mission_persists_folders_and_files_created(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Create a Python project called Demo.")
+    session.handle("Yes")
+
+    record = session.memory.last_mission()
+
+    assert record.title == 'Create Python Project "Demo"'
+    assert record.status == "completed"
+    assert len(record.folders_created) == 5  # root + src + tests + docs + config
+    assert len(record.files_created) == 4  # README, .gitignore, requirements.txt, main.py
+    assert record.execution_time_seconds >= 0.0
+
+
+def test_what_was_my_last_mission_before_any_mission(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    reply = session.handle("What was my last mission?")
+
+    assert "haven't run any missions" in reply.lower()
+    # Asking the question must not itself start a Mission.
+    assert session.last_mission is None
+
+
+def test_what_was_my_last_mission_after_a_completed_mission(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Create a Python project called Demo.")
+    session.handle("Yes")
+
+    reply = session.handle("What was my last mission?")
+
+    assert reply.startswith("Your last mission was:\n")
+    assert 'Create Python Project "Demo"' in reply
+    assert "Completed successfully." in reply
+    assert " at " in reply  # relative timestamp line, e.g. "Today at 3:05 PM."
+
+
+def test_what_was_my_last_mission_reflects_most_recent_not_first(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Create a folder called First on my Desktop.")
+    session.handle("Yes")
+    session.handle("Create a folder called Second on my Desktop.")
+    session.handle("Yes")
+
+    reply = session.handle("What was my last mission?")
+
+    assert 'Create Folder "Second"' in reply
+    assert "First" not in reply
+
+
+def test_show_my_recent_missions_lists_in_newest_first_order(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    session.handle("Create a folder called Alpha on my Desktop.")
+    session.handle("Yes")
+    session.handle("Create a folder called Beta on my Desktop.")
+    session.handle("No")  # cancelled, still shows up
+    session.handle("Create a folder called Gamma on my Desktop.")
+    session.handle("Yes")
+
+    reply = session.handle("Show my recent missions.")
+
+    assert reply.startswith("1.\n")
+    assert 'Create Folder "Gamma"' in reply
+    assert 'Create Folder "Beta"' in reply
+    assert 'Create Folder "Alpha"' in reply
+    # Newest first.
+    assert reply.index("Gamma") < reply.index("Beta") < reply.index("Alpha")
+    # Status words per MEMORY_ARCHITECTURE.md §9.
+    assert "Success" in reply
+    assert "Cancelled" in reply
+
+
+def test_show_my_recent_missions_before_any_mission(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    reply = session.handle("Show my recent missions.")
+
+    assert "haven't run any missions" in reply.lower()
+
+
+def test_memory_query_does_not_interrupt_a_pending_approval(tmp_path):
+    """If a mission is awaiting Yes/No, any text -- including something
+    that looks like a memory query -- is treated as the approval answer,
+    matching _handle_approval_response's existing "please answer yes or
+    no" behavior. Memory queries are only recognized when nothing is
+    pending."""
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Create a folder called Demo on my Desktop.")
+
+    reply = session.handle("What was my last mission?")
+
+    assert "Yes or No" in reply
+    assert not (tmp_path / "Demo").exists()
+
+
+def test_conversation_memory_records_every_turn(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Create a folder called Demo on my Desktop.")
+    session.handle("Yes")
+
+    turns = session.memory.conversation_turns()
+    speakers = [t.speaker for t in turns]
+
+    assert speakers == ["user", "system", "user", "system", "user", "system"]
+    assert turns[0].text == "Master Agent"

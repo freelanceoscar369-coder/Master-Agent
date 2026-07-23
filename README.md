@@ -27,9 +27,12 @@ the whole composite (see `docs/adr/0006-composite-action-relay.md`).
 called Demo." or "Create a project called Expense Tracker." end to end —
 same wake phrase, same one-approval flow, same Orchestrator/Permission
 System path the folder-creation demo has used since Mission Brief 001.
-See `docs/MISSION_BRIEF_001.md` through `docs/MISSION_BRIEF_003_1.md` for
-what's genuinely production-ready versus still stubbed, and try it
-yourself:
+**Mission Brief 004** gave the system a real memory: every mission is now
+persisted automatically (no manual save calls anywhere in the CLI) to a
+local SQLite store, and "What was my last mission?" / "Show my recent
+missions." work end to end — verified across a real process restart. See
+`docs/MISSION_BRIEF_001.md` through `docs/MISSION_BRIEF_004.md` for what's
+genuinely production-ready versus still stubbed, and try it yourself:
 
 ```
 pip install -e ".[dev]"
@@ -37,9 +40,11 @@ python -m master_agent.cli
 ```
 
 Everything beyond that execution path — the real Planner (a model call;
-`cli.py`'s rule-based parser stands in for it today), Mission Manager
-persistence, Model Router, Memory, ChatGPT/Hermes providers, Voice,
-Desktop UI, and every local action besides
+`cli.py`'s rule-based parser stands in for it today), the `MissionManager`
+class specifically (mission persistence itself is now real, just not
+through this still-unwired class), Model Router, Memory Layers 4-6
+(Knowledge/Vector/Cloud Sync — interfaces only), ChatGPT/Hermes providers,
+Voice, Desktop UI, and every local action besides
 `create_folder`/`write_file`/`workspace_bootstrap` — is still the
 scaffold-stage interface described below, not wired to anything real yet.
 
@@ -51,7 +56,8 @@ src/master_agent/
   orchestrator/      # walks a MissionPlan, invokes plugins via the registry
   planner/            # Intent -> MissionPlan
   mission_manager/    # Mission entity + state machine
-  memory/             # local-first storage (SQLite + local embeddings)
+  memory/             # Mission Brief 004: Memory (conversation, mission, SQLite;
+                        #   future.py: reserved Knowledge/Vector/Cloud Sync interfaces)
   permissions/        # approval gate for non-read-only plugin actions
   executor/            # Mission Brief 002: LocalExecutor + Action contract + actions/
                         #   (create_folder, write_file, workspace_bootstrap — Mission Brief 003)
@@ -63,9 +69,12 @@ docs/MISSION_BRIEF_001.md  # what Mission Brief 001 proved
 docs/MISSION_BRIEF_002.md  # what the Local Executor is and why, and what's next
 docs/MISSION_BRIEF_003.md  # composing actions into a workspace_bootstrap mission
 docs/MISSION_BRIEF_003_1.md  # connecting conversation to workspace_bootstrap
-tests/                 # unit tests (93 passing — executor, actions, composite
+docs/MISSION_BRIEF_004.md  # the Memory System
+MEMORY_ARCHITECTURE.md      # Memory's six-layer design, SQLite schema, tradeoffs
+tests/                 # unit tests (124 passing — executor, actions, composite
                         #   action, plugin adapter, intent parsing, full session
-                        #   flow for both folder AND project-creation missions)
+                        #   flow for folder/project-creation missions, and Memory:
+                        #   persistence, retrieval, conversational queries)
 ```
 
 ## Getting started

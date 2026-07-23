@@ -28,14 +28,19 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from master_agent.executor.action import is_unsafe_relative_path
 from master_agent.executor.executor import LocalExecutor
+from master_agent.memory.memory import Memory
+from master_agent.memory.store import MissionRecord, SQLiteMemoryStore
 from master_agent.mission_manager.mission import Mission, MissionStatus
 from master_agent.orchestrator.orchestrator import Orchestrator, StepResult
 from master_agent.permissions.permission_system import GrantScope, PermissionSystem
 from master_agent.planner.planner import MissionPlan, Step
+from master_agent.plugins.base import InvocationResult
 from master_agent.plugins.filesystem_plugin import CREATE_FOLDER, WORKSPACE_BOOTSTRAP, FilesystemPlugin
 from master_agent.plugins.registry import PluginRegistry
 
@@ -68,6 +73,22 @@ _CREATE_PROJECT_RE = re.compile(
         \.?\s*$""",
     re.IGNORECASE | re.VERBOSE,
 )
+
+
+# Mission Brief 004: recognizes the two memory-query phrasings from the
+# brief's example conversations. Checked before ordinary intent parsing
+# (see MasterAgentSession._handle_inner) so a memory question never
+# starts a Mission and never gets mistaken for a pending approval answer.
+_LAST_MISSION_RE = re.compile(r"^what\s+was\s+my\s+last\s+mission\??$", re.IGNORECASE)
+_RECENT_MISSIONS_RE = re.compile(r"^show\s+(?:me\s+)?(?:my\s+)?recent\s+missions\.?$", re.IGNORECASE)
+
+
+def _parse_memory_query(text: str) -> str | None:
+    if _LAST_MISSION_RE.match(text):
+        return "last"
+    if _RECENT_MISSIONS_RE.match(text):
+        return "recent"
+    return None
 
 
 class UnrecognizedInput(Exception):
@@ -224,6 +245,113 @@ def _mission_title(intent: ParsedProjectIntent) -> str:
     return f"Create {intent.project_type_label} Project" if intent.project_type_label else "Create Project"
 
 
+# ---- Mission Brief 004: Memory --------------------------------------------
+# Everything below builds the MissionRecord persisted at every terminal
+# mission state, and renders the two conversational memory queries. See
+# MEMORY_ARCHITECTURE.md §7 and §9.
+
+def _record_title(intent: ParsedIntent | ParsedProjectIntent) -> str:
+    """One consistent title format, used for both the single-mission and
+    the list query — see MEMORY_ARCHITECTURE.md §9 for why this doesn't
+    literally reproduce the brief's two (mutually inconsistent) example
+    title strings."""
+    if isinstance(intent, ParsedProjectIntent):
+        return f'{_mission_title(intent)} "{intent.project_name}"'
+    return f'Create Folder "{intent.folder_name}"'
+
+
+def _extract_created(result: InvocationResult | None) -> tuple[list[str], list[str]]:
+    """(folders_created, files_created) from a step's result. Handles
+    both workspace_bootstrap's dict output ({"created_folders": [...],
+    "written_files": [...]}) and create_folder's plain-string output (one
+    folder, no files) — a failed/missing result yields ([], [])."""
+    if result is None or not result.success:
+        return [], []
+    output = result.output
+    if isinstance(output, dict):
+        return list(output.get("created_folders", [])), list(output.get("written_files", []))
+    if isinstance(output, str):
+        return [output], []
+    return [], []
+
+
+def _build_mission_record(
+    mission: Mission,
+    intent: ParsedIntent | ParsedProjectIntent,
+    plan: MissionPlan,
+    step_result: StepResult | None,
+    approval_status: str,
+) -> MissionRecord:
+    result = step_result.result if step_result else None
+    folders_created, files_created = _extract_created(result)
+    errors = [result.error] if (result is not None and not result.success and result.error) else []
+    execution_plan = [
+        {"step_id": step.step_id, "capability": step.capability, "payload": step.payload}
+        for step in plan.steps
+    ]
+    return MissionRecord(
+        mission_id=mission.mission_id,
+        title=_record_title(intent),
+        intent_summary=mission.intent_summary,
+        status=mission.status.value,
+        approval_status=approval_status,
+        created_at=mission.created_at,
+        completed_at=mission.updated_at,
+        execution_plan=execution_plan,
+        execution_result=result.output if result is not None else None,
+        execution_time_seconds=result.execution_time_seconds if result is not None else 0.0,
+        folders_created=folders_created,
+        files_created=files_created,
+        errors=errors,
+        outcome=mission.outcome,
+    )
+
+
+_STATUS_SENTENCES = {
+    "completed": "Completed successfully.",
+    "failed": "Failed.",
+    "cancelled": "Cancelled.",
+}
+_STATUS_WORDS = {
+    "completed": "Success",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+}
+
+
+def _status_sentence(status: str) -> str:
+    return _STATUS_SENTENCES.get(status, f"{status.capitalize()}.")
+
+
+def _status_word(status: str) -> str:
+    return _STATUS_WORDS.get(status, status.capitalize())
+
+
+def _format_relative_timestamp(at: datetime, *, now: datetime | None = None) -> str:
+    """"Today at 3:05 PM" / "Yesterday at 8:14 PM" / a full date further
+    back. Both `at` and `now` are UTC (every datetime Mission produces is
+    UTC) — this is UTC-relative, not local-time-relative; see
+    MEMORY_ARCHITECTURE.md §9 and §11 for why that's a known
+    simplification rather than a hidden one."""
+    now = now or datetime.now(timezone.utc)
+    delta_days = (now.date() - at.date()).days
+    time_part = at.strftime("%I:%M %p").lstrip("0") or "12:00 AM"
+    if delta_days == 0:
+        day_part = "Today"
+    elif delta_days == 1:
+        day_part = "Yesterday"
+    else:
+        day_part = at.strftime("%B %d, %Y")
+    return f"{day_part} at {time_part}"
+
+
+def _default_memory_db_path() -> Path:
+    """Local-first, per-machine default — same Path.home()-based
+    convention FilesystemPlugin already uses for its Desktop location.
+    See MEMORY_ARCHITECTURE.md §10 (Privacy)."""
+    return Path.home() / ".master_agent" / "memory.db"
+
+
 class MasterAgentSession:
     """Wires the real modules together for one conversation.
 
@@ -234,23 +362,42 @@ class MasterAgentSession:
     difference.
     """
 
-    def __init__(self, registry: PluginRegistry, permissions: PermissionSystem, orchestrator: Orchestrator) -> None:
+    def __init__(
+        self,
+        registry: PluginRegistry,
+        permissions: PermissionSystem,
+        orchestrator: Orchestrator,
+        memory: Memory,
+    ) -> None:
         self._registry = registry
         self._permissions = permissions
         self._orchestrator = orchestrator
+        self.memory = memory
         self._awake = False
         self._pending: tuple[Mission, MissionPlan, ParsedIntent | ParsedProjectIntent] | None = None
         self.last_mission: Mission | None = None
 
     def handle(self, text: str) -> str:
+        # Layer 1 (Conversation Memory): every turn is recorded here,
+        # automatically — no caller of handle() needs to know Memory
+        # exists for this to happen. See MEMORY_ARCHITECTURE.md §4a.
         text = text.strip()
+        self.memory.record_turn("user", text)
+        reply = self._handle_inner(text)
+        self.memory.record_turn("system", reply)
+        return reply
 
+    def _handle_inner(self, text: str) -> str:
         if not self._awake:
             self._awake = True
             return "Hello! I'm awake.\nWhat would you like me to do?"
 
         if self._pending is not None:
             return self._handle_approval_response(text)
+
+        memory_query = _parse_memory_query(text)
+        if memory_query is not None:
+            return self._answer_memory_query(memory_query)
 
         try:
             intent = parse_intent(text)
@@ -267,7 +414,8 @@ class MasterAgentSession:
             return (
                 "I don't understand that yet. Try:\n"
                 '"Create a folder called <name> on my Desktop."\n'
-                '"Create a Python project called <name>."'
+                '"Create a Python project called <name>."\n'
+                '"What was my last mission?"'
             )
 
         mission = Mission(intent_summary=text)
@@ -276,9 +424,36 @@ class MasterAgentSession:
         mission.plan = plan
         mission.transition(MissionStatus.PLANNED)
 
-        return self._run(mission, plan, intent)
+        return self._run(mission, plan, intent, approval_status="not_required")
 
-    def _run(self, mission: Mission, plan: MissionPlan, intent: ParsedIntent | ParsedProjectIntent) -> str:
+    def _answer_memory_query(self, query: str) -> str:
+        """Mission Brief 004's two conversational queries — reads Memory,
+        never Mission/Executor/Orchestrator. See MEMORY_ARCHITECTURE.md
+        §9."""
+        if query == "last":
+            record = self.memory.last_mission()
+            if record is None:
+                return "You haven't run any missions yet."
+            return (
+                "Your last mission was:\n"
+                f"{record.title}\n"
+                f"{_status_sentence(record.status)}\n"
+                f"{_format_relative_timestamp(record.completed_at)}."
+            )
+
+        records = self.memory.recent_missions(limit=10)
+        if not records:
+            return "You haven't run any missions yet."
+        lines = [f"{i}.\n{r.title}\n{_status_word(r.status)}" for i, r in enumerate(records, start=1)]
+        return "\n".join(lines)
+
+    def _run(
+        self,
+        mission: Mission,
+        plan: MissionPlan,
+        intent: ParsedIntent | ParsedProjectIntent,
+        approval_status: str,
+    ) -> str:
         # Entering execution is itself a state, whether or not the
         # Permission System ends up blocking it — "attempting to execute
         # surfaced a need for approval" is a truer read of what happened
@@ -295,7 +470,7 @@ class MasterAgentSession:
             self._pending = (mission, plan, intent)
             return self._approval_message(intent)
 
-        return self._finish(mission, step_result, intent)
+        return self._finish(mission, plan, step_result, intent, approval_status)
 
     def _approval_message(self, intent: ParsedIntent | ParsedProjectIntent) -> str:
         if isinstance(intent, ParsedProjectIntent):
@@ -329,6 +504,7 @@ class MasterAgentSession:
 
         if answer in {"no", "n"}:
             mission.transition(MissionStatus.CANCELLED)
+            self._remember(mission, intent, plan, None, approval_status="denied")
             return "Okay, cancelled. Nothing was changed."
 
         # Fully generic — resolves whichever capability this mission's
@@ -344,16 +520,39 @@ class MasterAgentSession:
         plugin = self._registry.find_for_capability(step.capability)[0]
         self._permissions.grant(plugin.manifest.name, step.capability, GrantScope.ONCE)
         mission.transition(MissionStatus.EXECUTING)
-        return self._run(mission, plan, intent)
+        return self._run(mission, plan, intent, approval_status="approved")
+
+    def _remember(
+        self,
+        mission: Mission,
+        intent: ParsedIntent | ParsedProjectIntent,
+        plan: MissionPlan,
+        step_result: StepResult | None,
+        approval_status: str,
+    ) -> None:
+        """The only place a mission's terminal state turns into a
+        MissionRecord and reaches Memory — called from every terminal
+        transition (_finish's COMPLETED/FAILED branches, and the
+        CANCELLED branch above). No manual save call exists anywhere in
+        main() or the CLI loop; this is what makes persistence automatic.
+        See MEMORY_ARCHITECTURE.md §7."""
+        record = _build_mission_record(mission, intent, plan, step_result, approval_status)
+        self.memory.persist_mission(record)
 
     def _finish(
-        self, mission: Mission, step_result: StepResult | None, intent: ParsedIntent | ParsedProjectIntent
+        self,
+        mission: Mission,
+        plan: MissionPlan,
+        step_result: StepResult | None,
+        intent: ParsedIntent | ParsedProjectIntent,
+        approval_status: str,
     ) -> str:
         result = step_result.result if step_result else None
         if result is None or not result.success:
             mission.transition(MissionStatus.FAILED)
             error = result.error if result else "no plugin available for that action"
             mission.outcome = {"error": error}
+            self._remember(mission, intent, plan, step_result, approval_status)
             return f"Something went wrong: {error}"
 
         mission.transition(MissionStatus.VERIFYING)
@@ -361,9 +560,11 @@ class MasterAgentSession:
 
         if isinstance(intent, ParsedProjectIntent):
             mission.outcome = {"created_workspace": result.output}
+            self._remember(mission, intent, plan, step_result, approval_status)
             return self._project_completion_message(intent, result)
 
         mission.outcome = {"created_path": result.output}
+        self._remember(mission, intent, plan, step_result, approval_status)
         return f"Done.\nMission completed successfully.\n(Created: {result.output})"
 
     def _project_completion_message(self, intent: ParsedProjectIntent, result) -> str:
@@ -383,22 +584,25 @@ class MasterAgentSession:
 
 def build_default_session() -> MasterAgentSession:
     """Production wiring: real Desktop, real permission system, one plugin
-    registered. This is the only function in the module that touches the
-    real filesystem's Desktop path — everything else takes it as a
-    parameter, which is what keeps this testable.
+    registered, real (local, file-backed) Memory. This is the only
+    function in the module that touches the real filesystem's Desktop
+    path and the real memory database path — everything else takes them
+    as parameters, which is what keeps this testable.
     """
     permissions = PermissionSystem()
     executor = LocalExecutor(permissions)
     registry = PluginRegistry()
     registry.register(FilesystemPlugin(executor))
     orchestrator = Orchestrator(registry, permissions)
-    return MasterAgentSession(registry, permissions, orchestrator)
+    memory = Memory(SQLiteMemoryStore(str(_default_memory_db_path())))
+    return MasterAgentSession(registry, permissions, orchestrator, memory)
 
 
 def main() -> None:
     session = build_default_session()
     print("Master Agent — try: \"Create a folder called Demo on my Desktop.\" or")
-    print('"Create a Python project called Demo." Type \'exit\' to quit.\n')
+    print('"Create a Python project called Demo." or "What was my last mission?" '
+          "Type 'exit' to quit.\n")
     try:
         while True:
             text = input("> ")

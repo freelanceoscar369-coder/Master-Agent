@@ -25,6 +25,28 @@ Model Router only ever talk to plugins through the registry.
 SQLite + local embeddings. No multi-device sync in v0.1 — acceptable
 under "build for one founder first."
 
+## ADR-0005: Executor/Plugin permission-relay (Mission Brief 002)
+`LocalExecutor.execute()` checks permission on its own grant key
+(`executor.name`, `action.name`), distinct from the Orchestrator's
+existing check on (`plugin.name`, `capability`) — a `Plugin` adapter
+relays an already-obtained human approval down to the Executor's key
+rather than the Executor skipping its own check. See
+`docs/adr/0005-executor-permission-relay.md`.
+
+## ADR-0006: Composite-action relay (Mission Brief 003)
+Extends ADR-0005 one layer deeper: `WorkspaceBootstrapAction` relays its
+own already-obtained grant to each sub-action it invokes
+(`create_folder`, `write_file`), then calls them through the real
+`LocalExecutor.execute()` — never by calling their `run()` directly. See
+`docs/adr/0006-composite-action-relay.md`.
+
+## ADR-0007: SQLite Memory backend (Mission Brief 004)
+`SQLiteMemoryStore` uses stdlib `sqlite3` directly (not `sqlmodel`, an
+already-declared but unused dependency) and JSON text columns for
+structured fields nothing queries into yet, rather than a normalized
+multi-table schema — "readable schema first," per the brief. See
+`docs/adr/0007-sqlite-memory-backend.md`.
+
 ## Mission Brief 001 (2026-07-23): First end-to-end mission
 Implemented a real vertical slice — text in, real filesystem write out,
 real Permission System gate — using only existing scaffold modules
@@ -48,6 +70,34 @@ brief — all still pending a real transfer to `D:\MasterAgent`. See
 `START_HERE.md` for the exact steps to complete that transfer, and
 `docs/MISSION_BRIEF_001.md` §"What's production-ready vs. still a stub"
 for what's real versus scaffolded in the code itself.
+
+## Mission Briefs 002 - 003.5 (2026-07-23): Executor, composition, first
+## real mission, foundation freeze
+Summarized here for continuity; full detail in each `docs/MISSION_BRIEF_*.md`.
+002 generalized execution behind `LocalExecutor` + the `Action` Contract
+(`create_folder` refactored onto it, zero regression). 003 added
+`write_file` and the first composite Action, `WorkspaceBootstrapAction`
+(ADR-0006). 003.1 connected real conversation ("Create a Python project
+called Demo.") to that composite through the full stack, with zero
+changes below the Planner — found and fixed one real bug
+(`InvocationResult` dropping execution time). 003.5 froze the project's
+permanent engineering documentation (this file's own staleness between
+001.5 and 004 is itself an example of what that freeze was meant to
+prevent going forward) before Memory/Voice/Model Routing began.
+
+## Mission Brief 004 (2026-07-23): The Memory System
+Designed a six-layer memory model (`MEMORY_ARCHITECTURE.md`) before
+writing any code, per the brief's explicit gate. Implemented Layers 1-3:
+Conversation Memory (in-process), Mission Memory (the pre-existing
+`Mission` object, formalized rather than duplicated), and Persistent
+Memory (`SQLiteMemoryStore`, ADR-0007). Layers 4-6 are interfaces only
+(`memory/future.py`). `MasterAgentSession` now persists every mission
+automatically at every terminal state (no manual save calls anywhere in
+the CLI), and answers two real conversational queries ("What was my last
+mission?", "Show my recent missions.") — verified across a real process
+restart. `MissionManager` remains unwired into the live path; that's
+scoped into the real-Planner Miracle next. Full detail:
+`docs/MISSION_BRIEF_004.md`.
 
 ## Open decisions (not yet locked)
 - Desktop UI stack: recommended pywebview + local FastAPI server for
