@@ -1,0 +1,102 @@
+"""The Plugin contract. Every capability, model provider, and voice adapter
+in Master Agent implements this — see ADR-0003. Nothing outside this file
+and registry.py should need to know about a concrete plugin's internals.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
+
+
+class RiskTier(str, Enum):
+    """How much human oversight a capability invocation requires.
+
+    The Permission System (permissions/) gates anything above READ_ONLY.
+    Plugins must classify honestly — this is a trust boundary, not a
+    formality.
+    """
+
+    READ_ONLY = "read_only"
+    REVERSIBLE_WRITE = "reversible_write"
+    IRREVERSIBLE = "irreversible"
+
+
+@dataclass
+class CapabilityManifest:
+    """Describes one capability a plugin exposes."""
+
+    name: str
+    description: str
+    risk_tier: RiskTier
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PluginManifest:
+    """Describes a plugin as a whole. The registry indexes plugins by the
+    capabilities in here, not by plugin name — the Orchestrator resolves
+    "who can do X" without caring which plugin it turns out to be.
+    """
+
+    name: str
+    version: str
+    capabilities: list[CapabilityManifest]
+
+
+@dataclass
+class InvocationResult:
+    success: bool
+    output: Any = None
+    error: str | None = None
+
+
+class Plugin(ABC):
+    """Base class every plugin implements.
+
+    Keep this interface small on purpose — the more we put here, the
+    harder it is to write a new plugin, and "everything is a plugin" only
+    holds up if writing one stays cheap.
+    """
+
+    @property
+    @abstractmethod
+    def manifest(self) -> PluginManifest:
+        ...
+
+    @abstractmethod
+    def invoke(self, capability: str, payload: dict[str, Any]) -> InvocationResult:
+        """Execute one capability. Must not perform anything above
+        READ_ONLY risk without having already been cleared by the
+        Permission System — the Orchestrator is responsible for checking
+        that before calling invoke(), but plugins should not assume that
+        check can never be bypassed by a future caller. Fail closed.
+        """
+        ...
+
+
+class ModelProvider(Plugin):
+    """Specialization of Plugin for LLM providers (ChatGPT, Hermes, ...).
+
+    Concrete providers implement `generate`; `invoke()` is provided so a
+    ModelProvider is still a valid Plugin the registry can index like any
+    other, which is what lets the Model Router treat "call a model" as
+    just another capability lookup.
+    """
+
+    CAPABILITY_NAME = "generate_text"
+
+    @abstractmethod
+    def generate(self, prompt: str, context: dict[str, Any] | None = None, **opts: Any) -> str:
+        ...
+
+    def invoke(self, capability: str, payload: dict[str, Any]) -> InvocationResult:
+        if capability != self.CAPABILITY_NAME:
+            return InvocationResult(success=False, error=f"unknown capability: {capability}")
+        try:
+            text = self.generate(payload.get("prompt", ""), payload.get("context"))
+            return InvocationResult(success=True, output=text)
+        except Exception as exc:  # noqa: BLE001 — surfaced to caller, not swallowed
+            return InvocationResult(success=False, error=str(exc))

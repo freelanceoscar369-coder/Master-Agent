@@ -1,0 +1,35 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+.env
+.master_agent/
+
+# Runtime/data folders bootstrapped by Mission Brief 001.5 — structure is
+# tracked (via README.md in each), contents are not. See each folder's
+# README.md for what it holds and why it's ignored.
+models/*
+!models/README.md
+memory/*
+!memory/README.md
+logs/*
+!logs/README.md
+backups/*
+!backups/README.md
+workspace/*
+!workspace/README.md
+releases/*
+!releases/README.md
+config/*
+!config/README.md
+!config/*.example.*
+
+# Obsidian's own settings folder — created on first open, machine/preference-specific
+obsidian/.obsidian/
