@@ -15,7 +15,7 @@ except to fix a factual error.
 | **003** — Workspace Bootstrap Action | 2026-07-23 | `v0.3.0-miracle-003` | `746a26d` | 76 passed | ✅ Shipped | Proved the Executor + Action layer composes safely: added `write_file` (second primitive) and `WorkspaceBootstrapAction` (composite — root folder + subfolders + seed files, generically parameterized), composed entirely through `LocalExecutor.execute()`, never by calling sub-actions' `run()` directly. Key design decision: ADR-0006 (composite-action relay, one layer deeper than ADR-0005). Reachable only via direct `invoke()` calls at this point — flagged as the top gap. Full writeup: `docs/MISSION_BRIEF_003.md`. |
 | **003.1** — First Real Mission | 2026-07-23 | `v0.3.1-miracle-003-1` | `307c8b8` | 93 passed | ✅ Shipped | Closed Miracle 003's gap: connected real conversation ("Create a Python project called Demo.") to `workspace_bootstrap`, through the full stack — Conversation → Intent Parser → Mission → Planner → Permission System → Executor → `WorkspaceBootstrapAction` → primitives. Zero changes to `Orchestrator`, `PermissionSystem`, or the composite's own relay logic — proof the design generalizes. Found and fixed one real bug (`InvocationResult` silently dropping execution time). Full writeup: `docs/MISSION_BRIEF_003_1.md`. |
 | **003.5** — Foundation Freeze | 2026-07-23 | `v0.3.5-miracle-003-5` | *(see note below — a file can't contain the hash of the commit that introduces it)* | 93 passed (unchanged) | ✅ Shipped | Zero user-facing features, zero architecture changes, zero runtime behavior changes (`src/`/`tests/` diff empty). Created the project's permanent engineering documentation set (this file included) before Memory, Voice, or Model Routing begin. See `FOUNDER_PLAYBOOK.md` for the process this freeze itself now codifies. |
-| **004** — The Memory System | 2026-07-23 | `v0.4.0-miracle-004` | `fc2866b` | 124 passed | ✅ Shipped | Design-first six-layer memory model (`MEMORY_ARCHITECTURE.md`); Layers 1-3 implemented (Conversation, Mission, Persistent/SQLite), Layers 4-6 reserved as interfaces only. `MasterAgentSession` now persists every mission automatically at every terminal state — no manual save calls in the CLI — and answers "What was my last mission?" / "Show my recent missions." from Memory. Verified across a real process restart. Key design decision: ADR-0007 (stdlib `sqlite3`, JSON columns over normalization). Full writeup: `docs/MISSION_BRIEF_004.md`. |
+| **004** — The Memory System | 2026-07-23 | `v0.4.0-miracle-004` | *(see note below — same self-reference problem as 003.5)* | 124 passed | ✅ Shipped | Design-first six-layer memory model (`MEMORY_ARCHITECTURE.md`); Layers 1-3 implemented (Conversation, Mission, Persistent/SQLite), Layers 4-6 reserved as interfaces only. `MasterAgentSession` now persists every mission automatically at every terminal state — no manual save calls in the CLI — and answers "What was my last mission?" / "Show my recent missions." from Memory. Verified across a real process restart. Key design decision: ADR-0007 (stdlib `sqlite3`, JSON columns over normalization). Full writeup: `docs/MISSION_BRIEF_004.md`. |
 
 ## Notes on gaps in this table
 
@@ -45,6 +45,16 @@ except to fix a factual error.
   that was started but not completed doesn't get a row until it ships —
   in-progress work belongs in `ROADMAP.md`'s "In Progress" column, not
   here.
+- **Miracle 004 hit the same self-reference problem 003.5 did**, for the
+  same reason: this file is part of the commit it documents, so its own
+  row can't contain that commit's final hash. Rather than repeat 003.5's
+  amend-and-re-tag chase (which only ever produces a new hash that
+  invalidates the row again), this row goes straight to the resolution —
+  `git tag -n1 v0.4.0-miracle-004` / `git rev-list -n1
+  v0.4.0-miracle-004` is the authoritative pointer, same as 003.5's row.
+  A future documentation-only or ledger-updating Miracle will hit this
+  again; treat "point to the tag" as the standing answer, not a one-off
+  workaround.
 
 ## How to add a row
 
