@@ -11,6 +11,14 @@ from enum import Enum
 
 from master_agent.plugins.base import RiskTier
 
+# PermissionCategory lives in plugins/base.py, alongside RiskTier — see
+# that module for why (the same reason RiskTier does: plugins/Actions
+# declare it about themselves, and this module consumes it, so it belongs
+# with the contract being described, not with the system enforcing it).
+# Re-exported here for convenience so permission-related code can import
+# it from either module without ambiguity about which is canonical.
+from master_agent.plugins.base import PermissionCategory  # noqa: F401
+
 
 class GrantScope(str, Enum):
     ONCE = "once"
@@ -64,8 +72,26 @@ class PermissionSystem:
         """
         if risk_tier == RiskTier.READ_ONLY:
             return
+
+        # Destructive actions require a real, current decision every
+        # time a standing blanket grant isn't present -- an
+        # ALWAYS_FOR_CAPABILITY grant never satisfies an IRREVERSIBLE
+        # check, no matter how it was created. Nothing in this codebase
+        # currently offers a human the option to create one (every live
+        # approval flow only ever grants ONCE), so this is defensive
+        # enforcement ahead of that UI existing, not a reaction to a real
+        # incident -- see FILESYSTEM_CAPABILITIES.md §5.
+        def _usable(grant: PermissionGrant) -> bool:
+            if risk_tier == RiskTier.IRREVERSIBLE and grant.scope == GrantScope.ALWAYS_FOR_CAPABILITY:
+                return False
+            return True
+
         match = next(
-            (g for g in self._grants if g.plugin_name == plugin_name and g.capability == capability),
+            (
+                g
+                for g in self._grants
+                if g.plugin_name == plugin_name and g.capability == capability and _usable(g)
+            ),
             None,
         )
         if match is None:

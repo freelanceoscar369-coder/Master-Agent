@@ -14,7 +14,7 @@ import pytest
 
 from master_agent.executor.executor import LocalExecutor
 from master_agent.permissions.permission_system import PermissionSystem
-from master_agent.plugins.base import RiskTier
+from master_agent.plugins.base import PermissionCategory, RiskTier
 from master_agent.plugins.filesystem_plugin import (
     CREATE_FOLDER,
     WORKSPACE_BOOTSTRAP,
@@ -36,12 +36,54 @@ def test_manifest_declares_reversible_write_risk():
     assert cap.risk_tier == RiskTier.REVERSIBLE_WRITE
 
 
-def test_manifest_declares_all_three_capabilities():
+def test_manifest_declares_all_fourteen_capabilities():
+    """Mission Brief 005 grew this from 3 to 14 -- create_folder/write_file/
+    workspace_bootstrap (Mission Briefs 001-003) plus eleven new
+    primitives. Every one of them appearing here, with no manual
+    per-capability wiring in this test or in FilesystemPlugin itself, is
+    the point of the auto-registration redesign (FILESYSTEM_CAPABILITIES.md
+    §5) -- add action #15 to _PRIMITIVE_ACTION_CLASSES and it shows up
+    here without touching FilesystemPlugin.manifest's logic."""
     executor = LocalExecutor(PermissionSystem())
     plugin = FilesystemPlugin(executor, locations={})
     names = {cap.name for cap in plugin.manifest.capabilities}
-    assert names == {CREATE_FOLDER, WRITE_FILE, WORKSPACE_BOOTSTRAP}
-    assert all(cap.risk_tier == RiskTier.REVERSIBLE_WRITE for cap in plugin.manifest.capabilities)
+    assert names == {
+        CREATE_FOLDER,
+        WRITE_FILE,
+        WORKSPACE_BOOTSTRAP,
+        "read_file",
+        "list_directory",
+        "search_files",
+        "file_exists",
+        "directory_exists",
+        "append_file",
+        "rename_file",
+        "copy_file",
+        "move_file",
+        "delete_file",
+        "delete_folder",
+    }
+
+
+def test_manifest_capabilities_carry_the_right_risk_tier_and_category():
+    """Spot-checks one capability per tier/category rather than asserting
+    a single risk tier for everything -- Mission Brief 005 introduced
+    READ_ONLY and IRREVERSIBLE alongside the original REVERSIBLE_WRITE.
+    See FILESYSTEM_CAPABILITIES.md §5's table."""
+    executor = LocalExecutor(PermissionSystem())
+    plugin = FilesystemPlugin(executor, locations={})
+    by_name = {cap.name: cap for cap in plugin.manifest.capabilities}
+
+    assert by_name["read_file"].risk_tier == RiskTier.READ_ONLY
+    assert by_name["read_file"].permission_category == PermissionCategory.READ
+    assert by_name[CREATE_FOLDER].risk_tier == RiskTier.REVERSIBLE_WRITE
+    assert by_name[CREATE_FOLDER].permission_category == PermissionCategory.WRITE
+    assert by_name["rename_file"].risk_tier == RiskTier.REVERSIBLE_WRITE
+    assert by_name["rename_file"].permission_category == PermissionCategory.MODIFY
+    assert by_name["delete_file"].risk_tier == RiskTier.IRREVERSIBLE
+    assert by_name["delete_file"].permission_category == PermissionCategory.DELETE
+    assert by_name["delete_folder"].risk_tier == RiskTier.IRREVERSIBLE
+    assert by_name["delete_folder"].permission_category == PermissionCategory.DELETE
 
 
 def test_registers_create_folder_action_on_the_given_executor():
@@ -77,8 +119,11 @@ def test_invoke_translates_action_failure_into_invocation_error(tmp_path):
 
 
 def test_invoke_rejects_unsupported_capability(tmp_path):
+    """"delete_folder" used to be the example of an unsupported
+    capability here -- it's real as of Mission Brief 005, so this now
+    uses a name that genuinely isn't registered on any Action."""
     plugin, executor = make_plugin(tmp_path)
-    result = plugin.invoke("delete_folder", {"name": "Demo"})
+    result = plugin.invoke("run_shell_command", {"cmd": "echo hi"})
 
     assert not result.success
     assert "unsupported capability" in result.error

@@ -22,6 +22,7 @@ import pytest
 from master_agent.cli import (
     InvalidProjectRequest,
     MasterAgentSession,
+    ParsedActionIntent,
     ParsedProjectIntent,
     UnrecognizedInput,
     _validate_project_name,
@@ -33,7 +34,17 @@ from master_agent.memory.store import SQLiteMemoryStore
 from master_agent.mission_manager.mission import MissionStatus
 from master_agent.orchestrator.orchestrator import Orchestrator
 from master_agent.permissions.permission_system import PermissionSystem
-from master_agent.plugins.filesystem_plugin import FilesystemPlugin
+from master_agent.plugins.filesystem_plugin import (
+    COPY_FILE,
+    DELETE_FILE,
+    DELETE_FOLDER,
+    LIST_DIRECTORY,
+    MOVE_FILE,
+    READ_FILE,
+    RENAME_FILE,
+    SEARCH_FILES,
+    FilesystemPlugin,
+)
 from master_agent.plugins.registry import PluginRegistry
 
 
@@ -518,3 +529,307 @@ def test_conversation_memory_records_every_turn(tmp_path):
 
     assert speakers == ["user", "system", "user", "system", "user", "system"]
     assert turns[0].text == "Master Agent"
+
+
+# ==== Mission Brief 005: filesystem capability expansion ======================
+#
+# The six conversation examples from the brief, through the exact same
+# MasterAgentSession/Orchestrator/PermissionSystem/Executor path the
+# folder/project tests above already exercise -- ParsedActionIntent is new,
+# but nothing about how a plan built from it gets executed is. Read/List/
+# Search are READ_ONLY -- PermissionSystem.check() short-circuits for that
+# tier (see permission_system.py) -- so these three execute in a single
+# turn with no Yes/No exchange; that itself is asserted below, not
+# assumed.
+
+def build_multi_location_session(tmp_path, memory: Memory | None = None):
+    """Same as build_session() above, but with a second ("downloads")
+    location -- needed for "List files inside Downloads", since the
+    default build_session() only wires up "desktop"."""
+    permissions = PermissionSystem()
+    executor = LocalExecutor(permissions)
+    registry = PluginRegistry()
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    registry.register(FilesystemPlugin(executor, locations={"desktop": tmp_path, "downloads": downloads}))
+    orchestrator = Orchestrator(registry, permissions)
+    memory = memory or Memory(SQLiteMemoryStore(":memory:"))
+    return MasterAgentSession(registry, permissions, orchestrator, memory), downloads
+
+
+# ---- parse_intent: the new shapes --------------------------------------------
+
+@pytest.mark.parametrize(
+    "text,expected_capability,expected_payload_subset",
+    [
+        ("Read README.md", READ_FILE, {"path": "README.md"}),
+        ("Read README.md.", READ_FILE, {"path": "README.md"}),
+        ("Rename notes.txt to notes_old.txt", RENAME_FILE, {"path": "notes.txt", "new_name": "notes_old.txt"}),
+        ("Copy config.json to backup folder", COPY_FILE, {"path": "config.json", "destination": "backup"}),
+        ("Copy config.json to config.bak.json", COPY_FILE, {"path": "config.json", "destination": "config.bak.json"}),
+        ("Move temp.txt to archive folder", MOVE_FILE, {"path": "temp.txt", "destination": "archive"}),
+        ("Delete notes.txt", DELETE_FILE, {"path": "notes.txt"}),
+        ("Delete temp folder", DELETE_FOLDER, {"path": "temp"}),
+        ("Search for *.pdf", SEARCH_FILES, {"pattern": "*.pdf"}),
+    ],
+)
+def test_parse_intent_recognizes_mission_brief_005_shapes(text, expected_capability, expected_payload_subset):
+    intent = parse_intent(text)
+    assert isinstance(intent, ParsedActionIntent)
+    assert intent.capability == expected_capability
+    for key, value in expected_payload_subset.items():
+        assert intent.payload[key] == value
+
+
+def test_parse_intent_recognizes_list_directory():
+    intent = parse_intent("List files inside Downloads")
+    assert isinstance(intent, ParsedActionIntent)
+    assert intent.capability == LIST_DIRECTORY
+    assert intent.payload == {"path": ".", "location": "downloads"}
+
+
+def test_parse_intent_still_recognizes_folder_and_project_shapes_unchanged():
+    """Regression: the table-driven _INTENT_PATTERNS dispatch that
+    replaced the old if/elif chain must not change behavior for the two
+    pre-existing shapes."""
+    folder_intent = parse_intent("Create a folder called Demo on my Desktop.")
+    assert not isinstance(folder_intent, ParsedActionIntent)
+    assert folder_intent.folder_name == "Demo"
+
+    project_intent = parse_intent("Create a Python project called Demo.")
+    assert isinstance(project_intent, ParsedProjectIntent)
+
+
+# ---- full session: read / list / search (no approval) ------------------------
+
+def test_read_file_executes_without_asking_for_approval(tmp_path):
+    (tmp_path / "README.md").write_text("# Hello Kalpavriksh")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    reply = session.handle("Read README.md")
+
+    assert "Approve?" not in reply
+    assert "Done." in reply
+    assert "# Hello Kalpavriksh" in reply
+    assert session.last_mission.status == MissionStatus.COMPLETED
+
+
+def test_read_missing_file_fails_cleanly(tmp_path):
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    reply = session.handle("Read ghost.txt")
+
+    assert "Something went wrong" in reply
+    assert session.last_mission.status == MissionStatus.FAILED
+
+
+def test_list_files_inside_downloads(tmp_path):
+    session, downloads = build_multi_location_session(tmp_path)
+    (downloads / "report.pdf").write_text("x")
+    (downloads / "sub").mkdir()
+    session.handle("Master Agent")
+
+    reply = session.handle("List files inside Downloads")
+
+    assert "Approve?" not in reply
+    assert "report.pdf" in reply
+    assert "sub" in reply
+
+
+def test_search_for_pattern(tmp_path):
+    (tmp_path / "a.pdf").write_text("x")
+    (tmp_path / "b.txt").write_text("x")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    reply = session.handle("Search for *.pdf")
+
+    assert "Approve?" not in reply
+    assert "a.pdf" in reply
+    assert "b.txt" not in reply
+
+
+# ---- full session: rename / copy / move (approval required) ------------------
+
+def test_rename_requires_approval_and_renames_on_yes(tmp_path):
+    (tmp_path / "notes.txt").write_text("hi")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    approval = session.handle("Rename notes.txt to notes_old.txt")
+    assert "Approve? (Yes/No)" in approval
+    assert (tmp_path / "notes.txt").exists()  # not yet renamed -- approval hasn't happened
+
+    final = session.handle("Yes")
+    assert "Done." in final
+    assert not (tmp_path / "notes.txt").exists()
+    assert (tmp_path / "notes_old.txt").read_text() == "hi"
+
+
+def test_copy_into_a_folder(tmp_path):
+    (tmp_path / "config.json").write_text("{}")
+    (tmp_path / "backup").mkdir()
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    session.handle("Copy config.json to backup folder")
+    final = session.handle("Yes")
+
+    assert "Done." in final
+    assert (tmp_path / "config.json").exists()  # source untouched
+    assert (tmp_path / "backup" / "config.json").read_text() == "{}"
+
+
+def test_move_added_for_symmetry_with_copy(tmp_path):
+    (tmp_path / "temp.txt").write_text("x")
+    (tmp_path / "archive").mkdir()
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    session.handle("Move temp.txt to archive folder")
+    final = session.handle("Yes")
+
+    assert "Done." in final
+    assert not (tmp_path / "temp.txt").exists()
+    assert (tmp_path / "archive" / "temp.txt").read_text() == "x"
+
+
+def test_rename_overwrite_is_refused_without_a_silent_replace(tmp_path):
+    """The intent parser doesn't expose an "overwrite" phrasing -- this
+    confirms that gap surfaces as a clean failure (resolve_overwrite_error's
+    refusal is an ordinary ExecutionResult failure, and _finish's failure
+    branch already handles any such failure generically), never as a
+    silent overwrite or a crash."""
+    (tmp_path / "a.txt").write_text("a")
+    (tmp_path / "b.txt").write_text("b")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Rename a.txt to b.txt")
+
+    reply = session.handle("Yes")
+
+    assert "Something went wrong" in reply
+    assert "already exists" in reply
+    assert (tmp_path / "b.txt").read_text() == "b"  # untouched
+
+
+# ---- full session: delete (approval required, file vs. folder disambiguation) --
+
+def test_delete_folder_requires_approval_and_deletes_on_yes(tmp_path):
+    (tmp_path / "temp").mkdir()
+    (tmp_path / "temp" / "junk.txt").write_text("junk")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    approval = session.handle("Delete temp folder")
+    assert "permanently delete this folder" in approval
+    assert (tmp_path / "temp").exists()
+
+    final = session.handle("Yes")
+    assert "Done." in final
+    assert not (tmp_path / "temp").exists()
+
+
+def test_delete_file_is_disambiguated_from_delete_folder(tmp_path):
+    (tmp_path / "notes.txt").write_text("x")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+
+    approval = session.handle("Delete notes.txt")
+    assert "permanently delete this file" in approval
+
+    final = session.handle("Yes")
+    assert "Done." in final
+    assert not (tmp_path / "notes.txt").exists()
+
+
+def test_declining_delete_folder_approval_deletes_nothing(tmp_path):
+    (tmp_path / "temp").mkdir()
+    (tmp_path / "temp" / "keep.txt").write_text("keep")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Delete temp folder")
+
+    reply = session.handle("No")
+
+    assert "cancelled" in reply.lower()
+    assert (tmp_path / "temp" / "keep.txt").exists()
+    assert session.last_mission.status == MissionStatus.CANCELLED
+
+
+def test_declining_delete_file_approval_deletes_nothing(tmp_path):
+    (tmp_path / "notes.txt").write_text("keep me")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Delete notes.txt")
+
+    reply = session.handle("No")
+
+    assert "cancelled" in reply.lower()
+    assert (tmp_path / "notes.txt").exists()
+
+
+# ---- Memory persistence for the new capabilities ------------------------------
+
+def test_read_mission_persists_with_no_artifacts(tmp_path):
+    (tmp_path / "README.md").write_text("hi")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Read README.md")
+
+    record = session.memory.last_mission()
+
+    assert record.title == 'Read "README.md"'
+    assert record.status == "completed"
+    assert record.artifacts == []
+
+
+def test_delete_folder_mission_persists_a_deleted_folder_artifact(tmp_path):
+    (tmp_path / "temp").mkdir()
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Delete temp folder")
+    session.handle("Yes")
+
+    record = session.memory.last_mission()
+
+    assert record.title == 'Delete Folder "temp"'
+    assert record.artifacts == [{"type": "deleted_folder", "path": str(tmp_path / "temp")}]
+
+
+def test_rename_mission_persists_a_file_artifact(tmp_path):
+    (tmp_path / "notes.txt").write_text("x")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Rename notes.txt to notes_old.txt")
+    session.handle("Yes")
+
+    record = session.memory.last_mission()
+
+    assert record.artifacts == [{"type": "file", "path": str(tmp_path / "notes_old.txt")}]
+
+
+def test_copy_mission_persists_the_destination_as_a_file_artifact(tmp_path):
+    (tmp_path / "config.json").write_text("{}")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Copy config.json to config.bak.json")
+    session.handle("Yes")
+
+    record = session.memory.last_mission()
+
+    assert record.artifacts == [{"type": "file", "path": str(tmp_path / "config.bak.json")}]
+
+
+def test_search_and_list_missions_also_persist_with_no_artifacts(tmp_path):
+    (tmp_path / "a.pdf").write_text("x")
+    session = build_session(tmp_path)
+    session.handle("Master Agent")
+    session.handle("Search for *.pdf")
+
+    record = session.memory.last_mission()
+
+    assert record.title == 'Search for "*.pdf"'
+    assert record.artifacts == []

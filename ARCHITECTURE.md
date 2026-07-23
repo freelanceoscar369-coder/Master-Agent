@@ -99,19 +99,30 @@ This is deliberately *not* "send the raw string to an LLM" — it's a real
 parsing/clarification step so the Planner never has to guess what the human
 meant. Owns follow-up clarification questions when intent is ambiguous.
 
-**`cli.py`'s rule-based stand-in (Mission Brief 001, extended 003.1).**
-The real Intent Layer above is a stub; `cli.py`'s `parse_intent()` plays
-its role for the CLI demo today — regex-based, not a model call, on
-purpose (see its module docstring). It recognizes two intent shapes as of
-Mission Brief 003.1: "create a folder called X [on Y]" (→ `ParsedIntent`)
-and "create [a/an/a new] [\<type\>] project/application called/named X"
-(→ `ParsedProjectIntent`, extracting a project name and an optional
-type — omitted or unrecognized types fall back to a generic default
-rather than failing the request). Text that structurally looks like a
-project request but has an unusable name (empty, or unsafe per
+**`cli.py`'s rule-based stand-in (Mission Brief 001, extended 003.1 and
+005).** The real Intent Layer above is a stub; `cli.py`'s `parse_intent()`
+plays its role for the CLI demo today — regex-based, not a model call, on
+purpose (see its module docstring). As of Mission Brief 003.1 it
+recognized two intent shapes: "create a folder called X [on Y]" (→
+`ParsedIntent`) and "create [a/an/a new] [\<type\>] project/application
+called/named X" (→ `ParsedProjectIntent`, extracting a project name and
+an optional type — omitted or unrecognized types fall back to a generic
+default rather than failing the request). Text that structurally looks
+like a project request but has an unusable name (empty, or unsafe per
 `executor/action.py`'s `is_unsafe_relative_path()`) raises a distinct
 `InvalidProjectRequest` so the reply can explain what's wrong with the
 name instead of claiming the whole request wasn't understood.
+
+Mission Brief 005 added nine more recognized shapes ("Read X", "Rename X
+to Y", "Copy/Move X to Y", "Delete X [folder]", "List files inside X",
+"Search for X") reaching the new filesystem primitives (§4.7) — rather
+than one dataclass per shape, all nine are represented by a single
+generic `ParsedActionIntent` (capability name + payload + a few display
+strings), and `parse_intent()` itself became a table
+(`_INTENT_PATTERNS`) of `(regex, builder)` pairs tried in order, instead
+of a growing if/elif chain — the same "avoid long if/else chains, design
+for many" principle `FilesystemPlugin`'s registration follows (§4.6).
+Full detail: `docs/MISSION_BRIEF_005.md`.
 
 ### 4.2 Planner (`planner/`)
 Takes an `Intent`, produces a `MissionPlan`: a DAG of `Step` objects, each
@@ -157,6 +168,17 @@ grants can be scoped `once`, `this_session`, or `always_for_capability`.
 This module has veto power over the Orchestrator — it is not optional
 middleware, it's a gate.
 
+**`PermissionCategory` (Mission Brief 005).** Every capability also
+declares a `PermissionCategory` (`read | write | modify | delete |
+system`) — an orthogonal, purely descriptive axis alongside `RiskTier`.
+It answers "what kind of thing is this" for a human or future UI to group
+by; it is never consulted by `check()`'s actual gating logic, which stays
+driven by `RiskTier` alone. The one real mechanism change this Miracle
+added: an `always_for_capability` grant can never satisfy a check for an
+`irreversible`-tier capability, no matter how it was created — destructive
+actions (`delete_file`, `delete_folder`) require a fresh decision every
+time. See `docs/adr/0009-permission-category-and-irreversible-grant-rule.md`.
+
 ### 4.5 Orchestrator (`orchestrator/`)
 Walks the `MissionPlan`, and for each `Step`: resolves capability → plugin
 via the Plugin Registry, checks the Permission System, invokes the plugin,
@@ -173,8 +195,14 @@ and local Hermes both implement the same `ModelProvider` interface, which is
 what makes the Model Router possible (see §5). Plugins that need to touch
 the local machine (filesystem, shell, git, ...) don't do that work
 themselves — they delegate to the Local Executor (§4.7). `FilesystemPlugin`
-is the first example: a thin adapter that registers a `CreateFolderAction`
-and forwards `invoke()` calls to it.
+is the first example: a thin adapter that registers Actions and forwards
+`invoke()` calls to them. As of Mission Brief 005 it exposes fourteen
+capabilities (thirteen primitives + one composite), registered
+declaratively from a tuple of Action classes rather than one hand-written
+registration line and one hand-written `CapabilityManifest` per
+capability — adding capability #15 costs one new class in that tuple,
+never an edit to `FilesystemPlugin` itself. See
+`FILESYSTEM_CAPABILITIES.md` §4-5.
 
 ### 4.7 Local Executor (`executor/`)
 The only component allowed to perform local actions — added in Mission
@@ -189,15 +217,26 @@ catches anything that escapes (never a raw traceback), and logs every
 execution (action, start/end time, duration, status) in memory.
 
 This exists so that `create_folder` isn't a one-off special case: every
-future local capability in `ARCHITECTURE.md`'s original list — create
-file, read file, rename, delete, copy, move, run PowerShell/CMD, git
-operations, VS Code operations, Obsidian operations — plugs into the same
-Action Contract and runs through the same executor, with the same
-validation, permission-gating, structured-failure, and logging behavior
-for free. A Plugin adapter (like `FilesystemPlugin`) still exists above
-it so the Orchestrator/PluginRegistry resolve capabilities the same way
-they always have (ADR-0003 is unchanged) — the Executor is what that
-adapter delegates to, not a replacement for the Plugin contract.
+future local capability in `ARCHITECTURE.md`'s original list plugs into
+the same Action Contract and runs through the same executor, with the
+same validation, permission-gating, structured-failure, and logging
+behavior for free. A Plugin adapter (like `FilesystemPlugin`) still
+exists above it so the Orchestrator/PluginRegistry resolve capabilities
+the same way they always have (ADR-0003 is unchanged) — the Executor is
+what that adapter delegates to, not a replacement for the Plugin
+contract.
+
+**Mission Brief 005 proved this at real scale.** Eleven new filesystem
+primitives — `read_file`, `list_directory`, `search_files`,
+`file_exists`, `directory_exists` (all `read_only`); `append_file`
+(`reversible_write`); `rename_file`, `copy_file`, `move_file`
+(`reversible_write`); `delete_file`, `delete_folder` (`irreversible`) —
+were added without touching `LocalExecutor`, `Orchestrator`, or
+`PermissionSystem` at all; every one of them just implements the same
+Action Contract `create_folder`/`write_file` already did. Still
+outstanding from the original list: run PowerShell/CMD, git operations,
+VS Code operations, Obsidian operations — each a candidate for the same
+pattern whenever it's actually needed (`ROADMAP.md`).
 
 The Executor checks permission itself, using its own grant key distinct
 from the Orchestrator's — see

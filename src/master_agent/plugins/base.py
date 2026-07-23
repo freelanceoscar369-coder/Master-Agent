@@ -23,6 +23,29 @@ class RiskTier(str, Enum):
     IRREVERSIBLE = "irreversible"
 
 
+class PermissionCategory(str, Enum):
+    """Human-facing classification of *what kind* of thing a capability
+    does — orthogonal to `RiskTier`, which answers *how much oversight*
+    it needs. `RiskTier` is what `PermissionSystem.check()` actually
+    gates on (unchanged mechanism, permissions/permission_system.py);
+    `PermissionCategory` is what an approval prompt or a Memory record
+    says out loud. Lives here, next to `RiskTier`, for the same reason
+    `RiskTier` does — declared by the plugin/Action, consumed by the
+    Permission System. See `FILESYSTEM_CAPABILITIES.md` §5 (Mission
+    Brief 005).
+
+    `SYSTEM` has no Action using it yet in this codebase — reserved the
+    same way Memory's Layers 4-6 are reserved, ahead of the capability
+    (a shell/process action) that will eventually need it.
+    """
+
+    READ = "read"
+    WRITE = "write"
+    MODIFY = "modify"
+    DELETE = "delete"
+    SYSTEM = "system"
+
+
 @dataclass
 class CapabilityManifest:
     """Describes one capability a plugin exposes."""
@@ -32,6 +55,10 @@ class CapabilityManifest:
     risk_tier: RiskTier
     input_schema: dict[str, Any] = field(default_factory=dict)
     output_schema: dict[str, Any] = field(default_factory=dict)
+    # Optional — mirrors an Action's `permission_category` for plugins
+    # backed by the Action Contract. None for plugins that predate this
+    # field (e.g. ModelProvider) or don't have a natural category.
+    permission_category: PermissionCategory | None = None
 
 
 @dataclass

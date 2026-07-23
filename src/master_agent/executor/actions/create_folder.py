@@ -12,8 +12,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from master_agent.executor.action import Action, ExecutionResult, is_unsafe_relative_path
-from master_agent.plugins.base import RiskTier
+from master_agent.executor.action import (
+    Action,
+    ExecutionResult,
+    default_locations,
+    is_unsafe_relative_path,
+)
+from master_agent.plugins.base import PermissionCategory, RiskTier
 
 CREATE_FOLDER = "create_folder"
 
@@ -22,6 +27,7 @@ class CreateFolderAction(Action):
     name = CREATE_FOLDER
     description = "Create a new folder in a known location."
     risk_tier = RiskTier.REVERSIBLE_WRITE
+    permission_category = PermissionCategory.WRITE
     expected_result = (
         "The target folder exists on disk after this action succeeds "
         "(idempotent if it already existed as a folder)."
@@ -32,7 +38,7 @@ class CreateFolderAction(Action):
         a real base directory — injected rather than hardcoded, so tests
         can point "desktop" at a tmp_path instead of the real user
         Desktop. Defaults to the real Desktop for interactive use."""
-        self._locations = locations or {"desktop": Path.home() / "Desktop"}
+        self._locations = locations or default_locations()
 
     def required_parameters(self) -> list[str]:
         return ["name"]

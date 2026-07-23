@@ -1,7 +1,6 @@
-"""WriteFileAction — the second primitive Action, and the one
-WorkspaceBootstrapAction composes alongside CreateFolderAction. Writes
-text content to a file under a known location, creating any missing
-parent directories along the way. See docs/MISSION_BRIEF_003.md.
+"""AppendFileAction — appends text content to a file, creating it (and
+any missing parent directories) if it doesn't already exist. REVERSIBLE_WRITE.
+See FILESYSTEM_CAPABILITIES.md.
 """
 from __future__ import annotations
 
@@ -16,28 +15,21 @@ from master_agent.executor.action import (
 )
 from master_agent.plugins.base import PermissionCategory, RiskTier
 
-WRITE_FILE = "write_file"
+APPEND_FILE = "append_file"
 
 
-class WriteFileAction(Action):
-    name = WRITE_FILE
-    description = "Write text content to a file in a known location."
+class AppendFileAction(Action):
+    name = APPEND_FILE
+    description = "Append text content to a file in a known location, creating it if missing."
     risk_tier = RiskTier.REVERSIBLE_WRITE
     permission_category = PermissionCategory.WRITE
-    expected_result = (
-        "The target file exists on disk with the given content after this "
-        "action succeeds (idempotent if it already existed with identical "
-        "content; overwritten with a warning if it existed with different "
-        "content)."
-    )
+    expected_result = "The target file exists with the given content appended to whatever was there before."
 
     def __init__(self, locations: dict[str, Path] | None = None) -> None:
-        """Same injection pattern as CreateFolderAction — see that class
-        for why. Defaults to the real Desktop for interactive use."""
         self._locations = locations or default_locations()
 
     def required_parameters(self) -> list[str]:
-        return ["path"]
+        return ["path", "content"]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []
@@ -59,30 +51,21 @@ class WriteFileAction(Action):
         return errors
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
-        # validate() already confirmed these are present, safe, and known —
-        # run() trusts that, same separation of concerns as CreateFolderAction.
         path = parameters["path"].strip()
         content = parameters.get("content", "")
         location_key = (parameters.get("location") or "desktop").strip().lower()
-        base = self._locations[location_key]
-        target = base / path
+        target = self._locations[location_key] / path
 
         if target.exists() and target.is_dir():
             return ExecutionResult(success=False, errors=[f"{target} already exists and is not a file"])
 
         try:
-            if target.exists() and target.read_text() == content:
-                return ExecutionResult(
-                    success=True,
-                    output=str(target),
-                    warnings=["file already had this exact content; no action taken"],
-                )
-
+            created = not target.exists()
             target.parent.mkdir(parents=True, exist_ok=True)
-            overwritten = target.exists()
-            target.write_text(content)
+            with target.open("a") as handle:
+                handle.write(content)
         except OSError as exc:
             return ExecutionResult(success=False, errors=[str(exc)])
 
-        warnings = ["existing file overwritten with new content"] if overwritten else []
+        warnings = [] if created else ["existing file's content extended, not replaced"]
         return ExecutionResult(success=True, output=str(target), warnings=warnings)

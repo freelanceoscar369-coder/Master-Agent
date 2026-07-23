@@ -17,6 +17,7 @@ except to fix a factual error.
 | **003.5** — Foundation Freeze | 2026-07-23 | `v0.3.5-miracle-003-5` | *(see note below — a file can't contain the hash of the commit that introduces it)* | 93 passed (unchanged) | ✅ Shipped | Zero user-facing features, zero architecture changes, zero runtime behavior changes (`src/`/`tests/` diff empty). Created the project's permanent engineering documentation set (this file included) before Memory, Voice, or Model Routing begin. See `FOUNDER_PLAYBOOK.md` for the process this freeze itself now codifies. |
 | **004** — The Memory System | 2026-07-23 | `v0.4.0-miracle-004` | *(see note below — same self-reference problem as 003.5)* | 124 passed | ✅ Shipped | Design-first six-layer memory model (`MEMORY_ARCHITECTURE.md`); Layers 1-3 implemented (Conversation, Mission, Persistent/SQLite), Layers 4-6 reserved as interfaces only. `MasterAgentSession` now persists every mission automatically at every terminal state — no manual save calls in the CLI — and answers "What was my last mission?" / "Show my recent missions." from Memory. Verified across a real process restart. Key design decision: ADR-0007 (stdlib `sqlite3`, JSON columns over normalization). Full writeup: `docs/MISSION_BRIEF_004.md`. |
 | **004.1** — Memory Scale Review | 2026-07-23 | `v0.4.1-miracle-004-1` | *(see note below — same self-reference problem, resolved the same way from the start this time)* | 126 passed | ✅ Shipped | Reviewed Memory against long-term scale (millions of missions, thousands of plugins, hundreds of capabilities, years of history) before more got built on top of it. Fixed two real problems: `MemoryStore`'s query surface (one `query_missions(MissionQuery)` instead of a method per filter need) and `MissionRecord`'s filesystem-specific `folders_created`/`files_created` columns (replaced with a generic `artifacts` list). `Memory`'s public API and every existing caller unchanged. Key design decision: ADR-0008. Full writeup: `docs/MISSION_BRIEF_004_1.md`. |
+| **005** — Local Execution Expansion | 2026-07-23 | `v0.5.0-miracle-005` | *(see note below — same self-reference problem, same standing resolution)* | 234 passed | ✅ Shipped | Design-first (`FILESYSTEM_CAPABILITIES.md`) expansion of `FilesystemPlugin` from 3 to 14 capabilities: eleven new primitive Actions (read/list/search/exists-checks, append, rename/copy/move, delete-file/delete-folder), registered declaratively — adding capability #15 costs one new file, never an edit to the plugin. New `PermissionCategory` axis plus a real mechanism change (an `always_for_capability` grant can never satisfy an `irreversible` check). `cli.py`'s intent parser generalized to one `ParsedActionIntent` + table-driven `_INTENT_PATTERNS`, reaching all six of the brief's conversation examples plus Move. Key design decision: ADR-0009. Full writeup: `docs/MISSION_BRIEF_005.md`. |
 
 ## Notes on gaps in this table
 
@@ -61,6 +62,9 @@ except to fix a factual error.
   -n1 v0.4.1-miracle-004-1` / `git rev-list -n1 v0.4.1-miracle-004-1` as
   the pointer. No amend, no chase. This is what "treat it as the standing
   answer" above actually looks like in practice.
+- **Miracle 005's row follows the same pattern**: `git tag -n1
+  v0.5.0-miracle-005` / `git rev-list -n1 v0.5.0-miracle-005` for the
+  authoritative commit hash.
 
 ## How to add a row
 

@@ -10,12 +10,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from master_agent.executor.action import Action, ExecutionResult, is_unsafe_relative_path
+from master_agent.executor.action import (
+    Action,
+    ExecutionResult,
+    default_locations,
+    is_unsafe_relative_path,
+)
 from master_agent.executor.actions.create_folder import CREATE_FOLDER
 from master_agent.executor.actions.write_file import WRITE_FILE
 from master_agent.executor.executor import LocalExecutor
 from master_agent.permissions.permission_system import GrantScope
-from master_agent.plugins.base import RiskTier
+from master_agent.plugins.base import PermissionCategory, RiskTier
 
 WORKSPACE_BOOTSTRAP = "workspace_bootstrap"
 
@@ -40,6 +45,7 @@ class WorkspaceBootstrapAction(Action):
     # a composite can never be gated more loosely than the riskiest thing it
     # might actually do.
     risk_tier = RiskTier.REVERSIBLE_WRITE
+    permission_category = PermissionCategory.WRITE
     expected_result = (
         "The workspace root folder exists, along with every requested "
         "subfolder and file, each created through the same permission-"
@@ -56,7 +62,7 @@ class WorkspaceBootstrapAction(Action):
         straight through to validate() for the same fail-fast-without-
         side-effects reasoning CreateFolderAction/WriteFileAction use."""
         self._executor = executor
-        self._locations = locations or {"desktop": Path.home() / "Desktop"}
+        self._locations = locations or default_locations()
 
     def required_parameters(self) -> list[str]:
         return ["name"]

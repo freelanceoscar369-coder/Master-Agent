@@ -1,5 +1,8 @@
 """Mission Brief 001 — The First Conversation. Extended in Mission Brief
-003.1 to reach the Workspace Bootstrap capability from Mission Brief 003.
+003.1 to reach the Workspace Bootstrap capability from Mission Brief 003,
+and in Mission Brief 005 to reach the eleven new filesystem primitives
+(read/list/search/exists-checks, append, rename/copy/move,
+delete-file/delete-folder) from FILESYSTEM_CAPABILITIES.md.
 
 The smallest possible end-to-end slice through the real architecture:
 text in, one real mission out. Deliberately does NOT touch the Mission
@@ -23,6 +26,20 @@ that plan is executed differs from the folder-creation path: same
 Orchestrator, same Permission System, same relay mechanism — this module
 never had to know a composite action was involved, which is exactly the
 point of Mission Brief 003's design.
+
+Mission Brief 005 generalizes this further: rather than one dataclass per
+new capability (which would mean eight more ParsedXIntent shapes and eight
+more branches in every downstream method), every new capability is
+represented by a single generic `ParsedActionIntent` — capability name +
+payload + a few display strings — and intent parsing itself moved to a
+table (`_INTENT_PATTERNS`) of (regex, builder) pairs instead of a growing
+if/elif chain, matching the same "avoid long if/else chains, design for
+many" principle FilesystemPlugin's own registration follows
+(FILESYSTEM_CAPABILITIES.md §4). Read/List/Search never trigger the
+approval flow at all — they're READ_ONLY, and PermissionSystem.check()
+already short-circuits for that tier (see permission_system.py) — so
+those three intents simply execute and return a result in one turn, the
+same as every other READ_ONLY capability would.
 """
 from __future__ import annotations
 
@@ -41,7 +58,19 @@ from master_agent.orchestrator.orchestrator import Orchestrator, StepResult
 from master_agent.permissions.permission_system import GrantScope, PermissionSystem
 from master_agent.planner.planner import MissionPlan, Step
 from master_agent.plugins.base import InvocationResult
-from master_agent.plugins.filesystem_plugin import CREATE_FOLDER, WORKSPACE_BOOTSTRAP, FilesystemPlugin
+from master_agent.plugins.filesystem_plugin import (
+    COPY_FILE,
+    CREATE_FOLDER,
+    DELETE_FILE,
+    DELETE_FOLDER,
+    LIST_DIRECTORY,
+    MOVE_FILE,
+    READ_FILE,
+    RENAME_FILE,
+    SEARCH_FILES,
+    WORKSPACE_BOOTSTRAP,
+    FilesystemPlugin,
+)
 from master_agent.plugins.registry import PluginRegistry
 
 WAKE_PHRASES = {"master agent"}
@@ -74,6 +103,38 @@ _CREATE_PROJECT_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+
+# Mission Brief 005: the eight new conversational shapes, one regex each.
+# Every one of these anchors on a distinct leading verb (read/rename/
+# copy/move/delete/list/search), so match order among them doesn't
+# matter — unlike _CREATE_FOLDER_RE/_CREATE_PROJECT_RE above, which both
+# start with "create" and must stay ordered accordingly. Non-greedy
+# `\S+?`/`.+?` capture groups followed by an optional trailing `\.?\s*$`
+# are what let "Read README.md" and "Read README.md." both resolve to the
+# same path (verified by manual regex trace — see FILESYSTEM_CAPABILITIES.md
+# §6, "why individual Actions" doesn't answer this, but the mechanism is
+# the same non-greedy trick DELETE/COPY/MOVE below all reuse). Only the
+# six phrasings the brief's conversation examples require are wired here
+# (plus "move", added for symmetry with "copy") — file_exists/
+# directory_exists/append_file are real, tested capabilities
+# (test_read_actions.py / test_write_actions.py) with no conversational
+# phrasing yet, which is fine: the toolbox is bigger than any one
+# conversation needs to reach on day one (FILESYSTEM_CAPABILITIES.md §4).
+_READ_FILE_RE = re.compile(r"^read\s+(?:the\s+file\s+)?(?P<path>\S+?)\.?\s*$", re.IGNORECASE)
+_RENAME_FILE_RE = re.compile(r"^rename\s+(?P<path>\S+?)\s+to\s+(?P<new_name>\S+?)\.?\s*$", re.IGNORECASE)
+_COPY_FILE_RE = re.compile(r"^copy\s+(?P<path>\S+?)\s+to\s+(?P<destination>.+?)\.?\s*$", re.IGNORECASE)
+_MOVE_FILE_RE = re.compile(r"^move\s+(?P<path>\S+?)\s+to\s+(?P<destination>.+?)\.?\s*$", re.IGNORECASE)
+# Deliberately no separate "delete a folder" wording: whether this is a
+# file-delete or folder-delete is disambiguated after matching, by
+# checking for a trailing " folder" keyword (_build_delete_intent below) —
+# plain Python string logic, not a second regex, per "prefer simplicity
+# over cleverness."
+_DELETE_RE = re.compile(r"^delete\s+(?P<path>.+?)\.?\s*$", re.IGNORECASE)
+_LIST_DIRECTORY_RE = re.compile(
+    r"^list\s+(?:the\s+)?files\s+(?:inside|in|on)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)\.?\s*$",
+    re.IGNORECASE,
+)
+_SEARCH_FILES_RE = re.compile(r"^search\s+for\s+(?P<pattern>\S+?)\.?\s*$", re.IGNORECASE)
 
 # Mission Brief 004: recognizes the two memory-query phrasings from the
 # brief's example conversations. Checked before ordinary intent parsing
@@ -122,6 +183,31 @@ class ParsedProjectIntent:
     project_name: str
     project_type: str  # normalized template key, e.g. "python" or "generic"
     project_type_label: str  # display label, e.g. "Python", or "" for generic
+
+
+@dataclass
+class ParsedActionIntent:
+    """Generic stand-in for every Mission Brief 005 capability — one
+    dataclass instead of eight (ParsedReadIntent, ParsedRenameIntent, ...),
+    because the only things that actually differ between "read a file" and
+    "delete a folder" are the capability name, the payload shape, and a
+    couple of display strings; the control flow around them (build a plan,
+    maybe ask for approval, run it, record it) is identical. See the
+    module docstring.
+
+    `capability` is one of the filesystem_plugin capability-name constants
+    (READ_FILE, RENAME_FILE, ...) — it becomes the plan's Step.capability
+    directly. `warning` is "" for READ_ONLY capabilities (Read/List/Search
+    never reach _approval_message, so it's never read for those, but
+    leaving it empty rather than omitting the field keeps the dataclass
+    uniform across all nine capabilities this represents).
+    """
+
+    capability: str
+    payload: dict[str, Any]
+    title: str  # e.g. 'Rename "notes.txt" to "notes_old.txt"' — used as the mission title and the approval header
+    location: str  # display label, e.g. "Desktop" or "Downloads"
+    warning: str  # approval-message consequence sentence; "" for read-only capabilities
 
 
 # ---- project templates -----------------------------------------------------
@@ -188,36 +274,171 @@ def _validate_project_name(name: str) -> list[str]:
     return errors
 
 
-def parse_intent(text: str) -> ParsedIntent | ParsedProjectIntent:
+def _build_folder_intent(match: re.Match[str]) -> ParsedIntent:
+    location = (match.group("location") or "Desktop").strip()
+    return ParsedIntent(action=CREATE_FOLDER, folder_name=match.group("name").strip(), location=location)
+
+
+def _build_project_intent(match: re.Match[str]) -> ParsedProjectIntent:
+    name = match.group("name").strip()
+    errors = _validate_project_name(name)
+    if errors:
+        raise InvalidProjectRequest(errors)
+    project_type, project_type_label = _resolve_project_type(match.group("type"))
+    return ParsedProjectIntent(
+        action=WORKSPACE_BOOTSTRAP,
+        project_name=name,
+        project_type=project_type,
+        project_type_label=project_type_label,
+    )
+
+
+def _strip_trailing_folder_word(text: str) -> str:
+    """"backup folder" -> "backup"; "backup" -> "backup" (unchanged).
+    Plain string post-processing rather than a second regex — used to
+    disambiguate delete-file-vs-delete-folder and to resolve copy/move
+    destinations and list locations phrased with a trailing "folder"
+    word. See FILESYSTEM_CAPABILITIES.md's "prefer simplicity over
+    cleverness."."""
+    if text.lower().endswith(" folder"):
+        return text[: -len(" folder")].strip()
+    return text
+
+
+def _build_read_intent(match: re.Match[str]) -> ParsedActionIntent:
+    path = match.group("path").strip()
+    return ParsedActionIntent(
+        capability=READ_FILE,
+        payload={"path": path, "location": "desktop"},
+        title=f'Read "{path}"',
+        location="Desktop",
+        warning="",
+    )
+
+
+def _build_rename_intent(match: re.Match[str]) -> ParsedActionIntent:
+    path = match.group("path").strip()
+    new_name = match.group("new_name").strip()
+    return ParsedActionIntent(
+        capability=RENAME_FILE,
+        payload={"path": path, "new_name": new_name, "location": "desktop"},
+        title=f'Rename "{path}" to "{new_name}"',
+        location="Desktop",
+        warning="This action will modify your filesystem.",
+    )
+
+
+def _build_copy_intent(match: re.Match[str]) -> ParsedActionIntent:
+    path = match.group("path").strip()
+    destination = _strip_trailing_folder_word(match.group("destination").strip())
+    return ParsedActionIntent(
+        capability=COPY_FILE,
+        payload={"path": path, "destination": destination, "location": "desktop"},
+        title=f'Copy "{path}" to "{destination}"',
+        location="Desktop",
+        warning="This action will modify your filesystem.",
+    )
+
+
+def _build_move_intent(match: re.Match[str]) -> ParsedActionIntent:
+    path = match.group("path").strip()
+    destination = _strip_trailing_folder_word(match.group("destination").strip())
+    return ParsedActionIntent(
+        capability=MOVE_FILE,
+        payload={"path": path, "destination": destination, "location": "desktop"},
+        title=f'Move "{path}" to "{destination}"',
+        location="Desktop",
+        warning="This action will modify your filesystem.",
+    )
+
+
+def _build_delete_intent(match: re.Match[str]) -> ParsedActionIntent:
+    raw = match.group("path").strip()
+    if raw.lower().endswith(" folder"):
+        path = _strip_trailing_folder_word(raw)
+        return ParsedActionIntent(
+            capability=DELETE_FOLDER,
+            payload={"path": path, "location": "desktop"},
+            title=f'Delete Folder "{path}"',
+            location="Desktop",
+            warning="This will permanently delete this folder and everything inside it. This cannot be undone.",
+        )
+    return ParsedActionIntent(
+        capability=DELETE_FILE,
+        payload={"path": raw, "location": "desktop"},
+        title=f'Delete File "{raw}"',
+        location="Desktop",
+        warning="This will permanently delete this file. This cannot be undone.",
+    )
+
+
+# Free-text location word -> (location key, display label). Anything not
+# in this map still gets a location key (lower-cased, "folder" stripped) —
+# an unrecognized location fails validate()'s "unknown location" check at
+# execution time with a clear error, rather than failing to parse at all.
+_KNOWN_LOCATIONS = {"desktop": "Desktop", "downloads": "Downloads", "documents": "Documents"}
+
+
+def _build_list_intent(match: re.Match[str]) -> ParsedActionIntent:
+    raw_location = _strip_trailing_folder_word(match.group("location").strip())
+    location_key = raw_location.lower()
+    label = _KNOWN_LOCATIONS.get(location_key, raw_location.title())
+    return ParsedActionIntent(
+        capability=LIST_DIRECTORY,
+        payload={"path": ".", "location": location_key},
+        title=f'List "{label}"',
+        location=label,
+        warning="",
+    )
+
+
+def _build_search_intent(match: re.Match[str]) -> ParsedActionIntent:
+    pattern = match.group("pattern").strip()
+    return ParsedActionIntent(
+        capability=SEARCH_FILES,
+        payload={"pattern": pattern, "location": "desktop"},
+        title=f'Search for "{pattern}"',
+        location="Desktop",
+        warning="",
+    )
+
+
+# Table-driven dispatch: intent parsing is "try each pattern in order,
+# build from the first match" rather than a growing if/elif chain — the
+# same "avoid long if/else chains, design for many" principle
+# FilesystemPlugin's own registration follows (FILESYSTEM_CAPABILITIES.md
+# §4). _CREATE_FOLDER_RE/_CREATE_PROJECT_RE stay first and in their
+# existing relative order (both start with "create", so order between
+# just those two matters for backtracking reasons that predate this
+# table); every entry after them anchors on a distinct leading verb, so
+# their relative order doesn't matter.
+_INTENT_PATTERNS: list[
+    tuple[re.Pattern[str], Callable[[re.Match[str]], ParsedIntent | ParsedProjectIntent | ParsedActionIntent]]
+] = [
+    (_CREATE_FOLDER_RE, _build_folder_intent),
+    (_CREATE_PROJECT_RE, _build_project_intent),
+    (_READ_FILE_RE, _build_read_intent),
+    (_RENAME_FILE_RE, _build_rename_intent),
+    (_COPY_FILE_RE, _build_copy_intent),
+    (_MOVE_FILE_RE, _build_move_intent),
+    (_DELETE_RE, _build_delete_intent),
+    (_LIST_DIRECTORY_RE, _build_list_intent),
+    (_SEARCH_FILES_RE, _build_search_intent),
+]
+
+
+def parse_intent(text: str) -> ParsedIntent | ParsedProjectIntent | ParsedActionIntent:
     text = text.strip()
 
-    folder_match = _CREATE_FOLDER_RE.match(text)
-    if folder_match:
-        location = (folder_match.group("location") or "Desktop").strip()
-        return ParsedIntent(
-            action=CREATE_FOLDER,
-            folder_name=folder_match.group("name").strip(),
-            location=location,
-        )
-
-    project_match = _CREATE_PROJECT_RE.match(text)
-    if project_match:
-        name = project_match.group("name").strip()
-        errors = _validate_project_name(name)
-        if errors:
-            raise InvalidProjectRequest(errors)
-        project_type, project_type_label = _resolve_project_type(project_match.group("type"))
-        return ParsedProjectIntent(
-            action=WORKSPACE_BOOTSTRAP,
-            project_name=name,
-            project_type=project_type,
-            project_type_label=project_type_label,
-        )
+    for regex, build in _INTENT_PATTERNS:
+        match = regex.match(text)
+        if match:
+            return build(match)
 
     raise UnrecognizedInput(text)
 
 
-def build_plan(intent: ParsedIntent | ParsedProjectIntent) -> MissionPlan:
+def build_plan(intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent) -> MissionPlan:
     """Stand-in for the real Planner (out of scope) — see module docstring."""
     if isinstance(intent, ParsedProjectIntent):
         template = _template_for(intent.project_type)(intent.project_name)
@@ -231,6 +452,14 @@ def build_plan(intent: ParsedIntent | ParsedProjectIntent) -> MissionPlan:
                 "files": template["files"],
             },
         )
+        return MissionPlan(steps=[step])
+
+    if isinstance(intent, ParsedActionIntent):
+        # One step, whatever the capability — the plan shape never has to
+        # know which of the nine ParsedActionIntent-backed capabilities
+        # this is, same as it never had to know workspace_bootstrap was a
+        # composite above.
+        step = Step(step_id=f"{intent.capability}-1", capability=intent.capability, payload=intent.payload)
         return MissionPlan(steps=[step])
 
     step = Step(
@@ -250,28 +479,66 @@ def _mission_title(intent: ParsedProjectIntent) -> str:
 # mission state, and renders the two conversational memory queries. See
 # MEMORY_ARCHITECTURE.md §7 and §9.
 
-def _record_title(intent: ParsedIntent | ParsedProjectIntent) -> str:
+def _record_title(intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent) -> str:
     """One consistent title format, used for both the single-mission and
     the list query — see MEMORY_ARCHITECTURE.md §9 for why this doesn't
     literally reproduce the brief's two (mutually inconsistent) example
     title strings."""
     if isinstance(intent, ParsedProjectIntent):
         return f'{_mission_title(intent)} "{intent.project_name}"'
+    if isinstance(intent, ParsedActionIntent):
+        return intent.title
     return f'Create Folder "{intent.folder_name}"'
 
 
-def _extract_artifacts(result: InvocationResult | None) -> list[dict[str, str]]:
+# capability name -> artifact type for the single-string-output
+# capabilities (rename/delete produce a bare path string, same output
+# shape create_folder already had — see _extract_artifacts below for why
+# a bare string can no longer default to "folder" now that rename/delete
+# also return one).
+_STRING_OUTPUT_ARTIFACT_TYPES = {
+    RENAME_FILE: "file",
+    DELETE_FILE: "deleted_file",
+    DELETE_FOLDER: "deleted_folder",
+}
+# Capabilities that read or inspect but never create, modify, or remove
+# anything — nothing to record as an artifact.
+_NO_ARTIFACT_CAPABILITIES = {READ_FILE, LIST_DIRECTORY, SEARCH_FILES}
+
+
+def _extract_artifacts(
+    intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent,
+    result: InvocationResult | None,
+) -> list[dict[str, str]]:
     """Generic `{"type": ..., "path": ...}` artifact list from a step's
     result — MissionRecord.artifacts, not a folders/files-specific shape,
     so a future capability whose output doesn't look like "folders and
-    files" (a git commit, a modified file, a shell command's stdout, ...)
-    can contribute its own artifact shape without a Memory schema change
-    (see MEMORY_ARCHITECTURE.md §6b). This function still has to know
-    today's two capabilities' output shapes to interpret them — that part
-    is unavoidable while cli.py stands in for the real Planner/Reporter."""
+    files" (a git commit, a shell command's stdout, ...) can contribute
+    its own artifact shape without a Memory schema change (see
+    MEMORY_ARCHITECTURE.md §6b). This function still has to know each
+    capability's output shape to interpret it — that part is unavoidable
+    while cli.py stands in for the real Planner/Reporter.
+
+    Mission Brief 005 note: a bare string output used to mean "a folder
+    was created" unconditionally (only create_folder returned one). Now
+    rename_file/delete_file/delete_folder also return a bare path string,
+    so the string case is only safe to interpret once `intent` says which
+    capability produced it — hence the two lookup tables above, and why
+    this now takes `intent` as well as `result`."""
     if result is None or not result.success:
         return []
     output = result.output
+
+    if isinstance(intent, ParsedActionIntent):
+        if intent.capability in _NO_ARTIFACT_CAPABILITIES:
+            return []
+        if intent.capability in _STRING_OUTPUT_ARTIFACT_TYPES and isinstance(output, str):
+            return [{"type": _STRING_OUTPUT_ARTIFACT_TYPES[intent.capability], "path": output}]
+        if intent.capability in {COPY_FILE, MOVE_FILE} and isinstance(output, dict):
+            destination = output.get("destination")
+            return [{"type": "file", "path": destination}] if destination else []
+        return []
+
     if isinstance(output, dict):
         artifacts = [{"type": "folder", "path": p} for p in output.get("created_folders", [])]
         artifacts += [{"type": "file", "path": p} for p in output.get("written_files", [])]
@@ -283,7 +550,7 @@ def _extract_artifacts(result: InvocationResult | None) -> list[dict[str, str]]:
 
 def _build_mission_record(
     mission: Mission,
-    intent: ParsedIntent | ParsedProjectIntent,
+    intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent,
     plan: MissionPlan,
     step_result: StepResult | None,
     approval_status: str,
@@ -305,7 +572,7 @@ def _build_mission_record(
         execution_plan=execution_plan,
         execution_result=result.output if result is not None else None,
         execution_time_seconds=result.execution_time_seconds if result is not None else 0.0,
-        artifacts=_extract_artifacts(result),
+        artifacts=_extract_artifacts(intent, result),
         errors=errors,
         outcome=mission.outcome,
     )
@@ -356,6 +623,73 @@ def _default_memory_db_path() -> Path:
     return Path.home() / ".master_agent" / "memory.db"
 
 
+# ---- Mission Brief 005: completion messages for ParsedActionIntent --------
+# One small builder per capability whose output shape needs its own
+# sentence, keyed by capability name — table-driven for the same reason
+# _INTENT_PATTERNS is, rather than an if/elif chain in _finish(). A
+# capability with no entry here (currently none of the nine reachable
+# from conversation, but file_exists/directory_exists/append_file would
+# fall through to this if a future intent reached them) gets
+# `_default_action_complete`'s generic sentence — never a KeyError.
+
+def _read_file_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    content = (result.output or {}).get("content", "")
+    return f'Done.\nRead "{intent.payload["path"]}".\n\n{content}'
+
+
+def _list_directory_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    output = result.output or {}
+    folders = output.get("folders", [])
+    files = output.get("files", [])
+    folders_block = "Folders:\n" + ("\n".join(folders) if folders else "(none)")
+    files_block = "Files:\n" + ("\n".join(files) if files else "(none)")
+    return f"Done.\n{intent.title}.\n\n{folders_block}\n\n{files_block}"
+
+
+def _search_files_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    output = result.output or {}
+    matches = output.get("matches", [])
+    header = f'Done.\nFound {len(matches)} file(s) matching "{intent.payload["pattern"]}"'
+    if output.get("truncated"):
+        header += " (showing the first 200)"
+    body = "\n".join(matches) if matches else "(no matches)"
+    return f"{header}.\n\n{body}"
+
+
+def _rename_file_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    return f"Done.\n{intent.title}.\n(New path: {result.output})"
+
+
+def _copy_file_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    destination = (result.output or {}).get("destination", "")
+    return f"Done.\n{intent.title}.\n(Copied to: {destination})"
+
+
+def _move_file_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    destination = (result.output or {}).get("destination", "")
+    return f"Done.\n{intent.title}.\n(Moved to: {destination})"
+
+
+def _delete_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    return f"Done.\n{intent.title}."
+
+
+def _default_action_complete(intent: ParsedActionIntent, result: InvocationResult) -> str:
+    return f"Done.\n{intent.title}.\nMission completed successfully."
+
+
+_ACTION_COMPLETION_BUILDERS: dict[str, Callable[[ParsedActionIntent, InvocationResult], str]] = {
+    READ_FILE: _read_file_complete,
+    LIST_DIRECTORY: _list_directory_complete,
+    SEARCH_FILES: _search_files_complete,
+    RENAME_FILE: _rename_file_complete,
+    COPY_FILE: _copy_file_complete,
+    MOVE_FILE: _move_file_complete,
+    DELETE_FILE: _delete_complete,
+    DELETE_FOLDER: _delete_complete,
+}
+
+
 class MasterAgentSession:
     """Wires the real modules together for one conversation.
 
@@ -378,7 +712,9 @@ class MasterAgentSession:
         self._orchestrator = orchestrator
         self.memory = memory
         self._awake = False
-        self._pending: tuple[Mission, MissionPlan, ParsedIntent | ParsedProjectIntent] | None = None
+        self._pending: (
+            tuple[Mission, MissionPlan, ParsedIntent | ParsedProjectIntent | ParsedActionIntent] | None
+        ) = None
         self.last_mission: Mission | None = None
 
     def handle(self, text: str) -> str:
@@ -419,6 +755,8 @@ class MasterAgentSession:
                 "I don't understand that yet. Try:\n"
                 '"Create a folder called <name> on my Desktop."\n'
                 '"Create a Python project called <name>."\n'
+                '"Read <file>." / "List files inside Downloads." / "Search for *.pdf."\n'
+                '"Rename <file> to <name>." / "Copy <file> to <folder>." / "Delete <file or folder>."\n'
                 '"What was my last mission?"'
             )
 
@@ -455,7 +793,7 @@ class MasterAgentSession:
         self,
         mission: Mission,
         plan: MissionPlan,
-        intent: ParsedIntent | ParsedProjectIntent,
+        intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent,
         approval_status: str,
     ) -> str:
         # Entering execution is itself a state, whether or not the
@@ -476,7 +814,7 @@ class MasterAgentSession:
 
         return self._finish(mission, plan, step_result, intent, approval_status)
 
-    def _approval_message(self, intent: ParsedIntent | ParsedProjectIntent) -> str:
+    def _approval_message(self, intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent) -> str:
         if isinstance(intent, ParsedProjectIntent):
             return (
                 "I understood your request.\n\n"
@@ -487,6 +825,22 @@ class MasterAgentSession:
                 "• Create folders\n"
                 "• Create starter files\n\n"
                 "This will modify your filesystem.\n"
+                "Approve? (Yes/No)"
+            )
+        if isinstance(intent, ParsedActionIntent):
+            # One format for every write/modify/delete capability —
+            # Read/List/Search are READ_ONLY and never reach this method
+            # at all (PermissionSystem.check() short-circuits for that
+            # tier, so the Orchestrator never sets blocked_on_approval for
+            # them; see the module docstring). `intent.warning` is what
+            # varies: a plain "this will modify your filesystem" for
+            # rename/copy/move, versus the sharper "cannot be undone" for
+            # delete_file/delete_folder (FILESYSTEM_CAPABILITIES.md §5).
+            return (
+                "I understood your request.\n\n"
+                f"Action:\n{intent.title}\n\n"
+                f"Location:\n{intent.location}\n\n"
+                f"{intent.warning}\n"
                 "Approve? (Yes/No)"
             )
         return (
@@ -529,7 +883,7 @@ class MasterAgentSession:
     def _remember(
         self,
         mission: Mission,
-        intent: ParsedIntent | ParsedProjectIntent,
+        intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent,
         plan: MissionPlan,
         step_result: StepResult | None,
         approval_status: str,
@@ -548,7 +902,7 @@ class MasterAgentSession:
         mission: Mission,
         plan: MissionPlan,
         step_result: StepResult | None,
-        intent: ParsedIntent | ParsedProjectIntent,
+        intent: ParsedIntent | ParsedProjectIntent | ParsedActionIntent,
         approval_status: str,
     ) -> str:
         result = step_result.result if step_result else None
@@ -566,6 +920,18 @@ class MasterAgentSession:
             mission.outcome = {"created_workspace": result.output}
             self._remember(mission, intent, plan, step_result, approval_status)
             return self._project_completion_message(intent, result)
+
+        if isinstance(intent, ParsedActionIntent):
+            # Uniform outcome shape across all nine capabilities — same
+            # reasoning as the rest of Mission Brief 005's cli.py changes:
+            # the *meaning* of "output" is capability-specific, but the
+            # control flow storing it isn't, so it doesn't need a branch
+            # per capability here (only the completion message, which
+            # genuinely differs, gets one — via _ACTION_COMPLETION_BUILDERS).
+            mission.outcome = {"capability": intent.capability, "output": result.output}
+            self._remember(mission, intent, plan, step_result, approval_status)
+            builder = _ACTION_COMPLETION_BUILDERS.get(intent.capability, _default_action_complete)
+            return builder(intent, result)
 
         mission.outcome = {"created_path": result.output}
         self._remember(mission, intent, plan, step_result, approval_status)
@@ -605,8 +971,10 @@ def build_default_session() -> MasterAgentSession:
 def main() -> None:
     session = build_default_session()
     print("Master Agent — try: \"Create a folder called Demo on my Desktop.\" or")
-    print('"Create a Python project called Demo." or "What was my last mission?" '
-          "Type 'exit' to quit.\n")
+    print('"Create a Python project called Demo." or "Read README.md" or "List files')
+    print('inside Downloads" or "Search for *.pdf" or "Rename notes.txt to notes_old.txt"')
+    print('or "Copy config.json to backup folder" or "Delete temp folder" or')
+    print("\"What was my last mission?\" Type 'exit' to quit.\n")
     try:
         while True:
             text = input("> ")

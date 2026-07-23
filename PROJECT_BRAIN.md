@@ -63,10 +63,11 @@ respectively.
   (multi-mission lifecycle — mission *persistence* itself is real as of
   Mission Brief 004, just not through this class yet), Model Router
   wiring to live providers, Memory Layers 4-6 (Knowledge/Vector/Cloud
-  Sync — interfaces only), Voice I/O, Desktop UI, and every local action
-  besides `create_folder`/`write_file`/`workspace_bootstrap` (the
-  Executor now supports adding them cheaply, but none are built yet). See
-  `ROADMAP.md` for what's next and in what order.
+  Sync — interfaces only), Voice I/O, Desktop UI, and non-filesystem local
+  actions (PowerShell/CMD, git, VS Code, Obsidian — the Executor supports
+  adding them cheaply, per Mission Brief 005 proving the pattern at real
+  scale, but none are built yet). See `ROADMAP.md` for what's next and in
+  what order.
 - **Mission Brief 003.5 froze the project's permanent engineering
   documentation** before Memory, Voice, or Model Routing begin — zero
   code changes, zero runtime behavior changes. Seven documents, some new
@@ -98,6 +99,22 @@ respectively.
   commit, a shell command's output) doesn't need a schema change.
   `Memory`'s public API and every existing caller are unchanged. Key
   decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
+- **Mission Brief 005 turned the Filesystem Plugin into a real toolbox** —
+  eleven new primitive Actions (read/list/search/exists-checks, append,
+  rename/copy/move, delete-file/delete-folder), taking `FilesystemPlugin`
+  from 3 to 14 capabilities, registered declaratively (adding capability
+  #15 costs one new class, never an edit to the plugin itself — see
+  `FILESYSTEM_CAPABILITIES.md`, written before any code per the brief's
+  design-first gate). Added `PermissionCategory` as a new, purely
+  descriptive axis alongside `RiskTier`, plus one real mechanism change:
+  a standing `always_for_capability` grant can never satisfy a check for
+  an `irreversible` capability — destructive actions require a fresh
+  decision every time (ADR-0009). `cli.py`'s intent parser now recognizes
+  nine new conversational shapes ("Read X", "Rename X to Y", "Delete X
+  [folder]", ...) via one generic `ParsedActionIntent` and a table-driven
+  `_INTENT_PATTERNS` dispatch, reaching all six of the brief's
+  conversation examples end to end. 108 new tests, 234 passing overall,
+  zero regressions. Full detail: `docs/MISSION_BRIEF_005.md`.
 
 ## Where to go for what
 
@@ -109,9 +126,9 @@ respectively.
 | How do those values shape how the product should feel? | `PRODUCT_PRINCIPLES.md` |
 | How is the system designed, and why is it shaped that way? | `ARCHITECTURE.md` (what), `ARCHITECTURE_PRINCIPLES.md` (why) |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
-| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md` |
+| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |
-| How does a new local capability plug in? | `ARCHITECTURE.md` §4.7, `docs/MISSION_BRIEF_002.md` |
+| How does a new local capability plug in? | `ARCHITECTURE.md` §4.7, `docs/MISSION_BRIEF_002.md`, `FILESYSTEM_CAPABILITIES.md`, `docs/MISSION_BRIEF_005.md` |
 | How does a *composite* mission (several actions together) plug in? | `docs/MISSION_BRIEF_003.md`, `docs/adr/0006-composite-action-relay.md` |
 | How does typed/spoken conversation become a mission? | `ARCHITECTURE.md` §4.1-4.2, `docs/MISSION_BRIEF_003_1.md` |
 | How does mission history get remembered, and how do I query it? | `MEMORY_ARCHITECTURE.md`, `docs/MISSION_BRIEF_004.md`, `docs/adr/0007-sqlite-memory-backend.md` |

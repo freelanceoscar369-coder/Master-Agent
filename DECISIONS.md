@@ -56,6 +56,17 @@ filesystem-specific `folders_created`/`files_created` columns (fixed with
 a generic `artifacts` list). `Memory`'s public API unchanged. See
 `docs/adr/0008-memory-scale-review.md`.
 
+## ADR-0009: PermissionCategory + the IRREVERSIBLE grant rule (Mission Brief 005)
+Added `PermissionCategory` (`read`/`write`/`modify`/`delete`/`system`) to
+`plugins/base.py` as a purely descriptive axis alongside `RiskTier` —
+never consulted by `PermissionSystem.check()`'s actual gating logic. Also
+added one real mechanism change to `check()`: an `always_for_capability`
+grant can never satisfy a check for an `irreversible`-tier capability, no
+matter how it was created — destructive actions (`delete_file`,
+`delete_folder`) require a fresh decision every time, with zero changes
+to `grant()`'s signature or any existing call site. See
+`docs/adr/0009-permission-category-and-irreversible-grant-rule.md`.
+
 ## Mission Brief 001 (2026-07-23): First end-to-end mission
 Implemented a real vertical slice — text in, real filesystem write out,
 real Permission System gate — using only existing scaffold modules
@@ -120,6 +131,20 @@ public API and every existing caller unchanged. One further finding
 (`LocalExecutor._log` is unbounded) was named but deliberately not fixed,
 since it predates this Miracle and wasn't part of what was asked. Full
 detail: `docs/MISSION_BRIEF_004_1.md`.
+
+## Mission Brief 005 (2026-07-23): Local execution capability expansion
+Designed `FILESYSTEM_CAPABILITIES.md` before writing any code, per the
+brief's explicit gate. Grew `FilesystemPlugin` from 3 to 14 capabilities:
+eleven new primitive Actions (read/list/search/exists-checks, append,
+rename/copy/move, delete-file/delete-folder), registered declaratively
+from a tuple of Action classes rather than hand-written per-capability
+wiring. Key design decision: ADR-0009 (`PermissionCategory` +
+IRREVERSIBLE-never-satisfied-by-ALWAYS_FOR_CAPABILITY). `cli.py`'s intent
+parser was generalized to one `ParsedActionIntent` dataclass and a
+table-driven `_INTENT_PATTERNS` dispatch, reaching all six of the brief's
+conversation examples end to end, plus Move (added for symmetry). 108 new
+tests, 234 passing overall, zero regressions. Full detail:
+`docs/MISSION_BRIEF_005.md`.
 
 ## Open decisions (not yet locked)
 - Desktop UI stack: recommended pywebview + local FastAPI server for
