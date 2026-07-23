@@ -19,6 +19,7 @@ marked Completed here.
 | **003.1** — First Real Mission | Real conversation ("Create a Python project called Demo.") reaches `workspace_bootstrap`, through the full stack, with zero changes to the Orchestrator/PermissionSystem/composite-relay logic. |
 | **003.5** — Foundation Freeze | This document set: `ENGINEERING_PRINCIPLES.md`, `MIRACLE_LEDGER.md`, `VISION.md`, `PRODUCT_PRINCIPLES.md` (updated), `ARCHITECTURE_PRINCIPLES.md`, this file, `FOUNDER_PLAYBOOK.md`. Zero code changes. |
 | **004** — The Memory System | `memory/` gets a real six-layer design (`MEMORY_ARCHITECTURE.md`), Layers 1-3 implemented: Conversation Memory, Mission Memory (existing `Mission`, formalized), Persistent Memory (`SQLiteMemoryStore`, first real `MemoryStore` implementation). `MasterAgentSession` persists every mission automatically at every terminal state; two conversational queries ("What was my last mission?", "Show my recent missions.") work end to end, verified across a real process restart. Layers 4-6 are interfaces only. |
+| **004.1** — Memory Scale Review | Reviewed Memory (and the modules around it) against a millions-of-missions/thousands-of-plugins/years-of-history test. Replaced `MemoryStore`'s two-method query surface with one `query_missions(MissionQuery)` (new filters = new dataclass fields, never new methods); replaced `folders_created`/`files_created` columns with a generic `artifacts` list (a future git/shell/browser capability can contribute its own shape without a schema change). `Memory`'s public API unchanged throughout. Key design decision: ADR-0008. |
 
 Full detail on each: `docs/MISSION_BRIEF_001.md` through
 `docs/MISSION_BRIEF_004.md`, and `MIRACLE_LEDGER.md` for the
@@ -98,6 +99,13 @@ so nothing gets built prematurely against them:
   (`MEMORY_ARCHITECTURE.md` §12), implementations don't yet.
 - **Desktop UI beyond a shell** — richer mission history views, inline
   approval UX refinements informed by real usage, not speculative design.
+- **Bound or persist `LocalExecutor._log`** (`executor/executor.py`) —
+  found during Miracle 004.1's scale review: it's an unbounded in-memory
+  list, fine for a CLI process that exits after a session, would leak
+  memory in a long-running daemon. Small fix (cap it, or fold it into
+  `Memory` now that a durable execution-history home exists) — not urgent
+  today, worth doing before Master Agent runs unattended for long
+  stretches. See `MEMORY_ARCHITECTURE.md` §11.
 
 ## Explicitly not on this roadmap yet
 

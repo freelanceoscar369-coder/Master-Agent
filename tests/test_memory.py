@@ -15,7 +15,7 @@ import pytest
 from master_agent.memory.conversation import ConversationMemory
 from master_agent.memory.future import CloudSyncMemory, KnowledgeMemory, VectorMemory
 from master_agent.memory.memory import Memory
-from master_agent.memory.store import MissionRecord, SQLiteMemoryStore
+from master_agent.memory.store import MissionQuery, MissionRecord, SQLiteMemoryStore
 
 
 def _record(mission_id: str, status: str = "completed", **overrides) -> MissionRecord:
@@ -31,8 +31,7 @@ def _record(mission_id: str, status: str = "completed", **overrides) -> MissionR
         execution_plan=[{"step_id": "s1", "capability": "create_folder", "payload": {"name": mission_id}}],
         execution_result=f"/tmp/{mission_id}",
         execution_time_seconds=0.01,
-        folders_created=[f"/tmp/{mission_id}"],
-        files_created=[],
+        artifacts=[{"type": "folder", "path": f"/tmp/{mission_id}"}],
         errors=[],
         outcome={"created_path": f"/tmp/{mission_id}"},
     )
@@ -81,42 +80,74 @@ def test_save_mission_is_idempotent_upsert():
     assert fetched.errors == []
 
 
-def test_recent_missions_orders_newest_first():
+def test_query_missions_orders_newest_first():
     store = SQLiteMemoryStore(":memory:")
     base = datetime.now(timezone.utc)
     store.save_mission(_record("Oldest", completed_at=base - timedelta(minutes=10)))
     store.save_mission(_record("Newest", completed_at=base))
     store.save_mission(_record("Middle", completed_at=base - timedelta(minutes=5)))
 
-    recent = store.recent_missions(limit=10)
+    recent = store.query_missions(MissionQuery(limit=10))
 
     assert [r.mission_id for r in recent] == ["Newest", "Middle", "Oldest"]
 
 
-def test_recent_missions_respects_limit():
+def test_query_missions_respects_limit():
     store = SQLiteMemoryStore(":memory:")
     for i in range(15):
         store.save_mission(_record(f"m{i}"))
 
-    assert len(store.recent_missions(limit=10)) == 10
-    assert len(store.recent_missions(limit=3)) == 3
+    assert len(store.query_missions(MissionQuery(limit=10))) == 10
+    assert len(store.query_missions(MissionQuery(limit=3))) == 3
 
 
-def test_missions_by_status_filters_correctly():
+def test_query_missions_filters_by_status():
     store = SQLiteMemoryStore(":memory:")
     store.save_mission(_record("Good1", status="completed"))
     store.save_mission(_record("Good2", status="completed"))
     store.save_mission(_record("Bad1", status="failed", errors=["disk full"]))
     store.save_mission(_record("Gone", status="cancelled"))
 
-    successful = store.missions_by_status("completed")
-    failed = store.missions_by_status("failed")
-    cancelled = store.missions_by_status("cancelled")
+    successful = store.query_missions(MissionQuery(status="completed"))
+    failed = store.query_missions(MissionQuery(status="failed"))
+    cancelled = store.query_missions(MissionQuery(status="cancelled"))
 
     assert {r.mission_id for r in successful} == {"Good1", "Good2"}
     assert [r.mission_id for r in failed] == ["Bad1"]
     assert failed[0].errors == ["disk full"]
     assert [r.mission_id for r in cancelled] == ["Gone"]
+
+
+def test_query_missions_offset_pages_through_results():
+    """The `offset` field exists for a future bulk consumer (Layer 5's
+    indexer, MEMORY_ARCHITECTURE.md §12) that needs to walk the whole
+    table, not just the most recent N -- added ahead of that consumer
+    existing because it's a one-field, zero-complexity addition to
+    MissionQuery, not new infrastructure."""
+    store = SQLiteMemoryStore(":memory:")
+    base = datetime.now(timezone.utc)
+    for i in range(5):
+        store.save_mission(_record(f"m{i}", completed_at=base - timedelta(minutes=i)))
+
+    page1 = store.query_missions(MissionQuery(limit=2, offset=0))
+    page2 = store.query_missions(MissionQuery(limit=2, offset=2))
+
+    assert [r.mission_id for r in page1] == ["m0", "m1"]
+    assert [r.mission_id for r in page2] == ["m2", "m3"]
+
+
+def test_mission_record_folders_and_files_created_derive_from_artifacts():
+    record = _record(
+        "Demo",
+        artifacts=[
+            {"type": "folder", "path": "/tmp/Demo"},
+            {"type": "folder", "path": "/tmp/Demo/src"},
+            {"type": "file", "path": "/tmp/Demo/README.md"},
+        ],
+    )
+
+    assert record.folders_created == ["/tmp/Demo", "/tmp/Demo/src"]
+    assert record.files_created == ["/tmp/Demo/README.md"]
 
 
 def test_preferences_round_trip():

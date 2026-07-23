@@ -260,19 +260,25 @@ def _record_title(intent: ParsedIntent | ParsedProjectIntent) -> str:
     return f'Create Folder "{intent.folder_name}"'
 
 
-def _extract_created(result: InvocationResult | None) -> tuple[list[str], list[str]]:
-    """(folders_created, files_created) from a step's result. Handles
-    both workspace_bootstrap's dict output ({"created_folders": [...],
-    "written_files": [...]}) and create_folder's plain-string output (one
-    folder, no files) — a failed/missing result yields ([], [])."""
+def _extract_artifacts(result: InvocationResult | None) -> list[dict[str, str]]:
+    """Generic `{"type": ..., "path": ...}` artifact list from a step's
+    result — MissionRecord.artifacts, not a folders/files-specific shape,
+    so a future capability whose output doesn't look like "folders and
+    files" (a git commit, a modified file, a shell command's stdout, ...)
+    can contribute its own artifact shape without a Memory schema change
+    (see MEMORY_ARCHITECTURE.md §6b). This function still has to know
+    today's two capabilities' output shapes to interpret them — that part
+    is unavoidable while cli.py stands in for the real Planner/Reporter."""
     if result is None or not result.success:
-        return [], []
+        return []
     output = result.output
     if isinstance(output, dict):
-        return list(output.get("created_folders", [])), list(output.get("written_files", []))
+        artifacts = [{"type": "folder", "path": p} for p in output.get("created_folders", [])]
+        artifacts += [{"type": "file", "path": p} for p in output.get("written_files", [])]
+        return artifacts
     if isinstance(output, str):
-        return [output], []
-    return [], []
+        return [{"type": "folder", "path": output}]
+    return []
 
 
 def _build_mission_record(
@@ -283,7 +289,6 @@ def _build_mission_record(
     approval_status: str,
 ) -> MissionRecord:
     result = step_result.result if step_result else None
-    folders_created, files_created = _extract_created(result)
     errors = [result.error] if (result is not None and not result.success and result.error) else []
     execution_plan = [
         {"step_id": step.step_id, "capability": step.capability, "payload": step.payload}
@@ -300,8 +305,7 @@ def _build_mission_record(
         execution_plan=execution_plan,
         execution_result=result.output if result is not None else None,
         execution_time_seconds=result.execution_time_seconds if result is not None else 0.0,
-        folders_created=folders_created,
-        files_created=files_created,
+        artifacts=_extract_artifacts(result),
         errors=errors,
         outcome=mission.outcome,
     )

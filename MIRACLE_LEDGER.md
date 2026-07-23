@@ -16,6 +16,7 @@ except to fix a factual error.
 | **003.1** — First Real Mission | 2026-07-23 | `v0.3.1-miracle-003-1` | `307c8b8` | 93 passed | ✅ Shipped | Closed Miracle 003's gap: connected real conversation ("Create a Python project called Demo.") to `workspace_bootstrap`, through the full stack — Conversation → Intent Parser → Mission → Planner → Permission System → Executor → `WorkspaceBootstrapAction` → primitives. Zero changes to `Orchestrator`, `PermissionSystem`, or the composite's own relay logic — proof the design generalizes. Found and fixed one real bug (`InvocationResult` silently dropping execution time). Full writeup: `docs/MISSION_BRIEF_003_1.md`. |
 | **003.5** — Foundation Freeze | 2026-07-23 | `v0.3.5-miracle-003-5` | *(see note below — a file can't contain the hash of the commit that introduces it)* | 93 passed (unchanged) | ✅ Shipped | Zero user-facing features, zero architecture changes, zero runtime behavior changes (`src/`/`tests/` diff empty). Created the project's permanent engineering documentation set (this file included) before Memory, Voice, or Model Routing begin. See `FOUNDER_PLAYBOOK.md` for the process this freeze itself now codifies. |
 | **004** — The Memory System | 2026-07-23 | `v0.4.0-miracle-004` | *(see note below — same self-reference problem as 003.5)* | 124 passed | ✅ Shipped | Design-first six-layer memory model (`MEMORY_ARCHITECTURE.md`); Layers 1-3 implemented (Conversation, Mission, Persistent/SQLite), Layers 4-6 reserved as interfaces only. `MasterAgentSession` now persists every mission automatically at every terminal state — no manual save calls in the CLI — and answers "What was my last mission?" / "Show my recent missions." from Memory. Verified across a real process restart. Key design decision: ADR-0007 (stdlib `sqlite3`, JSON columns over normalization). Full writeup: `docs/MISSION_BRIEF_004.md`. |
+| **004.1** — Memory Scale Review | 2026-07-23 | `v0.4.1-miracle-004-1` | *(see note below — same self-reference problem, resolved the same way from the start this time)* | 126 passed | ✅ Shipped | Reviewed Memory against long-term scale (millions of missions, thousands of plugins, hundreds of capabilities, years of history) before more got built on top of it. Fixed two real problems: `MemoryStore`'s query surface (one `query_missions(MissionQuery)` instead of a method per filter need) and `MissionRecord`'s filesystem-specific `folders_created`/`files_created` columns (replaced with a generic `artifacts` list). `Memory`'s public API and every existing caller unchanged. Key design decision: ADR-0008. Full writeup: `docs/MISSION_BRIEF_004_1.md`. |
 
 ## Notes on gaps in this table
 
@@ -55,6 +56,11 @@ except to fix a factual error.
   A future documentation-only or ledger-updating Miracle will hit this
   again; treat "point to the tag" as the standing answer, not a one-off
   workaround.
+- **Miracle 004.1 applied that standing answer from the start** — its row
+  never tried to embed a commit hash at all, going straight to `git tag
+  -n1 v0.4.1-miracle-004-1` / `git rev-list -n1 v0.4.1-miracle-004-1` as
+  the pointer. No amend, no chase. This is what "treat it as the standing
+  answer" above actually looks like in practice.
 
 ## How to add a row
 

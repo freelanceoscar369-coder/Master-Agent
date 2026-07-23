@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from master_agent.memory.conversation import ConversationMemory, ConversationTurn
-from master_agent.memory.store import MemoryStore, MissionRecord
+from master_agent.memory.store import MemoryStore, MissionQuery, MissionRecord
 
 
 class Memory:
@@ -44,17 +44,17 @@ class Memory:
         return self._store.get_mission(mission_id)
 
     def last_mission(self) -> MissionRecord | None:
-        recents = self._store.recent_missions(limit=1)
+        recents = self._store.query_missions(MissionQuery(limit=1))
         return recents[0] if recents else None
 
     def recent_missions(self, limit: int = 10) -> list[MissionRecord]:
-        return self._store.recent_missions(limit=limit)
+        return self._store.query_missions(MissionQuery(limit=limit))
 
     def successful_missions(self, limit: int = 20) -> list[MissionRecord]:
-        return self._store.missions_by_status("completed", limit=limit)
+        return self._store.query_missions(MissionQuery(status="completed", limit=limit))
 
     def failed_missions(self, limit: int = 20) -> list[MissionRecord]:
-        return self._store.missions_by_status("failed", limit=limit)
+        return self._store.query_missions(MissionQuery(status="failed", limit=limit))
 
     # ---- Preferences (carried over from ADR-0004's original interface) ----
 

@@ -23,6 +23,16 @@ class MissionRecord:
     persists and Layer 3 queries return. See MEMORY_ARCHITECTURE.md §5
     for what each field means and why the structured-but-unqueried
     fields are plain JSON rather than normalized columns/tables.
+
+    `artifacts` (added in the Miracle 004 scale review) is a generic list
+    of `{"type": ..., "path"/"id"/...: ...}` entries — "folder" and
+    "file" are the two shapes today's two capabilities produce, but the
+    shape itself doesn't hardcode "folders and files" as the only kinds
+    of thing a mission can produce. A future git-operations capability
+    can contribute `{"type": "commit", "sha": ...}` to the same list
+    without a schema change. `folders_created`/`files_created` stay
+    available below as derived views, because Mission Brief 004's brief
+    asked for those fields by name — `artifacts` is the source of truth.
     """
 
     mission_id: str
@@ -35,17 +45,47 @@ class MissionRecord:
     execution_plan: list[dict[str, Any]] = field(default_factory=list)
     execution_result: Any = None
     execution_time_seconds: float = 0.0
-    folders_created: list[str] = field(default_factory=list)
-    files_created: list[str] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     outcome: dict[str, Any] | None = None
+
+    @property
+    def folders_created(self) -> list[str]:
+        """Derived view over `artifacts` — the folder-shaped subset."""
+        return [a["path"] for a in self.artifacts if a.get("type") == "folder" and "path" in a]
+
+    @property
+    def files_created(self) -> list[str]:
+        """Derived view over `artifacts` — the file-shaped subset."""
+        return [a["path"] for a in self.artifacts if a.get("type") == "file" and "path" in a]
+
+
+@dataclass
+class MissionQuery:
+    """Criteria for querying mission history — the one shape query needs
+    grow into, added by the Miracle 004 scale review. Every filter a
+    future Miracle needs (a date range, a capability, a text match once
+    Layer 5 exists) is a new *field* here, not a new `MemoryStore` method.
+    That's what keeps the storage contract from growing a method per
+    query shape as the number of capabilities and years of history grow —
+    see MEMORY_ARCHITECTURE.md §6a."""
+
+    status: str | None = None
+    limit: int = 20
+    offset: int = 0
 
 
 class MemoryStore(ABC):
     """The storage contract. The rest of the system depends on this (via
     the `Memory` facade in memory/memory.py), never on a concrete
     backend — swapping SQLite for JSON/Postgres/a future sync-aware store
-    means writing one new class here, nothing above it changes."""
+    means writing one new class here, nothing above it changes.
+
+    Deliberately five methods, meant to stay five methods: single-item
+    write (`save_mission`), single-item read by identity (`get_mission`),
+    one general read-many (`query_missions`), and the two preference
+    accessors. New query needs extend `MissionQuery`, not this list.
+    """
 
     @abstractmethod
     def save_mission(self, record: MissionRecord) -> None:
@@ -56,11 +96,7 @@ class MemoryStore(ABC):
         ...
 
     @abstractmethod
-    def recent_missions(self, limit: int = 20) -> list[MissionRecord]:
-        ...
-
-    @abstractmethod
-    def missions_by_status(self, status: str, limit: int = 20) -> list[MissionRecord]:
+    def query_missions(self, query: MissionQuery) -> list[MissionRecord]:
         ...
 
     @abstractmethod
@@ -84,13 +120,17 @@ CREATE TABLE IF NOT EXISTS missions (
     execution_plan          TEXT NOT NULL,
     execution_result        TEXT,
     execution_time_seconds  REAL NOT NULL DEFAULT 0.0,
-    folders_created         TEXT NOT NULL,
-    files_created           TEXT NOT NULL,
+    artifacts               TEXT NOT NULL,
     errors                  TEXT NOT NULL,
     outcome                 TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status);
+-- Unfiltered recency queries (last_mission, recent_missions) hit this one.
 CREATE INDEX IF NOT EXISTS idx_missions_completed_at ON missions(completed_at);
+-- Status-filtered recency queries (successful_missions, failed_missions)
+-- hit this composite index instead of a status-only index + a separate
+-- sort step -- matters once a single status has hundreds of thousands of
+-- rows, not at today's volumes, but costs nothing to have from day one.
+CREATE INDEX IF NOT EXISTS idx_missions_status_completed ON missions(status, completed_at);
 
 CREATE TABLE IF NOT EXISTS preferences (
     key   TEXT PRIMARY KEY,
@@ -131,8 +171,8 @@ class SQLiteMemoryStore(MemoryStore):
             INSERT INTO missions (
                 mission_id, title, intent_summary, status, approval_status,
                 created_at, completed_at, execution_plan, execution_result,
-                execution_time_seconds, folders_created, files_created, errors, outcome
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                execution_time_seconds, artifacts, errors, outcome
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mission_id) DO UPDATE SET
                 title = excluded.title,
                 intent_summary = excluded.intent_summary,
@@ -142,8 +182,7 @@ class SQLiteMemoryStore(MemoryStore):
                 execution_plan = excluded.execution_plan,
                 execution_result = excluded.execution_result,
                 execution_time_seconds = excluded.execution_time_seconds,
-                folders_created = excluded.folders_created,
-                files_created = excluded.files_created,
+                artifacts = excluded.artifacts,
                 errors = excluded.errors,
                 outcome = excluded.outcome
             """,
@@ -158,8 +197,7 @@ class SQLiteMemoryStore(MemoryStore):
                 json.dumps(record.execution_plan),
                 json.dumps(record.execution_result) if record.execution_result is not None else None,
                 record.execution_time_seconds,
-                json.dumps(record.folders_created),
-                json.dumps(record.files_created),
+                json.dumps(record.artifacts),
                 json.dumps(record.errors),
                 json.dumps(record.outcome) if record.outcome is not None else None,
             ),
@@ -172,17 +210,19 @@ class SQLiteMemoryStore(MemoryStore):
         ).fetchone()
         return self._row_to_record(row) if row else None
 
-    def recent_missions(self, limit: int = 20) -> list[MissionRecord]:
-        rows = self._conn.execute(
-            "SELECT * FROM missions ORDER BY completed_at DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [self._row_to_record(row) for row in rows]
-
-    def missions_by_status(self, status: str, limit: int = 20) -> list[MissionRecord]:
-        rows = self._conn.execute(
-            "SELECT * FROM missions WHERE status = ? ORDER BY completed_at DESC LIMIT ?",
-            (status, limit),
-        ).fetchall()
+    def query_missions(self, query: MissionQuery) -> list[MissionRecord]:
+        # Built up rather than one fixed statement: today only `status`
+        # is an optional clause, but every future MissionQuery field
+        # (since/until, capability, ...) is meant to slot in here the
+        # same way, without this method's signature ever changing.
+        sql = "SELECT * FROM missions"
+        params: list[Any] = []
+        if query.status is not None:
+            sql += " WHERE status = ?"
+            params.append(query.status)
+        sql += " ORDER BY completed_at DESC LIMIT ? OFFSET ?"
+        params.extend([query.limit, query.offset])
+        rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_record(row) for row in rows]
 
     def remember_preference(self, key: str, value: Any) -> None:
@@ -216,8 +256,7 @@ class SQLiteMemoryStore(MemoryStore):
                 json.loads(row["execution_result"]) if row["execution_result"] is not None else None
             ),
             execution_time_seconds=row["execution_time_seconds"],
-            folders_created=json.loads(row["folders_created"]),
-            files_created=json.loads(row["files_created"]),
+            artifacts=json.loads(row["artifacts"]),
             errors=json.loads(row["errors"]),
             outcome=json.loads(row["outcome"]) if row["outcome"] is not None else None,
         )

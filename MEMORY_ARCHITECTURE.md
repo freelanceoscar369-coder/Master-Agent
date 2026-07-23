@@ -1,6 +1,10 @@
 # Memory Architecture
 
-Status: Added 2026-07-23 — Miracle 004, The Memory System
+Status: Updated 2026-07-23 — Miracle 004.1, Memory System Scale Review
+(see §6a, §6b — the query contract and the artifact schema were
+generalized after a design review against multi-year, high-volume growth;
+`docs/adr/0008-memory-scale-review.md` has the full before/after
+reasoning). Originally added 2026-07-23 — Miracle 004, The Memory System.
 
 This is the design document required before any Memory code was written
 (per the Miracle 004 brief's explicit gate: "Only after the design is
@@ -168,13 +172,17 @@ CREATE TABLE IF NOT EXISTS missions (
     execution_plan          TEXT NOT NULL,   -- JSON: [{step_id, capability, payload}, ...]
     execution_result        TEXT,            -- JSON: the raw result output, or NULL
     execution_time_seconds  REAL NOT NULL DEFAULT 0.0,
-    folders_created         TEXT NOT NULL,   -- JSON list of paths
-    files_created            TEXT NOT NULL,   -- JSON list of paths
+    artifacts                TEXT NOT NULL,   -- JSON: [{"type": ..., "path"/"id"/...: ...}, ...]
     errors                    TEXT NOT NULL,   -- JSON list of error strings
     outcome                   TEXT             -- JSON: Mission.outcome, mirrored for transparency
 );
-CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status);
+-- Unfiltered recency queries (last_mission, recent_missions) hit this one.
 CREATE INDEX IF NOT EXISTS idx_missions_completed_at ON missions(completed_at);
+-- Status-filtered recency queries (successful_missions, failed_missions)
+-- hit this composite index instead of a status-only index + a separate
+-- sort step -- matters at large per-status row counts, not today's
+-- volumes, but costs nothing to have from day one.
+CREATE INDEX IF NOT EXISTS idx_missions_status_completed ON missions(status, completed_at);
 
 CREATE TABLE IF NOT EXISTS preferences (
     key   TEXT PRIMARY KEY,
@@ -186,18 +194,29 @@ This covers every field the brief asked for: Mission ID, Timestamp
 (`created_at`/`completed_at`), Intent (`intent_summary`), Execution Plan,
 Approval Status, Execution Result, Execution Time, Files Created, Folders
 Created, Status, Errors. `title` and `outcome` are additions beyond the
-brief's list — `title` because the conversational query responses (§6)
+brief's list — `title` because the conversational query responses (§9)
 need a clean display string, not a re-parse of raw intent text every time;
 `outcome` because mirroring `Mission.outcome` verbatim costs one column
 and keeps the record fully self-describing without a second query.
 
-`execution_plan`, `execution_result`, `folders_created`, `files_created`,
-and `errors` are JSON text rather than normalized child tables because
-nothing today needs to query *into* them (e.g. "find every mission that
-created a file named X") — only the top-level `status` and
-`completed_at` are actually filtered/sorted on, hence the two indexes.
-If a future Miracle needs to query inside those fields, that's the
-trigger to normalize them then, not now.
+**`artifacts`, not `folders_created`/`files_created` columns (§6b).**
+"Files created" and "folders created" are what the brief asked for by
+name, and `MissionRecord.folders_created`/`.files_created` still exist as
+computed properties returning exactly that — but the *column* is a
+generic `artifacts` list of `{"type": ..., ...}` entries, not two
+filesystem-specific columns. A future capability whose output isn't
+folder/file-shaped (a git commit, a shell command's exit code, a
+downloaded asset) contributes its own artifact shape without a schema
+change. See `docs/adr/0008-memory-scale-review.md` for why this changed
+from the original Mission Brief 004 shape.
+
+`execution_plan`, `execution_result`, `artifacts`, and `errors` are JSON
+text rather than normalized child tables because nothing today needs to
+query *into* them (e.g. "find every mission that created a file named
+X") — only the top-level `status` and `completed_at` are actually
+filtered/sorted on, hence the two indexes. If a future Miracle needs to
+query inside those fields, that's the trigger to normalize them then, not
+now.
 
 ## 6. The Memory API (the contract)
 
@@ -206,11 +225,48 @@ know whether storage is SQLite / JSON / Postgres / Vector DB / Cloud"
 requirement:
 
 - **`MemoryStore`** (`memory/store.py`, ABC) — the storage contract:
-  `save_mission`, `get_mission`, `recent_missions`, `missions_by_status`,
-  `remember_preference`, `recall_preference`. `SQLiteMemoryStore` is the
-  only implementation today. A `JSONMemoryStore` or a future
-  Postgres-backed store would implement the same six methods and nothing
-  above it would need to change.
+  `save_mission`, `get_mission`, `query_missions`, `remember_preference`,
+  `recall_preference`. `SQLiteMemoryStore` is the only implementation
+  today. A `JSONMemoryStore` or a future Postgres-backed store would
+  implement the same five methods and nothing above it would need to
+  change.
+
+### 6a. Why `query_missions(MissionQuery)` and not a method per query shape
+
+The original Mission Brief 004 shape had `recent_missions(limit)` and
+`missions_by_status(status, limit)` as two separate `MemoryStore`
+methods. A scale review (`docs/adr/0008-memory-scale-review.md`) flagged
+this as a design that would not survive "hundreds of capabilities": every
+future filter (a date range, a specific capability, eventually free-text
+search once Layer 5 exists) would otherwise become another `MemoryStore`
+method, growing the storage contract forever and making every current and
+future backend implementation more expensive to write.
+
+The fix: one `query_missions(query: MissionQuery) -> list[MissionRecord]`
+method. `MissionQuery` is a small dataclass (`status`, `limit`, `offset`
+today) — new filters are new fields on this dataclass, never new methods
+on `MemoryStore`. `Memory`'s public, friendly methods
+(`last_mission()`, `recent_missions()`, `successful_missions()`,
+`failed_missions()`) are unchanged and build the right `MissionQuery`
+internally — nothing above `Memory` (`cli.py`, tests, a future Planner)
+needed to change when this was reshaped underneath it. `offset` exists
+ahead of any consumer needing it, for Layer 5's future indexer (§12),
+which will need to page through the *entire* mission history, not just
+the most recent N — a one-field, zero-new-infrastructure addition, not
+premature complexity.
+
+### 6b. Why `artifacts`, not `folders_created`/`files_created`, is the stored shape
+
+The same review flagged `folders_created`/`files_created` as columns that
+hardcode a filesystem-specific assumption about what a mission produces.
+They work for today's two capabilities and nothing else — a future git
+plugin's commit, a shell command's output, a browser plugin's downloaded
+file none of these are "folders" or "files." The fix: store a generic
+`artifacts: list[dict]` (`{"type": ..., "path"/"id"/...: ...}`) instead;
+`MissionRecord.folders_created`/`.files_created` remain as `@property`
+views computed from `artifacts`, so the brief's literal ask and every
+existing caller keep working — `artifacts` is now the source of truth
+underneath them. See `docs/adr/0008-memory-scale-review.md`.
 - **`Memory`** (`memory/memory.py`, facade) — the single object the rest
   of the system actually depends on. Composes Layer 1
   (`ConversationMemory`) and a `MemoryStore` (Layer 3) behind one surface:
@@ -246,13 +302,18 @@ the CLI"). `approval_status` is derived from *how* `_run()` was reached:
 
 No semantic search — five simple, literal queries, exactly as scoped:
 
-| Query | `Memory` method | Backing SQL |
+| Query | `Memory` method | Backing `MissionStore.query_missions(...)` call |
 |---|---|---|
-| Last mission | `last_mission()` | `recent_missions(limit=1)`, first row |
-| Mission by ID | `mission_by_id(id)` | `SELECT ... WHERE mission_id = ?` |
-| Last 10 missions | `recent_missions(limit=10)` | `SELECT ... ORDER BY completed_at DESC LIMIT ?` |
-| Successful missions | `successful_missions()` | `SELECT ... WHERE status = 'completed' ...` |
-| Failed missions | `failed_missions()` | `SELECT ... WHERE status = 'failed' ...` |
+| Last mission | `last_mission()` | `MissionQuery(limit=1)`, first row |
+| Mission by ID | `mission_by_id(id)` | (`get_mission`, not `query_missions` — a point lookup by primary key) |
+| Last 10 missions | `recent_missions(limit=10)` | `MissionQuery(limit=10)` |
+| Successful missions | `successful_missions()` | `MissionQuery(status="completed")` |
+| Failed missions | `failed_missions()` | `MissionQuery(status="failed")` |
+
+`Memory`'s method names and signatures above are unchanged from the
+original Mission Brief 004 shape — the `MissionQuery`/`query_missions`
+redesign (§6a) is entirely internal to how `Memory` talks to
+`MemoryStore`.
 
 Two of these are reachable from real conversation today (see §9);
 `mission_by_id`, `successful_missions`, and `failed_missions` are real,
@@ -341,6 +402,14 @@ Local-first, exactly as required:
   `SQLiteMemoryStore` opens one connection for its own lifetime, which is
   fine for a single-user desktop CLI and would need reconsidering for any
   future multi-process or server deployment.
+- **`LocalExecutor._log` (`executor/executor.py`, Mission Brief 002) is an
+  unbounded in-memory list, not part of Memory at all.** Found during the
+  scale review, out of scope to fix here since it predates this Miracle
+  and touching it wasn't asked for. Not a problem for a CLI process that
+  exits after a session, but would leak memory in a long-running daemon
+  processing missions for years. Flagged on `ROADMAP.md` as a future
+  one-line item: bound it, or fold it into `Memory` now that a durable
+  home for execution history exists.
 
 ## 12. Future evolution path
 
@@ -352,9 +421,12 @@ Local-first, exactly as required:
 - **Layer 5 (Vector Memory)** — semantic recall, exactly as ADR-0004
   already anticipated ("a local embedding index for semantic recall").
   The natural shape: a component that reads Layer 3's `missions` table
-  (via `Memory.recent_missions`/a new bulk-read method) and indexes
+  (via `MissionQuery`'s `offset` field, walking the whole table page by
+  page — already there for exactly this, see §6a) and indexes
   `title`/`intent_summary`/`execution_result` locally — additive, not a
-  migration.
+  migration. Deep `OFFSET` pagination is O(offset) in SQLite; fine for a
+  one-time or periodic background index build, not something this
+  Miracle solved further since nothing today demonstrates a need to.
 - **Layer 6 (Cloud Sync)** — arrives as an optional plugin, per ADR-0004,
   reading/writing through the same `MemoryStore` interface rather than
   bypassing it — e.g. a `push(since=...)`/`pull()` implementation of

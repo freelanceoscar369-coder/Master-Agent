@@ -87,6 +87,17 @@ respectively.
   Verified across a real process restart (a fresh `python -m
   master_agent.cli` process reads mission history a prior process wrote).
   Full detail: `docs/MISSION_BRIEF_004.md`.
+- **Mission Brief 004.1 stress-tested that design against long-term
+  scale** (millions of missions, thousands of plugins, hundreds of
+  capabilities, years of history) before it went further unreviewed.
+  Replaced `MemoryStore`'s two query methods with one
+  `query_missions(MissionQuery)` — new filters become dataclass fields,
+  never new interface methods — and replaced the filesystem-specific
+  `folders_created`/`files_created` columns with a generic `artifacts`
+  list, so a future capability that isn't folder/file-shaped (a git
+  commit, a shell command's output) doesn't need a schema change.
+  `Memory`'s public API and every existing caller are unchanged. Key
+  decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
 
 ## Where to go for what
 

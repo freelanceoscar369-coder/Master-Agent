@@ -47,6 +47,15 @@ structured fields nothing queries into yet, rather than a normalized
 multi-table schema — "readable schema first," per the brief. See
 `docs/adr/0007-sqlite-memory-backend.md`.
 
+## ADR-0008: Memory scale review (Mission Brief 004.1)
+Reviewed Memory against "millions of missions, thousands of plugins,
+hundreds of capabilities, years of history." Two things didn't hold up:
+`MemoryStore`'s query surface (fixed with one `query_missions(MissionQuery)`
+method instead of a method per filter) and `MissionRecord`'s
+filesystem-specific `folders_created`/`files_created` columns (fixed with
+a generic `artifacts` list). `Memory`'s public API unchanged. See
+`docs/adr/0008-memory-scale-review.md`.
+
 ## Mission Brief 001 (2026-07-23): First end-to-end mission
 Implemented a real vertical slice — text in, real filesystem write out,
 real Permission System gate — using only existing scaffold modules
@@ -98,6 +107,19 @@ mission?", "Show my recent missions.") — verified across a real process
 restart. `MissionManager` remains unwired into the live path; that's
 scoped into the real-Planner Miracle next. Full detail:
 `docs/MISSION_BRIEF_004.md`.
+
+## Mission Brief 004.1 (2026-07-23): Memory System scale review
+A standing review question ("would this design survive millions of
+missions, thousands of plugins, hundreds of capabilities, years of
+history?") was applied to Memory immediately after it shipped, before
+anything else got built on top of it. Two real problems found and fixed
+(ADR-0008): the query interface would have grown a method per future
+filter need, and the persisted schema hardcoded a filesystem-specific
+assumption about mission output. Both fixed additively — `Memory`'s
+public API and every existing caller unchanged. One further finding
+(`LocalExecutor._log` is unbounded) was named but deliberately not fixed,
+since it predates this Miracle and wasn't part of what was asked. Full
+detail: `docs/MISSION_BRIEF_004_1.md`.
 
 ## Open decisions (not yet locked)
 - Desktop UI stack: recommended pywebview + local FastAPI server for
