@@ -2,12 +2,19 @@
 real Orchestrator, real PermissionSystem, and real PluginRegistry, with
 only the filesystem location sandboxed to tmp_path (via FilesystemPlugin's
 DI seam) so nothing here ever touches the real Desktop.
+
+As of Mission Brief 002, FilesystemPlugin is a thin adapter over
+LocalExecutor + CreateFolderAction (see executor/), but the flow this
+file exercises — and every assertion in it — is unchanged: this is the
+regression test proving the create-folder mission still works exactly as
+before after that refactor.
 """
 from __future__ import annotations
 
 import pytest
 
 from master_agent.cli import MasterAgentSession, UnrecognizedInput, parse_intent
+from master_agent.executor.executor import LocalExecutor
 from master_agent.mission_manager.mission import MissionStatus
 from master_agent.orchestrator.orchestrator import Orchestrator
 from master_agent.permissions.permission_system import PermissionSystem
@@ -40,9 +47,10 @@ def test_parse_intent_rejects_unrelated_text():
 # ---- full session -------------------------------------------------------
 
 def build_session(tmp_path) -> MasterAgentSession:
-    registry = PluginRegistry()
-    registry.register(FilesystemPlugin(locations={"desktop": tmp_path}))
     permissions = PermissionSystem()
+    executor = LocalExecutor(permissions)
+    registry = PluginRegistry()
+    registry.register(FilesystemPlugin(executor, locations={"desktop": tmp_path}))
     orchestrator = Orchestrator(registry, permissions)
     return MasterAgentSession(registry, permissions, orchestrator)
 

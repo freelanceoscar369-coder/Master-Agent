@@ -6,7 +6,10 @@ Mission Manager, Model Router, Memory, or either model provider — those
 stay out of scope for this brief. What's real here: rule-based intent
 parsing for exactly one command, the actual PermissionSystem gate, the
 actual Orchestrator + PluginRegistry, and a real filesystem write via
-FilesystemPlugin.
+FilesystemPlugin — which, as of Mission Brief 002, is a thin adapter over
+the LocalExecutor + CreateFolderAction (see executor/executor.py and
+docs/MISSION_BRIEF_002.md). The observable behavior below is unchanged
+from Mission Brief 001; only the internals moved.
 
 The Step/MissionPlan shapes used below are the same ones the real Planner
 (planner/planner.py) will eventually produce — this module hand-builds a
@@ -19,6 +22,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from master_agent.executor.executor import LocalExecutor
 from master_agent.mission_manager.mission import Mission, MissionStatus
 from master_agent.orchestrator.orchestrator import Orchestrator, StepResult
 from master_agent.permissions.permission_system import GrantScope, PermissionSystem
@@ -174,9 +178,10 @@ def build_default_session() -> MasterAgentSession:
     real filesystem's Desktop path — everything else takes it as a
     parameter, which is what keeps this testable.
     """
-    registry = PluginRegistry()
-    registry.register(FilesystemPlugin())
     permissions = PermissionSystem()
+    executor = LocalExecutor(permissions)
+    registry = PluginRegistry()
+    registry.register(FilesystemPlugin(executor))
     orchestrator = Orchestrator(registry, permissions)
     return MasterAgentSession(registry, permissions, orchestrator)
 

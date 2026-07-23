@@ -1,14 +1,38 @@
-"""Filesystem capability plugin — the first real (non-model) plugin in the
-system, and the one Mission Brief 001 exercises end to end. Implements the
-same Plugin contract as everything else (ADR-0003): a manifest and
-invoke(). Nothing about the Orchestrator or Permission System needed to
-change to accommodate it.
+"""Filesystem capability plugin — a thin Plugin-contract adapter over the
+LocalExecutor (Mission Brief 002). All real logic (idempotency, error
+handling, the actual mkdir) now lives in
+executor/actions/create_folder.py's CreateFolderAction; this class exists
+only so the Orchestrator/PluginRegistry can resolve "create_folder" the
+same way it resolves every other capability (ADR-0003) — nothing about
+that resolution changed.
+
+## Why this relays a permission grant instead of just calling execute()
+
+The Orchestrator already gates entry to invoke() on the Permission System,
+keyed to (this plugin's manifest name, capability) — see
+orchestrator/orchestrator.py, unchanged by this refactor. By the time
+invoke() runs at all, a human has already approved this exact action.
+
+The LocalExecutor also checks permission before running an action — it
+has to, because it's meant to be safely callable on its own, without a
+Plugin/Orchestrator in front of it (see executor/executor.py's module
+docstring and docs/adr/0005-executor-permission-relay.md). But it checks
+a *different* grant key (the executor's own name, not this plugin's), so
+its check doesn't collide with — and doesn't get skipped by — the
+Orchestrator's already-consumed grant. That means this adapter has to
+relay the approval it already received down to the Executor's key,
+scoped ONCE, immediately before calling execute(). The human is never
+asked twice; the Executor's gate stays real for anyone who calls it
+directly.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
+from master_agent.executor.actions.create_folder import CREATE_FOLDER, CreateFolderAction
+from master_agent.executor.executor import LocalExecutor
+from master_agent.permissions.permission_system import GrantScope
 from master_agent.plugins.base import (
     CapabilityManifest,
     InvocationResult,
@@ -17,27 +41,27 @@ from master_agent.plugins.base import (
     RiskTier,
 )
 
-CREATE_FOLDER = "create_folder"
-
 
 class FilesystemPlugin(Plugin):
-    """Creates folders under a small, named set of locations.
+    """Exposes CreateFolderAction as the `create_folder` capability.
 
-    `locations` maps a lowercase location name (e.g. "desktop") to a real
-    base directory, and is injected rather than hardcoded — this is the
-    dependency-injection seam that lets tests point "desktop" at a tmp_path
-    instead of the real user Desktop, without touching this class. Defaults
-    to the real Desktop for interactive/production use.
+    `executor` is injected (dependency injection, consistent with the rest
+    of the codebase) — this plugin registers its action on whatever
+    executor it's given rather than owning one itself, so multiple
+    filesystem-backed plugins could someday share one executor's log.
+    `locations` is passed straight through to CreateFolderAction; see that
+    class for why it's injected too (tests point "desktop" at a tmp_path).
     """
 
-    def __init__(self, locations: dict[str, Path] | None = None) -> None:
-        self._locations = locations or {"desktop": Path.home() / "Desktop"}
+    def __init__(self, executor: LocalExecutor, locations: dict[str, Path] | None = None) -> None:
+        self._executor = executor
+        self._executor.register(CreateFolderAction(locations))
 
     @property
     def manifest(self) -> PluginManifest:
         return PluginManifest(
             name="filesystem",
-            version="0.1.0",
+            version="0.2.0",
             capabilities=[
                 CapabilityManifest(
                     name=CREATE_FOLDER,
@@ -53,35 +77,17 @@ class FilesystemPlugin(Plugin):
         if capability != CREATE_FOLDER:
             return InvocationResult(success=False, error=f"unsupported capability: {capability}")
 
-        name = (payload.get("name") or "").strip()
-        if not name:
-            return InvocationResult(success=False, error="missing folder name")
+        # Relay this call's already-obtained approval to the Executor's
+        # own grant key — see module docstring. Deliberately NOT wrapped
+        # in a try/except: ApprovalRequired should never actually be
+        # raised by this check (a fresh ONCE grant always satisfies the
+        # very next check for the same key), but if it somehow were, it
+        # must propagate to the Orchestrator like any other
+        # ApprovalRequired, not be swallowed here.
+        self._executor.permissions.grant(self._executor.name, capability, GrantScope.ONCE)
 
-        location_key = (payload.get("location") or "desktop").strip().lower()
-        base = self._locations.get(location_key)
-        if base is None:
-            known = ", ".join(sorted(self._locations)) or "none configured"
-            return InvocationResult(
-                success=False,
-                error=f"unknown location '{location_key}' (known: {known})",
-            )
+        result = self._executor.execute(capability, payload)
 
-        target = base / name
-
-        if target.exists():
-            if target.is_dir():
-                # Idempotent: asking to create a folder that's already
-                # there is a success, not an error — matches how a human
-                # would read "create a folder called Demo" a second time.
-                return InvocationResult(success=True, output=str(target))
-            return InvocationResult(
-                success=False,
-                error=f"{target} already exists and is not a folder",
-            )
-
-        try:
-            target.mkdir(parents=True, exist_ok=False)
-        except OSError as exc:
-            return InvocationResult(success=False, error=str(exc))
-
-        return InvocationResult(success=True, output=str(target))
+        if not result.success:
+            return InvocationResult(success=False, error="; ".join(result.errors) or "unknown executor failure")
+        return InvocationResult(success=True, output=result.output)

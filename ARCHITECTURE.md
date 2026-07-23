@@ -65,6 +65,13 @@ answerable to:
    Plugin Runtime
     ├─ Model Providers (ChatGPT, Hermes-local, ...)
     ├─ Capability Plugins (fs, calendar, browser, ...)
+    │     │  local-action plugins delegate here:
+    │     ▼
+    │  Local Executor ──► Action (validate → permission check → run)
+    │     │                  └─► e.g. CreateFolderAction → filesystem
+    │     ▼
+    │  ExecutionResult + log entry (action, times, duration, status)
+    │
     └─ Voice I/O Adapters (STT, TTS)
         │
         ▼
@@ -126,9 +133,43 @@ provided, risk tier per capability, input/output schema) plus an `invoke()`
 method. `registry.py` discovers and indexes installed plugins at startup.
 Model providers (`plugins/providers/`) are plugins like any other — ChatGPT
 and local Hermes both implement the same `ModelProvider` interface, which is
-what makes the Model Router possible (see §5).
+what makes the Model Router possible (see §5). Plugins that need to touch
+the local machine (filesystem, shell, git, ...) don't do that work
+themselves — they delegate to the Local Executor (§4.7). `FilesystemPlugin`
+is the first example: a thin adapter that registers a `CreateFolderAction`
+and forwards `invoke()` calls to it.
 
-### 4.7 Local Memory (`memory/`)
+### 4.7 Local Executor (`executor/`)
+The only component allowed to perform local actions — added in Mission
+Brief 002. `action.py` defines the **Action Contract** every local
+capability implements: a name, description, risk tier, required
+parameters, a `validate()` step, and a `run()` step that does the actual
+work and returns a structured `ExecutionResult` (success, output, errors,
+warnings, execution time). `executor.py`'s `LocalExecutor` is what
+capabilities actually execute through: it looks up the registered Action,
+validates parameters, checks the Permission System, runs the action,
+catches anything that escapes (never a raw traceback), and logs every
+execution (action, start/end time, duration, status) in memory.
+
+This exists so that `create_folder` isn't a one-off special case: every
+future local capability in `ARCHITECTURE.md`'s original list — create
+file, read file, rename, delete, copy, move, run PowerShell/CMD, git
+operations, VS Code operations, Obsidian operations — plugs into the same
+Action Contract and runs through the same executor, with the same
+validation, permission-gating, structured-failure, and logging behavior
+for free. A Plugin adapter (like `FilesystemPlugin`) still exists above
+it so the Orchestrator/PluginRegistry resolve capabilities the same way
+they always have (ADR-0003 is unchanged) — the Executor is what that
+adapter delegates to, not a replacement for the Plugin contract.
+
+The Executor checks permission itself, using its own grant key distinct
+from the Orchestrator's — see
+`docs/adr/0005-executor-permission-relay.md` for why two independent
+permission checks in the same call chain need different keys, and how the
+Plugin adapter relays an already-obtained approval down to the Executor's
+key without asking the human twice.
+
+### 4.8 Local Memory (`memory/`)
 Local-first store (SQLite for structured mission/state data, plus a local
 embedding index for semantic recall) — no cloud dependency for the system
 to function. Holds mission history, learned user preferences, and the
@@ -136,14 +177,14 @@ plugin capability index cache. This is the "Learn" step of the
 Kalpavriksha loop: outcomes recorded here feed back into future Planner
 calls as context.
 
-### 4.8 Voice I/O (`voice/`)
+### 4.9 Voice I/O (`voice/`)
 `input.py` wraps a local speech-to-text engine (default: local, e.g.
 faster-whisper) behind a `Transcriber` interface; `output.py` wraps a local
 text-to-speech engine (default: local, e.g. Piper) behind a `Speaker`
 interface. Both are plugins, so a cloud STT/TTS provider can be swapped in
 later without touching the Intent Layer or Reporter.
 
-### 4.9 Desktop UI
+### 4.10 Desktop UI
 A thin client, deliberately decoupled from the engine via a local HTTP/WS
 API (not imported as a library). This means: the engine can run headless
 (useful for testing and for a future server deployment), and the UI
@@ -184,6 +225,12 @@ adding a third provider later (e.g. Claude via API) means writing one new
 - **Plugin distribution**: for Founder Edition, plugins can just be local
   Python packages discovered by the registry at startup — no need to build
   a plugin marketplace/installer yet. Confirm that's acceptable for v0.1.
+- **Local-executor-backed plugin base class**: right now `FilesystemPlugin`
+  hand-writes the permission-grant relay described in
+  `docs/adr/0005-executor-permission-relay.md`. Fine with one example;
+  worth factoring into a shared base class once a second local-action
+  plugin (e.g. git operations) is added, so the relay isn't something
+  every new plugin author has to remember by convention.
 
 See `docs/TIMELINE_RISK.md` for how these choices interact with the Aug 5
 deadline.

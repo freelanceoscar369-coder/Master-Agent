@@ -21,16 +21,25 @@ values imply.
 - **Mission Brief 001 is real and working**: one full mission
   ("create a folder called Demo") runs end to end through the actual
   Orchestrator, Permission System, and Mission state machine — not a
-  mock. 23 tests pass. Full detail and an honest "what's production-ready
-  vs. still a stub" accounting: `docs/MISSION_BRIEF_001.md`.
-- **This bootstrap (Mission Brief 001.5)** adds the founder-workspace
-  scaffolding — top-level runtime folders, this documentation set, the
-  Obsidian vault, git — around that working code, without touching the
-  code itself.
+  mock. Full detail and an honest "what's production-ready vs. still a
+  stub" accounting: `docs/MISSION_BRIEF_001.md`.
+- **Mission Brief 001.5** added the founder-workspace scaffolding — top-
+  level runtime folders, this documentation set, the Obsidian vault, git —
+  around the working code, without touching the code itself.
+- **Mission Brief 002 generalized execution**: a `LocalExecutor` +
+  `Action` contract now sits between the Orchestrator and the filesystem,
+  so every future local capability (read/rename/delete/copy/move file,
+  run PowerShell/CMD, git, VS Code, Obsidian, ...) plugs into the same
+  validated, permission-gated, logged execution path instead of being a
+  one-off special case. `create_folder` was refactored onto it with zero
+  functional regression (same transcript, same tests passing). 41 tests
+  pass. Full detail: `docs/MISSION_BRIEF_002.md`.
 - **What's still a stub, unchanged:** Planner (real model-driven
   planning), Mission Manager (persistence + multi-mission lifecycle),
   Model Router wiring to live providers, Memory persistence, Voice I/O,
-  Desktop UI. See `ROADMAP.md` for what's next and in what order.
+  Desktop UI, and every local action besides `create_folder` (the
+  Executor now supports adding them cheaply, but none are built yet). See
+  `ROADMAP.md` for what's next and in what order.
 
 ## Where to go for what
 
@@ -40,7 +49,8 @@ values imply.
 | What do we value / what tradeoffs does that force? | `MANIFESTO.md`, `PRODUCT_PRINCIPLES.md` |
 | How is the system designed? | `ARCHITECTURE.md` |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
-| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md` |
+| What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md` |
+| How does a new local capability plug in? | `ARCHITECTURE.md` §4.7, `docs/MISSION_BRIEF_002.md` |
 | What's next, and in what order? | `ROADMAP.md` |
 | What's known/unknown about the founder and constraints? | `FOUNDER_CONTEXT.md` |
 | How do I set this up on a new machine? | `START_HERE.md` |
