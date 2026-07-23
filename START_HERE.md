@@ -36,7 +36,7 @@ cd D:\MasterAgent
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                          # expect: 23 passed
+pytest                          # expect: 93 passed (see MIRACLE_LEDGER.md for the current count)
 ruff check src tests            # expect: All checks passed
 ```
 
@@ -53,6 +53,12 @@ Desktop.`, then `Yes`. A real folder should appear on your Desktop. See
 `docs/MISSION_BRIEF_001.md` for the full transcript and what's actually
 real versus stubbed underneath it.
 
+Or try the newer mission: type `Master Agent`, then `Create a Python
+project called Demo.`, then `Yes` — a real project folder (README,
+`.gitignore`, `requirements.txt`, `src/`, `tests/`, `docs/`, `config/`,
+`main.py`) appears on your Desktop. See `docs/MISSION_BRIEF_003_1.md`
+for the full transcript.
+
 ## 5. Layout, at a glance
 
 ```
@@ -68,8 +74,11 @@ D:\MasterAgent\
 ├── prompts/                # versioned prompt templates the engine uses
 ├── obsidian/               # founder vault — open as an Obsidian vault
 ├── PROJECT_BRAIN.md         # orientation index — read this first
-├── ARCHITECTURE.md, DECISIONS.md, docs/adr/   # system design + why
-├── MANIFESTO.md, WHY.md, PRODUCT_PRINCIPLES.md   # values and principles
+├── ARCHITECTURE.md, ARCHITECTURE_PRINCIPLES.md, DECISIONS.md, docs/adr/  # system design + why
+├── VISION.md, MANIFESTO.md, WHY.md   # mission/vision/values
+├── ENGINEERING_PRINCIPLES.md, PRODUCT_PRINCIPLES.md   # how we build, how it should feel
+├── FOUNDER_PLAYBOOK.md       # how a Miracle gets built, reviewed, shipped
+├── MIRACLE_LEDGER.md         # dated history: every shipped Miracle, tag, commit, test count
 ├── ROADMAP.md               # what's next
 └── FOUNDER_CONTEXT.md        # known constraints, target date, TBDs
 ```

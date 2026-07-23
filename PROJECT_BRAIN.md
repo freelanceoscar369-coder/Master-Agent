@@ -9,9 +9,13 @@ forgotten the details.
 
 Master Agent: an AI orchestration platform that turns a stated intention
 into a completed, verified outcome, instead of the human manually
-managing multiple AI tools. See `WHY.md` for the reasoning, `MANIFESTO.md`
-for the values, `PRODUCT_PRINCIPLES.md` for the engineering rules those
-values imply.
+managing multiple AI tools. See `VISION.md` for mission/vision/values/
+long-term goals stated formally, `WHY.md` for the origin-story version,
+`MANIFESTO.md` for the values as a statement, and
+`ENGINEERING_PRINCIPLES.md`/`PRODUCT_PRINCIPLES.md`/
+`ARCHITECTURE_PRINCIPLES.md` for what those values require in practice —
+how we build, how it should feel, and why it's shaped the way it is,
+respectively.
 
 ## Where things stand right now (2026-07-23)
 
@@ -61,20 +65,31 @@ values imply.
   `create_folder`/`write_file`/`workspace_bootstrap` (the Executor now
   supports adding them cheaply, but none are built yet). See `ROADMAP.md`
   for what's next and in what order.
+- **Mission Brief 003.5 froze the project's permanent engineering
+  documentation** before Memory, Voice, or Model Routing begin — zero
+  code changes, zero runtime behavior changes. Seven documents, some new
+  (`ENGINEERING_PRINCIPLES.md`, `MIRACLE_LEDGER.md`, `VISION.md`,
+  `ARCHITECTURE_PRINCIPLES.md`, `FOUNDER_PLAYBOOK.md`), some updated
+  (`PRODUCT_PRINCIPLES.md`, `ROADMAP.md`) — see the table below for what
+  each one is for.
 
 ## Where to go for what
 
 | Question | File |
 |---|---|
-| Why does this exist? | `WHY.md` |
-| What do we value / what tradeoffs does that force? | `MANIFESTO.md`, `PRODUCT_PRINCIPLES.md` |
-| How is the system designed? | `ARCHITECTURE.md` |
+| Why does this exist? | `VISION.md` (formal), `WHY.md` (origin story) |
+| What do we value / what tradeoffs does that force? | `MANIFESTO.md` |
+| How do those values shape how we build? | `ENGINEERING_PRINCIPLES.md` |
+| How do those values shape how the product should feel? | `PRODUCT_PRINCIPLES.md` |
+| How is the system designed, and why is it shaped that way? | `ARCHITECTURE.md` (what), `ARCHITECTURE_PRINCIPLES.md` (why) |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md` |
+| What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |
 | How does a new local capability plug in? | `ARCHITECTURE.md` §4.7, `docs/MISSION_BRIEF_002.md` |
 | How does a *composite* mission (several actions together) plug in? | `docs/MISSION_BRIEF_003.md`, `docs/adr/0006-composite-action-relay.md` |
 | How does typed/spoken conversation become a mission? | `ARCHITECTURE.md` §4.1-4.2, `docs/MISSION_BRIEF_003_1.md` |
 | What's next, and in what order? | `ROADMAP.md` |
+| How should a new Miracle actually be built, reviewed, tested, shipped? | `FOUNDER_PLAYBOOK.md` |
 | What's known/unknown about the founder and constraints? | `FOUNDER_CONTEXT.md` |
 | How do I set this up on a new machine? | `START_HERE.md` |
 | Is the deadline realistic? | `docs/TIMELINE_RISK.md` |

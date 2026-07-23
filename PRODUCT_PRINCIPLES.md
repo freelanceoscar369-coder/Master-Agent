@@ -1,9 +1,71 @@
 # Product Principles
 
-The founding engineering principles, stated once here as the canonical
-list — other docs (`ARCHITECTURE.md`, `MANIFESTO.md`) reference these
-rather than restating them, so this file is the source of truth if they
-ever seem to drift.
+Status: Frozen (2026-07-23) — Miracle 003.5, Foundation Freeze
+
+Two things live in this file, kept distinct:
+
+1. **Product philosophy** — how the product should *feel*, independent
+   of implementation. This is the newer section below and the one to
+   read first; it's what a design or UX decision should be checked
+   against.
+2. **The founding engineering principles list** — kept here as the
+   canonical, concise reference other docs (`ARCHITECTURE.md`,
+   `MANIFESTO.md`, `PROJECT_BRAIN.md`) already point to, so their
+   cross-references don't break. `ENGINEERING_PRINCIPLES.md` is now the
+   fuller treatment of the same list — each principle there is backed by
+   the real bug, ADR, or decision that produced it. Read this file's
+   list for the "what," that one for the "why, with evidence."
+
+## Product philosophy
+
+What the product should feel like using, stated as a short list of
+commitments — not features, not a roadmap.
+
+- **Results over prompts.** The user states an outcome; they should
+  never have to think in terms of "the right prompt" to get it. This is
+  "Intent over prompts" (below) read from the user's side of the screen
+  rather than the engineer's — the Intent Layer's whole job is absorbing
+  that translation so the user doesn't have to.
+- **One conversation.** A mission doesn't require the user to context-
+  switch between a chat window, a terminal, and a file explorer to see
+  what happened. Everything from "here's what I want" to "here's proof
+  it's done" happens in one continuous exchange — Mission Brief 001's
+  transcript through Mission Brief 003.1's is the same conversational
+  surface, extended, never replaced by a second interface.
+- **One workspace.** The user has one place their intentions turn into
+  outcomes, not a different tool per capability. `workspace_bootstrap`
+  (Miracle 003) exists specifically so "set up a new project" is one
+  request, not a folder here, a README there, a `.gitignore` remembered
+  separately.
+- **One assistant.** Multiple models and providers may work underneath
+  (the Model Router, `ARCHITECTURE.md` §5), but the user relates to one
+  consistent assistant, not a router they have to reason about. If a
+  user ever needs to know *which* model handled their request to trust
+  the result, the abstraction has leaked.
+- **Privacy first.** Sensitive context defaults to staying local (the
+  Model Router's routing policy, `ARCHITECTURE.md` §5) — the user should
+  never have to remember to ask for privacy; they should have to
+  deliberately opt out of it.
+- **Local-first.** The product works fully offline. Not "works offline
+  in a degraded mode" — every capability shipped so far
+  (`create_folder`, `write_file`, `workspace_bootstrap`) has zero network
+  dependency, by construction, not as a fallback path.
+- **Permission before action.** Every consequential action gets exactly
+  one clear, specific approval request — never a generic "allow this
+  action?" dialog, never silent execution, never repeated nagging for
+  things already approved within the same mission. See
+  `ENGINEERING_PRINCIPLES.md` #2 and #5 for how this is kept true as the
+  system grows more capable.
+- **Trust through transparency.** The user can always see what was
+  planned, what was approved, and what actually happened — a mission's
+  plan is shown before approval, its outcome is reported honestly
+  (including failures — `"Something went wrong: {error}"` is a real
+  message, not swallowed), and nothing is marked "done" without a
+  verification step (`MANIFESTO.md`'s "outcomes, not outputs"). Trust is
+  built from a visible track record, not from asking the user to have
+  faith.
+
+## Founding engineering principles
 
 - **Intent over prompts.** Capture a structured `Intent` (goal,
   constraints, context, success criteria) — not a raw prompt string
