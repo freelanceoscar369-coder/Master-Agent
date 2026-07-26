@@ -21,35 +21,51 @@ marked Completed here.
 | **004** — The Memory System | `memory/` gets a real six-layer design (`MEMORY_ARCHITECTURE.md`), Layers 1-3 implemented: Conversation Memory, Mission Memory (existing `Mission`, formalized), Persistent Memory (`SQLiteMemoryStore`, first real `MemoryStore` implementation). `MasterAgentSession` persists every mission automatically at every terminal state; two conversational queries ("What was my last mission?", "Show my recent missions.") work end to end, verified across a real process restart. Layers 4-6 are interfaces only. |
 | **004.1** — Memory Scale Review | Reviewed Memory (and the modules around it) against a millions-of-missions/thousands-of-plugins/years-of-history test. Replaced `MemoryStore`'s two-method query surface with one `query_missions(MissionQuery)` (new filters = new dataclass fields, never new methods); replaced `folders_created`/`files_created` columns with a generic `artifacts` list (a future git/shell/browser capability can contribute its own shape without a schema change). `Memory`'s public API unchanged throughout. Key design decision: ADR-0008. |
 | **005** — Local Execution Expansion | `FilesystemPlugin` grew from 3 to 14 capabilities: eleven new primitive Actions (read/list/search/exists-checks, append, rename/copy/move, delete-file/delete-folder), registered declaratively (`FILESYSTEM_CAPABILITIES.md`, written before any code). New `PermissionCategory` axis alongside `RiskTier`, plus a real mechanism change — `always_for_capability` grants can never satisfy an `irreversible` check (ADR-0009). `cli.py`'s intent parser generalized to a single `ParsedActionIntent` + table-driven `_INTENT_PATTERNS`, reaching all six of the brief's conversation examples plus Move. 234 tests passing, zero regressions. |
+| **021 Rev. 3** — Founder Constitution Freeze | Design-only (no code, no tests). Resolved every gap an independent audit found in `docs/architecture/KALPAVRIKSHA_VISION_V2.md`: Shared Infrastructure layer (ADR-0010), structurally independent Verification (ADR-0011), the Knowledge Lifecycle (ADR-0012), product-name-free architecture, multi-Operator design (ADR-0013), exactly-once ownership for every component, consolidated rules, frozen terminology, per-section status labels. Declared the Constitution frozen for everything currently on this roadmap. Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`, `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`. |
 
 Full detail on each: `docs/MISSION_BRIEF_001.md` through
-`docs/MISSION_BRIEF_005.md`, and `MIRACLE_LEDGER.md` for the
-tag/commit/test-count record.
+`docs/MISSION_BRIEF_005.md`, and `docs/MISSION_BRIEF_021_REVISION_3.md` for
+the Constitution Freeze; `MIRACLE_LEDGER.md` for the tag/commit/test-count
+record of the code-bearing Miracles.
 
 ## In progress
 
-Nothing is currently in progress — Miracle 005 is a completed, shipped
-increment. The next Miracle to start is the first item under Planned,
-below.
+Nothing is currently in progress. The Founder Constitution Freeze
+(Mission Brief 021, Revision 3) cleared the next five items below to be
+implemented without further Constitution changes — see
+`docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md` §5 for the Final
+Founder Review this conclusion is based on. The next Miracle to start is
+the first item under Planned, below, and it should be a code-bearing
+Miracle, not another design brief.
 
 ## Planned — next up
 
 In the order the accumulated recommendations across Mission Briefs
-002/003/003.1/004/004.1/005 converge on:
+002/003/003.1/004/004.1/005 converge on. All five items below are read
+through `docs/architecture/KALPAVRIKSHA_VISION_V2.md`'s frozen terminology
+now (e.g. "Reasoning Provider" for what this list still calls "Hermes"/
+"ChatGPT" by their pre-Constitution names) — the Constitution's §21 maps
+each role to the concrete product this roadmap already committed to.
 
 1. **The real Planner**, replacing `cli.py`'s regex-based
    `parse_intent()`/`build_plan()` stand-in with an actual model call
    through the Model Router (Hermes first — no API key needed, keeps
    testing fast). This is the point at which `planner/planner.py` stops
    raising `NotImplementedError`, and the natural point to finally wire
-   `MissionManager` into the live path, calling `Memory.persist_mission()`
+   `MissionManager` into the live path as Shared Infrastructure's Mission
+   State (`KALPAVRIKSHA_VISION_V2.md` §5.3), calling `Memory.persist_mission()`
    the way `MasterAgentSession._remember()` does today (see
-   `MEMORY_ARCHITECTURE.md` §11-§12). Now has real proving ground to
-   generalize against: fourteen capabilities and nine distinct
-   conversational shapes as of Mission Brief 005, not three and two.
-   Verify against the full existing `test_cli_session.py` suite (100+
-   assertions deep now) before intent recognition changes shape again —
-   that suite is the regression contract this change must not break.
+   `MEMORY_ARCHITECTURE.md` §11-§12). Per the Constitution (§3.2), every
+   `Step` the real Planner emits should also name an Expected Outcome —
+   worth building in from the start now that Verification's design
+   (`KALPAVRIKSHA_VISION_V2.md` §10, ADR-0011) depends on it, even though
+   the Verification Subsystem itself isn't being built in this Miracle.
+   Now has real proving ground to generalize against: fourteen
+   capabilities and nine distinct conversational shapes as of Mission
+   Brief 005, not three and two. Verify against the full existing
+   `test_cli_session.py` suite (100+ assertions deep now) before intent
+   recognition changes shape again — that suite is the regression
+   contract this change must not break.
 2. **Planner context from Memory** — once the real Planner exists, feed it
    `Memory.recent_missions()`/`Memory.successful_missions()` as context
    ("have I done something like this before"). This is Miracle 004's

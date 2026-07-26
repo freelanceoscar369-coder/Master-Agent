@@ -4,6 +4,18 @@ Status: Draft v0.1 (Founder Edition kickoff)
 Owner: Senior Software Engineer / System Architect
 Last updated: 2026-07-23
 
+**Note (2026-07-26, Mission Brief 021 Revision 3):** For architectural
+*decisions*, `docs/architecture/KALPAVRIKSHA_VISION_V2.md` is now the
+authoritative constitution — see its Authority line. This document remains
+the accurate map of current *implementation* (module file layout, present
+data flow) and is unchanged in that role, but its module names are now
+organized, one level up, by the Constitution's Brain / Shared
+Infrastructure / Operator layering. Where the two use different words for
+the same thing (e.g. this document's "Plugin Registry" is the
+Constitution's "Capability Registry," §5.1), the Constitution's term is
+canonical going forward; this document's term remains correct as a
+description of the current code.
+
 ## 1. Purpose
 
 Master Agent is the orchestration layer between human intention and software
@@ -160,6 +172,14 @@ accounting of this gap.
 States: `draft → planned → awaiting_approval → executing → verifying →
 completed | failed | cancelled`.
 
+**Architectural home (Mission Brief 021 Revision 3):** the Constitution
+places Mission State in Shared Infrastructure
+(`docs/architecture/KALPAVRIKSHA_VISION_V2.md` §5.3), not inside the
+Operator, specifically so a single Mission can eventually be serviced by
+more than one Operator Instance without any of them privately owning "the"
+state. This is a naming/ownership clarification only — `MissionManager`'s
+wiring status (still not part of the live path) is unchanged by it.
+
 ### 4.4 Permission System (`permissions/`)
 Every plugin declares a risk tier per capability it exposes:
 `read_only | reversible_write | irreversible`. The Permission System is
@@ -300,6 +320,16 @@ recorded here are what a future Planner call would read as context.
 `MemoryStore` but is still unwired into the live conversational path —
 see `MEMORY_ARCHITECTURE.md` §11.
 
+### 4.8a Reporter (not yet a package)
+Named in §3's dataflow diagram but never given its own module boundary
+here, and absent from `src/` entirely. Mission Brief 021 Revision 3's
+Constitution formally places Reporter in the Executive Brain
+(`docs/architecture/KALPAVRIKSHA_VISION_V2.md` §3.4): composing a
+human-facing report from a Mission's outcome and its Verification Evidence
+is a communication judgment, not an execution fact. `cli.py`'s completion
+messages play this role today, the same honest stand-in relationship the
+real Planner has to `build_plan()`.
+
 ### 4.9 Voice I/O (`voice/`)
 `input.py` wraps a local speech-to-text engine (default: local, e.g.
 faster-whisper) behind a `Transcriber` interface; `output.py` wraps a local
@@ -336,6 +366,16 @@ picks a provider per-call based on:
 This router is itself a plugin-registry lookup, not a hardcoded if/else —
 adding a third provider later (e.g. Claude via API) means writing one new
 `ModelProvider` plugin, not touching the router's core logic.
+
+**Architectural home (Mission Brief 021 Revision 3):** the Constitution
+places the Model Router in the Executive Brain and the Plugin Registry it
+queries in Shared Infrastructure
+(`docs/architecture/KALPAVRIKSHA_VISION_V2.md` §3.3, §5.1, §16) — a
+legitimate downward dependency on shared infrastructure, not a boundary
+crossing into the Operator. `ChatGPT`/`Hermes` are illustrative product
+names under the Constitution's role-based terms "Cloud Reasoning
+Provider"/"Local Reasoning Provider" (§21); this document keeps the
+concrete names because it describes today's actual implementation.
 
 ## 6. Open architecture questions to resolve before Aug 5
 

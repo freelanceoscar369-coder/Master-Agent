@@ -67,6 +67,60 @@ matter how it was created — destructive actions (`delete_file`,
 to `grant()`'s signature or any existing call site. See
 `docs/adr/0009-permission-category-and-irreversible-grant-rule.md`.
 
+## ADR-0010: Shared Infrastructure layer (Mission Brief 021 Revision 3)
+Introduced a third layer beneath both the Executive Brain and the
+Universal Executive Operator: Capability Registry, Permission System,
+Mission State, Memory, Configuration, and aggregated Telemetry/Evidence.
+Fixes a verified contradiction — `ModelRouter` (Brain) depends directly on
+`PluginRegistry`, which the prior Constitution assigned exclusively to the
+Operator. See `docs/adr/0010-shared-infrastructure-layer.md`.
+
+## ADR-0011: Verification as an independent subsystem (Mission Brief 021 Revision 3)
+Execution produces effects; a distinct Verification Subsystem produces
+Evidence by comparing a fresh Observation against an Expected Outcome the
+Planner attaches to each `Step`; Evidence flows back to the Brain. Fixes
+Verification being nominally but not structurally separate from Execution
+in the prior Constitution. See
+`docs/adr/0011-verification-as-independent-subsystem.md`.
+
+## ADR-0012: The Knowledge Lifecycle (Mission Brief 021 Revision 3)
+`Execution → Evidence → Knowledge Candidate → Promotion Review → Permanent
+Knowledge → Future Reasoning`. Brain nominates Candidates; Promotion
+Review (human-gated for Founder Edition, deliberately not named
+"Verification" to avoid colliding with ADR-0011) approves or rejects;
+Permanent Knowledge is revocable if later Evidence contradicts it. See
+`docs/adr/0012-knowledge-lifecycle.md`.
+
+## ADR-0013: Multi-Operator / Environment Instance architecture (Mission Brief 021 Revision 3)
+Defined Operator Instance, Environment Instance, and Environment Session as
+first-class concepts so the architecture scales to multiple desktops,
+browsers, and VPS instances without redesign — explicitly not a
+distributed-systems design, and today's single-Operator-Instance,
+sequential implementation is unchanged. See
+`docs/adr/0013-multi-operator-environment-instance-architecture.md`.
+
+## Mission Brief 021, Revision 3 (2026-07-26): Founder Constitution Freeze
+Design-only — no code, no tests, no packages. Resolved every gap the
+independent architecture audit found in `KALPAVRIKSHA_VISION_V2.md`
+(Revision 2): introduced Shared Infrastructure (ADR-0010), made
+Verification structurally independent (ADR-0011), formalized the Knowledge
+Lifecycle (ADR-0012), scrubbed product-specific terminology (Hermes,
+ChatGPT, Ollama, VS Code, Obsidian) from every architecture-defining
+section in favor of role-based terms, designed for multiple Operators
+(ADR-0013), placed every previously-unowned component (`MasterAgentSession`,
+`MissionManager`, `Reporter`) exactly once, consolidated three sets of
+duplicated rules to one canonical statement each, froze sixteen
+architectural terms to exactly one meaning each (retiring "Task" as an
+alias for `Step`), and labeled every section FROZEN / RESEARCH-BACKED /
+EVOLVABLE / IMPLEMENTATION DETAIL. Final Founder Review: **the Constitution
+is frozen** — `ROADMAP.md`'s next five planned items can be implemented
+without further Constitution changes; three named architectural items
+(in-mission recovery decision procedure, stateful Environment Sessions,
+concurrent multi-Operator dispatch) remain open but block only the
+specific future capabilities that need them, not current roadmap work.
+Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`,
+`docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`.
+
 ## Mission Brief 001 (2026-07-23): First end-to-end mission
 Implemented a real vertical slice — text in, real filesystem write out,
 real Permission System gate — using only existing scaffold modules

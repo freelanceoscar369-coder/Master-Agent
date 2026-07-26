@@ -99,6 +99,27 @@ respectively.
   commit, a shell command's output) doesn't need a schema change.
   `Memory`'s public API and every existing caller are unchanged. Key
   decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
+- **Mission Brief 021, Revision 3 froze the Founder Constitution** —
+  `docs/architecture/KALPAVRIKSHA_VISION_V2.md` is now the authoritative
+  reference for architectural *decisions* (superseding prior Mission
+  Briefs/ADRs on architecture, though not their implementation-record
+  content), with `ARCHITECTURE.md` remaining the accurate current-
+  implementation module map, now read through the Constitution's
+  terminology. Design-only — zero code/test changes. Resolved every gap an
+  independent audit found: introduced a Shared Infrastructure layer
+  beneath the Executive Brain and Universal Executive Operator (ADR-0010),
+  made Verification structurally independent of Execution (ADR-0011),
+  formalized a Knowledge Lifecycle with a human-gated Promotion Review
+  (ADR-0012), removed product-specific terminology (Hermes/ChatGPT/Ollama/
+  VS Code/Obsidian) from the architecture in favor of role-based terms,
+  designed for multiple Operator Instances across multiple environments
+  (ADR-0013), gave every previously-unowned component
+  (`MasterAgentSession`, `MissionManager`, `Reporter`) exactly one home,
+  consolidated duplicated rules, and froze architectural terminology.
+  Final Founder Review: the Constitution is frozen; `ROADMAP.md`'s next
+  five planned items can proceed without further Constitution changes.
+  Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`,
+  `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`.
 - **Mission Brief 005 turned the Filesystem Plugin into a real toolbox** —
   eleven new primitive Actions (read/list/search/exists-checks, append,
   rename/copy/move, delete-file/delete-folder), taking `FilesystemPlugin`
@@ -124,7 +145,8 @@ respectively.
 | What do we value / what tradeoffs does that force? | `MANIFESTO.md` |
 | How do those values shape how we build? | `ENGINEERING_PRINCIPLES.md` |
 | How do those values shape how the product should feel? | `PRODUCT_PRINCIPLES.md` |
-| How is the system designed, and why is it shaped that way? | `ARCHITECTURE.md` (what), `ARCHITECTURE_PRINCIPLES.md` (why) |
+| How is the system designed, and why is it shaped that way? | `ARCHITECTURE.md` (current implementation), `docs/architecture/KALPAVRIKSHA_VISION_V2.md` (authoritative architectural constitution), `ARCHITECTURE_PRINCIPLES.md` (why) |
+| What's frozen vs. still open architecturally? | `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md` (section-status registry, Final Founder Review) |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |
