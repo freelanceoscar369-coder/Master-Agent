@@ -25,6 +25,14 @@ class Charset:
     bar_empty: str
     unavailable: str
     warning: str
+    # MB029 founder glyphs. Same rule as the rest: chosen by asking the
+    # stream, never by guessing -- the brief's mock uses check marks and
+    # block bars a cp1252 console cannot encode.
+    ok: str = "+"
+    missing: str = "x"
+    running: str = "~"
+    pending: str = "!"
+    healthy: str = "*"
 
 
 UNICODE = Charset(
@@ -34,6 +42,11 @@ UNICODE = Charset(
     bar_empty="░",
     unavailable="—",
     warning="!",
+    ok="✓",
+    missing="✗",
+    running="⏳",
+    pending="⚠",
+    healthy="●",
 )
 
 ASCII = Charset(
@@ -50,7 +63,17 @@ def stream_supports(charset: Charset, stream: Any = None) -> bool:
     """Can this stream actually encode these glyphs? Asked, not assumed."""
     stream = stream if stream is not None else sys.stdout
     encoding = getattr(stream, "encoding", None) or "ascii"
-    probe = charset.rule + charset.bar_full + charset.bar_empty + charset.unavailable
+    probe = (
+        charset.rule
+        + charset.bar_full
+        + charset.bar_empty
+        + charset.unavailable
+        + charset.ok
+        + charset.missing
+        + charset.running
+        + charset.pending
+        + charset.healthy
+    )
     try:
         probe.encode(encoding)
     except (UnicodeEncodeError, LookupError):

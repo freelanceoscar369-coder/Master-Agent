@@ -15,9 +15,17 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from master_agent.dashboard.founder import build_founder_view
+from master_agent.dashboard.founder_panels import render_founder_frame
 from master_agent.dashboard.readmodel import DashboardSnapshot
 from master_agent.dashboard.renderer import CLEAR_SCREEN, render_frame
 from master_agent.dashboard.sources import DashboardSources
+
+#: The two pages MB029 defines. Founder first, because a founder who
+#: has to switch pages to find out whether the system needs them has been
+#: shown the wrong thing by default.
+FOUNDER_PAGE = "founder"
+TECHNICAL_PAGE = "technical"
 
 
 class FounderDashboard:
@@ -29,6 +37,7 @@ class FounderDashboard:
         include_founder_state: bool = True,
         writer: Any = None,
         sleep: Any = None,
+        page: str = FOUNDER_PAGE,
     ) -> None:
         self._sources = sources
         self._refresh_interval = refresh_interval_seconds
@@ -37,6 +46,7 @@ class FounderDashboard:
         self._write = writer or (lambda text: print(text, end="", flush=True))
         self._sleep = sleep or time.sleep
 
+        self._page = page
         self._dirty = True
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -75,14 +85,45 @@ class FounderDashboard:
     def render(self) -> str:
         """Collect and compose one frame. Pure with respect to the
         observed system -- calling this a thousand times changes nothing
-        about Kalpavriksha."""
-        frame = render_frame(
-            self.snapshot(),
-            audit_limit=self._audit_limit,
-            include_founder_state=self._include_founder_state,
-        )
+        about Kalpavriksha.
+
+        Two pages (MB029). FOUNDER answers "what is it doing, does it need
+        me, what next"; TECHNICAL is the nine engineering panels MB026
+        shipped, unchanged. Same snapshot, two views -- which is the point
+        of having a read model at all.
+        """
+        snapshot = self.snapshot()
+        if self._page == FOUNDER_PAGE:
+            frame = render_founder_frame(build_founder_view(snapshot))
+        else:
+            frame = render_frame(
+                snapshot,
+                audit_limit=self._audit_limit,
+                include_founder_state=self._include_founder_state,
+            )
         self._frames_rendered += 1
         return frame
+
+    @property
+    def page(self) -> str:
+        return self._page
+
+    def show(self, page: str) -> str:
+        """Switch page. Returns the page now showing, so a caller can
+        report it without re-reading state."""
+        self._page = FOUNDER_PAGE if page == FOUNDER_PAGE else TECHNICAL_PAGE
+        self._dirty = True
+        return self._page
+
+    def toggle_page(self) -> str:
+        return self.show(
+            TECHNICAL_PAGE if self._page == FOUNDER_PAGE else FOUNDER_PAGE
+        )
+
+    def founder_view(self):
+        """The view model, for a caller that wants the data rather than
+        the text -- a web or desktop front-end (Deliverable 10)."""
+        return build_founder_view(self.snapshot())
 
     def render_once(self, clear: bool = True) -> str:
         frame = self.render()

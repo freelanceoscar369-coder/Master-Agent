@@ -66,12 +66,21 @@ def test_every_boot_step_is_reported(tmp_path):
 
 
 def test_the_dashboard_is_attached_and_renders_a_real_frame(tmp_path):
+    """MB029 made the founder page the default, so this asserts what a
+    founder now sees; the technical page still carries the engineering
+    detail it always did."""
+    from master_agent.dashboard.app import TECHNICAL_PAGE
+
     system = quiet_system(tmp_path / "state")
 
-    frame = system.dashboard.render()
+    founder = system.dashboard.render()
+    assert "KALPAVRIKSHA" in founder
+    assert "Filesystem" in founder, "the discovered Executive should be visible"
 
-    assert "Runtime" in frame
-    assert "filesystem" in frame.lower(), "the discovered Executive should be visible"
+    system.dashboard.show(TECHNICAL_PAGE)
+    technical = system.dashboard.render()
+    assert "RUNTIME" in technical
+    assert "filesystem" in technical.lower()
 
 
 def test_capabilities_reach_mission_control_from_the_plugin_manifest(tmp_path):

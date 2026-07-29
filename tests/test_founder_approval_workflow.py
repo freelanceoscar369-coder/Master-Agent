@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from master_agent.dashboard.app import build_dashboard
+from master_agent.dashboard.app import TECHNICAL_PAGE, build_dashboard
 from master_agent.executor.executor import LocalExecutor
 from master_agent.launcher.console import FounderConsole, NullKeyReader
 from master_agent.mission_control.adapters import discover_executives
@@ -156,14 +156,22 @@ def test_the_approval_appears_in_the_dashboard(work):
     world.submit("Filesystem.DeleteFolder", {"path": "Precious"})
     world.run()
 
-    frame = build_dashboard(
+    dashboard = build_dashboard(
         mission_control=world.mission_control, writer=lambda _t: None
-    ).render()
+    )
 
-    assert "PENDING APPROVALS (1)" in frame
-    assert "Filesystem.DeleteFolder" in frame
-    assert "IRREVERSIBLE" in frame
-    assert "[A]pprove" in frame
+    # The founder page (MB029 default) leads with the decision.
+    founder = dashboard.render()
+    assert "FOUNDER DECISIONS (1)" in founder
+    assert "Delete Folder" in founder
+    assert "IRREVERSIBLE" in founder
+
+    # The technical page still carries MB028.1's panel, unchanged.
+    dashboard.show(TECHNICAL_PAGE)
+    technical = dashboard.render()
+    assert "PENDING APPROVALS (1)" in technical
+    assert "Filesystem.DeleteFolder" in technical
+    assert "[A]pprove" in technical
 
 
 # ---- approve / reject / defer --------------------------------------------
@@ -617,8 +625,8 @@ def test_the_console_renders_the_queue_and_the_prompt():
 
     frame = console.render_once()
 
-    assert "PENDING APPROVALS (2)" in frame
-    assert "commands: approve N" in frame
+    assert "FOUNDER DECISIONS (2)" in frame
+    assert "approve N" in frame
     assert frame.rstrip().endswith(">")
 
 
@@ -646,13 +654,13 @@ def test_the_panel_reflects_a_decision_with_no_restart(work):
         mission_control=world.mission_control, writer=lambda _t: None
     )
 
-    assert "PENDING APPROVALS (1)" in dashboard.render()
+    assert "FOUNDER DECISIONS (1)" in dashboard.render()
 
     world.mission_control.approve(
         world.mission_control.approvals.open()[0].approval_id, "onkar"
     )
 
-    assert "PENDING APPROVALS (0)" in dashboard.render()
+    assert "none pending" in dashboard.render()
 
 
 def test_a_new_approval_marks_the_dashboard_dirty(work):

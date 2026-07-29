@@ -87,8 +87,9 @@ python -m master_agent.cli   # try the real create-folder conversation
 ```
 
 `kalpavriksha` recovers previous state, discovers Executives, starts the
-Runtime, and hands the terminal to the Founder Dashboard. It prints a boot
-report first, naming anything this build genuinely cannot do. Useful flags:
+Runtime, and hands the terminal to the Founder Dashboard — which opens on
+a page answering three questions: what is it doing, does it need you, what
+next. Press `V` for the engineering panels. Useful flags:
 
 ```
 kalpavriksha --boot-only        # print the boot report and exit

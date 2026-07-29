@@ -40,6 +40,8 @@ except to fix a factual error.
 
 | **028.1** — Founder Approval Workflow | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1051 passed, 1 skipped | ✅ Shipped | Turned approval from architecture into a workflow. **Kalpavriksha is now a system a founder operates**, not a set of subsystems that happen to work: `kalpavriksha` shows an Approval panel carrying everything a decision needs (capability, executive, risk tier, reason, estimated impact, timestamp), and `approve 1` / `reject 1` / `defer 1` / `approve all` decide it — no flags, no test harness, no internal commands. The change underneath: **an unanswered request is no longer a refusal**; the task waits and the Runtime re-offers it the instant the founder answers. New Approval Queue in Mission Control beside MB023's two human-gated queues (questions, *not* a second permission system — approving issues a `ONCE` grant in the one ledger that holds authority, so ADR-0019 stays singular); immutable append-only decision ledger; deferred requests survive restart; rejected work fails gracefully and is never retried; optional timeout, disabled by default. **ADR-0016 survives intact** — the Dashboard still renders from a frozen snapshot and cannot act on the hints it prints; the Console in the composition root does. A restored approval is evidence, never fresh authority. One real bug found by a failing test (a held task is "dispatched", so it never returned through `_dispatch()` — approving resolved the question and the work still never ran). Verified live across all eight steps the brief names. **⚠️ Ships frozen-component changes with ADR-0020 marked *Proposed*, awaiting ratification** — each additive and isolated; reverting removes the workflow and restores MB028.0 exactly. 33 new tests, zero regressions. Full writeup: `docs/MISSION_BRIEF_028_1.md`. |
 
+| **029** — Founder Dashboard V2 | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1138 passed, 1 skipped | ✅ Shipped | Pure UX, and the first Miracle in five to change **no architecture at all** — asserted by a `git diff` over `runtime/`, `mission_control/`, and `persistence/` returning empty, which is why it carries no ADR. `kalpavriksha` now opens on a **Founder page**: status in one human sentence, decisions second, then mission, work, executive readiness, self-development, recommendations, next step. MB026's nine engineering panels are intact one keystroke away behind `[V]` — moved, never deleted. Introduced a **view model** (`dashboard/founder.py`) above ADR-0016's read model, so a web/desktop/mobile front-end consumes `FounderView` and writes its own renderer without touching Mission Control (Deliverable 10 by layering, not by promise). The discipline that matters: three deliverables asked for numbers Kalpavriksha does not measure, and none were invented — **Confidence** is a stated reading of the verification record or absent entirely, the self-development bars are **transcribed from the roadmap** with each naming its basis, and **Time saved is reported as "not measured"**. `Missing` and `Planned` are deliberately different words. Caught the cp1252 glyph problem a third time before it shipped, since MB029's own mock uses check marks and block bars. 76 new tests (the brief asked for 40), including a parameterised zero-engineering-leakage check over thirteen banned terms and a frame-length bound, because "understand it in five seconds" is a length claim as much as a content one. Full writeup: `docs/MISSION_BRIEF_029.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -169,6 +171,14 @@ except to fix a factual error.
   row to ship with an unratified ADR (ADR-0020, after ADR-0015), and for
   the same reason: the brief listed the ADR as a deliverable rather than
   a gate, and its Definition of Done was a working founder workflow.
+
+- **Miracle 029 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.11.0-miracle-029` / `git rev-list -n1
+  v0.11.0-miracle-029`. **Minor** bump rather than patch: it changes what
+  a founder sees the moment they run the command, which is a bigger change
+  to the product than any of the 0.10.x rows, even though it changes less
+  code. It is also the only row since 025 with **no ADR**, because nothing
+  architectural moved — worth noting as the shape a pure-UX Miracle takes.
 
 ## How to add a row
 

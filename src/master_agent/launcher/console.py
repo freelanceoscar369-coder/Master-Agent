@@ -30,10 +30,10 @@ import sys
 import time
 from typing import Any, Self
 
+from master_agent.dashboard.app import FOUNDER_PAGE
+
 PROMPT = "  > "
-HELP = (
-    "  commands: approve N | reject N | defer N | approve all | help | quit"
-)
+HELP = "  approve N | reject N | defer N | approve all | [V]iew details | help | quit"
 
 
 class NullKeyReader:
@@ -169,11 +169,25 @@ class FounderConsole:
 
         parts = command.split()
         verb, args = parts[0], parts[1:]
+        if verb in ("v", "view", "details", "technical"):
+            page = self._dashboard.toggle_page()
+            return f"showing the {page} page"
+        if verb in ("f", "founder"):
+            return f"showing the {self._dashboard.show(FOUNDER_PAGE)} page"
+
         actions = {
+            # MB029 Deliverable 7 offers [Y]/[N] on the founder page, and
+            # MB028.1's approve/reject still read naturally. Both spell
+            # the same two decisions, so both are accepted rather than
+            # making the founder remember which screen they are on.
             "approve": self._mc.approve,
             "a": self._mc.approve,
+            "y": self._mc.approve,
+            "yes": self._mc.approve,
             "reject": self._mc.reject,
             "r": self._mc.reject,
+            "n": self._mc.reject,
+            "no": self._mc.reject,
             "defer": self._mc.defer,
             "d": self._mc.defer,
         }

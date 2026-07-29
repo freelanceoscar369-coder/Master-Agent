@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from master_agent.dashboard.founder import build_daily_summary
+from master_agent.dashboard.founder_panels import render_daily_summary
 from master_agent.launcher.boot import KalpavrikshaSystem, build_system
 from master_agent.launcher.console import FounderConsole
 from master_agent.mission_control.tasks import Objective, Task
@@ -144,7 +146,18 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nStopping - saving state.")
     finally:
+        # MB029 Deliverable 9: the day's summary, captured *before* the
+        # shutdown that stops the Runtime, so it describes the day rather
+        # than the moment after it ended.
+        summary = build_daily_summary(
+            system.dashboard.snapshot(),
+            approvals_decided=len(system.mission_control.approvals.ledger()),
+            recovered=(
+                system.report.recovery.objectives if system.report.recovery else 0
+            ),
+        )
         problems = system.stop()
+        print(render_daily_summary(summary))
         for problem in problems:
             print(f"  shutdown problem: {problem}")
     return 0

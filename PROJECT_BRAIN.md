@@ -321,6 +321,21 @@ respectively.
   authority. **⚠️ Ships frozen-component changes with ADR-0020 marked
   *Proposed*.** 33 new tests, 1051 passing. Full detail:
   `docs/MISSION_BRIEF_028_1.md`.
+- **Mission Brief 029 rebuilt what the founder actually sees.** Pure UX,
+  zero architecture change (proved by `git diff`, which is why it has no
+  ADR). `kalpavriksha` opens on a **Founder page** — status in one human
+  sentence, decisions second, then mission, work, executive readiness,
+  self-development, recommendations. The nine engineering panels are one
+  keystroke away behind `[V]`, moved rather than deleted. A **view model**
+  (`dashboard/founder.py`) now sits above ADR-0016's read model, so a web
+  or mobile front-end consumes `FounderView` and writes its own renderer
+  without touching Mission Control. **The thing to remember:** three
+  deliverables asked for numbers this system does not measure, and none
+  were invented — Confidence is a stated reading of the verification
+  record or absent, the self-development bars are transcribed from the
+  roadmap with each naming its basis, and "Time saved" is reported as not
+  measured. 76 new tests, 1138 passing. Full detail:
+  `docs/MISSION_BRIEF_029.md`.
 
 ## Where to go for what
 
@@ -339,6 +354,7 @@ respectively.
 | How do I actually run it? | `kalpavriksha` — see `README.md` "Getting started" and `docs/MISSION_BRIEF_027_5.md` |
 | What stops it doing something irreversible? | `RUNTIME_ENGINE_ARCHITECTURE.md` §4a, `docs/MISSION_BRIEF_028_0.md`, ADR-0019 |
 | How do I approve, reject, or defer a pending action? | `docs/MISSION_BRIEF_028_1.md`, ADR-0020 |
+| What does the founder actually see, and how do I add a web/mobile UI? | `docs/MISSION_BRIEF_029.md`, `dashboard/founder.py` (the view model) |
 | How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Which AI runs a given task, what does it cost, and who approves paid ones? | `AI_CAPABILITY_BROKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_027.md`, ADR-0017 |
