@@ -121,6 +121,27 @@ specific future capabilities that need them, not current roadmap work.
 Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`,
 `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`.
 
+## Mission Brief 022 (2026-07-26): Browser Worker
+First implementation Mission Brief against the frozen Founder
+Constitution. Wrapped Playwright (never reimplemented it) behind nine
+atomic Actions registered on the existing, unmodified `LocalExecutor`/
+`Plugin` machinery — proving the Universal Executive Operator
+architecture generalizes to a second, unrelated capability family at zero
+risk to the 229-test filesystem baseline. Introduced a generic,
+Playwright-free `verification/` package (`Verifier` ABC, `Evidence`,
+`Audit`) any future Worker can reuse unchanged, and an Environment Session
+Manager (`BrowserSessionManager`) resolving the Constitution's one
+deliberately-open item: stateful sessions inside the one-shot `Action`
+contract. Key design catch, found by running the actual test suite, not
+by inspection: the first draft gave each session its own independent
+Playwright driver, which Playwright's sync API does not support running
+concurrently in one thread; fixed by having the manager own one shared
+driver/Browser per Operator Instance, multiplexed across sessions as
+separate `BrowserContext`s. Mechanically verifies its own
+product-independence claim (`test_browser_constitution_compliance.py`)
+rather than only asserting it in prose. See `docs/MISSION_BRIEF_022.md`
+and `BROWSER_WORKER_ARCHITECTURE.md`.
+
 ## Mission Brief 001 (2026-07-23): First end-to-end mission
 Implemented a real vertical slice — text in, real filesystem write out,
 real Permission System gate — using only existing scaffold modules

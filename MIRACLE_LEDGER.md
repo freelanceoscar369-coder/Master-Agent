@@ -19,6 +19,9 @@ except to fix a factual error.
 | **004.1** — Memory Scale Review | 2026-07-23 | `v0.4.1-miracle-004-1` | *(see note below — same self-reference problem, resolved the same way from the start this time)* | 126 passed | ✅ Shipped | Reviewed Memory against long-term scale (millions of missions, thousands of plugins, hundreds of capabilities, years of history) before more got built on top of it. Fixed two real problems: `MemoryStore`'s query surface (one `query_missions(MissionQuery)` instead of a method per filter need) and `MissionRecord`'s filesystem-specific `folders_created`/`files_created` columns (replaced with a generic `artifacts` list). `Memory`'s public API and every existing caller unchanged. Key design decision: ADR-0008. Full writeup: `docs/MISSION_BRIEF_004_1.md`. |
 | **005** — Local Execution Expansion | 2026-07-23 | `v0.5.0-miracle-005` | *(see note below — same self-reference problem, same standing resolution)* | 234 passed | ✅ Shipped | Design-first (`FILESYSTEM_CAPABILITIES.md`) expansion of `FilesystemPlugin` from 3 to 14 capabilities: eleven new primitive Actions (read/list/search/exists-checks, append, rename/copy/move, delete-file/delete-folder), registered declaratively — adding capability #15 costs one new file, never an edit to the plugin. New `PermissionCategory` axis plus a real mechanism change (an `always_for_capability` grant can never satisfy an `irreversible` check). `cli.py`'s intent parser generalized to one `ParsedActionIntent` + table-driven `_INTENT_PATTERNS`, reaching all six of the brief's conversation examples plus Move. Key design decision: ADR-0009. Full writeup: `docs/MISSION_BRIEF_005.md`. |
 
+| **021 Rev. 3** — Founder Constitution Freeze | 2026-07-26 | `v0.5.1-miracle-021-3` | `f9aee0e` | 234 passed (unchanged) | ✅ Shipped | Design-only — zero code, zero tests, zero runtime behavior changes. Resolved every gap an independent architecture audit found in `docs/architecture/KALPAVRIKSHA_VISION_V2.md`: introduced a Shared Infrastructure layer between Executive Brain and Universal Executive Operator (ADR-0010), made Verification structurally independent of Execution (ADR-0011), formalized the Knowledge Lifecycle with a human-gated Promotion Review (ADR-0012), designed for multiple Operator Instances (ADR-0013), scrubbed product-specific terminology from the architecture, gave every previously-unowned component exactly one home, consolidated duplicated rules, froze sixteen architectural terms, and labeled every section FROZEN/RESEARCH-BACKED/EVOLVABLE/IMPLEMENTATION DETAIL. Declared the Constitution frozen. Full writeup: `docs/MISSION_BRIEF_021_REVISION_3.md`, `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`. |
+| **022** — Browser Worker | 2026-07-26 | `v0.6.0-miracle-022` | *(see note below — same self-reference problem, same standing resolution)* | 354 passed | ✅ Shipped | Design-first (`BROWSER_WORKER_ARCHITECTURE.md`) first implementation Miracle against the frozen Constitution: a Playwright-wrapped Browser Worker (nine atomic Actions) proving the Universal Executive Operator architecture in a real Environment. Added the generic, Playwright-free `verification/` package (Verifier ABC, Evidence, Audit) every future Worker reuses unchanged, and the Environment Session Manager (`BrowserSessionManager`) resolving the stateful-session gap the Constitution Freeze had left open. Observation covers five facets including the accessibility tree and the page's available actions. Product-independence is mechanically verified by a standing test, not just asserted in prose. Two real bugs found by running the suite rather than by inspection (see the Mission Brief's own "what changed after the first live run" and "what a completeness recheck caught" sections). 125 new tests, zero regressions. Full writeup: `docs/MISSION_BRIEF_022.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -65,6 +68,19 @@ except to fix a factual error.
 - **Miracle 005's row follows the same pattern**: `git tag -n1
   v0.5.0-miracle-005` / `git rev-list -n1 v0.5.0-miracle-005` for the
   authoritative commit hash.
+- **Miracle 021 Revision 3 could record its real hash** (`f9aee0e`),
+  unlike the rows above it, for a simple reason: it shipped before this
+  ledger row was written, so by the time the row existed the hash was
+  already fixed history to read and copy — exactly the situation the
+  004 note predicted would eventually apply. Its tag was added
+  retroactively alongside this row (`v0.5.1-miracle-021-3`, a patch-level
+  bump since it changed zero code), the same way the 001.5 note says a
+  retroactive tag can be added without disrupting this table.
+- **Miracle 022 hit the standing self-reference problem again** and
+  resolves it the standing way: `git tag -n1 v0.6.0-miracle-022` /
+  `git rev-list -n1 v0.6.0-miracle-022` is the authoritative pointer.
+  Minor version bump, since it adds a new capability family (the Browser
+  Worker) rather than extending an existing one.
 
 ## How to add a row
 

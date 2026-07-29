@@ -36,11 +36,31 @@ cd D:\MasterAgent
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                          # expect: 124 passed (see MIRACLE_LEDGER.md for the current count)
+pytest                          # see MIRACLE_LEDGER.md for the current expected count
 ruff check src tests            # expect: All checks passed
 ```
 
 If both of those pass, the codebase is healthy on this machine.
+
+### Browser Worker (optional, Mission Brief 022)
+
+The Browser Worker needs Playwright plus its browser binaries — an
+optional extra, exactly like `voice` and `ui`, so the core system still
+installs and runs without it:
+
+```
+pip install -e ".[dev,browser]"
+python -m playwright install
+```
+
+That second command is a one-time download of the browser binaries
+themselves (a few hundred MB); `pip install` alone gets the Python
+library but not the browsers it drives. Without both, the
+`tests/test_browser_*.py` suites will fail to run — everything else is
+unaffected, including `tests/test_verification.py`, which covers the
+generic Verification/Evidence/Audit layer and deliberately has no
+browser dependency at all. See `BROWSER_WORKER_ARCHITECTURE.md` for the
+design and `docs/MISSION_BRIEF_022.md` for what it proves.
 
 ## 4. Try the working demo
 

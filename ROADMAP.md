@@ -22,28 +22,26 @@ marked Completed here.
 | **004.1** — Memory Scale Review | Reviewed Memory (and the modules around it) against a millions-of-missions/thousands-of-plugins/years-of-history test. Replaced `MemoryStore`'s two-method query surface with one `query_missions(MissionQuery)` (new filters = new dataclass fields, never new methods); replaced `folders_created`/`files_created` columns with a generic `artifacts` list (a future git/shell/browser capability can contribute its own shape without a schema change). `Memory`'s public API unchanged throughout. Key design decision: ADR-0008. |
 | **005** — Local Execution Expansion | `FilesystemPlugin` grew from 3 to 14 capabilities: eleven new primitive Actions (read/list/search/exists-checks, append, rename/copy/move, delete-file/delete-folder), registered declaratively (`FILESYSTEM_CAPABILITIES.md`, written before any code). New `PermissionCategory` axis alongside `RiskTier`, plus a real mechanism change — `always_for_capability` grants can never satisfy an `irreversible` check (ADR-0009). `cli.py`'s intent parser generalized to a single `ParsedActionIntent` + table-driven `_INTENT_PATTERNS`, reaching all six of the brief's conversation examples plus Move. 234 tests passing, zero regressions. |
 | **021 Rev. 3** — Founder Constitution Freeze | Design-only (no code, no tests). Resolved every gap an independent audit found in `docs/architecture/KALPAVRIKSHA_VISION_V2.md`: Shared Infrastructure layer (ADR-0010), structurally independent Verification (ADR-0011), the Knowledge Lifecycle (ADR-0012), product-name-free architecture, multi-Operator design (ADR-0013), exactly-once ownership for every component, consolidated rules, frozen terminology, per-section status labels. Declared the Constitution frozen for everything currently on this roadmap. Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`, `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`. |
+| **022** — Browser Worker | First implementation Mission Brief against the frozen Constitution: a Playwright-wrapped Browser Worker (nine atomic Actions) proving the Universal Executive Operator architecture in a real Environment. Introduced the generic, Playwright-free `verification/` package (Verifier ABC, Evidence, Audit) any future Worker can reuse unchanged, and the Environment Session Manager pattern (`BrowserSessionManager`) resolving the one stateful-session gap `FOUNDER_CONSTITUTION_FREEZE.md` had left open. Mechanically verifies its own product-independence claim (`test_browser_constitution_compliance.py`). Observes five facets, including the accessibility tree and the page's available actions. 125 new tests, 354 passing overall, zero regressions. Full detail: `docs/MISSION_BRIEF_022.md`, `BROWSER_WORKER_ARCHITECTURE.md`. |
 
 Full detail on each: `docs/MISSION_BRIEF_001.md` through
-`docs/MISSION_BRIEF_005.md`, and `docs/MISSION_BRIEF_021_REVISION_3.md` for
-the Constitution Freeze; `MIRACLE_LEDGER.md` for the tag/commit/test-count
-record of the code-bearing Miracles.
+`docs/MISSION_BRIEF_005.md`, `docs/MISSION_BRIEF_021_REVISION_3.md` for the
+Constitution Freeze, and `docs/MISSION_BRIEF_022.md` for the Browser
+Worker; `MIRACLE_LEDGER.md` for the tag/commit/test-count record of the
+code-bearing Miracles (pending a commit/tag for 022 as of this writing).
 
 ## In progress
 
-Nothing is currently in progress. The Founder Constitution Freeze
-(Mission Brief 021, Revision 3) cleared the next five items below to be
-implemented without further Constitution changes — see
-`docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md` §5 for the Final
-Founder Review this conclusion is based on. The next Miracle to start is
-the first item under Planned, below, and it should be a code-bearing
-Miracle, not another design brief.
+Nothing is currently in progress. Mission Brief 022 proved the Universal
+Executive Operator architecture end-to-end with a real Worker; the next
+Miracle to start is the first item under Planned, below.
 
 ## Planned — next up
 
 In the order the accumulated recommendations across Mission Briefs
-002/003/003.1/004/004.1/005 converge on. All five items below are read
-through `docs/architecture/KALPAVRIKSHA_VISION_V2.md`'s frozen terminology
-now (e.g. "Reasoning Provider" for what this list still calls "Hermes"/
+002/003/003.1/004/004.1/005/022 converge on. Read through
+`docs/architecture/KALPAVRIKSHA_VISION_V2.md`'s frozen terminology now
+(e.g. "Reasoning Provider" for what this list still calls "Hermes"/
 "ChatGPT" by their pre-Constitution names) — the Constitution's §21 maps
 each role to the concrete product this roadmap already committed to.
 
@@ -88,6 +86,17 @@ each role to the concrete product this roadmap already committed to.
    eleven more Actions using the *existing* relay pattern (not a new
    instance of the open question — same Plugin/Executor boundary,
    same `FilesystemPlugin`), so this is still "two examples," not three.
+   Mission Brief 022's `BrowserPlugin` is a third instance of the relay
+   pattern itself (proven, not just theorized), but see item 6 below for
+   the *separate*, still-open Environment Session question it raised.
+6. **A second stateful Worker** (Terminal is the natural next choice) —
+   the real test of whether `BrowserSessionManager`'s open/get/close/list
+   shape (Mission Brief 022, `BROWSER_WORKER_ARCHITECTURE.md` §4)
+   actually generalizes into a shared `EnvironmentSessionManager` base,
+   the same way Mission Brief 003 tested whether the `Action` Contract
+   generalized past one example. Not urgent — nothing today needs a
+   second Environment, and one example doesn't justify the abstraction
+   yet.
 
 ## Founder Edition — reverse-plan checkpoints
 

@@ -24,6 +24,9 @@ voice = [
 ui = [
     "pywebview>=5.1",
 ]
+browser = [
+    "playwright>=1.55",
+]
 dev = [
     "pytest>=8.2",
     "ruff>=0.5",

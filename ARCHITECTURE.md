@@ -348,6 +348,40 @@ desktop app without committing to Electron/Tauri's build complexity yet.
 This is a recommendation, not a locked decision — flag if you want to
 evaluate Tauri instead before we scaffold it.
 
+### 4.11 Browser Worker (`plugins/browser_*.py`, `executor/actions/browser/`, `environment/`)
+Added in Mission Brief 022 — the first Worker built against
+`docs/architecture/KALPAVRIKSHA_VISION_V2.md`'s frozen Constitution, and
+the reference implementation the Constitution's Ownership Registry (§16)
+points future Workers (Desktop, Terminal, REST, MCP) at. Wraps Playwright
+behind nine atomic Actions (`open_browser_session`, `close_browser_session`,
+`navigate`, `click`, `type_text`, `press_key`, `scroll`,
+`wait_for_selector`, `observe_browser`), registered on the same
+`LocalExecutor`/`Plugin` machinery Filesystem uses — no new execution
+mechanism was needed, only new Actions and a new Plugin adapter
+(`BrowserPlugin`), exactly as `ARCHITECTURE_PRINCIPLES.md`'s extension
+strategy predicts.
+
+Two things this Miracle added are new architectural mechanisms, not just
+new capabilities:
+
+- **`environment/browser_session.py`'s `BrowserSessionManager`** — the
+  Constitution's Environment Session Manager (§8.3), resolving the one
+  gap the Constitution Freeze had left open: the `Action` contract is
+  one-shot, but a browser session is stateful across many Actions in one
+  Mission. One shared Playwright driver/Browser process per manager,
+  multiplexed across sessions as separate `BrowserContext`s.
+- **`verification/`'s `Verifier` ABC, `Evidence`, and `Audit` types** —
+  entirely Playwright-free, so any future Worker's verification layer
+  reuses this package unchanged. `plugins/browser_verifier.py`'s
+  `BrowserVerifier` implements exactly one method against it.
+
+`plugins/browser_worker.py`'s `BrowserWorker` is a separate facade (not
+routed through the Orchestrator in this Miracle — see
+`BROWSER_WORKER_ARCHITECTURE.md` §11) that sequences Execute → Verify →
+Audit and demonstrates the complete Constitution lifecycle end to end.
+Full design: `BROWSER_WORKER_ARCHITECTURE.md`. Full writeup:
+`docs/MISSION_BRIEF_022.md`.
+
 ## 5. The Model Router — how ChatGPT and Hermes coexist
 
 Both integrations sit behind one `ModelProvider` interface

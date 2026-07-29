@@ -1,0 +1,2 @@
+desktop_app/voice_models/whisper-base.en/model.bin filter=lfs diff=lfs merge=lfs -text
+desktop_app/voice_models/en_US-lessac-medium.onnx filter=lfs diff=lfs merge=lfs -text

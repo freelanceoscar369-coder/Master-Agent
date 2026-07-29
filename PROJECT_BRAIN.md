@@ -99,6 +99,29 @@ respectively.
   commit, a shell command's output) doesn't need a schema change.
   `Memory`'s public API and every existing caller are unchanged. Key
   decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
+- **Mission Brief 022 built the Browser Worker** — the first
+  implementation Mission Brief against the frozen Constitution, proving
+  the Universal Executive Operator architecture in a real Environment by
+  wrapping Playwright (never reimplementing it): nine atomic Actions
+  (`open_browser_session`, `close_browser_session`, `navigate`, `click`,
+  `type_text`, `press_key`, `scroll`, `wait_for_selector`,
+  `observe_browser`) registered on the existing, unmodified
+  `LocalExecutor`/`Plugin` machinery. Introduced two genuinely new,
+  reusable pieces: a generic, Playwright-free `verification/` package
+  (`Verifier` ABC, `Evidence`, `Audit` — any future Worker's verification
+  layer, not just Browser's) and an Environment Session Manager
+  (`BrowserSessionManager`) resolving the one stateful-session gap
+  `FOUNDER_CONSTITUTION_FREEZE.md` had left open for the Action contract.
+  Demonstrated, concretely and with passing tests, that Execution
+  succeeding never implies Verification succeeding (an Action can return
+  `success=True` while an independently-recomputed Verdict is
+  `NOT_MATCHED`). Mechanically verifies its own product-independence claim
+  — a test scans every Browser Worker file for forbidden product names and
+  fails if one appears. 125 new tests, 354 passing overall, zero
+  regressions (5 pre-existing, unrelated Windows path-separator failures
+  in the filesystem Actions were confirmed present before this Miracle
+  started and are unchanged by it). Full detail: `docs/MISSION_BRIEF_022.md`,
+  `BROWSER_WORKER_ARCHITECTURE.md`.
 - **Mission Brief 021, Revision 3 froze the Founder Constitution** —
   `docs/architecture/KALPAVRIKSHA_VISION_V2.md` is now the authoritative
   reference for architectural *decisions* (superseding prior Mission
@@ -147,6 +170,7 @@ respectively.
 | How do those values shape how the product should feel? | `PRODUCT_PRINCIPLES.md` |
 | How is the system designed, and why is it shaped that way? | `ARCHITECTURE.md` (current implementation), `docs/architecture/KALPAVRIKSHA_VISION_V2.md` (authoritative architectural constitution), `ARCHITECTURE_PRINCIPLES.md` (why) |
 | What's frozen vs. still open architecturally? | `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md` (section-status registry, Final Founder Review) |
+| How does a Worker (Browser, and eventually Desktop/Terminal/etc.) plug in? | `BROWSER_WORKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_022.md` |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |
