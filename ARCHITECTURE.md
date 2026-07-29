@@ -382,6 +382,38 @@ Audit and demonstrates the complete Constitution lifecycle end to end.
 Full design: `BROWSER_WORKER_ARCHITECTURE.md`. Full writeup:
 `docs/MISSION_BRIEF_022.md`.
 
+### 4.12 Mission Control (`mission_control/`)
+Added in Mission Brief 023 — the runtime coordination layer every
+Executive (Worker) now reports into, and the permanent home for
+scheduling, event distribution, audit, and self-development tracking.
+Contains the Universal Event Bus (`events.py` — one `Event` schema for the
+whole system), the Capability and Executive registries, the nine-state
+Worker Lifecycle (`lifecycle.py`), the Task Dispatcher (`dispatcher.py`),
+the Self-Development and Knowledge Acquisition queues, the immutable Audit
+Stream (`audit.py`), and the Founder State backend contract
+(`founder_state.py`, no UI).
+
+**It performs no work.** Mission Control holds no Environment access, no
+model calls, no live plugin references — it coordinates and records.
+`tests/test_mission_control_architecture.py` parses every module's imports
+and fails if that stops being true, rather than trusting this paragraph.
+
+Two boundaries worth knowing before changing anything here:
+
+- **Mission Control's Capability Registry is not `plugins/registry.py`.**
+  That one resolves "which live Plugin object services this capability" at
+  execution time; Mission Control's is a coordination catalogue of
+  descriptors (what exists, at what version, owned by whom, how healthy).
+  See `MISSION_CONTROL_ARCHITECTURE.md` §4.
+- **Existing plugins are registered, never modified.**
+  `mission_control/adapters.py` reads a `Plugin`'s existing manifest;
+  `FilesystemPlugin` and `BrowserPlugin` were untouched by Mission Brief
+  023, and a future Executive registers the same way with no Mission
+  Control change.
+
+Full design: `MISSION_CONTROL_ARCHITECTURE.md`. Full writeup:
+`docs/MISSION_BRIEF_023.md`.
+
 ## 5. The Model Router — how ChatGPT and Hermes coexist
 
 Both integrations sit behind one `ModelProvider` interface

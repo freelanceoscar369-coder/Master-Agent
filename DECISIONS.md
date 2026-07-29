@@ -121,6 +121,35 @@ specific future capabilities that need them, not current roadmap work.
 Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`,
 `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`.
 
+## ADR-0014: "Executive" and "Worker" name the same role (Mission Brief 023)
+MB023 introduced "Executive" for the role the frozen Constitution §17
+already calls "Worker" (and MB022 shipped as `BrowserWorker`). Rather than
+renaming the founder's deliverables or renaming shipped tagged code, the
+two are declared synonymous with `Worker` canonical; §17 records the alias
+and `FOUNDER_CONSTITUTION_FREEZE.md` was amended in the same commit, as
+the freeze process requires. First amendment made under that process. See
+`docs/adr/0014-executive-and-worker-terminology.md`.
+
+## Mission Brief 023 (2026-07-26): Mission Control & Self-Development Infrastructure
+Built the runtime coordination layer — Universal Event Bus, Capability
+Registry, Executive Registry, Worker Lifecycle, Task Dispatcher,
+Self-Development Queue, Knowledge Acquisition Queue, Audit Stream, Founder
+State (backend only), and the Communication Contract — as a new
+`mission_control/` package. Design-first
+(`MISSION_CONTROL_ARCHITECTURE.md`). Three decisions worth remembering:
+(1) the Executive/Worker terminology reconciliation above; (2) the
+knowledge-promotion gate is enforced in code — advancing past
+VERIFICATION requires `human_approved=True`, and the refusal is published
+as an auditable event, making ADR-0012 mechanical rather than a
+convention; (3) "Mission Control never performs work" is a test that
+parses every module's imports, not a claim in a docstring. Registration
+uses an adapter that reads a plugin's existing manifest, so the real,
+untouched `FilesystemPlugin` and `BrowserPlugin` register with zero
+modification — the brief's central acceptance criterion. One real bug
+found by the tests: the dispatcher assigned a second task to an already-busy
+Executive because availability ignored `current_task_id`. 107 new tests,
+461 passing, zero regressions. Full detail: `docs/MISSION_BRIEF_023.md`.
+
 ## Mission Brief 022 (2026-07-26): Browser Worker
 First implementation Mission Brief against the frozen Founder
 Constitution. Wrapped Playwright (never reimplemented it) behind nine

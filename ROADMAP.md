@@ -24,17 +24,37 @@ marked Completed here.
 | **021 Rev. 3** — Founder Constitution Freeze | Design-only (no code, no tests). Resolved every gap an independent audit found in `docs/architecture/KALPAVRIKSHA_VISION_V2.md`: Shared Infrastructure layer (ADR-0010), structurally independent Verification (ADR-0011), the Knowledge Lifecycle (ADR-0012), product-name-free architecture, multi-Operator design (ADR-0013), exactly-once ownership for every component, consolidated rules, frozen terminology, per-section status labels. Declared the Constitution frozen for everything currently on this roadmap. Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`, `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`. |
 | **022** — Browser Worker | First implementation Mission Brief against the frozen Constitution: a Playwright-wrapped Browser Worker (nine atomic Actions) proving the Universal Executive Operator architecture in a real Environment. Introduced the generic, Playwright-free `verification/` package (Verifier ABC, Evidence, Audit) any future Worker can reuse unchanged, and the Environment Session Manager pattern (`BrowserSessionManager`) resolving the one stateful-session gap `FOUNDER_CONSTITUTION_FREEZE.md` had left open. Mechanically verifies its own product-independence claim (`test_browser_constitution_compliance.py`). Observes five facets, including the accessibility tree and the page's available actions. 125 new tests, 354 passing overall, zero regressions. Full detail: `docs/MISSION_BRIEF_022.md`, `BROWSER_WORKER_ARCHITECTURE.md`. |
 
+| **023** — Mission Control & Self-Development Infrastructure | The runtime coordination layer everything else plugs into: Universal Event Bus (one schema, no custom logging), Capability Registry, Executive Registry, nine-state Worker Lifecycle, Task Dispatcher (dependency-ordered), Self-Development Queue, Knowledge Acquisition Queue with a code-enforced human promotion gate, immutable Audit Stream, and a Founder State backend contract (no UI). Existing Executives register unmodified via a manifest-reading adapter. "Mission Control never performs work" is enforced by an import-parsing test. First amendment under the Constitution freeze process (ADR-0014). 107 new tests, 461 passing, zero regressions. Full detail: `docs/MISSION_BRIEF_023.md`, `MISSION_CONTROL_ARCHITECTURE.md`. |
+
 Full detail on each: `docs/MISSION_BRIEF_001.md` through
 `docs/MISSION_BRIEF_005.md`, `docs/MISSION_BRIEF_021_REVISION_3.md` for the
-Constitution Freeze, and `docs/MISSION_BRIEF_022.md` for the Browser
-Worker; `MIRACLE_LEDGER.md` for the tag/commit/test-count record of the
-code-bearing Miracles (pending a commit/tag for 022 as of this writing).
+Constitution Freeze, `docs/MISSION_BRIEF_022.md` for the Browser Worker,
+and `docs/MISSION_BRIEF_023.md` for Mission Control; `MIRACLE_LEDGER.md`
+for the tag/commit/test-count record of the code-bearing Miracles.
 
 ## In progress
 
-Nothing is currently in progress. Mission Brief 022 proved the Universal
-Executive Operator architecture end-to-end with a real Worker; the next
-Miracle to start is the first item under Planned, below.
+Nothing is currently in progress. Mission Brief 023 made Mission Control
+the permanent coordination layer; every future Mission Brief plugs into it
+rather than inventing new coordination logic. The next Miracle to start is
+the first item under Planned, below.
+
+## Backlog — tracked, not blocking
+
+- **MB023.1 — Cross-Platform Path Safety.** Harden
+  `is_unsafe_relative_path()` for Windows/POSIX differences (a
+  POSIX-absolute path like `/etc/passwd` is not `is_absolute()` on
+  Windows, so the sandbox check under-rejects), normalize path separators
+  in action output, add regression tests, and verify sandbox boundary
+  behavior on both platforms. Raised alongside Mission Brief 023 and
+  deliberately kept out of it — the nervous system was the mission.
+  **Status: completed** — see `docs/MISSION_BRIEF_023_1.md`.
+- **The closing loop.** Mission Control coordinates, but nothing yet
+  drives it end to end: a caller must still pull ready tasks and invoke
+  them. An Operator-side runner that pulls `dispatch_ready()`, invokes
+  through the Mission Brief 022 Worker machinery, and feeds Verification
+  Evidence back would make the Kalpavriksha Loop continuous for the first
+  time. Needs no Constitution change.
 
 ## Planned — next up
 

@@ -12,6 +12,7 @@
 - **v2 (2026-07-24):** First consolidation of MB001–005 + ARCHITECTURE.md + MEMORY_ARCHITECTURE.md + FILESYSTEM_CAPABILITIES.md into a single constitution.
 - **v2, independent audit (2026-07-25):** Audited against internal consistency, completeness, separation of concerns, scalability, product independence, and vision alignment. Findings: a claimed "absolute boundary" between Brain and Operator was contradicted by shared infrastructure (Plugin Registry, Memory) neither column accounted for; product names (Hermes, Ollama, ChatGPT, VS Code, Obsidian) were load-bearing in principle-level prose, contradicting this document's own Product Agnosticism claim; Verification was nominally but not structurally independent from Execution; several real, working classes (`MasterAgentSession`, `MissionManager`, `Reporter`) were unplaced by the Brain/Operator model; several rules were duplicated across sections; multi-worker/multi-environment/multi-operator scaling was either explicitly disclaimed or unaddressed.
 - **Revision 3 (this document, 2026-07-26):** Resolves every item above. See `docs/MISSION_BRIEF_021_REVISION_3.md` for the full record of what changed and why.
+- **Amendment 1 (2026-07-26, MB023):** §17 gains one row recording **Executive** as a synonym for **Worker** — the term MB023's Mission Control registration API uses for the same role. This is the first amendment made under the freeze process, and it follows that process exactly: Constitution and `FOUNDER_CONSTITUTION_FREEZE.md` updated together, backed by `docs/adr/0014-executive-and-worker-terminology.md` with rejected alternatives recorded. No section's status changed; no shipped code was renamed.
 
 ---
 
@@ -450,6 +451,7 @@ Every component named across MB001–005, `ARCHITECTURE.md`, and the prior audit
 | **Brain** | The cognitive layer: Intent Layer, Planner, Model Router, Reporter (§3). Decides; never executes. |
 | **Operator** | The execution layer: Orchestrator, Verification Subsystem, Worker/Plugin Runtime, Environment Session Management (§4). Executes; never decides. |
 | **Worker** | A single registered unit of execution capability inside an Operator's Worker Runtime (today: an Action/Plugin). Not a layer — a component of §12. |
+| **Executive** | Synonym for **Worker**, introduced by MB023 as the term Mission Control's registration API uses (`ExecutiveRegistry`, `executive_id`). The same role, described from the coordination layer rather than the execution layer. `Worker` stays canonical here and in Worker-side code; neither term may be given a third synonym. See `docs/adr/0014-executive-and-worker-terminology.md`. |
 | **Environment** | An abstract category of place execution happens (Desktop, Browser, Terminal, VPS, future Robotics/IoT). Never a specific product (§7.2, §21). |
 | **Environment Instance** | One concrete, addressable, live target within an Environment category (§7.4, §8.3). |
 | **Environment Session** | The live handle an Operator Instance holds to one Environment Instance (§8.3). Owned by exactly one Operator Instance; never Shared Infrastructure. |

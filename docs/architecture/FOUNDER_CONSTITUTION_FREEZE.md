@@ -146,6 +146,20 @@ architecture-constitution material.
 
 ---
 
+## 4a. Amendments made since the freeze
+
+The freeze does not mean "never changes" — it means changes go through
+this record, with an ADR, rather than by silent edit. Amendments to date:
+
+| # | Date | Mission Brief | What changed | Backed by |
+|---|---|---|---|---|
+| 1 | 2026-07-26 | MB023 | §17 Terminology Freeze gains one row: **Executive** is recorded as a synonym for **Worker** (the term Mission Control's registration API uses for the same role). No section status changed; no shipped code renamed. | `docs/adr/0014-executive-and-worker-terminology.md` |
+
+This is what the amendment process is supposed to look like: a real
+terminology collision surfaced during implementation, was resolved
+explicitly rather than left ambiguous, and both documents moved together
+in one commit. A future amendment adds a row here.
+
 ## 5. Final Founder Review
 
 **Question:** Can Founder Edition now be implemented without changing the

@@ -99,6 +99,24 @@ respectively.
   commit, a shell command's output) doesn't need a schema change.
   `Memory`'s public API and every existing caller are unchanged. Key
   decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
+- **Mission Brief 023 built Mission Control** — the runtime coordination
+  layer everything else now plugs into: a Universal Event Bus (one `Event`
+  schema for every Executive, no custom logging anywhere), a Capability
+  Registry keyed by deterministic qualified names (`Filesystem.ReadFile`),
+  an Executive Registry, the nine-state Worker Lifecycle, a Task
+  Dispatcher that turns objectives into dependency-ordered capability
+  calls, a Self-Development Queue, a Knowledge Acquisition Queue, an
+  immutable Audit Stream, and a Founder State backend contract (no UI).
+  Two things worth knowing: **Mission Control never performs work** — a
+  test parses every module's imports and fails if any of them could —
+  and the **knowledge-promotion gate is enforced in code**, so ADR-0012's
+  human-gated Promotion Review cannot quietly become a convention.
+  Existing Executives register **unmodified** via an adapter that reads
+  their manifest; the integration tests use the real `FilesystemPlugin`
+  and `BrowserPlugin`, not fakes. Also made the first amendment under the
+  Constitution freeze process (ADR-0014, reconciling "Executive" with
+  "Worker"). 107 new tests, 461 passing, zero regressions. Full detail:
+  `docs/MISSION_BRIEF_023.md`, `MISSION_CONTROL_ARCHITECTURE.md`.
 - **Mission Brief 022 built the Browser Worker** — the first
   implementation Mission Brief against the frozen Constitution, proving
   the Universal Executive Operator architecture in a real Environment by
@@ -171,6 +189,7 @@ respectively.
 | How is the system designed, and why is it shaped that way? | `ARCHITECTURE.md` (current implementation), `docs/architecture/KALPAVRIKSHA_VISION_V2.md` (authoritative architectural constitution), `ARCHITECTURE_PRINCIPLES.md` (why) |
 | What's frozen vs. still open architecturally? | `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md` (section-status registry, Final Founder Review) |
 | How does a Worker (Browser, and eventually Desktop/Terminal/etc.) plug in? | `BROWSER_WORKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_022.md` |
+| How is work coordinated, scheduled, audited, and reported? | `MISSION_CONTROL_ARCHITECTURE.md`, `docs/MISSION_BRIEF_023.md` |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |
