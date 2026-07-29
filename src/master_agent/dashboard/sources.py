@@ -25,6 +25,8 @@ from master_agent.dashboard.health import (
     runtime_health,
 )
 from master_agent.dashboard.readmodel import (
+    ApprovalPanelData,
+    ApprovalRow,
     AuditPanelData,
     AuditRow,
     CapabilityPanelData,
@@ -114,9 +116,42 @@ class DashboardSources:
                 runtime, capabilities, audit, persistence
             ),
             founder_state=self._collect_founder_state(),
+            approvals=self._collect_approvals(),
         )
 
     # ---- panels ------------------------------------------------------
+
+    def _collect_approvals(self) -> ApprovalPanelData:
+        """Reads `MissionControl.approvals` -- a public attribute, so this
+        is contract use, not private access. Tolerant like every other
+        read: an unreadable queue becomes absent data with a reason, never
+        an empty list that looks like "nothing is waiting on you"."""
+        if self._mc is None:
+            return ApprovalPanelData(
+                status=PanelStatus.missing("no mission control attached")
+            )
+        try:
+            rows = [
+                ApprovalRow(
+                    index=position,
+                    approval_id=approval.approval_id,
+                    capability=approval.capability,
+                    executive_id=approval.executive_id,
+                    risk_tier=approval.risk_tier,
+                    reason=approval.reason,
+                    impact=approval.impact,
+                    requested_at=approval.requested_at.strftime("%H:%M"),
+                    state=approval.state.value,
+                    objective=approval.objective,
+                )
+                for position, approval in enumerate(
+                    self._mc.approvals.open(), start=1
+                )
+            ]
+            return ApprovalPanelData(approvals=rows)
+        except Exception as exc:  # noqa: BLE001 - a failed read is absent data
+            return ApprovalPanelData(status=PanelStatus.missing(str(exc)))
+
 
     def _collect_runtime(self) -> RuntimePanelData:
         if self._runtime is None:

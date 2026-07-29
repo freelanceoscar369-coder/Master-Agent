@@ -319,6 +319,37 @@ Architecture Rules the work **stopped at the ADR**; nothing frozen was
 touched. See `docs/adr/0019-runtime-approval-boundary.md`,
 `docs/MISSION_BRIEF_028_0.md`.
 
+## ADR-0020: The Founder Approval Workflow (Mission Brief 028.1) — Accepted; frozen-component changes **PROPOSED**
+MB028.0 made the system safe; it had no way to say yes. The change under
+this brief: **an unanswered request is no longer a refusal.** MB028.0
+failed the task; now the founder is asked and the task waits.
+`ApprovalPending` is deliberately *not* a subclass of `ApprovalDenied` —
+conflating them is how "the founder was asleep" becomes "the mission
+failed". Three decisions worth remembering: (1) the **Approval Queue
+lives in Mission Control**, beside the two human-gated queues MB023 built,
+and is emphatically *not* a second permission system — it holds
+questions, the Permission System holds authority, and approving issues a
+`ONCE` grant there, so ADR-0019's boundary stays singular; (2)
+**ADR-0016 is untouched** — the Dashboard still renders from a frozen
+snapshot and has no way to act on the `[A]pprove` hints it prints; the
+`FounderConsole` in the launcher (the composition root, permitted to know
+every layer) does the acting through Mission Control's published
+contract. Giving `FounderDashboard` a live Mission Control was the obvious
+implementation and would have quietly undone the one property ADR-0016
+exists to establish; (3) **a restored approval is evidence, never
+authority** — deferred requests come back exactly as they were, but a
+restored `APPROVED` entry grants nothing, because the grant lived in the
+unpersisted Permission System. Also: defer is not a decision (nothing
+reaches the ledger), expiry is one (recorded with `decided_by: "system"`,
+because a ledger of only human decisions would leave an unexplained
+failure), and timeout defaults to disabled since a request that vanishes
+overnight is worse than one still on the screen. One real bug found by a
+failing test: a held task is "dispatched" as far as Mission Control is
+concerned, so it never returned through `_dispatch()` — approving
+resolved the question and the work still never ran. 33 new tests, 1051
+passing. See `docs/adr/0020-founder-approval-workflow.md`,
+`docs/MISSION_BRIEF_028_1.md`.
+
 ## Mission Brief 027.5 (2026-07-29): The Kalpavriksha Launcher
 Closed the "wiring lives in tests" gap MB026 named: `kalpavriksha` is now
 a real console command that recovers state, wires every shipped subsystem,

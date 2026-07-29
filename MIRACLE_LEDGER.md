@@ -38,6 +38,8 @@ except to fix a factual error.
 
 | **028.0** — Runtime Permission Boundary (Safety Fix) | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1015 passed, 1 skipped | ✅ Shipped | Restored **Constitution Rule 5** as a hard architectural guarantee. The defect MB027.5 found, stated exactly: **two permission gates, two execution paths, and both gates on one path.** The Orchestrator's check never ran on the Runtime path, and the Executor's was pre-satisfied by ADR-0005's relay carrying a decision nobody had made — so an `IRREVERSIBLE` `delete_folder` completed unapproved. Fix: one `ApprovalGate` protocol defined *inside* `runtime/` (the MB025 `CheckpointSink` precedent, so the Runtime gains no Permission System dependency), consulted at `_handle_task()` — the only funnel, AST-asserted to stay the only one — and **failing closed**: no gate means nothing runs at all, not even `READ_ONLY`, because the Runtime cannot resolve a risk tier and so cannot evaluate the exception. Ran in two halves exactly as the brief demanded: designed, **stopped at ADR-0019 with nothing frozen touched**, ratified by the founder, then implemented. Deliverables 8 and 9 resolved with one rule — evidence outlives the process, authority does not; a replayed approval restores the record, never a usable grant. Verified live on a real filesystem: unapproved delete refused with the folder intact, approved delete completes with who/what/when in the audit, and after a restart the same task is refused again. MB026's `git diff` freeze guard was **amended, not deleted**, into a ratified-exceptions list naming the ADR for each permitted path. MB027.5's `--enable-execution` flag removed — a safety flag that outlives its hazard teaches founders to ignore flags. 22 new tests, zero regressions. Full writeup: `docs/MISSION_BRIEF_028_0.md`. |
 
+| **028.1** — Founder Approval Workflow | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1051 passed, 1 skipped | ✅ Shipped | Turned approval from architecture into a workflow. **Kalpavriksha is now a system a founder operates**, not a set of subsystems that happen to work: `kalpavriksha` shows an Approval panel carrying everything a decision needs (capability, executive, risk tier, reason, estimated impact, timestamp), and `approve 1` / `reject 1` / `defer 1` / `approve all` decide it — no flags, no test harness, no internal commands. The change underneath: **an unanswered request is no longer a refusal**; the task waits and the Runtime re-offers it the instant the founder answers. New Approval Queue in Mission Control beside MB023's two human-gated queues (questions, *not* a second permission system — approving issues a `ONCE` grant in the one ledger that holds authority, so ADR-0019 stays singular); immutable append-only decision ledger; deferred requests survive restart; rejected work fails gracefully and is never retried; optional timeout, disabled by default. **ADR-0016 survives intact** — the Dashboard still renders from a frozen snapshot and cannot act on the hints it prints; the Console in the composition root does. A restored approval is evidence, never fresh authority. One real bug found by a failing test (a held task is "dispatched", so it never returned through `_dispatch()` — approving resolved the question and the work still never ran). Verified live across all eight steps the brief names. **⚠️ Ships frozen-component changes with ADR-0020 marked *Proposed*, awaiting ratification** — each additive and isolated; reverting removes the workflow and restores MB028.0 exactly. 33 new tests, zero regressions. Full writeup: `docs/MISSION_BRIEF_028_1.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -158,6 +160,15 @@ except to fix a factual error.
   and it did so only after a proposed ADR was ratified in a separate,
   explicit founder decision — the sequence worth copying for any future
   frozen-component change.
+
+- **Miracle 028.1 hit the standing self-reference problem** and resolves
+  it the standing way: `git tag -n1 v0.10.4-miracle-028-1` /
+  `git rev-list -n1 v0.10.4-miracle-028-1`. Minor-level would have been
+  defensible — it adds a genuine capability — but patch keeps the 0.10.x
+  line reading as one arc: launcher, boundary, workflow. It is the second
+  row to ship with an unratified ADR (ADR-0020, after ADR-0015), and for
+  the same reason: the brief listed the ADR as a deliverable rather than
+  a gate, and its Definition of Done was a working founder workflow.
 
 ## How to add a row
 

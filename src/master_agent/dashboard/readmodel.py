@@ -147,6 +147,34 @@ class FounderStatePanelData:
 
 
 @dataclass(frozen=True)
+class ApprovalRow:
+    """One pending approval, as plain data. Frozen like every other row:
+    the Approval panel *displays* decisions, it never makes them -- the
+    founder does, through Mission Control (ADR-0016 preserved, ADR-0020)."""
+
+    index: int
+    approval_id: str
+    capability: str
+    executive_id: str
+    risk_tier: str
+    reason: str
+    impact: str
+    requested_at: str
+    state: str
+    objective: str | None = None
+
+
+@dataclass(frozen=True)
+class ApprovalPanelData:
+    status: PanelStatus = PanelStatus()
+    approvals: list[ApprovalRow] = field(default_factory=list)
+
+    @property
+    def count(self) -> int:
+        return len(self.approvals)
+
+
+@dataclass(frozen=True)
 class DashboardSnapshot:
     """One complete, self-consistent view. Everything a frame needs, and
     nothing live."""
@@ -160,3 +188,4 @@ class DashboardSnapshot:
     persistence: PersistencePanelData = field(default_factory=PersistencePanelData)
     system_health: SystemHealthPanelData = field(default_factory=SystemHealthPanelData)
     founder_state: FounderStatePanelData = field(default_factory=FounderStatePanelData)
+    approvals: ApprovalPanelData = field(default_factory=ApprovalPanelData)

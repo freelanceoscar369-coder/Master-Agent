@@ -11,8 +11,8 @@ import argparse
 from pathlib import Path
 
 from master_agent.launcher.boot import KalpavrikshaSystem, build_system
+from master_agent.launcher.console import FounderConsole
 from master_agent.mission_control.tasks import Objective, Task
-from master_agent.permissions.permission_system import GrantScope
 from master_agent.runtime.config import RuntimeConfig
 
 # A deliberately small, clearly-labelled objective, used only by --demo.
@@ -22,9 +22,9 @@ from master_agent.runtime.config import RuntimeConfig
 # into that list is the real Planner (`ROADMAP.md`, Planned item 1). Until
 # it exists, this is the only way to watch the loop actually run.
 DEMO_FOLDER = "Kalpavriksha Demo"
-# The two capabilities --demo needs. Both REVERSIBLE_WRITE; nothing
-# irreversible is ever approved by a flag.
-DEMO_CAPABILITIES = ["create_folder", "write_file"]
+# --demo needs create_folder and write_file. It grants nothing: MB028.1
+# routes every approval through the Founder Console, so the demo objective
+# appears in the Approval panel and waits for you like anything else.
 
 
 def demo_objective() -> Objective:
@@ -61,16 +61,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where snapshots and the event log live (default: ~/.master_agent/state)",
     )
     parser.add_argument(
-        "--approve",
-        action="append",
-        default=[],
-        metavar="CAPABILITY",
+        "--approval-timeout",
+        type=float,
+        default=None,
         help=(
-            "Approve one capability for this session, e.g. --approve "
-            "create_folder. Repeatable. Without an approval, anything above "
-            "READ_ONLY is refused at the boundary and reported as a task "
-            "awaiting you. IRREVERSIBLE capabilities are never covered by a "
-            "standing grant (ADR-0009) - they always need a fresh decision."
+            "Seconds before an unanswered approval expires (default: never). "
+            "An expired request fails its task safely; waiting forever is the "
+            "safer default, because a request that vanishes overnight is "
+            "worse than one still on the screen in the morning."
         ),
     )
     parser.add_argument(
@@ -78,8 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Submit one demonstration objective (create a folder, write a "
-            "file - both reversible) so the loop has work to do. Approves "
-            "just those two capabilities for the session."
+            "file) so the loop has work to do. It grants nothing - the "
+            "tasks appear in the Approval panel and wait for you."
         ),
     )
     parser.add_argument(
@@ -123,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     system = build_system(
         state_dir=args.state_dir,
         runtime_config=RuntimeConfig(poll_interval_seconds=args.poll_interval),
+        approval_timeout_seconds=args.approval_timeout,
         dashboard_kwargs={"refresh_interval_seconds": args.refresh_interval},
     )
     print_boot_report(system)
@@ -130,19 +129,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.boot_only:
         return 0
 
-    approvals = list(args.approve) + (DEMO_CAPABILITIES if args.demo else [])
-    for capability in approvals:
-        system.permissions.grant("filesystem", capability, GrantScope.THIS_SESSION)
-    if approvals:
-        print(f"  Approved for this session: {', '.join(approvals)}\n")
-
     if args.demo:
         objective = system.mission_control.submit_objective(demo_objective())
         print(f"  Submitted demonstration objective {objective.objective_id}\n")
 
     system.start()
+    console = FounderConsole(
+        system.dashboard,
+        system.mission_control,
+        refresh_seconds=args.refresh_interval,
+    )
     try:
-        system.dashboard.run_forever()
+        console.run()
     except KeyboardInterrupt:
         print("\nStopping - saving state.")
     finally:

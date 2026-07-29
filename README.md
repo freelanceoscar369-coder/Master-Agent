@@ -91,10 +91,29 @@ Runtime, and hands the terminal to the Founder Dashboard. It prints a boot
 report first, naming anything this build genuinely cannot do. Useful flags:
 
 ```
-kalpavriksha --boot-only               # print the boot report and exit
-kalpavriksha --approve create_folder   # approve one capability, repeatable
-kalpavriksha --demo                    # submit one demonstration objective
+kalpavriksha --boot-only        # print the boot report and exit
+kalpavriksha --demo             # submit one demonstration objective
+kalpavriksha --approval-timeout 300   # expire unanswered approvals (default: never)
 ```
+
+When something irreversible is about to run, it appears in the Approval
+panel and **waits for you**:
+
+```
+PENDING APPROVALS (1)
+  [1] Filesystem.DeleteFolder
+      Executive : filesystem
+      Reason    : Delete Folder
+      Risk      : IRREVERSIBLE
+      Impact    : Deletes 14 files
+      Requested : 22:13
+  [A]pprove N   [R]eject N   [D]efer N   approve all
+```
+
+Type `approve 1`, `reject 1`, `defer 1`, or `approve all`. Every decision
+is recorded in an immutable ledger with who decided and when; deferred
+requests survive a restart; a restored approval is evidence, never fresh
+authority.
 
 **Nothing irreversible runs unless you approved it.** Every capability
 above `READ_ONLY` is checked against the Permission System before it

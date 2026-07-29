@@ -22,7 +22,7 @@ Permission System class.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 # The one tier that needs no approval, per Constitution Rule 5's own
@@ -52,6 +52,10 @@ class ApprovalRequest:
     local_capability: str
     task_id: str
     objective_id: str | None = None
+    # The task's payload, carried so a composition root can estimate
+    # impact ("Deletes 14 files") without the Runtime knowing what any
+    # payload means. Read-only here: nothing in `runtime/` interprets it.
+    payload: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +65,22 @@ class ApprovalRequest:
             "task_id": self.task_id,
             "objective_id": self.objective_id,
         }
+
+
+class ApprovalPending(Exception):
+    """The founder has been asked and has not answered.
+
+    **Not a refusal, and deliberately not a subclass of one.** A refusal
+    is a decision and ends the task; pending is an open question and the
+    task waits. Conflating them is how "the founder was asleep" becomes
+    "the mission failed" (MB028.1 Deliverable 6 vs 7).
+    """
+
+    def __init__(self, request: ApprovalRequest, approval_id: str, reason: str) -> None:
+        super().__init__(f"{reason} (approval {approval_id})")
+        self.request = request
+        self.approval_id = approval_id
+        self.reason = reason
 
 
 class ApprovalDenied(Exception):
@@ -201,3 +221,140 @@ class PermissionSystemGate:
             self._on_decision(request, granted, reason)
         except Exception as exc:  # noqa: BLE001 - reporting never gates work
             self.reporting_failures.append(f"{request.task_id}: {exc}")
+
+
+class FounderApprovalGate:
+    """The MB028.1 gate: when authority is missing, **ask** instead of
+    refusing outright.
+
+    Wraps `PermissionSystemGate` rather than replacing it, so the
+    boundary stays singular (ADR-0019 unweakened) and the Permission
+    System remains the only ledger of granted authority. What this adds is
+    the third outcome the founder workflow needs:
+
+    | Permission System says | MB028.0 | MB028.1 |
+    |---|---|---|
+    | granted | execute | execute |
+    | not granted | fail the task | **ask the founder; the task waits** |
+    | founder rejected / expired | — | fail the task, never retried |
+
+    `approvals` needs `find_open`, `request`, and `expire_due`;
+    `mission_control` needs `request_approval` and `expire_approvals` — so
+    this class is typed against `Any` and `runtime/` still imports nothing
+    concrete, exactly as `PluginGateway` and `PermissionSystemGate` are.
+    """
+
+    def __init__(
+        self,
+        inner: Any,
+        mission_control: Any,
+        grant_on_approval: Any,
+        timeout_seconds: float | None = None,
+        describe_impact: Any = None,
+    ) -> None:
+        self._inner = inner
+        self._mc = mission_control
+        self._grant = grant_on_approval
+        self._timeout_seconds = timeout_seconds
+        self._describe_impact = describe_impact or (lambda _request: "unknown")
+
+    def check(self, request: ApprovalRequest) -> None:
+        # Expiry is evaluated here rather than on a timer: the Runtime
+        # re-checks the boundary every cycle while a task waits, so this
+        # is already the system's heartbeat for pending approvals. A
+        # separate timer would be a second clock to keep honest.
+        self._mc.expire_approvals(self._timeout_seconds)
+
+        existing = self._mc.approvals.find_open(
+            request.task_id, request.qualified_capability
+        )
+        decided = self._decided_for(request)
+
+        if decided is not None:
+            state = decided.state.value
+            if state == "approved":
+                # Turn the founder's answer into real authority, once, in
+                # the one place authority lives. The task then passes the
+                # inner gate exactly as if it had been granted up front.
+                self._grant(request)
+            elif state in ("rejected", "expired"):
+                raise ApprovalDenied(
+                    request,
+                    "founder rejected this request"
+                    if state == "rejected"
+                    else "approval expired before a decision was made",
+                )
+
+        try:
+            self._inner.check(request)
+        except ApprovalDenied:
+            if existing is not None:
+                raise ApprovalPending(
+                    request, existing.approval_id, "awaiting founder approval"
+                ) from None
+            approval = self._ask(request)
+            raise ApprovalPending(
+                request, approval.approval_id, "awaiting founder approval"
+            ) from None
+
+    def _decided_for(self, request: ApprovalRequest) -> Any:
+        """The most recent *decided* entry for this exact task+capability.
+        Scanned newest-first so a fresh question always wins over an old
+        answer -- an approval is consumed, never reused (ADR-0009)."""
+        for approval in reversed(self._mc.approvals.all()):
+            if (
+                approval.task_id == request.task_id
+                and approval.capability == request.qualified_capability
+                and not approval.is_open
+            ):
+                return approval
+        return None
+
+    def _ask(self, request: ApprovalRequest) -> Any:
+        from master_agent.mission_control.approvals import PendingApproval
+
+        risk_tier = self._risk_tier(request)
+        approval, _is_new = self._mc.request_approval(
+            PendingApproval(
+                capability=request.qualified_capability,
+                local_capability=request.local_capability,
+                executive_id=request.executive_id,
+                risk_tier=risk_tier,
+                reason=_human_reason(request.local_capability),
+                impact=self._describe_impact(request),
+                task_id=request.task_id,
+                objective_id=request.objective_id,
+                objective=self._objective_description(request.objective_id),
+                requested_by="runtime",
+            )
+        )
+        return approval
+
+    def _risk_tier(self, request: ApprovalRequest) -> str:
+        try:
+            tier = self._inner._registry.risk_tier_for(
+                request.executive_id, request.local_capability
+            )
+            return getattr(tier, "value", str(tier))
+        except Exception:  # noqa: BLE001 - an unknown tier is still worth asking about
+            return "unknown"
+
+    def _objective_description(self, objective_id: str | None) -> str | None:
+        if objective_id is None:
+            return None
+        try:
+            for objective in self._mc.dispatcher.objectives():
+                if objective.objective_id == objective_id:
+                    return objective.description
+        except Exception:  # noqa: BLE001 - a missing description is not a reason to refuse
+            return None
+        return None
+
+
+def _human_reason(local_capability: str) -> str:
+    """`delete_folder` -> `Delete Folder`. A founder deciding at 22:13
+    should not have to read snake_case to work out what they are being
+    asked. Deliberately mechanical rather than a lookup table -- a table
+    would need editing every time a capability is added, which is exactly
+    the coupling Rule 3 forbids."""
+    return local_capability.replace("_", " ").title()

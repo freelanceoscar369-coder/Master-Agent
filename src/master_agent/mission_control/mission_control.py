@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from master_agent.mission_control.approvals import (
+    ApprovalQueue,
+    ApprovalState,
+    PendingApproval,
+)
 from master_agent.mission_control.audit import AuditStream
 from master_agent.mission_control.capabilities import CapabilityDescriptor, CapabilityRegistry
 from master_agent.mission_control.dispatcher import TaskDispatcher, UnknownObjective
@@ -52,6 +57,7 @@ class MissionControl:
         self.capabilities = CapabilityRegistry()
         self.executives = ExecutiveRegistry()
         self.dispatcher = TaskDispatcher(self.capabilities, self.executives, self.bus)
+        self.approvals = ApprovalQueue()
         self.self_development = SelfDevelopmentQueue()
         self.knowledge = KnowledgeAcquisitionQueue()
         self._current_objective_id: str | None = None
@@ -338,6 +344,71 @@ class MissionControl:
 
     # ---- Founder State ----------------------------------------------
 
+    # ---- Founder approvals (MB028.1) --------------------------------
+
+    def request_approval(self, approval: PendingApproval) -> tuple[PendingApproval, bool]:
+        """Open a question for the founder. Idempotent per task+capability
+        (the Runtime re-asks every cycle while a task waits), and the
+        event is published only when the question is genuinely new."""
+        approval, is_new = self.approvals.request(approval)
+        if is_new:
+            self._publish(
+                EventType.APPROVAL_REQUESTED,
+                task_id=approval.task_id,
+                objective_id=approval.objective_id,
+                capability=approval.capability,
+                payload=approval.as_dict(),
+            )
+            # The founder-facing signal MB023 already defined. Published
+            # alongside, so anything already watching for "you are being
+            # asked" keeps working unchanged.
+            self._publish(
+                EventType.APPROVAL_REQUIRED,
+                task_id=approval.task_id,
+                objective_id=approval.objective_id,
+                capability=approval.capability,
+                payload=approval.as_dict(),
+            )
+        return approval, is_new
+
+    def approve(self, approval_id: str, founder: str = "founder", note: str = ""):
+        return self._decide_approval(
+            self.approvals.approve, approval_id, founder, note, EventType.APPROVAL_GRANTED
+        )
+
+    def reject(self, approval_id: str, founder: str = "founder", note: str = ""):
+        return self._decide_approval(
+            self.approvals.reject, approval_id, founder, note, EventType.APPROVAL_DENIED
+        )
+
+    def defer(self, approval_id: str, founder: str = "founder", note: str = ""):
+        return self._decide_approval(
+            self.approvals.defer, approval_id, founder, note, EventType.APPROVAL_DEFERRED
+        )
+
+    def expire_approvals(self, timeout_seconds: float | None) -> list[PendingApproval]:
+        expired = self.approvals.expire_due(timeout_seconds)
+        for approval in expired:
+            self._publish(
+                EventType.APPROVAL_EXPIRED,
+                task_id=approval.task_id,
+                objective_id=approval.objective_id,
+                capability=approval.capability,
+                payload=approval.as_dict(),
+            )
+        return expired
+
+    def _decide_approval(self, action, approval_id, founder, note, event_type):
+        approval = action(approval_id, founder, note)
+        self._publish(
+            event_type,
+            task_id=approval.task_id,
+            objective_id=approval.objective_id,
+            capability=approval.capability,
+            payload={**approval.as_dict(), "decided_by": founder},
+        )
+        return approval
+
     def founder_state(self, objective_id: str | None = None) -> FounderState:
         """One honest snapshot — see founder_state.py. Returns an empty but
         well-formed snapshot when nothing is in flight, rather than None,
@@ -403,7 +474,14 @@ class MissionControl:
         return None
 
     def _waiting_approval(self) -> list[dict[str, Any]]:
-        return [
+        """Everything a founder is currently blocking. Two kinds, one
+        list: capability approvals (MB028.1) and knowledge promotions
+        (ADR-0012). Both are "the system is waiting on you"."""
+        capability_approvals = [
+            {"kind": "capability", **approval.as_dict()}
+            for approval in self.approvals.open()
+        ]
+        knowledge = [
             {
                 "kind": "knowledge_promotion",
                 "request_id": request.request_id,
@@ -411,6 +489,7 @@ class MissionControl:
             }
             for request in self.knowledge.awaiting_promotion()
         ]
+        return capability_approvals + knowledge
 
     def _learning_progress(self) -> dict[str, Any]:
         return {

@@ -247,10 +247,19 @@ def test_the_read_model_is_frozen_so_a_panel_cannot_mutate_it():
 # types in `mission_control/events.py`. Those three are allowed here --
 # and nothing else is, which is the point: the guard was **amended, with
 # a reason**, not deleted or quietly narrowed.
+#
+# MB028.1 / ADR-0020 turned that boundary into a founder workflow. It
+# needed an Approval Queue beside Mission Control's two existing
+# human-gated queues, the Runtime's third outcome (pending, as distinct
+# from denied), and one snapshot key so a deferred approval survives a
+# restart.
 RATIFIED_EXCEPTIONS = {
     "src/master_agent/runtime/approval.py": "ADR-0019",
-    "src/master_agent/runtime/engine.py": "ADR-0019",
-    "src/master_agent/mission_control/events.py": "ADR-0019",
+    "src/master_agent/runtime/engine.py": "ADR-0019, ADR-0020",
+    "src/master_agent/mission_control/events.py": "ADR-0019, ADR-0020",
+    "src/master_agent/mission_control/approvals.py": "ADR-0020",
+    "src/master_agent/mission_control/mission_control.py": "ADR-0020",
+    "src/master_agent/persistence/service.py": "ADR-0020",
 }
 
 

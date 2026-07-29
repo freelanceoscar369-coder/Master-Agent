@@ -29,7 +29,12 @@ from master_agent.mission_control.events import (
 )
 from master_agent.mission_control.mission_control import MissionControl
 from master_agent.mission_control.tasks import Task, TaskState
-from master_agent.runtime.approval import ApprovalDenied, ApprovalGate, ApprovalRequest
+from master_agent.runtime.approval import (
+    ApprovalDenied,
+    ApprovalGate,
+    ApprovalPending,
+    ApprovalRequest,
+)
 from master_agent.runtime.checkpoint import CheckpointSink, RuntimeCheckpoint
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.gateway import ExecutiveGateway, GatewayResult
@@ -74,6 +79,14 @@ class RuntimeEngine:
         self._sleep = sleep or time.sleep
 
         self._gateways: dict[str, ExecutiveGateway] = {}
+        # Tasks held at the approval boundary (MB028.1). Mission Control
+        # considers them dispatched, so they never come back through
+        # `_dispatch()` -- without this, answering an approval would
+        # resolve the question and the work would still never run. Runtime-
+        # local on purpose: "who am I waiting on" is loop state, not
+        # coordination state, and Mission Control already knows the task is
+        # assigned.
+        self._awaiting_approval: dict[str, Task] = {}
         self._state = RuntimeState.INITIALIZING
         self._started_at: datetime | None = None
         # `_cycle` is cumulative across restarts (restored from a
@@ -233,7 +246,10 @@ class RuntimeEngine:
             self._transition(RuntimeState.DISPATCHING)
             self._publish(EventType.DISPATCH_STARTED, payload={"cycle": self._cycle})
 
-            tasks = self._dispatch()
+            # Re-offer held tasks first: the founder's answer arrives
+            # between cycles, and the task that was waiting for it should
+            # be the first thing tried, not the last.
+            tasks = self._resume_awaiting() + self._dispatch()
             if not tasks:
                 self._go_idle(reason="no work ready")
                 return []
@@ -254,6 +270,14 @@ class RuntimeEngine:
             self.checkpoint()
 
         return handled
+
+    def _resume_awaiting(self) -> list[Task]:
+        """Tasks held at the boundary, offered again. The boundary is
+        re-consulted in `_handle_task`, so a still-unanswered request
+        simply goes back on the pile."""
+        held = list(self._awaiting_approval.values())
+        self._awaiting_approval.clear()
+        return held
 
     def _dispatch(self) -> list[Task]:
         """Ask Mission Control what is ready across every objective. The
@@ -294,6 +318,13 @@ class RuntimeEngine:
         # inside any gateway implementation.
         try:
             self._require_approval(task, local_capability)
+        except ApprovalPending as pending:
+            # MB028.1: an unanswered question is not a failure. The task
+            # stays exactly where it is and the boundary is re-consulted
+            # next cycle, so the moment the founder answers, work resumes
+            # with no restart and no resubmission.
+            self._await_approval(task, pending)
+            return
         except ApprovalDenied as denied:
             self._refuse(task, denied)
             return
@@ -414,6 +445,7 @@ class RuntimeEngine:
             local_capability=local_capability,
             task_id=task.task_id,
             objective_id=self._objective_of(task),
+            payload=dict(task.payload),
         )
         if self._approval_gate is None:
             raise ApprovalDenied(
@@ -421,6 +453,19 @@ class RuntimeEngine:
                 "no approval gate is wired; the Runtime refuses to execute",
             )
         self._approval_gate.check(request)
+
+    def _await_approval(self, task: Task, pending: ApprovalPending) -> None:
+        """Hold, do not fail. The task keeps its state, so nothing has to
+        be resubmitted when the answer arrives.
+
+        Nothing is published here: `MissionControl.request_approval()`
+        already published `APPROVAL_REQUESTED`/`APPROVAL_REQUIRED` exactly
+        once, when the question was new. Publishing again on every cycle
+        would fill the audit stream with the fact that a founder is still
+        asleep.
+        """
+        self._awaiting_approval[task.task_id] = task
+        self._go_idle(reason=f"awaiting founder approval ({pending.approval_id})")
 
     def _refuse(self, task: Task, denied: ApprovalDenied) -> None:
         """A refusal is not a failure of the work -- it is the system

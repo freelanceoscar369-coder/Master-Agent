@@ -303,6 +303,24 @@ respectively.
   `_INTENT_PATTERNS` dispatch, reaching all six of the brief's
   conversation examples end to end. 108 new tests, 234 passing overall,
   zero regressions. Full detail: `docs/MISSION_BRIEF_005.md`.
+- **Mission Brief 028.1 made it usable.** MB028.0 made Kalpavriksha safe
+  and left it with no way to say yes. Now `kalpavriksha` shows an Approval
+  panel — capability, executive, risk tier, reason, estimated impact
+  ("Deletes 14 files"), timestamp — and you type `approve 1`, `reject 1`,
+  `defer 1`, or `approve all`. **This is the brief where Kalpavriksha
+  stops being a set of working subsystems and becomes a system a founder
+  operates.** The change underneath: an unanswered request is no longer a
+  refusal — the task *waits*, and the Runtime re-offers it the moment you
+  answer. The Approval Queue lives in Mission Control beside its two
+  existing human-gated queues and is **not** a second permission system:
+  it holds questions, the Permission System holds authority. **ADR-0016
+  survives intact** — the Dashboard still renders from a frozen snapshot
+  and cannot act on the `[A]pprove` hints it prints; the Console in the
+  launcher does. Every decision lands in an immutable ledger; deferred
+  requests survive restart; a restored approval is evidence, never fresh
+  authority. **⚠️ Ships frozen-component changes with ADR-0020 marked
+  *Proposed*.** 33 new tests, 1051 passing. Full detail:
+  `docs/MISSION_BRIEF_028_1.md`.
 
 ## Where to go for what
 
@@ -320,6 +338,7 @@ respectively.
 | How does the system run without a human driving each cycle? | `RUNTIME_ENGINE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_024.md` |
 | How do I actually run it? | `kalpavriksha` — see `README.md` "Getting started" and `docs/MISSION_BRIEF_027_5.md` |
 | What stops it doing something irreversible? | `RUNTIME_ENGINE_ARCHITECTURE.md` §4a, `docs/MISSION_BRIEF_028_0.md`, ADR-0019 |
+| How do I approve, reject, or defer a pending action? | `docs/MISSION_BRIEF_028_1.md`, ADR-0020 |
 | How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Which AI runs a given task, what does it cost, and who approves paid ones? | `AI_CAPABILITY_BROKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_027.md`, ADR-0017 |

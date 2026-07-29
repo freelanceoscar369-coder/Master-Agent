@@ -121,16 +121,16 @@ def test_gateways_are_wired_and_the_boundary_is_reported(tmp_path):
     assert "filesystem" in system.runtime._gateways
     step = system.report.step("Approval boundary")
     assert step.status == OK
-    assert "nothing irreversible executes unapproved" in step.detail
+    assert "waits for you in the Approval panel" in step.detail
 
 
 def test_the_launcher_wires_a_real_approval_gate(tmp_path):
     """Fail-closed only helps if the founder command actually wires one."""
-    from master_agent.runtime.approval import PermissionSystemGate
+    from master_agent.runtime.approval import FounderApprovalGate
 
     system = quiet_system(tmp_path / "state")
 
-    assert isinstance(system.runtime._approval_gate, PermissionSystemGate)
+    assert isinstance(system.runtime._approval_gate, FounderApprovalGate)
 
 
 def test_the_runtime_path_is_no_longer_ungated(tmp_path):
@@ -364,7 +364,7 @@ def test_launcher_output_is_ascii_only(tmp_path, capsys):
 def test_the_parser_exposes_the_documented_flags():
     args = build_parser().parse_args([])
 
-    assert args.approve == [], "nothing is approved without being asked for"
+    assert args.approval_timeout is None, "waiting forever is the safe default"
     assert args.demo is False
     assert args.boot_only is False
     assert args.state_dir is None

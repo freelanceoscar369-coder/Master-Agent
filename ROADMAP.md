@@ -53,6 +53,8 @@ the first item under Planned, below.
 
 | **028.0** — Runtime Permission Boundary (Safety Fix) | Restored **Constitution Rule 5** as a hard architectural guarantee: nothing irreversible executes without founder approval, on any path. The defect: two permission gates, two execution paths, and both gates on one path — the Orchestrator's check never ran on the Runtime path, and the Executor's was pre-satisfied by ADR-0005's relay carrying a decision nobody made. Fix: one `ApprovalGate` protocol defined inside `runtime/` (the MB025 `CheckpointSink` precedent, so the Runtime gains no Permission System dependency), consulted at `_handle_task()` — the only funnel — and **failing closed**: no gate wired means nothing runs at all. Ran in two halves as the brief required: designed, stopped at ADR-0019, ratified, then implemented. Evidence outlives the process, authority does not — a replayed approval restores the record, never a usable grant. Verified live: unapproved delete refused with the folder intact, approved delete completes with who/what/when in the audit, and after a restart the same task is refused again. MB027.5's `--enable-execution` flag removed, its hazard gone. 22 new tests, 1015 passing. Key design decision: ADR-0019. Full detail: `docs/MISSION_BRIEF_028_0.md`. |
 
+| **028.1** — Founder Approval Workflow | Turned approval from architecture into a workflow: `kalpavriksha` now shows an Approval panel with everything a decision needs (capability, executive, risk tier, reason, impact, timestamp), and `approve 1` / `reject 1` / `defer 1` / `approve all` decide it — no flags, no harnesses. The change under it: **an unanswered request is no longer a refusal**; the task waits, and the Runtime re-offers it the moment the founder answers. New Approval Queue in Mission Control beside its two existing human-gated queues; immutable ledger of every decision; deferred requests survive restart; rejected work fails gracefully and is never retried; optional timeout, disabled by default. **ADR-0016 is untouched** — the Dashboard still renders from a frozen snapshot and the Console (composition root) does the acting. Verified live across all eight steps of the brief. 33 new tests, 1051 passing. Key design decision: ADR-0020 (**Proposed** — ships frozen-component changes). Full detail: `docs/MISSION_BRIEF_028_1.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -127,12 +129,16 @@ the first item under Planned, below.
   came closest with "`run()` is not a second boundary") and was found only
   when the launcher made it reachable in one command. Now closed by one
   `ApprovalGate` at the Runtime's single funnel, failing closed.
-- **An approval interface.** MB028.0 gives the founder a boundary but no
-  way to answer a pending request interactively — `kalpavriksha --approve
-  <capability>` grants for the session, and the Dashboard already has a
-  `waiting_approval` field, but nothing joins them. Irreversible tasks now
-  stop and report, which is safe but not yet usable. A founder UX
-  decision, and the natural next small brief.
+- **An approval interface.** ✅ **Done** — shipped as Mission Brief 028.1.
+- **Ratify (or reject) ADR-0020's frozen-component changes.** MB028.1
+  ships an Approval Queue in `mission_control/`, a third Runtime outcome,
+  and one persistence key. Each is additive and isolated — reverting them
+  removes the workflow and restores MB028.0 exactly. A founder decision,
+  same posture as ADR-0015.
+- **An approval history view.** The ledger is durable and queryable, but
+  nothing renders it: the founder sees pending work, not past decisions.
+- **Undo a rejection.** Rejection is final for that task; a founder who
+  rejects by mistake must resubmit the objective.
 
 ## Planned — next up
 

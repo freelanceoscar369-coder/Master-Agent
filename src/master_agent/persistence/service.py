@@ -104,6 +104,11 @@ class PersistenceService:
                 objective_to_dict(o) for o in target.dispatcher.objectives()
             ],
             "founder_state": target.founder_state().as_dict(),
+            # MB028.1 Deliverable 5: a deferred approval is an unanswered
+            # question, and a question the founder has not answered must
+            # still be there after a restart. The ledger travels with it
+            # so approval evidence survives too (ADR-0019).
+            "approvals": target.approvals.as_dict(),
             "runtime": checkpoint.as_dict() if checkpoint else None,
         }
         return SnapshotEnvelope(
@@ -229,6 +234,15 @@ class PersistenceService:
             # reports the recovered mission rather than an empty snapshot.
             mission_control.restore_objective(objective)
             counts["objectives"] += 1
+
+        # MB028.1: restores questions and evidence, never authority. A
+        # restored APPROVED entry records that the founder once said yes;
+        # the grant it produced lived in the Permission System and is
+        # deliberately gone (ADR-0019 Decision 3).
+        approvals = payload.get("approvals")
+        if approvals:
+            mission_control.approvals.restore(approvals)
+            counts["approvals"] = len(approvals.get("approvals", []))
 
         if restore_audit:
             counts["audit_entries"] = self.restore_audit_into(mission_control)

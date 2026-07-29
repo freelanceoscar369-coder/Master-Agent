@@ -59,6 +59,12 @@ class EventType(str, Enum):
     # happened, who made it, when, and for which capability.
     APPROVAL_GRANTED = "approval_granted"
     APPROVAL_DENIED = "approval_denied"
+    # MB028.1 -- the founder workflow. REQUESTED opens a question,
+    # DEFERRED moves it out of the way without answering it, EXPIRED
+    # closes it unanswered. GRANTED/DENIED above remain the *answers*.
+    APPROVAL_REQUESTED = "approval_requested"
+    APPROVAL_DEFERRED = "approval_deferred"
+    APPROVAL_EXPIRED = "approval_expired"
     SUBSCRIBER_FAILED = "subscriber_failed"
 
     # --- Runtime Engine (MB024). Every cycle must be observable, so each

@@ -26,17 +26,18 @@ from typing import Any
 
 from master_agent.config import MasterAgentConfig, load_config
 from master_agent.dashboard.app import FounderDashboard, build_dashboard
+from master_agent.executor.action import default_locations
 from master_agent.executor.executor import LocalExecutor
 from master_agent.mission_control.adapters import discover_executives
 from master_agent.mission_control.mission_control import MissionControl
-from master_agent.permissions.permission_system import PermissionSystem
+from master_agent.permissions.permission_system import GrantScope, PermissionSystem
 from master_agent.persistence.recovery import RecoveryReport, recover
 from master_agent.persistence.service import PersistenceService
 from master_agent.persistence.store import JsonFileStateStore
 from master_agent.plugins.base import Plugin
 from master_agent.plugins.filesystem_plugin import FilesystemPlugin
 from master_agent.plugins.registry import PluginRegistry
-from master_agent.runtime.approval import PermissionSystemGate
+from master_agent.runtime.approval import FounderApprovalGate, PermissionSystemGate
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.engine import RuntimeEngine
 from master_agent.runtime.gateway import PluginGateway
@@ -52,9 +53,37 @@ WARNING = "warning"
 # single funnel and fails closed without one. The flag is gone -- a safety
 # flag that outlives its hazard teaches founders to ignore flags.
 APPROVAL_BOUNDARY_DETAIL = (
-    "every capability above READ_ONLY is checked against the Permission "
-    "System before it runs; nothing irreversible executes unapproved"
+    "every capability above READ_ONLY is checked before it runs; anything "
+    "unapproved waits for you in the Approval panel"
 )
+
+
+def estimate_impact(request: Any) -> str:
+    """A founder-readable estimate of what a capability would do
+    (Deliverable 1). Lives in the composition root, not in `runtime/`,
+    because interpreting a payload means knowing what a payload means --
+    which is exactly the Executive knowledge the Runtime must not have.
+
+    Deliberately best-effort: an estimate it cannot compute is reported as
+    unknown, never guessed. A wrong number here is worse than no number,
+    because a founder would approve against it.
+    """
+    payload = request.payload or {}
+    target = payload.get("path") or payload.get("name")
+    capability = request.local_capability
+
+    if capability == "delete_folder" and target:
+        for root in default_locations().values():
+            candidate = root / str(target)
+            if candidate.is_dir():
+                files = sum(1 for item in candidate.rglob("*") if item.is_file())
+                return f"Deletes {files} file(s) in '{target}'"
+        return f"Deletes folder '{target}' (not found on disk; may already be gone)"
+    if capability == "delete_file" and target:
+        return f"Deletes file '{target}'"
+    if target:
+        return f"{capability.replace('_', ' ')} on '{target}'"
+    return "unknown"
 
 # Why the Broker step exists but cannot succeed: MB027 froze the AI
 # Capability Broker's architecture and the founder ratified it, but no
@@ -184,6 +213,7 @@ def build_system(
     runtime_config: RuntimeConfig | None = None,
     plugins: list[Plugin] | None = None,
     decided_by: str = "founder",
+    approval_timeout_seconds: float | None = None,
     dashboard_kwargs: dict[str, Any] | None = None,
 ) -> KalpavrikshaSystem:
     """Construct a complete, wired Kalpavriksha and report on the boot.
@@ -228,8 +258,20 @@ def build_system(
     #     Runtime because the Runtime refuses to execute without it. The
     #     gate delegates to the same Permission System the Orchestrator
     #     uses -- one ledger, one policy, two paths.
-    approval_gate = PermissionSystemGate(permissions, registry).report_to(
+    inner_gate = PermissionSystemGate(permissions, registry).report_to(
         mission_control.bus, decided_by
+    )
+    # MB028.1: when authority is missing, ask instead of refusing. The
+    # inner gate is unchanged and still the only thing that consults the
+    # Permission System -- the boundary stays singular (ADR-0019).
+    approval_gate = FounderApprovalGate(
+        inner=inner_gate,
+        mission_control=mission_control,
+        grant_on_approval=lambda request: permissions.grant(
+            request.executive_id, request.local_capability, GrantScope.ONCE
+        ),
+        timeout_seconds=approval_timeout_seconds,
+        describe_impact=estimate_impact,
     )
     runtime = RuntimeEngine(
         mission_control,

@@ -177,11 +177,24 @@ Three properties, each load-bearing:
    Forgetting to wire the boundary yields a system that does nothing,
    never one that does everything.
 
-**A refusal is not a failure of the work, and is never retried.**
-Retrying a refusal is asking the same question repeatedly and hoping for a
-different answer. The task is reported failed so it surfaces in Founder
-State, and `APPROVAL_REQUIRED` is published so the founder can see what is
-waiting on them.
+**Three outcomes, not two** (MB028.1). The boundary distinguishes
+*authorised*, *pending*, and *refused*:
+
+- **Authorised** — execute.
+- **Pending** (`ApprovalPending`) — the founder has been asked and has not
+  answered. The task is **held, not failed**: it keeps its state, the
+  Runtime remembers it in `_awaiting_approval`, and `_resume_awaiting()`
+  re-offers it first on the next cycle, so answering resumes work with no
+  restart and no resubmission. Held tasks are invisible to `_dispatch()`
+  (Mission Control considers them dispatched), which is exactly why the
+  Runtime has to remember them itself.
+- **Refused** (`ApprovalDenied`) — rejected or expired. The task fails and
+  is **never retried**: retrying a refusal is asking the same question
+  repeatedly and hoping for a different answer.
+
+`ApprovalPending` is deliberately not a subclass of `ApprovalDenied`.
+Conflating them is how "the founder was asleep" becomes "the mission
+failed".
 
 **Evidence outlives the process; authority does not.** Every decision
 publishes `APPROVAL_GRANTED` / `APPROVAL_DENIED` carrying capability,

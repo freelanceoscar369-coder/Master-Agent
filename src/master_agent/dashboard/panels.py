@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 
 from master_agent.dashboard.charset import ASCII, UNICODE, Charset, detect
 from master_agent.dashboard.readmodel import (
+    ApprovalPanelData,
     AuditPanelData,
     CapabilityPanelData,
     DashboardSnapshot,
@@ -279,6 +280,34 @@ def render_system_health(
         f"  Audit             {value(data.audit_health, charset)}",
         f"  Persistence       {value(data.persistence_health, charset)}",
     ]
+
+
+def render_approvals(
+    data: ApprovalPanelData, charset: Charset | None = None
+) -> list[str]:
+    """The Approval panel (MB028.1 Deliverable 2).
+
+    Pure, like every other panel: it takes plain data and returns strings.
+    The `[A]/[R]/[D]` hints tell the founder what to type -- the panel
+    itself has no way to act on them, which is what keeps the Dashboard
+    read-only (ADR-0016) while the workflow becomes interactive."""
+    if not data.status.available:
+        return _unavailable("PENDING APPROVALS", data.status, charset)
+
+    if not data.approvals:
+        return ["PENDING APPROVALS (0)", "  nothing is waiting on you"]
+
+    lines = [f"PENDING APPROVALS ({data.count})"]
+    for row in data.approvals:
+        deferred = "  [deferred]" if row.state == "deferred" else ""
+        lines.append(f"  [{row.index}] {row.capability}{deferred}")
+        lines.append(f"      Executive : {row.executive_id}")
+        lines.append(f"      Reason    : {row.reason}")
+        lines.append(f"      Risk      : {row.risk_tier.upper()}")
+        lines.append(f"      Impact    : {row.impact}")
+        lines.append(f"      Requested : {row.requested_at}")
+    lines.append("  [A]pprove N   [R]eject N   [D]efer N   approve all")
+    return lines
 
 
 def render_founder_state(

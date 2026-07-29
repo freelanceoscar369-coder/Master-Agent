@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from master_agent.dashboard.charset import Charset
 from master_agent.dashboard.panels import (
+    render_approvals,
     render_audit,
     render_capabilities,
     render_executives,
@@ -37,9 +38,16 @@ def render_frame(
     of it (audit, persistence), before the summary (system health). A
     founder glancing at the top of the screen should see the answer to
     "is it working right now".
+
+    **Pending approvals come first**, above even the Runtime, because
+    they are the only thing on the screen the founder must *act* on --
+    everything else is something to know. A blocked system whose reason
+    for being blocked is eight panels down is a system that looks broken
+    (MB028.1).
     """
     sections: list[list[str]] = [
         render_header(snapshot, charset),
+        render_approvals(snapshot.approvals, charset),
         render_runtime(snapshot.runtime, charset),
         render_mission(snapshot.mission, charset),
         render_executives(snapshot.executives, charset),
