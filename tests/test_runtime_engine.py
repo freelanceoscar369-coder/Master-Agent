@@ -26,6 +26,7 @@ from master_agent.runtime.states import (
     can_transition,
 )
 from master_agent.verification.evidence import Evidence, ExpectedOutcome, ObservationCheck, Verdict
+from tests.approval_test_support import ApprovingGate
 from tests.runtime_test_support import RaisingGateway, RecordingGateway
 
 NO_SLEEP = lambda _seconds: None
@@ -54,7 +55,7 @@ def make_control(capabilities: list[str] | None = None) -> MissionControl:
 def make_engine(mc: MissionControl, gateway, **config_kwargs) -> RuntimeEngine:
     config_kwargs.setdefault("poll_interval_seconds", 0)
     config = RuntimeConfig(**config_kwargs)
-    engine = RuntimeEngine(mc, config, sleep=NO_SLEEP)
+    engine = RuntimeEngine(mc, config, sleep=NO_SLEEP, approval_gate=ApprovingGate())
     engine.register_gateway("demo", gateway)
     return engine
 
@@ -211,7 +212,10 @@ def test_max_concurrent_tasks_bounds_work_taken_on_in_one_cycle():
 
     gateway = RecordingGateway()
     engine = RuntimeEngine(
-        mc, RuntimeConfig(poll_interval_seconds=0, max_concurrent_tasks=1), sleep=NO_SLEEP
+        mc,
+        RuntimeConfig(poll_interval_seconds=0, max_concurrent_tasks=1),
+        sleep=NO_SLEEP,
+        approval_gate=ApprovingGate(),
     )
     engine.register_gateway("a", gateway)
     engine.register_gateway("b", gateway)
@@ -231,7 +235,9 @@ def test_max_concurrent_tasks_bounds_work_taken_on_in_one_cycle():
 
 def test_a_task_assigned_to_an_executive_with_no_gateway_fails_loudly():
     mc = make_control()
-    engine = RuntimeEngine(mc, RuntimeConfig(poll_interval_seconds=0), sleep=NO_SLEEP)
+    engine = RuntimeEngine(
+        mc, RuntimeConfig(poll_interval_seconds=0), sleep=NO_SLEEP, approval_gate=ApprovingGate()
+    )
     # deliberately no gateway registered
     mc.submit_objective(one_task_objective())
 
@@ -456,7 +462,11 @@ def test_uptime_advances_with_the_injected_clock():
     base = datetime.now(UTC)
     ticks = iter([base, base + timedelta(seconds=5)])
     engine = RuntimeEngine(
-        mc, RuntimeConfig(poll_interval_seconds=0), clock=lambda: next(ticks), sleep=NO_SLEEP
+        mc,
+        RuntimeConfig(poll_interval_seconds=0),
+        clock=lambda: next(ticks),
+        sleep=NO_SLEEP,
+        approval_gate=ApprovingGate(),
     )
     engine.register_gateway("demo", RecordingGateway())
     engine._begin()
@@ -522,7 +532,10 @@ def test_a_background_run_starts_and_stops_gracefully():
     mc = make_control()
     gateway = RecordingGateway()
     engine = RuntimeEngine(
-        mc, RuntimeConfig(poll_interval_seconds=0.01, shutdown_timeout_seconds=5), sleep=NO_SLEEP
+        mc,
+        RuntimeConfig(poll_interval_seconds=0.01, shutdown_timeout_seconds=5),
+        sleep=NO_SLEEP,
+        approval_gate=ApprovingGate(),
     )
     engine.register_gateway("demo", gateway)
     mc.submit_objective(one_task_objective())

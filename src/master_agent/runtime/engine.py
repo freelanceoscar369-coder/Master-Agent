@@ -29,6 +29,7 @@ from master_agent.mission_control.events import (
 )
 from master_agent.mission_control.mission_control import MissionControl
 from master_agent.mission_control.tasks import Task, TaskState
+from master_agent.runtime.approval import ApprovalDenied, ApprovalGate, ApprovalRequest
 from master_agent.runtime.checkpoint import CheckpointSink, RuntimeCheckpoint
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.gateway import ExecutiveGateway, GatewayResult
@@ -52,9 +53,18 @@ class RuntimeEngine:
         clock: Any = None,
         sleep: Any = None,
         checkpoint_sink: CheckpointSink | None = None,
+        approval_gate: ApprovalGate | None = None,
     ) -> None:
         self._mc = mission_control
         self._config = config or RuntimeConfig()
+        # MB028.0 / ADR-0019: the approval boundary. Consulted once, at
+        # the single funnel in `_handle_task()`, before any gateway is
+        # touched. `None` means **fail closed** -- see `_require_approval`.
+        # A protocol defined inside `runtime/` (approval.py), so the
+        # Runtime consults a boundary without depending on the Permission
+        # System, exactly as `CheckpointSink` lets it checkpoint without
+        # depending on storage.
+        self._approval_gate = approval_gate
         # Rule 3: the Runtime *requests* checkpoints through a protocol it
         # defines (runtime/checkpoint.py); it never performs storage.
         self._checkpoint_sink = checkpoint_sink
@@ -276,6 +286,18 @@ class RuntimeEngine:
             self._report_failure(task, f"could not resolve capability: {exc}")
             return
 
+        # ---- THE APPROVAL BOUNDARY (MB028.0, ADR-0019) ----------------
+        # Everything below this line executes. Nothing above it does. This
+        # is the only place in the Runtime where a gateway is reached, so
+        # this is the only place a boundary is needed -- and the only
+        # place one can be bypassed, which is why it is here and not
+        # inside any gateway implementation.
+        try:
+            self._require_approval(task, local_capability)
+        except ApprovalDenied as denied:
+            self._refuse(task, denied)
+            return
+
         self._transition(RuntimeState.WAITING)
         self._mc.task_started(task.task_id, objective_id=self._objective_of(task))
 
@@ -373,6 +395,52 @@ class RuntimeEngine:
         return evidence
 
     # ---- failure handling -------------------------------------------
+
+    def _require_approval(self, task: Task, local_capability: str) -> None:
+        """Consult the approval boundary. Raises `ApprovalDenied`.
+
+        **Fails closed.** A Runtime with no gate refuses *everything* --
+        not merely everything above `READ_ONLY`. The Runtime cannot know a
+        capability's risk tier (that is the gate's job, precisely so the
+        Runtime stays ignorant of Executives, MB024 Rule 2), so it cannot
+        safely make an exception it is unable to evaluate. Forgetting to
+        wire a gate therefore yields a system that does nothing, never one
+        that does everything -- which is what makes Constitution Rule 5 an
+        architectural fact here rather than a convention.
+        """
+        request = ApprovalRequest(
+            executive_id=task.assigned_executive or "",
+            qualified_capability=task.capability,
+            local_capability=local_capability,
+            task_id=task.task_id,
+            objective_id=self._objective_of(task),
+        )
+        if self._approval_gate is None:
+            raise ApprovalDenied(
+                request,
+                "no approval gate is wired; the Runtime refuses to execute",
+            )
+        self._approval_gate.check(request)
+
+    def _refuse(self, task: Task, denied: ApprovalDenied) -> None:
+        """A refusal is not a failure of the work -- it is the system
+        working. Published as `APPROVAL_REQUIRED` (the founder-facing
+        signal that something is waiting on them) and reported as a failed
+        task so it surfaces in Founder State rather than vanishing.
+
+        Never retried: `_execute_with_retry` is not reached, because
+        retrying a refusal would be asking the same question repeatedly
+        and hoping for a different answer.
+        """
+        self._publish(
+            EventType.APPROVAL_REQUIRED,
+            task_id=task.task_id,
+            objective_id=denied.request.objective_id,
+            capability=task.capability,
+            payload=denied.request.as_dict(),
+            error=denied.reason,
+        )
+        self._report_failure(task, f"approval denied: {denied.reason}")
 
     def _escalate(self, task: Task, error: str) -> None:
         """Attempts exhausted. The Runtime reports and stops -- it does not

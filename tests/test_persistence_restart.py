@@ -28,6 +28,7 @@ from master_agent.plugins.registry import PluginRegistry
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.engine import RuntimeEngine
 from master_agent.runtime.gateway import PluginGateway
+from tests.approval_test_support import ApprovingGate
 
 
 class Process:
@@ -50,6 +51,7 @@ class Process:
             RuntimeConfig(poll_interval_seconds=0, max_cycles=max_cycles),
             sleep=lambda _s: None,
             checkpoint_sink=self.service,
+            approval_gate=ApprovingGate(),
         )
         self.engine.register_gateway(
             "filesystem",

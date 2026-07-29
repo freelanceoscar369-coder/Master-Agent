@@ -91,16 +91,18 @@ Runtime, and hands the terminal to the Founder Dashboard. It prints a boot
 report first, naming anything this build genuinely cannot do. Useful flags:
 
 ```
-kalpavriksha --boot-only          # print the boot report and exit
-kalpavriksha --enable-execution   # let dispatched tasks actually run (see below)
-kalpavriksha --demo               # submit one demonstration objective
+kalpavriksha --boot-only               # print the boot report and exit
+kalpavriksha --approve create_folder   # approve one capability, repeatable
+kalpavriksha --demo                    # submit one demonstration objective
 ```
 
-**Execution is off by default, on purpose.** The Runtime path does not
-consult the Permission System, so anything dispatched runs unapproved —
-including irreversible capabilities. Until that is fixed, `kalpavriksha`
-observes and coordinates unless you explicitly ask it to act. Detail:
-`docs/MISSION_BRIEF_027_5.md`.
+**Nothing irreversible runs unless you approved it.** Every capability
+above `READ_ONLY` is checked against the Permission System before it
+executes, on every path, and a Runtime with no approval gate wired refuses
+to execute at all. Irreversible capabilities (`delete_file`,
+`delete_folder`) can never be covered by a standing grant — they need a
+fresh decision every time. Detail: `RUNTIME_ENGINE_ARCHITECTURE.md` §4a
+and `docs/MISSION_BRIEF_028_0.md`.
 
 ## Principles this scaffold is built to honor
 

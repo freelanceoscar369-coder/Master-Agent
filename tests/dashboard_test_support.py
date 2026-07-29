@@ -32,8 +32,10 @@ from master_agent.mission_control.tasks import Objective, Task
 from master_agent.permissions.permission_system import GrantScope, PermissionSystem
 from master_agent.persistence.service import PersistenceService
 from master_agent.persistence.store import JsonFileStateStore
+from master_agent.plugins.base import RiskTier
 from master_agent.plugins.filesystem_plugin import FilesystemPlugin
 from master_agent.plugins.registry import PluginRegistry
+from master_agent.runtime.approval import PermissionSystemGate
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.engine import RuntimeEngine
 from master_agent.runtime.gateway import PluginGateway
@@ -56,12 +58,21 @@ class System:
         self.service.start_recording()
         discover_executives(self.mission_control, self.registry)
 
+        # MB028.0: the real approval boundary, not a stand-in. This
+        # fixture's whole claim is that it is "a complete, real
+        # Kalpavriksha wired the way a launcher would" -- so it uses the
+        # same `PermissionSystemGate` the launcher does, delegating to the
+        # same Permission System the Orchestrator uses. `approve_all()`
+        # below is what stands in for the founder.
+        self.approval_gate = PermissionSystemGate(self.permissions, self.registry)
         self.engine = RuntimeEngine(
             self.mission_control,
             RuntimeConfig(poll_interval_seconds=0, max_cycles=max_cycles),
             sleep=lambda _s: None,
             checkpoint_sink=self.service,
+            approval_gate=self.approval_gate,
         )
+        self.approve_all()
         self.engine.register_gateway(
             "filesystem",
             PluginGateway(
@@ -71,6 +82,20 @@ class System:
                 ),
             ),
         )
+
+    def approve_all(self) -> None:
+        """The founder, having approved. Grants on the **plugin/capability**
+        key -- the key the approval boundary checks -- which is a different
+        key from the Executor's (ADR-0005). `IRREVERSIBLE` capabilities are
+        excluded because ADR-0009 makes a standing grant unable to satisfy
+        them anyway; asking for one here would be asking for something the
+        Permission System is built to refuse."""
+        for capability in self.plugin.manifest.capabilities:
+            if capability.risk_tier is RiskTier.IRREVERSIBLE:
+                continue
+            self.permissions.grant(
+                self.plugin.manifest.name, capability.name, GrantScope.THIS_SESSION
+            )
 
     def submit(self, description: str = "Increase Founder Net Worth") -> Objective:
         return self.mission_control.submit_objective(

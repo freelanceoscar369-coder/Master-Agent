@@ -288,6 +288,37 @@ Brain logic that §14/§21 forbid; the Broker supersedes it, and the
 migration is a future brief. Full detail: `docs/MISSION_BRIEF_027.md`,
 `AI_CAPABILITY_BROKER_ARCHITECTURE.md`.
 
+## ADR-0019: The Runtime Approval Boundary (Mission Brief 028.0) — **Accepted; ratified and implemented 2026-07-29**
+The defect stated exactly: Kalpavriksha has **two permission gates and two
+execution paths, and both gates are on one path.** Gate A
+(`orchestrator.py:42`, keyed on plugin+capability+tier) is the real
+Founder boundary. Gate B (`executor.py:104`, keyed on executor+action) was
+never an independent boundary — ADR-0005 designed it to *receive* Gate A's
+relayed decision, and `filesystem_plugin.py:170` grants its exact key
+unconditionally on the line before it runs. The Runtime path
+(`engine.py:320`) calls the gateway directly, never the Orchestrator, so
+Gate A never fires and Gate B self-satisfies. **Net gates: zero**, and an
+IRREVERSIBLE delete completes unapproved. No single component is at fault
+— MB024 introduced a second execution path and the boundary lived in a
+component that path does not use. Fix: **one `ApprovalGate` protocol
+defined inside `runtime/`** (the MB025 `CheckpointSink` precedent, so the
+Runtime gains no Permission System dependency), consulted once at
+`_handle_task()` — the only funnel every task passes through — and
+**failing closed** when absent, so forgetting to wire it yields a system
+that does nothing rather than one that does everything. Rejected:
+per-gateway checks (duplicated truth), routing the Runtime through the
+Orchestrator (merges two execution models to fix a boundary), and wrapping
+gateways in the launcher (works, needs no frozen change, and is exactly
+the "convention not architecture" the Definition of Done rejects). Also
+resolves the Deliverable 8/9 tension with one rule: **a replayed approval
+event restores the *record*, never a usable grant** — otherwise every
+restart silently re-arms every approval ever given. That is ADR-0009's
+"destructive authority does not accumulate," in restart form. Requires
+changing `runtime/` and `mission_control/events.py`, so per MB028.0's own
+Architecture Rules the work **stopped at the ADR**; nothing frozen was
+touched. See `docs/adr/0019-runtime-approval-boundary.md`,
+`docs/MISSION_BRIEF_028_0.md`.
+
 ## Mission Brief 027.5 (2026-07-29): The Kalpavriksha Launcher
 Closed the "wiring lives in tests" gap MB026 named: `kalpavriksha` is now
 a real console command that recovers state, wires every shipped subsystem,

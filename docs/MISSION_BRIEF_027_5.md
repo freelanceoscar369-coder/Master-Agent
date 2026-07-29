@@ -2,6 +2,12 @@
 
 Status: **Shipped** — 2026-07-29
 
+> **Superseded in part by MB028.0 (same day).** This brief found that the
+> Runtime path did not consult the Permission System and shipped
+> `--enable-execution` as a stopgap. ADR-0019 closed the gap; the flag is
+> gone. The finding below is preserved as the record of what was wrong and
+> how it was found — see `docs/MISSION_BRIEF_028_0.md` for the fix.
+
 The founder entry point. One command that recovers state, wires every
 shipped subsystem, starts the Runtime, and hands the terminal to the
 Founder Dashboard.
@@ -184,8 +190,9 @@ before it moves.
 
 ## Technical Debt and Known Limitations (Rule 10)
 
-1. **The Permission System is not consulted on the Runtime path.** The
-   top item; see above. Roadmap item.
+1. ~~The Permission System is not consulted on the Runtime path.~~
+   **Fixed same day by MB028.0** (ADR-0019): one `ApprovalGate` at the
+   Runtime's single funnel, failing closed.
 2. **The AI Capability Broker is absent.** Reported at every boot.
 3. **Only the Filesystem Executive is wired.** The Browser Executive
    registers fine but has no shipped gateway — MB024's `BrowserGateway`

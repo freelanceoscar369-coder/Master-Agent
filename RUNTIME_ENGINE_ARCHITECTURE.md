@@ -123,6 +123,7 @@ IDLE` exists for the common case of a poll that found nothing.
 ```
 observe    → ask Mission Control what is ready (never ask an Executive)
 dispatch   → mission_control.dispatch_ready(); MC assigns an Executive
+APPROVE    → consult the ApprovalGate (§4a). Refusal ends the task here
 execute    → route each assigned task to its Executive's gateway
              (retry mechanically on failure, up to policy)
 verify     → gateway.verify() against the task's ExpectedOutcome,
@@ -141,6 +142,54 @@ inspects an Environment, and never lets execution success imply
 verification success — a task whose execution succeeded but whose Verdict
 is `NOT_MATCHED` is reported to Mission Control as **failed**, because
 ADR-0011's whole point is that those are different claims.
+
+## 4a. The approval boundary (MB028.0, ADR-0019)
+
+Added 2026-07-29. This is the only change to `runtime/` since MB024, and
+it exists because MB024's design had a hole this document did not name:
+**the Runtime reaches Executives directly, so the Orchestrator's
+permission check — the Founder approval boundary — was not on this path.**
+An `IRREVERSIBLE` `delete_folder` completed with no approval anywhere.
+
+The fix, in one sentence:
+
+> `RuntimeEngine._handle_task()` consults an `ApprovalGate` before it
+> touches any gateway, and **refuses to execute anything at all if no gate
+> is wired.**
+
+Three properties, each load-bearing:
+
+1. **One funnel.** `_handle_task()` is the only place in `runtime/` that
+   reaches a gateway, so it is the only place a boundary is needed — and
+   the only place one could be bypassed. A test AST-walks the package and
+   fails if a second `gateway.invoke(...)` site ever appears, because a
+   second site is an alternate execution path.
+2. **The Runtime gains no dependency.** `ApprovalGate` is a protocol
+   defined *inside* `runtime/approval.py`, the same move MB025 made with
+   `CheckpointSink`. The Runtime knows only "there is a gate, and it may
+   refuse." `PermissionSystemGate` — the real adapter — also lives there,
+   typed against protocols and importing nothing concrete, exactly as
+   `PluginGateway` does.
+3. **Fail closed, totally.** No gate ⇒ nothing runs, not even
+   `READ_ONLY`. The Runtime cannot know a capability's risk tier (that is
+   the gate's job, precisely so the Runtime stays Executive-agnostic), so
+   with no gate it cannot evaluate the exception it would be making.
+   Forgetting to wire the boundary yields a system that does nothing,
+   never one that does everything.
+
+**A refusal is not a failure of the work, and is never retried.**
+Retrying a refusal is asking the same question repeatedly and hoping for a
+different answer. The task is reported failed so it surfaces in Founder
+State, and `APPROVAL_REQUIRED` is published so the founder can see what is
+waiting on them.
+
+**Evidence outlives the process; authority does not.** Every decision
+publishes `APPROVAL_GRANTED` / `APPROVAL_DENIED` carrying capability,
+task, `decided_by`, and time — durable in the event log and Audit Stream.
+The grant ledger itself stays in memory on purpose: if replay rehydrated
+grants, every restart would silently re-arm every approval ever given.
+After a restart the audit remembers you approved, and the system still
+asks again.
 
 ## 5. Concurrency — bounded, and honestly sequential
 

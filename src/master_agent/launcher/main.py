@@ -12,6 +12,7 @@ from pathlib import Path
 
 from master_agent.launcher.boot import KalpavrikshaSystem, build_system
 from master_agent.mission_control.tasks import Objective, Task
+from master_agent.permissions.permission_system import GrantScope
 from master_agent.runtime.config import RuntimeConfig
 
 # A deliberately small, clearly-labelled objective, used only by --demo.
@@ -21,6 +22,9 @@ from master_agent.runtime.config import RuntimeConfig
 # into that list is the real Planner (`ROADMAP.md`, Planned item 1). Until
 # it exists, this is the only way to watch the loop actually run.
 DEMO_FOLDER = "Kalpavriksha Demo"
+# The two capabilities --demo needs. Both REVERSIBLE_WRITE; nothing
+# irreversible is ever approved by a flag.
+DEMO_CAPABILITIES = ["create_folder", "write_file"]
 
 
 def demo_objective() -> Objective:
@@ -57,14 +61,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where snapshots and the event log live (default: ~/.master_agent/state)",
     )
     parser.add_argument(
-        "--enable-execution",
-        action="store_true",
+        "--approve",
+        action="append",
+        default=[],
+        metavar="CAPABILITY",
         help=(
-            "Register Executive gateways so dispatched tasks actually run. "
-            "OFF by default: the Runtime path does not consult the "
-            "Permission System, so anything dispatched executes unapproved, "
-            "including IRREVERSIBLE capabilities. Without this flag the "
-            "system observes and coordinates but does not act."
+            "Approve one capability for this session, e.g. --approve "
+            "create_folder. Repeatable. Without an approval, anything above "
+            "READ_ONLY is refused at the boundary and reported as a task "
+            "awaiting you. IRREVERSIBLE capabilities are never covered by a "
+            "standing grant (ADR-0009) - they always need a fresh decision."
         ),
     )
     parser.add_argument(
@@ -72,8 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Submit one demonstration objective (create a folder, write a "
-            "file - both reversible) so the loop has work to do. Implies "
-            "--enable-execution."
+            "file - both reversible) so the loop has work to do. Approves "
+            "just those two capabilities for the session."
         ),
     )
     parser.add_argument(
@@ -117,13 +123,18 @@ def main(argv: list[str] | None = None) -> int:
     system = build_system(
         state_dir=args.state_dir,
         runtime_config=RuntimeConfig(poll_interval_seconds=args.poll_interval),
-        enable_execution=args.enable_execution or args.demo,
         dashboard_kwargs={"refresh_interval_seconds": args.refresh_interval},
     )
     print_boot_report(system)
 
     if args.boot_only:
         return 0
+
+    approvals = list(args.approve) + (DEMO_CAPABILITIES if args.demo else [])
+    for capability in approvals:
+        system.permissions.grant("filesystem", capability, GrantScope.THIS_SESSION)
+    if approvals:
+        print(f"  Approved for this session: {', '.join(approvals)}\n")
 
     if args.demo:
         objective = system.mission_control.submit_objective(demo_objective())

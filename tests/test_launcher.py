@@ -17,11 +17,9 @@ from master_agent.launcher.boot import (
     BROKER_UNAVAILABLE_REASON,
     OK,
     UNAVAILABLE,
-    WARNING,
     build_system,
 )
 from master_agent.launcher.main import build_parser, demo_objective, main
-from master_agent.plugins.base import RiskTier
 from master_agent.plugins.filesystem_plugin import FilesystemPlugin
 from master_agent.runtime.config import RuntimeConfig
 
@@ -62,7 +60,7 @@ def test_every_boot_step_is_reported(tmp_path):
         "Event recording",
         "Executives",
         "AI Capability Broker",
-        "Execution posture",
+        "Approval boundary",
         "Founder Dashboard",
     ]
 
@@ -107,77 +105,86 @@ def test_an_unavailable_step_is_never_reported_as_ok(tmp_path):
         if step.status != OK:
             assert step.detail, f"{step.name} is not OK without saying why"
     assert [s.name for s in system.report.needs_attention] == [
-        "AI Capability Broker",
-        "Execution posture",
-    ]
+        "AI Capability Broker"
+    ], "MB028.0 removed the execution-posture warning by removing the hazard"
 
 
 # ---- execution posture --------------------------------------------------
 
 
-def test_execution_is_off_by_default(tmp_path):
+def test_gateways_are_wired_and_the_boundary_is_reported(tmp_path):
+    """MB027.5 refused to register gateways because the Runtime path was
+    ungated. MB028.0 gated it, so the gateways are wired unconditionally
+    and the boot report states the boundary instead of a warning."""
     system = quiet_system(tmp_path / "state")
 
-    assert system.runtime._gateways == {}, "a founder command must not act by default"
-    step = system.report.step("Execution posture")
-    assert step.status == UNAVAILABLE
-    assert "observation only" in step.detail
-
-
-def test_enabling_execution_is_reported_as_a_warning_not_a_success(tmp_path):
-    """The founder is told, in the boot report, that the path they just
-    switched on is ungated. See `test_the_runtime_path_is_ungated`."""
-    system = quiet_system(tmp_path / "state", enable_execution=True)
-
-    step = system.report.step("Execution posture")
-    assert step.status == WARNING
-    assert "does not consult the Permission System" in step.detail
     assert "filesystem" in system.runtime._gateways
+    step = system.report.step("Approval boundary")
+    assert step.status == OK
+    assert "nothing irreversible executes unapproved" in step.detail
 
 
-def test_the_runtime_path_is_ungated(tmp_path):
-    """**Characterises a known defect, deliberately.**
+def test_the_launcher_wires_a_real_approval_gate(tmp_path):
+    """Fail-closed only helps if the founder command actually wires one."""
+    from master_agent.runtime.approval import PermissionSystemGate
 
-    On the Runtime path nothing consults the Permission System:
-    `FilesystemPlugin.invoke()` self-grants a ONCE permission on the
-    Executor's key (the ADR-0005 relay), on the assumption the
-    Orchestrator already gated the call at the plugin/capability key — and
-    the Runtime does not go through the Orchestrator. So an IRREVERSIBLE
-    capability runs with no approval, which contradicts Constitution
-    Rule 5.
+    system = quiet_system(tmp_path / "state")
 
-    The gap predates MB027.5 (MB024 built the path, MIT-001 certified it)
-    and closing it means changing frozen components. This test exists so
-    that **when it is fixed, this fails** — forcing the boot report's
-    wording and the Mission Brief's technical-debt section to be corrected
-    at the same time, rather than the launcher quietly continuing to warn
-    about a gap that no longer exists.
-    """
+    assert isinstance(system.runtime._approval_gate, PermissionSystemGate)
+
+
+def test_the_runtime_path_is_no_longer_ungated(tmp_path):
+    """MB027.5 shipped this test asserting the *defect*: a bare
+    `PluginGateway` deleted a folder with no approval anywhere. It was
+    written to fail when the gap closed. **MB028.0 closed it**, so the
+    test now asserts the fix, and the boundary it asserts is the Runtime's
+    -- a gateway on its own still has no opinion, which is exactly why the
+    boundary could not live inside one (ADR-0019)."""
+    from master_agent.mission_control.adapters import discover_executives
+    from master_agent.mission_control.mission_control import MissionControl
+    from master_agent.mission_control.tasks import Objective, Task, TaskState
     from master_agent.permissions.permission_system import PermissionSystem
+    from master_agent.plugins.registry import PluginRegistry
+    from master_agent.runtime.approval import PermissionSystemGate
+    from master_agent.runtime.engine import RuntimeEngine
     from master_agent.runtime.gateway import PluginGateway
 
     sandbox = tmp_path / "desk"
     sandbox.mkdir()
-    # Built the way the launcher builds it -- PermissionSystem, executor,
-    # plugin, bare PluginGateway -- with "desktop" pointed at a sandbox so
-    # this test deletes only its own directory.
-    executor = LocalExecutor(PermissionSystem())
+    (sandbox / "Doomed").mkdir()
+
+    permissions = PermissionSystem()
+    executor = LocalExecutor(permissions)
     plugin = FilesystemPlugin(executor, locations={"desktop": sandbox})
-    gateway = PluginGateway(plugin)
+    registry = PluginRegistry()
+    registry.register(plugin)
+    mc = MissionControl()
+    discover_executives(mc, registry)
 
-    assert gateway.invoke("create_folder", {"name": "Doomed"}).success
-    assert (sandbox / "Doomed").exists()
+    engine = RuntimeEngine(
+        mc,
+        RuntimeConfig(poll_interval_seconds=0, max_cycles=4),
+        sleep=lambda _s: None,
+        approval_gate=PermissionSystemGate(permissions, registry),
+    )
+    engine.register_gateway("filesystem", PluginGateway(plugin))
+    mc.submit_objective(
+        Objective(
+            description="delete without approval",
+            tasks=[
+                Task(
+                    capability="Filesystem.DeleteFolder",
+                    payload={"path": "Doomed"},
+                    task_id="t1",
+                )
+            ],
+        )
+    )
 
-    irreversible = [
-        c.name
-        for c in plugin.manifest.capabilities
-        if c.risk_tier is RiskTier.IRREVERSIBLE
-    ]
-    assert "delete_folder" in irreversible
+    engine.run_forever()
 
-    result = gateway.invoke("delete_folder", {"path": "Doomed"})
-    assert result.success, "if this now fails, the gap may be fixed — see docstring"
-    assert not (sandbox / "Doomed").exists()
+    assert mc.dispatcher.objectives()[0].task("t1").state is TaskState.FAILED
+    assert (sandbox / "Doomed").exists(), "an IRREVERSIBLE delete ran unapproved"
 
 
 # ---- recovery across a real restart -------------------------------------
@@ -186,7 +193,7 @@ def test_the_runtime_path_is_ungated(tmp_path):
 def test_a_second_launch_recovers_the_first_launchs_state(tmp_path):
     state = tmp_path / "state"
 
-    first = quiet_system(state, enable_execution=True)
+    first = quiet_system(state)
     first.mission_control.submit_objective(demo_objective())
     first.stop()
 
@@ -262,13 +269,12 @@ def test_the_runtime_executes_a_submitted_objective_end_to_end(tmp_path):
     correct for the shipped command and unacceptable in a test. Passing
     `plugins=` is the seam that keeps the wiring identical while the
     writes land in tmp_path."""
-    from master_agent.permissions.permission_system import PermissionSystem
+    from master_agent.permissions.permission_system import GrantScope, PermissionSystem
 
     desk = tmp_path / "desk"
     desk.mkdir()
     system = quiet_system(
         tmp_path / "state",
-        enable_execution=True,
         plugins=[
             FilesystemPlugin(
                 LocalExecutor(PermissionSystem()), locations={"desktop": desk}
@@ -276,6 +282,8 @@ def test_the_runtime_executes_a_submitted_objective_end_to_end(tmp_path):
         ],
         runtime_config=RuntimeConfig(poll_interval_seconds=0, max_cycles=8),
     )
+    for capability in ("create_folder", "write_file"):
+        system.permissions.grant("filesystem", capability, GrantScope.THIS_SESSION)
     system.mission_control.submit_objective(demo_objective())
 
     system.runtime.run_forever()
@@ -356,7 +364,7 @@ def test_launcher_output_is_ascii_only(tmp_path, capsys):
 def test_the_parser_exposes_the_documented_flags():
     args = build_parser().parse_args([])
 
-    assert args.enable_execution is False, "acting must be opt-in"
+    assert args.approve == [], "nothing is approved without being asked for"
     assert args.demo is False
     assert args.boot_only is False
     assert args.state_dir is None

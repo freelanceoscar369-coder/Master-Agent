@@ -237,15 +237,33 @@ def test_the_read_model_is_frozen_so_a_panel_cannot_mutate_it():
         snapshot.captured_at = "tampered"  # type: ignore[misc]
 
 
-def test_no_frozen_component_was_modified_by_this_mission_brief():
-    """MB026 changed nothing outside the dashboard package."""
+# Paths a *ratified* ADR permits to change, each with the ADR that
+# permits it. This list is the amendment record: adding a row means an
+# ADR was ratified, and a row without one is architectural drift.
+#
+# MB028.0 / ADR-0019 (ratified 2026-07-29) closed the Runtime approval
+# boundary. It needed a new `runtime/approval.py`, a check at the
+# Runtime's single funnel in `runtime/engine.py`, and two additive event
+# types in `mission_control/events.py`. Those three are allowed here --
+# and nothing else is, which is the point: the guard was **amended, with
+# a reason**, not deleted or quietly narrowed.
+RATIFIED_EXCEPTIONS = {
+    "src/master_agent/runtime/approval.py": "ADR-0019",
+    "src/master_agent/runtime/engine.py": "ADR-0019",
+    "src/master_agent/mission_control/events.py": "ADR-0019",
+}
+
+
+def test_no_frozen_component_was_modified_without_a_ratified_adr():
+    """MB026 changed nothing outside the dashboard package, and every
+    change since has been permitted by a named, ratified ADR."""
     import subprocess
 
     result = subprocess.run(
         [
             "git",
             "diff",
-            "--stat",
+            "--name-only",
             "v0.9.0-miracle-025",
             "HEAD",
             "--",
@@ -263,6 +281,11 @@ def test_no_frozen_component_was_modified_by_this_mission_brief():
     )
     if result.returncode != 0:
         pytest.skip("git or the MB025 tag is unavailable")
-    assert result.stdout.strip() == "", (
-        "MB026 modified a frozen component:\n" + result.stdout
+
+    changed = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    unratified = [path for path in changed if path not in RATIFIED_EXCEPTIONS]
+
+    assert unratified == [], (
+        "a frozen component changed with no ratified ADR permitting it:\n"
+        + "\n".join(unratified)
     )

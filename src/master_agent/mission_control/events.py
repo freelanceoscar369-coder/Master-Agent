@@ -52,6 +52,13 @@ class EventType(str, Enum):
     KNOWLEDGE_STAGE_ADVANCED = "knowledge_stage_advanced"
     KNOWLEDGE_REJECTED = "knowledge_rejected"
     APPROVAL_REQUIRED = "approval_required"
+    # MB028.0 / ADR-0019. Approval evidence must outlive the process: the
+    # grant ledger is in-memory by design (persisting it would silently
+    # re-arm every approval ever given at each restart), so the event log
+    # and Audit Stream are the only durable record that an approval
+    # happened, who made it, when, and for which capability.
+    APPROVAL_GRANTED = "approval_granted"
+    APPROVAL_DENIED = "approval_denied"
     SUBSCRIBER_FAILED = "subscriber_failed"
 
     # --- Runtime Engine (MB024). Every cycle must be observable, so each

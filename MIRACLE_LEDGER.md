@@ -36,6 +36,8 @@ except to fix a factual error.
 
 | **027.5** — The Kalpavriksha Launcher | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 993 passed, 1 skipped | ✅ Shipped | The founder entry point, closing the "wiring lives in tests" gap MB026 named in its own backlog. `kalpavriksha` recovers state, wires Shared Infrastructure → Mission Control → Persistence → Runtime → Executives → Dashboard, and runs — verified live, not just tested (a five-second run showed the Runtime dispatching, going idle, checkpointing, and all nine Dashboard panels rendering against a 41-event log). No new architecture: the launcher is a **composition root** that only constructs and wires, enforced by two AST-walking tests (nothing in `src/` imports it; `boot.py` defines only report/container types). Boot ordering is load-bearing and tested — recover before recording, discover after recovery. Every step reports its real status *with a reason*, so the absent AI Capability Broker is a visible line at every launch rather than a silent skip. **⚠️ Found a real, pre-existing defect by running it: the Runtime path does not consult the Permission System** — an `IRREVERSIBLE` `delete_folder` completes with no approval anywhere, contradicting Constitution Rule 5. Not fixed here (frozen components; its own brief) and not papered over — an earlier `--approve-session` relay was deleted once running it proved the relay was decorative. Execution is opt-in until the gap closes. Also caught a reintroduced cp1252 encoding bug in the launcher's own output, the same one MB026 fixed for the Dashboard. 22 new tests, zero regressions. Full writeup: `docs/MISSION_BRIEF_027_5.md`. |
 
+| **028.0** — Runtime Permission Boundary (Safety Fix) | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1015 passed, 1 skipped | ✅ Shipped | Restored **Constitution Rule 5** as a hard architectural guarantee. The defect MB027.5 found, stated exactly: **two permission gates, two execution paths, and both gates on one path.** The Orchestrator's check never ran on the Runtime path, and the Executor's was pre-satisfied by ADR-0005's relay carrying a decision nobody had made — so an `IRREVERSIBLE` `delete_folder` completed unapproved. Fix: one `ApprovalGate` protocol defined *inside* `runtime/` (the MB025 `CheckpointSink` precedent, so the Runtime gains no Permission System dependency), consulted at `_handle_task()` — the only funnel, AST-asserted to stay the only one — and **failing closed**: no gate means nothing runs at all, not even `READ_ONLY`, because the Runtime cannot resolve a risk tier and so cannot evaluate the exception. Ran in two halves exactly as the brief demanded: designed, **stopped at ADR-0019 with nothing frozen touched**, ratified by the founder, then implemented. Deliverables 8 and 9 resolved with one rule — evidence outlives the process, authority does not; a replayed approval restores the record, never a usable grant. Verified live on a real filesystem: unapproved delete refused with the folder intact, approved delete completes with who/what/when in the audit, and after a restart the same task is refused again. MB026's `git diff` freeze guard was **amended, not deleted**, into a ratified-exceptions list naming the ADR for each permitted path. MB027.5's `--enable-execution` flag removed — a safety flag that outlives its hazard teaches founders to ignore flags. 22 new tests, zero regressions. Full writeup: `docs/MISSION_BRIEF_028_0.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -147,6 +149,15 @@ except to fix a factual error.
   by running it that nothing on that path checks permissions. Recorded
   here rather than only in the brief, because "certified" should not mean
   "never re-examined."
+
+- **Miracle 028.0 hit the standing self-reference problem** and resolves
+  it the standing way: `git tag -n1 v0.10.3-miracle-028-0` /
+  `git rev-list -n1 v0.10.3-miracle-028-0`. Patch-level: it adds no
+  capability, it restores a guarantee that was supposed to already exist.
+  It is the **first Miracle to change a component frozen since MB025**,
+  and it did so only after a proposed ADR was ratified in a separate,
+  explicit founder decision — the sequence worth copying for any future
+  frozen-component change.
 
 ## How to add a row
 

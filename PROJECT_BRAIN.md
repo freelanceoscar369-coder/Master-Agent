@@ -175,6 +175,134 @@ respectively.
   nobody had run it from outside a test. Execution is therefore opt-in,
   and fixing it is the top backlog item. Full detail:
   `docs/MISSION_BRIEF_027_5.md`.
+- **Mission Brief 028.0 closed the hole.** *(Designed first, stopped at
+  the ADR, ratified, then implemented — the sequence the brief required.)*
+  The trace names the exact gap: there are **two permission gates and two
+  execution paths, and both gates are on one path.** Gate A
+  (`orchestrator.py:42`) is the real boundary; Gate B (`executor.py:104`)
+  only receives ADR-0005's relayed decision and is self-satisfied by the
+  grant on the line before it. The Runtime calls gateways directly and
+  never touches the Orchestrator, so neither gate fires. The design is one
+  `ApprovalGate` defined inside `runtime/`, consulted at `_handle_task()`
+  — the only funnel — and **failing closed**. It needs **ADR-0019
+  ratified** because it changes `runtime/` and `mission_control/events.py`,
+  and MB028.0's own rules say stop at that point. Ratified 2026-07-29 and
+  implemented: **Constitution Rule 5 is now mechanically true on both
+  execution paths.** No gate wired means *nothing* runs — fail-closed is
+  total, because the Runtime cannot resolve a risk tier and so cannot
+  evaluate an exception. Evidence outlives the process, authority does
+  not: a replayed approval restores the record, never a usable grant, so
+  after a restart the audit remembers you approved and the system still
+  asks again. Verified live. 22 new tests, 1015 passing. Full detail:
+  `docs/MISSION_BRIEF_028_0.md`.
+- **Mission Brief 024 built the Runtime Engine — the heartbeat.**
+  Kalpavriksha now runs **unattended**: a founder submits an objective,
+  calls `start_background()`, and the loop observes Mission Control,
+  dispatches, executes through an Executive-agnostic gateway, invokes
+  Verification, reports back, and idles — repeating until stopped. Proven
+  live against the real internet: a four-task browser mission (open →
+  navigate → observe+verify → close) completed with `progress: 1.0` and
+  the founder doing nothing after start. Two tensions had to be resolved
+  first, both recorded in `RUNTIME_ENGINE_ARCHITECTURE.md`: *who invokes*
+  when nothing may perform work (answer: a gateway protocol the Runtime
+  holds, so Mission Control stays mechanically pure), and *retry* versus
+  Constitution §11 (answer: mechanical retry only, and Mission Control
+  never sees a retry — only the final outcome). Rules 1 and 2 are enforced
+  by an import-parsing test; no `runtime/` file may even name a specific
+  Executive. 82 new tests, 582 passing, zero regressions. Full detail:
+  `docs/MISSION_BRIEF_024.md`.
+- **MIT-001 certified the integration** — the test that decided whether
+  the architecture actually holds: *can Mission Control orchestrate the
+  Browser Executive without modifying it?* **Yes.** All seven MIT-001
+  tests pass (19 automated tests plus one live run against the real
+  internet, reaching `https://example.com` and returning a `matched`
+  verdict). Zero Modification is proven three ways, including a test that
+  runs `git diff` against the MB022 tag and fails if a Browser Executive
+  file ever changes. Two deliberate differences from the brief's expected
+  output are documented rather than papered over: `Browser.Fill` is named
+  `Browser.TypeText` (deterministic naming rule), and there is
+  **no `Browser.Verify` capability on purpose** — ADR-0011 makes
+  Verification structurally independent, so it must never be dispatchable
+  as ordinary work. Certification and full transcript:
+  `docs/MIT_001_CERTIFICATION.md`.
+- **Mission Brief 023 built Mission Control** — the runtime coordination
+  layer everything else now plugs into: a Universal Event Bus (one `Event`
+  schema for every Executive, no custom logging anywhere), a Capability
+  Registry keyed by deterministic qualified names (`Filesystem.ReadFile`),
+  an Executive Registry, the nine-state Worker Lifecycle, a Task
+  Dispatcher that turns objectives into dependency-ordered capability
+  calls, a Self-Development Queue, a Knowledge Acquisition Queue, an
+  immutable Audit Stream, and a Founder State backend contract (no UI).
+  Two things worth knowing: **Mission Control never performs work** — a
+  test parses every module's imports and fails if any of them could —
+  and the **knowledge-promotion gate is enforced in code**, so ADR-0012's
+  human-gated Promotion Review cannot quietly become a convention.
+  Existing Executives register **unmodified** via an adapter that reads
+  their manifest; the integration tests use the real `FilesystemPlugin`
+  and `BrowserPlugin`, not fakes. Also made the first amendment under the
+  Constitution freeze process (ADR-0014, reconciling "Executive" with
+  "Worker"). 107 new tests, 461 passing, zero regressions. Full detail:
+  `docs/MISSION_BRIEF_023.md`, `MISSION_CONTROL_ARCHITECTURE.md`.
+- **Mission Brief 022 built the Browser Worker** — the first
+  implementation Mission Brief against the frozen Constitution, proving
+  the Universal Executive Operator architecture in a real Environment by
+  wrapping Playwright (never reimplementing it): nine atomic Actions
+  (`open_browser_session`, `close_browser_session`, `navigate`, `click`,
+  `type_text`, `press_key`, `scroll`, `wait_for_selector`,
+  `observe_browser`) registered on the existing, unmodified
+  `LocalExecutor`/`Plugin` machinery. Introduced two genuinely new,
+  reusable pieces: a generic, Playwright-free `verification/` package
+  (`Verifier` ABC, `Evidence`, `Audit` — any future Worker's verification
+  layer, not just Browser's) and an Environment Session Manager
+  (`BrowserSessionManager`) resolving the one stateful-session gap
+  `FOUNDER_CONSTITUTION_FREEZE.md` had left open for the Action contract.
+  Demonstrated, concretely and with passing tests, that Execution
+  succeeding never implies Verification succeeding (an Action can return
+  `success=True` while an independently-recomputed Verdict is
+  `NOT_MATCHED`). Mechanically verifies its own product-independence claim
+  — a test scans every Browser Worker file for forbidden product names and
+  fails if one appears. 125 new tests, 354 passing overall, zero
+  regressions (5 pre-existing, unrelated Windows path-separator failures
+  in the filesystem Actions were confirmed present before this Miracle
+  started and are unchanged by it). Full detail: `docs/MISSION_BRIEF_022.md`,
+  `BROWSER_WORKER_ARCHITECTURE.md`.
+- **Mission Brief 021, Revision 3 froze the Founder Constitution** —
+  `docs/architecture/KALPAVRIKSHA_VISION_V2.md` is now the authoritative
+  reference for architectural *decisions* (superseding prior Mission
+  Briefs/ADRs on architecture, though not their implementation-record
+  content), with `ARCHITECTURE.md` remaining the accurate current-
+  implementation module map, now read through the Constitution's
+  terminology. Design-only — zero code/test changes. Resolved every gap an
+  independent audit found: introduced a Shared Infrastructure layer
+  beneath the Executive Brain and Universal Executive Operator (ADR-0010),
+  made Verification structurally independent of Execution (ADR-0011),
+  formalized a Knowledge Lifecycle with a human-gated Promotion Review
+  (ADR-0012), removed product-specific terminology (Hermes/ChatGPT/Ollama/
+  VS Code/Obsidian) from the architecture in favor of role-based terms,
+  designed for multiple Operator Instances across multiple environments
+  (ADR-0013), gave every previously-unowned component
+  (`MasterAgentSession`, `MissionManager`, `Reporter`) exactly one home,
+  consolidated duplicated rules, and froze architectural terminology.
+  Final Founder Review: the Constitution is frozen; `ROADMAP.md`'s next
+  five planned items can proceed without further Constitution changes.
+  Full detail: `docs/MISSION_BRIEF_021_REVISION_3.md`,
+  `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`.
+- **Mission Brief 005 turned the Filesystem Plugin into a real toolbox** —
+  eleven new primitive Actions (read/list/search/exists-checks, append,
+  rename/copy/move, delete-file/delete-folder), taking `FilesystemPlugin`
+  from 3 to 14 capabilities, registered declaratively (adding capability
+  #15 costs one new class, never an edit to the plugin itself — see
+  `FILESYSTEM_CAPABILITIES.md`, written before any code per the brief's
+  design-first gate). Added `PermissionCategory` as a new, purely
+  descriptive axis alongside `RiskTier`, plus one real mechanism change:
+  a standing `always_for_capability` grant can never satisfy a check for
+  an `irreversible` capability — destructive actions require a fresh
+  decision every time (ADR-0009). `cli.py`'s intent parser now recognizes
+  nine new conversational shapes ("Read X", "Rename X to Y", "Delete X
+  [folder]", ...) via one generic `ParsedActionIntent` and a table-driven
+  `_INTENT_PATTERNS` dispatch, reaching all six of the brief's
+  conversation examples end to end. 108 new tests, 234 passing overall,
+  zero regressions. Full detail: `docs/MISSION_BRIEF_005.md`.
 
 ## Where to go for what
 
@@ -191,6 +319,7 @@ respectively.
 | Is the Mission Control ↔ Executive integration actually proven? | `docs/MIT_001_CERTIFICATION.md` |
 | How does the system run without a human driving each cycle? | `RUNTIME_ENGINE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_024.md` |
 | How do I actually run it? | `kalpavriksha` — see `README.md` "Getting started" and `docs/MISSION_BRIEF_027_5.md` |
+| What stops it doing something irreversible? | `RUNTIME_ENGINE_ARCHITECTURE.md` §4a, `docs/MISSION_BRIEF_028_0.md`, ADR-0019 |
 | How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Which AI runs a given task, what does it cost, and who approves paid ones? | `AI_CAPABILITY_BROKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_027.md`, ADR-0017 |

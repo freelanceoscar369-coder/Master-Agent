@@ -36,6 +36,7 @@ from master_agent.persistence.store import JsonFileStateStore
 from master_agent.plugins.base import Plugin
 from master_agent.plugins.filesystem_plugin import FilesystemPlugin
 from master_agent.plugins.registry import PluginRegistry
+from master_agent.runtime.approval import PermissionSystemGate
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.engine import RuntimeEngine
 from master_agent.runtime.gateway import PluginGateway
@@ -44,27 +45,15 @@ OK = "ok"
 UNAVAILABLE = "unavailable"
 WARNING = "warning"
 
-# Why execution is opt-in, and why this constant is a paragraph rather
-# than a flag name: on the Runtime path, **nothing consults the Permission
-# System**. `FilesystemPlugin.invoke()` grants itself a ONCE permission on
-# the Executor's key (the ADR-0005 relay) on the assumption that the
-# Orchestrator already gated the call at the plugin/capability key — but
-# the Runtime does not go through the Orchestrator. It calls the gateway,
-# which calls `invoke()` directly. Verified by running it: an IRREVERSIBLE
-# `delete_folder` completes with no approval anywhere.
-#
-# That gap predates this Mission Brief (MB024 built the path; MIT-001
-# certified it) and closing it means changing frozen components, which is
-# its own brief. What MB027.5 must not do is make it reachable by a
-# founder typing one command *without saying so*. So execution is opt-in,
-# and both postures are stated at every boot.
-EXECUTION_DISABLED_DETAIL = (
-    "observation only; no gateways registered, so dispatched tasks will not run"
-)
-EXECUTION_ENABLED_DETAIL = (
-    "ENABLED and UNGATED - the Runtime path does not consult the Permission "
-    "System, so any dispatched capability runs, including IRREVERSIBLE ones "
-    "(see docs/MISSION_BRIEF_027_5.md)"
+# MB027.5 shipped with execution opt-in behind `--enable-execution`,
+# because the Runtime path consulted nothing: an IRREVERSIBLE
+# `delete_folder` completed with no approval anywhere. **MB028.0 closed
+# that** (ADR-0019): the Runtime now consults an `ApprovalGate` at its
+# single funnel and fails closed without one. The flag is gone -- a safety
+# flag that outlives its hazard teaches founders to ignore flags.
+APPROVAL_BOUNDARY_DETAIL = (
+    "every capability above READ_ONLY is checked against the Permission "
+    "System before it runs; nothing irreversible executes unapproved"
 )
 
 # Why the Broker step exists but cannot succeed: MB027 froze the AI
@@ -194,7 +183,7 @@ def build_system(
     config: MasterAgentConfig | None = None,
     runtime_config: RuntimeConfig | None = None,
     plugins: list[Plugin] | None = None,
-    enable_execution: bool = False,
+    decided_by: str = "founder",
     dashboard_kwargs: dict[str, Any] | None = None,
 ) -> KalpavrikshaSystem:
     """Construct a complete, wired Kalpavriksha and report on the boot.
@@ -235,10 +224,18 @@ def build_system(
     #    cycle counter into it (`RuntimeCheckpoint`) in the same pass —
     #    otherwise a restored system reports uptime and cycles it did not
     #    have, which MB025 found the hard way.
+    # 4a. The approval boundary (MB028.0, ADR-0019), wired before the
+    #     Runtime because the Runtime refuses to execute without it. The
+    #     gate delegates to the same Permission System the Orchestrator
+    #     uses -- one ledger, one policy, two paths.
+    approval_gate = PermissionSystemGate(permissions, registry).report_to(
+        mission_control.bus, decided_by
+    )
     runtime = RuntimeEngine(
         mission_control,
         runtime_config or RuntimeConfig(),
         checkpoint_sink=persistence,
+        approval_gate=approval_gate,
     )
     report.add("Runtime", OK, "heartbeat constructed, not yet started")
 
@@ -281,19 +278,17 @@ def build_system(
     broker = None
     report.add("AI Capability Broker", UNAVAILABLE, BROKER_UNAVAILABLE_REASON)
 
-    # 9. Execution posture. Registering a gateway is what makes a
-    #    dispatched task actually run, so this single wiring choice is the
-    #    difference between a system that watches and a system that acts.
-    #    It is stated at every boot because a founder should never have to
-    #    read source to find out what the thing they just launched can do
-    #    without asking. See EXECUTION_ENABLED_DETAIL for why it is
-    #    opt-in.
-    if enable_execution:
-        for plugin in registry.all_plugins():
-            runtime.register_gateway(plugin.manifest.name, PluginGateway(plugin))
-        report.add("Execution posture", WARNING, EXECUTION_ENABLED_DETAIL)
-    else:
-        report.add("Execution posture", UNAVAILABLE, EXECUTION_DISABLED_DETAIL)
+    # 9. Gateways. Registered unconditionally now: the boundary is in the
+    #    Runtime (step 4a), not in whether a gateway exists, so refusing
+    #    to wire one would no longer be a safety measure -- just a system
+    #    that cannot work.
+    for plugin in registry.all_plugins():
+        runtime.register_gateway(plugin.manifest.name, PluginGateway(plugin))
+    report.add(
+        "Approval boundary",
+        OK,
+        APPROVAL_BOUNDARY_DETAIL,
+    )
 
     # 10. Dashboard last: it observes everything above, and per ADR-0016
     #     Decision 5 it is *handed* the recovery report rather than

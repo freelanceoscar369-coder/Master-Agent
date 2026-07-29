@@ -45,6 +45,7 @@ from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.engine import RuntimeEngine
 from master_agent.runtime.states import RuntimeState
 from master_agent.verification.evidence import ExpectedOutcome, ObservationCheck
+from tests.approval_test_support import ApprovingGate
 from tests.runtime_test_support import BrowserGateway
 
 DEMO_HTML = (
@@ -73,7 +74,9 @@ def build_system(**config_kwargs):
     discover_executives(mission_control, registry)
 
     worker = BrowserWorker(executor, sessions)
-    engine = RuntimeEngine(mission_control, RuntimeConfig(**config_kwargs))
+    engine = RuntimeEngine(
+        mission_control, RuntimeConfig(**config_kwargs), approval_gate=ApprovingGate()
+    )
     engine.register_gateway("browser", BrowserGateway(worker, permissions, executor.name))
     return mission_control, engine, sessions
 

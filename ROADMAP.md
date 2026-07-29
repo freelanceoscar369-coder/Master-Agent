@@ -51,6 +51,8 @@ the first item under Planned, below.
 
 | **027.5** — The Kalpavriksha Launcher | The founder entry point: `kalpavriksha` recovers state, wires every shipped subsystem, starts the Runtime, and hands the terminal to the Founder Dashboard — closing the "wiring lives in tests" gap MB026 left open. No new architecture: the launcher is a **composition root** that constructs and wires, and is depended on by nothing (both enforced by AST-walking tests). Every boot step reports its real status with a reason, so the absent AI Capability Broker is visible at every launch rather than silently skipped. **Found a real defect by running it: the Runtime path does not consult the Permission System**, so an `IRREVERSIBLE` delete completes unapproved — pre-existing, contradicts Constitution Rule 5, and now the top backlog item. Execution is opt-in (`--enable-execution`) until it is fixed. 22 new tests, 993 passing. Full detail: `docs/MISSION_BRIEF_027_5.md`. |
 
+| **028.0** — Runtime Permission Boundary (Safety Fix) | Restored **Constitution Rule 5** as a hard architectural guarantee: nothing irreversible executes without founder approval, on any path. The defect: two permission gates, two execution paths, and both gates on one path — the Orchestrator's check never ran on the Runtime path, and the Executor's was pre-satisfied by ADR-0005's relay carrying a decision nobody made. Fix: one `ApprovalGate` protocol defined inside `runtime/` (the MB025 `CheckpointSink` precedent, so the Runtime gains no Permission System dependency), consulted at `_handle_task()` — the only funnel — and **failing closed**: no gate wired means nothing runs at all. Ran in two halves as the brief required: designed, stopped at ADR-0019, ratified, then implemented. Evidence outlives the process, authority does not — a replayed approval restores the record, never a usable grant. Verified live: unapproved delete refused with the folder intact, approved delete completes with who/what/when in the audit, and after a restart the same task is refused again. MB027.5's `--enable-execution` flag removed, its hazard gone. 22 new tests, 1015 passing. Key design decision: ADR-0019. Full detail: `docs/MISSION_BRIEF_028_0.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -99,20 +101,38 @@ the first item under Planned, below.
 - **A shipped launcher.** ✅ **Done** — shipped as Mission Brief 027.5.
   `kalpavriksha` recovers, discovers, starts the Runtime, and starts the
   Dashboard. See `docs/MISSION_BRIEF_027_5.md`.
-- **⚠️ The Runtime path does not consult the Permission System.** Found by
-  MB027.5 and verified by running it: an `IRREVERSIBLE` `delete_folder`
-  completes with **no approval anywhere**. `FilesystemPlugin.invoke()`
-  self-grants a `ONCE` permission on the Executor's key (the ADR-0005
-  relay) assuming the Orchestrator already gated the call at the
-  plugin/capability key — and the Runtime calls the gateway directly,
-  never the Orchestrator. This contradicts **Constitution Rule 5**. It
-  predates MB027.5 (MB024 built the path, MIT-001 certified it; MB023.1
-  came closest with "`run()` is not a second boundary"), but the launcher
-  makes it reachable in one command, so execution is opt-in until it is
-  fixed. **The fix touches frozen components and needs its own Mission
-  Brief** — most likely a permission check inside `PluginGateway`, or
-  routing Runtime execution through the Orchestrator's existing gate.
-  This is the highest-priority item on this list.
+- **Event-log compaction.** The persisted log grows without bound.
+  Segmentation was deliberately not built, because a correct compaction
+  policy needs a retention policy that does not exist yet.
+- **A shipped browser gateway.** MB024's `BrowserGateway` lives in test
+  support, which is correct for Rule 2 but means the first real launcher
+  has nothing reusable to wire. It belongs beside the Browser Executive,
+  never inside `runtime/`.
+- **`count_events()` on the `StateStore` contract.** The Dashboard's
+  "Event Log Size" currently comes from `read_events()`, which returns the
+  entire persisted log — O(log) per persistence refresh. The fix belongs
+  in persistence, which is frozen, so MB026 deliberately did not make it
+  (ADR-0016). First thing that will hurt at high event volumes.
+- **A shipped launcher.** ✅ **Done** — shipped as Mission Brief 027.5.
+  `kalpavriksha` recovers, discovers, starts the Runtime, and starts the
+  Dashboard. See `docs/MISSION_BRIEF_027_5.md`.
+- **The Runtime path did not consult the Permission System.** ✅ **Done**
+  — fixed by Mission Brief 028.0 (ADR-0019). Kept as the record of what it
+  was: `FilesystemPlugin.invoke()` self-granted a `ONCE` permission on the
+  Executor's key (the ADR-0005 relay) assuming the Orchestrator had
+  already gated the call — and the Runtime calls the gateway directly,
+  never the Orchestrator. So an `IRREVERSIBLE` `delete_folder` completed
+  with **no approval anywhere**, contradicting Constitution Rule 5. It
+  predated MB027.5 (MB024 built the path, MIT-001 certified it; MB023.1
+  came closest with "`run()` is not a second boundary") and was found only
+  when the launcher made it reachable in one command. Now closed by one
+  `ApprovalGate` at the Runtime's single funnel, failing closed.
+- **An approval interface.** MB028.0 gives the founder a boundary but no
+  way to answer a pending request interactively — `kalpavriksha --approve
+  <capability>` grants for the session, and the Dashboard already has a
+  `waiting_approval` field, but nothing joins them. Irreversible tasks now
+  stop and report, which is safe but not yet usable. A founder UX
+  decision, and the natural next small brief.
 
 ## Planned — next up
 
