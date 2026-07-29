@@ -73,7 +73,15 @@ class RenameFileAction(Action):
             return ExecutionResult(success=False, errors=[overwrite_error])
 
         try:
-            source.rename(destination)
+            # `replace`, not `rename`: on Windows `Path.rename()` raises
+            # if the destination exists, while on POSIX it silently
+            # replaces -- so `rename` would make `overwrite: true` mean
+            # two different things on two platforms. `Path.replace()` is
+            # the atomic overwrite on both (Mission Brief 023.1). The
+            # overwrite guard above still decides *whether* replacing is
+            # allowed; this only makes the allowed case behave the same
+            # everywhere.
+            source.replace(destination)
         except OSError as exc:
             return ExecutionResult(success=False, errors=[str(exc)])
 

@@ -11,6 +11,7 @@ from master_agent.executor.action import (
     ExecutionResult,
     default_locations,
     is_unsafe_relative_path,
+    to_portable_relative_str,
 )
 from master_agent.plugins.base import PermissionCategory, RiskTier
 
@@ -72,7 +73,10 @@ class SearchFilesAction(Action):
 
         truncated = len(matches) > MAX_RESULTS
         matches = matches[:MAX_RESULTS]
-        relative = [str(p.relative_to(root)) for p in matches]
+        # Forward slashes on every platform -- these strings get persisted
+        # into mission history, so they must not depend on which OS ran
+        # the search (Mission Brief 023.1).
+        relative = [to_portable_relative_str(p, root) for p in matches]
 
         return ExecutionResult(
             success=True,

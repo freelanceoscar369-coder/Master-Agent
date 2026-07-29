@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from master_agent.plugins.base import PermissionCategory, RiskTier
@@ -23,11 +23,56 @@ def is_unsafe_relative_path(path: str) -> bool:
     """Shared by every action that accepts a relative path/name meant to
     be joined onto a configured location's base directory (CreateFolderAction's
     `name`, WriteFileAction's `path`, WorkspaceBootstrapAction's `name`/
-    `folders`/`files[].path`). Rejects absolute paths and '..' segments —
-    the one thing standing between that trust and a payload that escapes
-    the base directory entirely."""
-    parts = Path(path).parts
-    return Path(path).is_absolute() or ".." in parts
+    `folders`/`files[].path`). Rejects anything that is not a plain
+    relative path — the one thing standing between that trust and a
+    payload that escapes the base directory entirely.
+
+    ## Why both path flavours are checked (Mission Brief 023.1)
+
+    The original implementation used `Path(...)`, which is whichever
+    flavour the *host* happens to be, and that made the guard weaker on
+    Windows than on POSIX for exactly the inputs an attacker would try:
+
+        PureWindowsPath("/etc/passwd").is_absolute()  -> False
+        PureWindowsPath("D:config").is_absolute()     -> False
+
+    Both are root- or drive-anchored and neither is a safe relative path,
+    but on Windows the old check passed them. Separator handling had the
+    mirror problem: `PurePosixPath("..\\\\escape").parts` is one opaque
+    segment, so a backslash traversal was invisible to a POSIX host.
+
+    Checking the string against *both* flavours, and rejecting on
+    `anchor` rather than only `is_absolute()`, makes the guard identical
+    on every platform — a sandbox boundary that depends on which OS you
+    happen to run is not a boundary.
+    """
+    if not isinstance(path, str) or not path.strip():
+        return True
+
+    for flavour in (PurePosixPath, PureWindowsPath):
+        candidate = flavour(path)
+        # `anchor` catches drive-relative ("D:config") and root-relative
+        # ("/etc/passwd") forms that is_absolute() misses on Windows.
+        if candidate.is_absolute() or candidate.anchor:
+            return True
+        if ".." in candidate.parts:
+            return True
+
+    return False
+
+
+def to_portable_relative_str(path: Path, root: Path) -> str:
+    """Render `path` relative to `root` with forward slashes on every
+    platform.
+
+    Action output travels: it lands in an `ExecutionResult`, then in a
+    persisted `MissionRecord`, and eventually in Evidence a future
+    Planner reads. Emitting the host's native separator would make that
+    stored history platform-dependent — the same mission recorded on two
+    machines would not compare equal. Forward slashes are the portable
+    choice and are valid input back into `Path()` on Windows too.
+    """
+    return path.relative_to(root).as_posix()
 
 
 def default_locations() -> dict[str, Path]:

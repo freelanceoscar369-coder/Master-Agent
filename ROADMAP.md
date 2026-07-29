@@ -48,7 +48,9 @@ the first item under Planned, below.
   in action output, add regression tests, and verify sandbox boundary
   behavior on both platforms. Raised alongside Mission Brief 023 and
   deliberately kept out of it — the nervous system was the mission.
-  **Status: completed** — see `docs/MISSION_BRIEF_023_1.md`.
+  **Status: completed** (`v0.7.1-miracle-023-1`) — fixed three real
+  cross-platform defects and took the suite fully green (500 passed, 0
+  failed) for the first time. See `docs/MISSION_BRIEF_023_1.md`.
 - **The closing loop.** Mission Control coordinates, but nothing yet
   drives it end to end: a caller must still pull ready tasks and invoke
   them. An Operator-side runner that pulls `dispatch_ready()`, invokes
