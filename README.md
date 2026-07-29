@@ -82,8 +82,25 @@ tests/                 # unit tests (124 passing — executor, actions, composit
 ```
 pip install -e ".[dev,voice,ui]"
 pytest
+kalpavriksha                 # the founder command: recover, wire, run, watch
 python -m master_agent.cli   # try the real create-folder conversation
 ```
+
+`kalpavriksha` recovers previous state, discovers Executives, starts the
+Runtime, and hands the terminal to the Founder Dashboard. It prints a boot
+report first, naming anything this build genuinely cannot do. Useful flags:
+
+```
+kalpavriksha --boot-only          # print the boot report and exit
+kalpavriksha --enable-execution   # let dispatched tasks actually run (see below)
+kalpavriksha --demo               # submit one demonstration objective
+```
+
+**Execution is off by default, on purpose.** The Runtime path does not
+consult the Permission System, so anything dispatched runs unapproved —
+including irreversible capabilities. Until that is fixed, `kalpavriksha`
+observes and coordinates unless you explicitly ask it to act. Detail:
+`docs/MISSION_BRIEF_027_5.md`.
 
 ## Principles this scaffold is built to honor
 

@@ -34,6 +34,8 @@ except to fix a factual error.
 
 | **027** — AI Capability Broker Architecture | 2026-07-29 | *(see note below — architecture-only, tag added alongside this row)* | *(see note below — same self-reference problem, same standing resolution)* | 971 passed (unchanged) | ✅ Shipped | Architecture-only — zero code, zero tests, zero runtime behavior changes (`src/`/`tests/` byte-identical to the MB026 tag). Froze the intelligence-selection layer every remaining Executive is blocked behind: Provider Registry, Capability Matrix, Decision Engine, AI Asset Inventory, Recommendation Engine, Cost Model, Benchmark Engine, Founder Approval Policy, and the AI Infrastructure Executive / Desktop Executive / Capability Package contracts. Answered MB027's required analysis without deferring: the Broker is a **kernel service** (Shared Infrastructure), not an Executive — both the Brain and the Operator need the same answer, it must be consulted *before* dispatch, and its ledgers must be singular. What the rejected option was right about is preserved by splitting the concern: the Broker decides and never touches the machine; the AI Infrastructure Executive touches the machine and never decides. Resolved the brief's own unstated tension (lowest cost vs. highest success) with a cost ladder gated by a configurable quality floor, refusing rather than guessing when no tier clears it. Two terminology collisions resolved ADR-0014-style (AI Capability ≠ Capability; Provider generalizes Reasoning Provider). Added one approval rule the brief did not ask for — sensitive data to *any* third party, including free ones. Named a live contradiction in existing code (`ModelRouter.select_provider()` hardcodes `"hermes"`/`"chatgpt"`) without changing it. Proposed a Constitution amendment rather than making one (§5, §6, §16, §17 are FROZEN); **the founder ratified ADR-0017 on 2026-07-29 and it was applied as Constitution Amendment 2** — the first structural amendment under the freeze process, and the one that set the precedent that structural amendments are proposed by a brief and applied only after ratification. The same ratification added a founder directive: the **learning loop** becomes a first-class objective for the AI Infrastructure Executive (ADR-0018 — the versioned policy learns, the decision procedure stays deterministic and replayable; privacy is a one-way ratchet; every promoted change carries a rollback condition), together with `IRREVERSIBLE` install/remove/upgrade capabilities that MB027 had deliberately excluded. Full writeup: `docs/MISSION_BRIEF_027.md`, `AI_CAPABILITY_BROKER_ARCHITECTURE.md`. |
 
+| **027.5** — The Kalpavriksha Launcher | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 993 passed, 1 skipped | ✅ Shipped | The founder entry point, closing the "wiring lives in tests" gap MB026 named in its own backlog. `kalpavriksha` recovers state, wires Shared Infrastructure → Mission Control → Persistence → Runtime → Executives → Dashboard, and runs — verified live, not just tested (a five-second run showed the Runtime dispatching, going idle, checkpointing, and all nine Dashboard panels rendering against a 41-event log). No new architecture: the launcher is a **composition root** that only constructs and wires, enforced by two AST-walking tests (nothing in `src/` imports it; `boot.py` defines only report/container types). Boot ordering is load-bearing and tested — recover before recording, discover after recovery. Every step reports its real status *with a reason*, so the absent AI Capability Broker is a visible line at every launch rather than a silent skip. **⚠️ Found a real, pre-existing defect by running it: the Runtime path does not consult the Permission System** — an `IRREVERSIBLE` `delete_folder` completes with no approval anywhere, contradicting Constitution Rule 5. Not fixed here (frozen components; its own brief) and not papered over — an earlier `--approve-session` relay was deleted once running it proved the relay was decorative. Execution is opt-in until the gap closes. Also caught a reintroduced cp1252 encoding bug in the launcher's own output, the same one MB026 fixed for the Dashboard. 22 new tests, zero regressions. Full writeup: `docs/MISSION_BRIEF_027_5.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -134,6 +136,17 @@ except to fix a factual error.
   that way** — the founder ratified it the same day, and the amendment was
   applied within this Miracle. **ADR-0015 is now the only unratified ADR
   in the project.**
+
+- **Miracle 027.5 hit the standing self-reference problem** (its ledger row
+  ships in the commit it documents) and resolves it the standing way:
+  `git tag -n1 v0.10.2-miracle-027-5` / `git rev-list -n1
+  v0.10.2-miracle-027-5`. Patch-level bump: it ships no new capability,
+  only a door onto capabilities that already existed. It is also the first
+  row whose headline finding is a **defect in already-certified code** —
+  MIT-001 certified the Runtime/Executive path in MB024, and MB027.5 found
+  by running it that nothing on that path checks permissions. Recorded
+  here rather than only in the brief, because "certified" should not mean
+  "never re-examined."
 
 ## How to add a row
 

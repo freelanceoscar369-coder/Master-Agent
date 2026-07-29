@@ -49,6 +49,8 @@ the first item under Planned, below.
 
 | **027** — AI Capability Broker Architecture | Architecture-only (no code): froze the intelligence-selection layer every future Executive is blocked behind. The Broker is a **kernel service** (Shared Infrastructure), not an Executive — both the Brain and the Operator need the same answer, and it must be consulted *before* dispatch. Provider registry, capability matrix, decision engine (cheapest tier clearing a configurable quality floor; refuse rather than guess), AI asset inventory, recommendation engine, cost model, benchmark engine (Verification-backed, observed beats declared), founder approval policy, and the AI Infrastructure Executive / Desktop Executive / Capability Package contracts. Proposed a Constitution amendment rather than making one; **the founder ratified it 2026-07-29 and it was applied as Amendment 2**. The same ratification added the **learning loop** as a first-class objective for the AI Infrastructure Executive — the policy learns, the decision procedure does not (ADR-0018) — and added `IRREVERSIBLE` install/remove/upgrade to that Executive's contract. Key design decisions: ADR-0017, ADR-0018. Full detail: `docs/MISSION_BRIEF_027.md`, `AI_CAPABILITY_BROKER_ARCHITECTURE.md`. |
 
+| **027.5** — The Kalpavriksha Launcher | The founder entry point: `kalpavriksha` recovers state, wires every shipped subsystem, starts the Runtime, and hands the terminal to the Founder Dashboard — closing the "wiring lives in tests" gap MB026 left open. No new architecture: the launcher is a **composition root** that constructs and wires, and is depended on by nothing (both enforced by AST-walking tests). Every boot step reports its real status with a reason, so the absent AI Capability Broker is visible at every launch rather than silently skipped. **Found a real defect by running it: the Runtime path does not consult the Permission System**, so an `IRREVERSIBLE` delete completes unapproved — pre-existing, contradicts Constitution Rule 5, and now the top backlog item. Execution is opt-in (`--enable-execution`) until it is fixed. 22 new tests, 993 passing. Full detail: `docs/MISSION_BRIEF_027_5.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -94,11 +96,23 @@ the first item under Planned, below.
   entire persisted log — O(log) per persistence refresh. The fix belongs
   in persistence, which is frozen, so MB026 deliberately did not make it
   (ADR-0016). First thing that will hurt at high event volumes.
-- **A shipped launcher.** MB026 proved the Dashboard works when a caller
-  wires Mission Control + Runtime + persistence + recovery together, but
-  that wiring still lives in tests. One `kalpavriksha` entry point that
-  recovers, discovers, starts the Runtime, and starts the Dashboard is
-  what turns all of this into something a founder actually runs.
+- **A shipped launcher.** ✅ **Done** — shipped as Mission Brief 027.5.
+  `kalpavriksha` recovers, discovers, starts the Runtime, and starts the
+  Dashboard. See `docs/MISSION_BRIEF_027_5.md`.
+- **⚠️ The Runtime path does not consult the Permission System.** Found by
+  MB027.5 and verified by running it: an `IRREVERSIBLE` `delete_folder`
+  completes with **no approval anywhere**. `FilesystemPlugin.invoke()`
+  self-grants a `ONCE` permission on the Executor's key (the ADR-0005
+  relay) assuming the Orchestrator already gated the call at the
+  plugin/capability key — and the Runtime calls the gateway directly,
+  never the Orchestrator. This contradicts **Constitution Rule 5**. It
+  predates MB027.5 (MB024 built the path, MIT-001 certified it; MB023.1
+  came closest with "`run()` is not a second boundary"), but the launcher
+  makes it reachable in one command, so execution is opt-in until it is
+  fixed. **The fix touches frozen components and needs its own Mission
+  Brief** — most likely a permission check inside `PluginGateway`, or
+  routing Runtime execution through the Orchestrator's existing gate.
+  This is the highest-priority item on this list.
 
 ## Planned — next up
 

@@ -288,6 +288,37 @@ Brain logic that §14/§21 forbid; the Broker supersedes it, and the
 migration is a future brief. Full detail: `docs/MISSION_BRIEF_027.md`,
 `AI_CAPABILITY_BROKER_ARCHITECTURE.md`.
 
+## Mission Brief 027.5 (2026-07-29): The Kalpavriksha Launcher
+Closed the "wiring lives in tests" gap MB026 named: `kalpavriksha` is now
+a real console command that recovers state, wires every shipped subsystem,
+starts the Runtime, and hands the terminal to the Founder Dashboard. No
+new architecture — the launcher is a **composition root**, the one place
+allowed to know every layer at once because its only job is to construct
+and wire; two AST-walking tests enforce that nothing in `src/` imports it
+and that `boot.py` defines only report/container types. Three decisions
+worth remembering: (1) **boot ordering is load-bearing** — recover before
+recording (recovery reads history, recording writes it), discover after
+recovery (recovery restores what existed, discovery is idempotent and adds
+only what is new), and getting it wrong raises
+`ExecutiveAlreadyRegistered`, which is why it has its own test; (2) **every
+boot step reports its real status with a reason, never `ok`** — ADR-0016's
+absence-is-a-value discipline applied to startup, which is why the absent
+AI Capability Broker is a visible line at every launch rather than a
+silent skip; (3) **execution is opt-in**, because of the finding below.
+**Found by running it, not by inspection: the Runtime path does not
+consult the Permission System.** `FilesystemPlugin.invoke()` self-grants a
+`ONCE` permission on the Executor's key (the ADR-0005 relay) assuming the
+Orchestrator already gated the call — and the Runtime calls the gateway
+directly, never the Orchestrator. An `IRREVERSIBLE` `delete_folder`
+completes with no approval anywhere, contradicting **Constitution Rule 5**.
+Pre-existing (MB024 built the path, MIT-001 certified it), but the
+launcher makes it reachable in one command. Deliberately **not fixed here**
+— it touches frozen components — and deliberately **not papered over**: an
+earlier draft's `--approve-session` relay was removed once running it
+proved the relay was decorative, because dead safety code reads like
+protection. Characterised by a test written to fail when the gap is fixed.
+22 new tests, 993 passing. Full detail: `docs/MISSION_BRIEF_027_5.md`.
+
 ## Mission Brief 024 (2026-07-26): Autonomous Runtime Engine
 Built the heartbeat — the loop that replaces the founder in the execution
 cycle. Two architectural tensions resolved and recorded in
