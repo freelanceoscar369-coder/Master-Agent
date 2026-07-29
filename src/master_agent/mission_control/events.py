@@ -54,6 +54,18 @@ class EventType(str, Enum):
     APPROVAL_REQUIRED = "approval_required"
     SUBSCRIBER_FAILED = "subscriber_failed"
 
+    # --- Runtime Engine (MB024). Every cycle must be observable, so each
+    # runtime state change and each mechanical retry is an event too.
+    RUNTIME_STARTED = "runtime_started"
+    RUNTIME_STATE_CHANGED = "runtime_state_changed"
+    DISPATCH_STARTED = "dispatch_started"
+    RUNTIME_IDLE = "runtime_idle"
+    RUNTIME_ERROR = "runtime_error"
+    RUNTIME_STOPPING = "runtime_stopping"
+    RUNTIME_STOPPED = "runtime_stopped"
+    TASK_RETRY_SCHEDULED = "task_retry_scheduled"
+    TASK_ESCALATED = "task_escalated"
+
 
 MISSION_CONTROL_SOURCE = "mission_control"
 

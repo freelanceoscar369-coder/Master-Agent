@@ -99,6 +99,22 @@ respectively.
   commit, a shell command's output) doesn't need a schema change.
   `Memory`'s public API and every existing caller are unchanged. Key
   decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
+- **Mission Brief 024 built the Runtime Engine — the heartbeat.**
+  Kalpavriksha now runs **unattended**: a founder submits an objective,
+  calls `start_background()`, and the loop observes Mission Control,
+  dispatches, executes through an Executive-agnostic gateway, invokes
+  Verification, reports back, and idles — repeating until stopped. Proven
+  live against the real internet: a four-task browser mission (open →
+  navigate → observe+verify → close) completed with `progress: 1.0` and
+  the founder doing nothing after start. Two tensions had to be resolved
+  first, both recorded in `RUNTIME_ENGINE_ARCHITECTURE.md`: *who invokes*
+  when nothing may perform work (answer: a gateway protocol the Runtime
+  holds, so Mission Control stays mechanically pure), and *retry* versus
+  Constitution §11 (answer: mechanical retry only, and Mission Control
+  never sees a retry — only the final outcome). Rules 1 and 2 are enforced
+  by an import-parsing test; no `runtime/` file may even name a specific
+  Executive. 82 new tests, 582 passing, zero regressions. Full detail:
+  `docs/MISSION_BRIEF_024.md`.
 - **MIT-001 certified the integration** — the test that decided whether
   the architecture actually holds: *can Mission Control orchestrate the
   Browser Executive without modifying it?* **Yes.** All seven MIT-001
@@ -205,6 +221,7 @@ respectively.
 | How does a Worker (Browser, and eventually Desktop/Terminal/etc.) plug in? | `BROWSER_WORKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_022.md` |
 | How is work coordinated, scheduled, audited, and reported? | `MISSION_CONTROL_ARCHITECTURE.md`, `docs/MISSION_BRIEF_023.md` |
 | Is the Mission Control ↔ Executive integration actually proven? | `docs/MIT_001_CERTIFICATION.md` |
+| How does the system run without a human driving each cycle? | `RUNTIME_ENGINE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_024.md` |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |

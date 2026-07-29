@@ -39,6 +39,15 @@ class Task:
     capability: str  # qualified, e.g. "Browser.Navigate"
     payload: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
+    # What "done" looks like for this task, so Verification has something
+    # concrete to compare a fresh Observation against (Constitution §3.2 --
+    # every Step a Planner emits should name one). A real field rather
+    # than an entry in `payload`: payload is forwarded to the Executive
+    # and mirrored into audit records, which must stay JSON-plain, and an
+    # ExpectedOutcome is neither the Executive's business nor JSON.
+    # Typed loosely to keep mission_control free of a hard dependency on
+    # the verification package.
+    expected_outcome: Any = None
     task_id: str = field(default_factory=lambda: str(uuid4()))
     state: TaskState = TaskState.CREATED
     assigned_executive: str | None = None

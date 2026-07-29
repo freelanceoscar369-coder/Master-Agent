@@ -414,6 +414,37 @@ Two boundaries worth knowing before changing anything here:
 Full design: `MISSION_CONTROL_ARCHITECTURE.md`. Full writeup:
 `docs/MISSION_BRIEF_023.md`.
 
+### 4.13 Runtime Engine (`runtime/`)
+Added in Mission Brief 024 — the heartbeat. Runs the cycle Mission Control
+and the Executives can only participate in: observe what is ready,
+dispatch it, execute it through a gateway, invoke Verification, report
+back, idle, repeat. This is what makes the Kalpavriksha Loop continuous
+rather than founder-driven.
+
+`engine.py` is the loop; `states.py` the eight-state machine;
+`config.py` the poll/retry/verification/shutdown policy; `health.py` the
+seven-field snapshot; `gateway.py` the `ExecutiveGateway` protocol plus a
+generic `PluginGateway` that works for any `Plugin`.
+
+Three boundaries worth knowing before changing anything here:
+
+- **It performs no work and knows no Executive.** Its only route to work
+  is a gateway keyed by the Executive ID Mission Control assigned.
+  `tests/test_runtime_architecture.py` parses every module's imports and
+  additionally fails if any `runtime/` source file so much as *names* a
+  concrete Executive.
+- **Retry is mechanical, never strategic.** Same task, same payload,
+  bounded attempts, then escalate. Re-planning and capability
+  substitution remain the Brain's (Constitution §11), and Mission Control
+  is told the outcome exactly once — its own "never auto-retries"
+  guarantee is unaffected.
+- **Environment Sessions are thread-affine.** Every interaction with a
+  live session must happen inside a task, on the Runtime's thread. See
+  `RUNTIME_ENGINE_ARCHITECTURE.md` §5.1.
+
+Full design: `RUNTIME_ENGINE_ARCHITECTURE.md`. Full writeup:
+`docs/MISSION_BRIEF_024.md`.
+
 ## 5. The Model Router — how ChatGPT and Hermes coexist
 
 Both integrations sit behind one `ModelProvider` interface

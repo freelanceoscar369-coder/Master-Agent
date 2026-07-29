@@ -41,6 +41,8 @@ the first item under Planned, below.
 
 | **MIT-001** — Mission Control Integration, Browser Executive | Certification, not a new capability: proved Mission Control can orchestrate the Browser Executive with **zero modification** to it. All seven tests pass (19 automated + a live run to a real URL). Added auto-discovery (`discover_executives`), renamed `TASK_DISPATCHED` → `TASK_ASSIGNED` per the spec, added `FounderState.result`, and stamped the capability onto verification events for audit traceability. Full detail: `docs/MIT_001_CERTIFICATION.md`. |
 
+| **024** — Autonomous Runtime Engine (The Heartbeat) | The loop that replaces the founder in the cycle: observe → dispatch → execute → verify → report → idle → repeat. Kalpavriksha now runs unattended, proven live against the real internet (four-task browser mission, `progress: 1.0`, zero founder involvement after start). Executive-agnostic by construction — an import-parsing test forbids `runtime/` from naming any specific Executive. Mechanical retry with escalation, honouring Constitution §11's reservation of strategic recovery for the Brain. 82 new tests, 582 passing. Full detail: `docs/MISSION_BRIEF_024.md`, `RUNTIME_ENGINE_ARCHITECTURE.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -53,12 +55,19 @@ the first item under Planned, below.
   **Status: completed** (`v0.7.1-miracle-023-1`) — fixed three real
   cross-platform defects and took the suite fully green (500 passed, 0
   failed) for the first time. See `docs/MISSION_BRIEF_023_1.md`.
-- **The closing loop.** Mission Control coordinates, but nothing yet
-  drives it end to end: a caller must still pull ready tasks and invoke
-  them. An Operator-side runner that pulls `dispatch_ready()`, invokes
-  through the Mission Brief 022 Worker machinery, and feeds Verification
-  Evidence back would make the Kalpavriksha Loop continuous for the first
-  time. Needs no Constitution change.
+- **The closing loop.** ✅ **Done** — shipped as Mission Brief 024, the
+  Autonomous Runtime Engine. The Kalpavriksha Loop is continuous.
+- **Persistence for Mission Control.** Every objective, audit entry, and
+  runtime snapshot currently lives only in memory: the system runs
+  unattended but does not survive a restart. Named as debt since MB023
+  (alongside `LocalExecutor._log`) and now the most load-bearing gap —
+  a dashboard makes it immediately visible, because the first thing
+  anyone does with a dashboard is close it and come back. Worth deciding
+  before or alongside MB025.
+- **A shipped browser gateway.** MB024's `BrowserGateway` lives in test
+  support, which is correct for Rule 2 but means the first real launcher
+  has nothing reusable to wire. It belongs beside the Browser Executive,
+  never inside `runtime/`.
 
 ## Planned — next up
 

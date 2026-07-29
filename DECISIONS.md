@@ -150,6 +150,29 @@ found by the tests: the dispatcher assigned a second task to an already-busy
 Executive because availability ignored `current_task_id`. 107 new tests,
 461 passing, zero regressions. Full detail: `docs/MISSION_BRIEF_023.md`.
 
+## Mission Brief 024 (2026-07-26): Autonomous Runtime Engine
+Built the heartbeat — the loop that replaces the founder in the execution
+cycle. Two architectural tensions resolved and recorded in
+`RUNTIME_ENGINE_ARCHITECTURE.md`: (1) *who invokes the Executive* when
+Mission Control, the Runtime, and direct Executive calls are all
+forbidden — resolved by defining "never performs work" precisely (no work
+logic, no Environment access, no Executive knowledge; causing work to
+happen in the right order **is** orchestration) and putting an
+`ExecutiveGateway` protocol on the Runtime rather than on Mission
+Control, so Mission Control stays mechanically incapable of executing;
+(2) *retry* versus Constitution §11 — resolved via §4.1's existing
+distinction: the Runtime does bounded mechanical retry (same task, same
+payload) then escalates, and Mission Control is told exactly once, so
+MB023's "the dispatcher never auto-retries" stays literally true. Three
+real bugs found by running it (a missing `RECOVERING → WAITING` edge that
+crashed every retry; no qualified→local capability translation; an
+`ExpectedOutcome` smuggled through `payload` that would have leaked a
+non-JSON object into audit records — now a first-class `Task` field per
+Constitution §3.2). Also surfaced a genuine constraint single-threaded
+testing could not: Playwright sessions are thread-affine, so every
+Environment interaction must happen inside a task. 82 new tests, 582
+passing. Full detail: `docs/MISSION_BRIEF_024.md`.
+
 ## MIT-001 (2026-07-26): Mission Control Integration Certified — Browser Executive
 Certification run answering "can Mission Control orchestrate the Browser
 Executive without modifying it?" — yes, all seven tests pass. Four gaps
