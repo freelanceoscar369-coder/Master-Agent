@@ -13,6 +13,7 @@
 - **v2, independent audit (2026-07-25):** Audited against internal consistency, completeness, separation of concerns, scalability, product independence, and vision alignment. Findings: a claimed "absolute boundary" between Brain and Operator was contradicted by shared infrastructure (Plugin Registry, Memory) neither column accounted for; product names (Hermes, Ollama, ChatGPT, VS Code, Obsidian) were load-bearing in principle-level prose, contradicting this document's own Product Agnosticism claim; Verification was nominally but not structurally independent from Execution; several real, working classes (`MasterAgentSession`, `MissionManager`, `Reporter`) were unplaced by the Brain/Operator model; several rules were duplicated across sections; multi-worker/multi-environment/multi-operator scaling was either explicitly disclaimed or unaddressed.
 - **Revision 3 (this document, 2026-07-26):** Resolves every item above. See `docs/MISSION_BRIEF_021_REVISION_3.md` for the full record of what changed and why.
 - **Amendment 1 (2026-07-26, MB023):** §17 gains one row recording **Executive** as a synonym for **Worker** — the term MB023's Mission Control registration API uses for the same role. This is the first amendment made under the freeze process, and it follows that process exactly: Constitution and `FOUNDER_CONSTITUTION_FREEZE.md` updated together, backed by `docs/adr/0014-executive-and-worker-terminology.md` with rejected alternatives recorded. No section's status changed; no shipped code was renamed.
+- **Amendment 2 (2026-07-29, MB027):** The **AI Capability Broker** is placed in Shared Infrastructure as §5.7 (prior §5.7 renumbered to §5.8), added to §6's module table and §16's Ownership Registry alongside the **AI Infrastructure Executive**, and §17 gains **AI Capability** and **Provider**. §3.3 gains one clarifying sentence: the Model Router consults the Broker to resolve *which* Reasoning Provider, rather than implementing its own ranking — its interface, its role, and all four of its criteria are unchanged. Backed by `docs/adr/0017-ai-capability-broker.md` (ratified by the founder, 2026-07-29) and `AI_CAPABILITY_BROKER_ARCHITECTURE.md`. No section's status changed; no shipped code was renamed or modified.
 
 ---
 
@@ -22,7 +23,7 @@
 2. [Core Principles](#2-core-principles) — FROZEN
 3. [Executive Brain Responsibilities](#3-executive-brain-responsibilities) — FROZEN
 4. [Universal Executive Operator Responsibilities](#4-universal-executive-operator-responsibilities) — FROZEN
-5. [Shared Infrastructure Layer](#5-shared-infrastructure-layer) — FROZEN
+5. [Shared Infrastructure Layer](#5-shared-infrastructure-layer) — FROZEN (§5.7 RESEARCH-BACKED, see subsection)
 6. [Brain / Shared Infrastructure / Operator Separation](#6-brain--shared-infrastructure--operator-separation) — FROZEN
 7. [Universal Environment Philosophy](#7-universal-environment-philosophy) — EVOLVABLE
 8. [Multi-Operator Architecture](#8-multi-operator-architecture) — RESEARCH-BACKED
@@ -125,6 +126,8 @@ Single Reasoning Provider interface (`generate(prompt, context, **opts) -> Model
 3. **Task profile** — routine steps default to the Local Reasoning Provider (cheap, fast, private); steps declaring a need for stronger reasoning escalate to a Cloud Reasoning Provider
 4. **Explicit user preference** — always wins
 
+**Amendment 2 (MB027):** the Model Router **consults the AI Capability Broker (§5.7) to resolve *which* Reasoning Provider**, rather than implementing its own ranking. Its interface, its role as the Brain's single door to reasoning, and all four criteria above are unchanged — each one maps onto a phase of the Broker's decision engine (`AI_CAPABILITY_BROKER_ARCHITECTURE.md` §6.5), with one stated narrowing: criterion 4's "always wins" is honoured among candidates that survive the Broker's hard-constraint filter, so a preference can never select a Provider that is unavailable, licence-barred, privacy-barred, or paid-without-approval.
+
 The Model Router resolves *which registered Reasoning Provider* to invoke by querying Shared Infrastructure's Capability Registry (§5.1) — the same registry the Operator's Orchestrator queries to resolve execution capabilities. This is not a boundary violation: both the Brain and the Operator depend downward on Shared Infrastructure; neither depends on the other (§6). Adding a new Reasoning Provider means registering one new Worker, never touching Model Router or Orchestrator logic.
 
 ### 3.4 Reporter
@@ -205,9 +208,21 @@ The relay pattern (an outer approval explicitly carried down to an inner grant k
 ### 5.6 Telemetry and Audit (aggregated form)
 **Split responsibility, on purpose:** raw log emission (one Worker ran, took *n* seconds, succeeded or failed) happens locally, at the Operator Instance or Worker Instance that did the work — that part is *not* Shared Infrastructure, because it doesn't need to be (see §8, §12). What *is* Shared Infrastructure is the durable, queryable, cross-Operator-Instance aggregation of that telemetry — the same mechanism Memory already provides (an Executor-style log folding into a Mission Record, `MEMORY_ARCHITECTURE.md` §4). "Audit" and "Evidence" (§10) are not two separate components — Evidence *is* the audited, verified subset of telemetry that made it into Memory.
 
-### 5.7 What Is Deliberately NOT Shared Infrastructure
+### 5.7 AI Capability Broker
+*(Added by Amendment 2, MB027. Full design: `AI_CAPABILITY_BROKER_ARCHITECTURE.md`; decision: `docs/adr/0017-ai-capability-broker.md`.)*
+
+The single intelligence-selection service. Every component that needs AI — the Brain's Model Router and Planner, and every Worker that needs reasoning, vision, OCR, speech, or embeddings mid-task — asks the Broker *which* Provider should serve the request. **No other component may decide.** It owns the Provider Registry, the Capability Matrix, the Decision Engine, the Cost Model, the Benchmark Store, the Approval Policy, the AI Asset Inventory, and the Recommendation Engine.
+
+**Belongs here because:** both the Brain and the Operator need the same answer to the same question, which is precisely the condition this layer exists to satisfy (ADR-0010). One copy per side would drift; assigning it to either side recreates the crossed-boundary contradiction the independent audit found in the prior revision. Its state is also a set of ledgers — spend, standing approvals, benchmark aggregates — which must be singular across every Operator Instance for the same reason the Permission System must be (§5.2): two Operator Instances disagreeing about what has already been approved or already been spent is a safety bug, not an inconsistency. And it must be consulted *before* dispatch, so it cannot be a thing that is dispatched.
+
+**The boundary that keeps it here:** the Broker **decides and never touches the machine.** It executes nothing, opens no connection, imports no provider SDK, spends nothing, retries nothing, and grants no permission — it *requires* permission, through §5.2. Its output names an already-registered Capability plus parameters, which the caller runs through the Operator like any other Capability, so **the Broker creates no new execution path**. Everything that requires touching the machine — scanning, probing, benchmarking, inventory, and Founder-approved installation — belongs to the **AI Infrastructure Executive**, an ordinary Worker (§12, §16).
+
+**Status: RESEARCH-BACKED** — the design is reasoned through and frozen (MB027), but not yet implemented. Expect refinement once real usage exists, the same way ADR-0008 refined Memory. Its learning loop (`AI_CAPABILITY_BROKER_ARCHITECTURE.md` §19) is EVOLVABLE by construction: the Broker's *decision procedure* stays deterministic and replayable; what evolves is the versioned policy it reads, and only through Promotion Review (§9.3, §15.5).
+
+### 5.8 What Is Deliberately NOT Shared Infrastructure
 - **Environment Session Management** — a live handle to one specific Environment Instance (an open browser tab, a live SSH connection) belongs to whichever Operator Instance opened it. Sharing it centrally would mean one Operator Instance could reach into another's live connection — a safety and isolation violation, not a convenience. See §8.3.
 - **Mission Session** (the Brain-side conversational entry point, today's `MasterAgentSession`) — see §16. It is Brain-adjacent glue on a path to dissolving into the Brain proper; it is not infrastructure multiple Operator Instances depend on.
+- **Machine scanning, provider probing, benchmarking, inventory capture, and installation** *(added by Amendment 2, MB027)* — these are Environment access, and Rule 4 gives Environment access exactly one door. They belong to the AI Infrastructure Executive, not to the Broker they feed. A kernel service that scanned hosts would be a kernel service with an Environment dependency.
 
 ---
 
@@ -217,8 +232,9 @@ The relay pattern (an outer approval explicitly carried down to an inner grant k
 | Aspect | Executive Brain | Shared Infrastructure | Universal Executive Operator |
 |---|---|---|---|
 | **Role** | Decides *what* and *how to structure it*, and *how to explain it* | Provides the one consistent source of truth both sides depend on | Carries out *what* was decided, with accountability |
-| **Modules** | Intent Layer, Planner, Model Router, Reporter | Capability Registry, Permission System, Mission State, Memory, Configuration, Telemetry/Evidence aggregation | Orchestrator, Verification Subsystem, Worker/Plugin Runtime, Environment Session Management |
+| **Modules** | Intent Layer, Planner, Model Router, Reporter | Capability Registry, Permission System, Mission State, Memory, Configuration, Telemetry/Evidence aggregation, AI Capability Broker | Orchestrator, Verification Subsystem, Worker/Plugin Runtime, Environment Session Management |
 | **Reasoning-Provider calls** | Yes | No | No |
+| **Which Provider serves a request** | Asks; never decides | **Decides — the AI Capability Broker (§5.7), and nothing else may** | Asks; never decides |
 | **Environment access** | Never | Never | Only through a Worker, via an Environment Session it owns |
 | **Permission checks** | Never issues, never checks | Holds and adjudicates every grant | Every step above READ_ONLY is checked here, against Shared Infrastructure |
 | **Mission State** | Reads (context) | Owns | Transitions it, through Shared Infrastructure's contract, never a private copy |
@@ -256,7 +272,7 @@ The prior revision's Operator was implicitly singular — "the Operator" — wit
 One running instance of the Universal Executive Operator, bound to one (or a small, tightly-coupled set of) Environment Instance(s) — e.g., "the Operator Instance running on Desktop A," "the Operator Instance managing Browser Session B." Tracked by an **Operator Registry**, itself part of Shared Infrastructure's Capability Registry (§5.1) — an Operator Instance advertises which Capabilities it can currently service, the same way a Worker does.
 
 ### 8.3 Environment Instance and Environment Session
-An **Environment Instance** is one concrete, addressable target (§7.4). An **Environment Session** is the live handle an Operator Instance holds to one Environment Instance — an open browser tab, a live SSH connection, a running desktop process. Environment Sessions are owned by exactly one Operator Instance and are never Shared Infrastructure (§5.7) — sharing a live connection across Operator Instances would violate the isolation that makes Permission grants and safety boundaries meaningful per Environment.
+An **Environment Instance** is one concrete, addressable target (§7.4). An **Environment Session** is the live handle an Operator Instance holds to one Environment Instance — an open browser tab, a live SSH connection, a running desktop process. Environment Sessions are owned by exactly one Operator Instance and are never Shared Infrastructure (§5.8) — sharing a live connection across Operator Instances would violate the isolation that makes Permission grants and safety boundaries meaningful per Environment.
 
 ### 8.4 How a Mission spans multiple Operator Instances
 A `Step` may name, alongside its Capability, a required Environment category (e.g., "this Step needs a Browser Environment"). Shared Infrastructure's Capability Registry resolves *which* live Operator Instance can service that Step at execution time — exactly the same resolution philosophy already established for Capability → Worker (§3.2, §5.1), extended one level, not reinvented. Because Permission System, Mission State, and Memory are Shared Infrastructure (§5), a Mission spanning three Operator Instances still has exactly one grant ledger, one state machine, and one Memory record — this is *why* §5's resolution is a prerequisite for this section, not a coincidence.
@@ -439,7 +455,9 @@ Every component named across MB001–005, `ARCHITECTURE.md`, and the prior audit
 | Verification Subsystem | **Operator-adjacent, own contract** (§10) | Needs Environment access (Operator-side) but is structurally distinct from Execution. |
 | Permission System | **Shared Infrastructure** (§5.2) | Elevated this revision — see §5.2 for why. |
 | Operator Registry | **Shared Infrastructure** (§8.2, part of §5.1) | Tracks live Operator Instances the same way the Capability Registry tracks Workers. |
-| Environment Session Manager | **Operator (per-instance)** (§8.3) | Deliberately *not* shared — see §5.7. |
+| Environment Session Manager | **Operator (per-instance)** (§8.3) | Deliberately *not* shared — see §5.8. |
+| AI Capability Broker | **Shared Infrastructure** (§5.7) | Added by Amendment 2 (MB027). Both the Brain's Model Router and any Worker needing intelligence consult it; its cost, approval, and benchmark ledgers must be singular across Operator Instances. Decides; never executes, never touches an Environment. |
+| AI Infrastructure Executive | **Operator** (Worker, §12) | Added by Amendment 2 (MB027). The machine-touching counterpart to the Broker: discovers, probes, benchmarks, inventories, and — with explicit Founder approval — installs. Produces the inputs the Broker decides on; never decides itself. |
 
 ---
 
@@ -452,6 +470,8 @@ Every component named across MB001–005, `ARCHITECTURE.md`, and the prior audit
 | **Operator** | The execution layer: Orchestrator, Verification Subsystem, Worker/Plugin Runtime, Environment Session Management (§4). Executes; never decides. |
 | **Worker** | A single registered unit of execution capability inside an Operator's Worker Runtime (today: an Action/Plugin). Not a layer — a component of §12. |
 | **Executive** | Synonym for **Worker**, introduced by MB023 as the term Mission Control's registration API uses (`ExecutiveRegistry`, `executive_id`). The same role, described from the coordination layer rather than the execution layer. `Worker` stays canonical here and in Worker-side code; neither term may be given a third synonym. See `docs/adr/0014-executive-and-worker-terminology.md`. |
+| **AI Capability** | A *kind of intelligence* a Provider can supply — `reasoning`, `vision.ocr`, `speech.transcribe` (§5.7). Added by Amendment 2 (MB027). **Distinct from Capability, and never dispatchable on its own**: an AI Capability is an input to Provider selection; a Capability is a unit of execution. Written `lowercase.dotted`, where Capabilities are `PascalCase.PascalCase`, so the two are distinguishable mechanically rather than by convention. |
+| **Provider** | Any registered source of AI capability — local runtime, desktop application, cloud API, aggregator (§5.7). Added by Amendment 2 (MB027). **Generalizes, and does not replace, Reasoning Provider**: a Reasoning Provider (§3.3) is a Provider offering the `reasoning` AI Capability. Neither term may be given a third synonym. |
 | **Environment** | An abstract category of place execution happens (Desktop, Browser, Terminal, VPS, future Robotics/IoT). Never a specific product (§7.2, §21). |
 | **Environment Instance** | One concrete, addressable, live target within an Environment category (§7.4, §8.3). |
 | **Environment Session** | The live handle an Operator Instance holds to one Environment Instance (§8.3). Owned by exactly one Operator Instance; never Shared Infrastructure. |

@@ -56,7 +56,8 @@ axis. The task is definitional, not mechanical.
   distinct from "Environment" as an abstract category.
 - **Environment Session** — the live handle one Operator Instance holds to
   one Environment Instance. Deliberately **not** Shared Infrastructure
-  (ADR-0010's §5.7) — sharing a live connection across Operator Instances
+  (ADR-0010's §5.7 — renumbered §5.8 by Amendment 2, MB027) — sharing a
+  live connection across Operator Instances
   would violate the isolation that makes Permission grants and safety
   boundaries meaningful per Environment.
 

@@ -35,7 +35,8 @@ Mission Brief 021 (paused, not completed) was handled.
    third layer both Brain and Operator depend on, each with an individual
    justification rather than a blanket move. Environment Session
    Management and Mission Session were evaluated and deliberately kept out
-   (§5.7) — not moving is as much a design decision as moving.
+   (§5.7, renumbered §5.8 by Amendment 2, MB027) — not moving is as much
+   a design decision as moving.
 2. **Verification made structurally independent** (§10, ADR-0011). Defined
    the Execution / Verification / Evidence-to-Brain boundary: Execution
    produces effects, a distinct Verification Subsystem produces Evidence

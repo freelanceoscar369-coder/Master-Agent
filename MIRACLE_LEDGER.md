@@ -32,6 +32,8 @@ except to fix a factual error.
 
 | **026** — Founder Dashboard (Founder Edition v1) | 2026-07-26 | `v0.10.0-miracle-026` | *(see note below — same self-reference problem, same standing resolution)* | 971 passed | ✅ Shipped | Design-first (`FOUNDER_DASHBOARD_ARCHITECTURE.md`) build of the first operational window into the living system: nine read-only panels (runtime, mission, executives, capabilities, audit, persistence, system health, founder state) updating live off the Event Bus with no manual refresh. A contract survey preceded any code, as MB026 required — every panel proved reachable through published surfaces, so no blocking ADR was needed and **no frozen component was modified**, now enforced by a `git diff` test against the MB025 tag. Read-only is structural, not promised: a frozen read model sits between contracts and rendering, so panels hold nothing mutable; a test renders 25 frames and asserts the observed system is byte-identical afterwards. Two real findings during the build — a cp1252 Windows console cannot encode box-drawing glyphs (fixed with a charset chosen by asking the stream, not guessing the platform), and the Capability panel counted capabilities instead of naming them, under-delivering Deliverable 5. Key design decision: ADR-0016. 182 new tests. Full writeup: `docs/MISSION_BRIEF_026.md`. |
 
+| **027** — AI Capability Broker Architecture | 2026-07-29 | *(see note below — architecture-only, tag added alongside this row)* | *(see note below — same self-reference problem, same standing resolution)* | 971 passed (unchanged) | ✅ Shipped | Architecture-only — zero code, zero tests, zero runtime behavior changes (`src/`/`tests/` byte-identical to the MB026 tag). Froze the intelligence-selection layer every remaining Executive is blocked behind: Provider Registry, Capability Matrix, Decision Engine, AI Asset Inventory, Recommendation Engine, Cost Model, Benchmark Engine, Founder Approval Policy, and the AI Infrastructure Executive / Desktop Executive / Capability Package contracts. Answered MB027's required analysis without deferring: the Broker is a **kernel service** (Shared Infrastructure), not an Executive — both the Brain and the Operator need the same answer, it must be consulted *before* dispatch, and its ledgers must be singular. What the rejected option was right about is preserved by splitting the concern: the Broker decides and never touches the machine; the AI Infrastructure Executive touches the machine and never decides. Resolved the brief's own unstated tension (lowest cost vs. highest success) with a cost ladder gated by a configurable quality floor, refusing rather than guessing when no tier clears it. Two terminology collisions resolved ADR-0014-style (AI Capability ≠ Capability; Provider generalizes Reasoning Provider). Added one approval rule the brief did not ask for — sensitive data to *any* third party, including free ones. Named a live contradiction in existing code (`ModelRouter.select_provider()` hardcodes `"hermes"`/`"chatgpt"`) without changing it. Proposed a Constitution amendment rather than making one (§5, §6, §16, §17 are FROZEN); **the founder ratified ADR-0017 on 2026-07-29 and it was applied as Constitution Amendment 2** — the first structural amendment under the freeze process, and the one that set the precedent that structural amendments are proposed by a brief and applied only after ratification. The same ratification added a founder directive: the **learning loop** becomes a first-class objective for the AI Infrastructure Executive (ADR-0018 — the versioned policy learns, the decision procedure stays deterministic and replayable; privacy is a one-way ratchet; every promoted change carries a rollback condition), together with `IRREVERSIBLE` install/remove/upgrade capabilities that MB027 had deliberately excluded. Full writeup: `docs/MISSION_BRIEF_027.md`, `AI_CAPABILITY_BROKER_ARCHITECTURE.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -117,6 +119,21 @@ except to fix a factual error.
   `git rev-list -n1 v0.6.0-miracle-022` is the authoritative pointer.
   Minor version bump, since it adds a new capability family (the Browser
   Worker) rather than extending an existing one.
+
+- **Miracle 027 is an architecture-only row, like 021 Revision 3.** It
+  ships zero code, so its "Tests" column repeats MB026's count rather than
+  reporting a new one — the suite was not re-run against changed source,
+  because there is no changed source. Its tag is added alongside this row
+  (patch-level, since it changes no behaviour), and the authoritative
+  commit pointer is `git tag -n1 v0.10.1-miracle-027` / `git rev-list -n1
+  v0.10.1-miracle-027` — the standing resolution to the self-reference
+  problem. It was briefly the second row to carry an unratified ADR —
+  deliberately, for the same reason as 025: the brief said not to modify
+  existing architecture, so the amendment ADR-0017 needed was written out
+  and proposed rather than applied. **Unlike ADR-0015, it did not stay
+  that way** — the founder ratified it the same day, and the amendment was
+  applied within this Miracle. **ADR-0015 is now the only unratified ADR
+  in the project.**
 
 ## How to add a row
 

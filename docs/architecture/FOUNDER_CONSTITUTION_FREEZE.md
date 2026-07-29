@@ -115,7 +115,7 @@ quick reference without opening the full document.
 | 2 | Core Principles | FROZEN |
 | 3 | Executive Brain Responsibilities | FROZEN |
 | 4 | Universal Executive Operator Responsibilities | FROZEN |
-| 5 | Shared Infrastructure Layer | FROZEN |
+| 5 | Shared Infrastructure Layer | FROZEN (§5.7, AI Capability Broker, is RESEARCH-BACKED — added by Amendment 2, designed but not yet implemented) |
 | 6 | Brain / Shared Infrastructure / Operator Separation | FROZEN |
 | 7 | Universal Environment Philosophy | EVOLVABLE |
 | 8 | Multi-Operator Architecture | RESEARCH-BACKED |
@@ -154,11 +154,24 @@ this record, with an ADR, rather than by silent edit. Amendments to date:
 | # | Date | Mission Brief | What changed | Backed by |
 |---|---|---|---|---|
 | 1 | 2026-07-26 | MB023 | §17 Terminology Freeze gains one row: **Executive** is recorded as a synonym for **Worker** (the term Mission Control's registration API uses for the same role). No section status changed; no shipped code renamed. | `docs/adr/0014-executive-and-worker-terminology.md` |
+| 2 | 2026-07-29 | MB027 | The **AI Capability Broker** becomes a Shared Infrastructure component: new **§5.7** (prior §5.7 renumbered **§5.8**, gaining one row placing machine scanning/probing/benchmarking/inventory/installation outside Shared Infrastructure); §6's module table and a new "which Provider serves a request" row; two rows in §16 (**AI Capability Broker** → Shared Infrastructure, **AI Infrastructure Executive** → Operator); two rows in §17 (**AI Capability**, **Provider**). §3.3 gains one clarifying sentence — the Model Router consults the Broker rather than ranking Providers itself; its interface, role, and four criteria are unchanged. No section status changed; no shipped code renamed or modified. | `docs/adr/0017-ai-capability-broker.md`, `AI_CAPABILITY_BROKER_ARCHITECTURE.md` |
 
 This is what the amendment process is supposed to look like: a real
 terminology collision surfaced during implementation, was resolved
 explicitly rather than left ambiguous, and both documents moved together
 in one commit. A future amendment adds a row here.
+
+**Amendment 2 followed a deliberately slower path, and it is the one to
+copy for anything structural.** MB027 was an architecture-only Mission
+Brief whose own acceptance criteria said "no existing architecture
+modified." Rather than choosing between delivering the design and
+respecting that constraint, it did both: the full amendment was *written
+out and proposed* in ADR-0017, the Constitution was left untouched, and
+the founder ratified it as a separate, explicit act on 2026-07-29 — at
+which point it was applied in one pass. Precedent set by MB025's ADR-0015.
+**A structural amendment is proposed by a Mission Brief and applied only
+after founder ratification; a terminology reconciliation forced by
+shipping code (Amendment 1) may move in the same commit.**
 
 ## 5. Final Founder Review
 

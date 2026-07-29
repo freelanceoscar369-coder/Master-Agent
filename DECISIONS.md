@@ -205,6 +205,89 @@ capabilities rather than naming them, under-delivering Deliverable 5 —
 caught by the Definition-of-Done test. 182 new tests, 971 passing. Full
 detail: `docs/MISSION_BRIEF_026.md`.
 
+## ADR-0017: The AI Capability Broker (Mission Brief 027) — **Accepted; ratified 2026-07-29, Constitution Amendment 2 applied**
+The intelligence-selection layer is a **kernel service** (Shared
+Infrastructure), not an Executive — because both the Brain's Model Router
+and any Executive mid-task need the same answer, which is the exact
+condition ADR-0010 created Shared Infrastructure to handle; because the
+Broker must be consulted *before* dispatch, so it cannot be a thing that
+is dispatched; and because spend, approvals, and benchmark aggregates are
+ledgers that must be singular (the §5.2 argument). What the rejected
+option was right about is preserved by splitting the concern: **the Broker
+decides and never touches the machine; the AI Infrastructure Executive
+touches the machine and never decides.** Four rulings worth remembering:
+selection walks the cost ladder and stops at the first tier clearing a
+configurable *quality floor*, refusing rather than guessing when no tier
+does; the Broker's output names an already-registered Capability, so it
+**creates no new execution path**; `observed` beats `declared` in the
+capability matrix (Rule 8 applied to providers) and a benchmark sample
+records the Verification Verdict, not an API status, so providers that
+fail *articulately* cannot climb; and decisions are deterministic and
+replayable, which is what makes "every provider decision is auditable"
+a property rather than a claim. Two terminology collisions resolved
+ADR-0014-style: **AI Capability** (`lowercase.dotted`) is not
+**Capability** (`PascalCase.PascalCase`), and **Provider** generalizes
+**Reasoning Provider** without renaming it. **Ratified by the founder on
+2026-07-29**, at which point the proposed Constitution amendment was
+applied as **Amendment 2** (§3.3, §5.7 new, prior §5.7 → §5.8, §6, §16,
+§17; §5.7 carries status RESEARCH-BACKED). See
+`docs/adr/0017-ai-capability-broker.md`.
+
+## ADR-0018: The Broker Learning Loop (founder directive at MB027 ratification)
+The founder made self-improvement a first-class objective for the AI
+Infrastructure Executive — usage analytics, benchmark history, cost
+optimization, privacy awareness, and Founder-approved ecosystem evolution.
+That collides head-on with ADR-0017's determinism-and-replay guarantee, so
+the resolution is a separation rather than a compromise: **the decision
+*procedure* never learns; the versioned *policy* it reads does.** Every
+decision already carries `policy_version`, so a decision made under v7
+replays against v7 forever, and learning produces v8 as a discrete,
+reviewable, revertible artifact. Three owners: the Broker holds the data,
+the AI Infrastructure Executive does the analysis (it is the only
+component that can also check a proposal for *feasibility* against the
+real machine), the Founder promotes. The loop is ADR-0012's Knowledge
+Lifecycle applied to provider selection, so it rides MB023's existing
+human-gated queues — **zero new approval paths**. Four guards worth
+remembering: privacy is a **one-way ratchet** (the loop may propose
+tightening, never loosening — because the optimisation pressure runs
+exactly the wrong way and every such proposal would arrive with real
+evidence attached); every promoted change needs a `rollback_condition` or
+it is refused at generation; exploration is budgeted on low-stakes
+requests, or a low-ranked provider can never climb back; and installation
+— newly added to the Executive's contract by this directive — is
+`IRREVERSIBLE`, so ADR-0009 guarantees no standing grant can ever
+authorise one. See `docs/adr/0018-broker-learning-loop.md`,
+`AI_CAPABILITY_BROKER_ARCHITECTURE.md` §19 and §11.1. **Scheduled, not
+designed:** a **Policy Simulator** (§19.8) that validates a proposed policy
+version against historical missions before it reaches the founder —
+nearly free because ADR-0017's determinism guarantee already makes past
+decisions re-derivable, and carrying one non-negotiable constraint from
+the start: replay can report what would have been *selected* as fact, but
+never whether it would have *succeeded*, because no outcome exists for a
+Provider that was never called.
+
+## Mission Brief 027 (2026-07-29): AI Capability Broker Architecture
+Architecture-only — zero code, zero tests, zero runtime behavior changes.
+Froze the layer every future Executive (Desktop, Research, Knowledge,
+Terminal, Git) is blocked behind: provider registry, capability matrix,
+decision engine, AI asset inventory, recommendation engine, cost model,
+benchmark engine, founder approval policy, the AI Infrastructure Executive
+contract, the Desktop Executive contract, and the Capability Packages
+integration point. Notable: the approval policy gained one rule MB027 did
+not ask for — **sending sensitive data to any third party requires
+approval, including a free one**, because a policy organised purely around
+money protects the wrong thing; and Deliverable 3's single list was frozen
+as *two* axes (what a Provider can do vs. how well/at what price), because
+merged, "cost" becomes something a Provider "can do" and the filter phase
+cannot be written cleanly. **Ships one Constitution amendment as
+*Proposed*, not made** (§5, §6, §16, §17 are FROZEN; MB025's precedent is
+propose-don't-decide) — `KALPAVRIKSHA_VISION_V2.md` was not edited. Also
+named a live contradiction found in existing code: `ModelRouter.
+select_provider()` hardcodes `"hermes"`/`"chatgpt"`, product names in
+Brain logic that §14/§21 forbid; the Broker supersedes it, and the
+migration is a future brief. Full detail: `docs/MISSION_BRIEF_027.md`,
+`AI_CAPABILITY_BROKER_ARCHITECTURE.md`.
+
 ## Mission Brief 024 (2026-07-26): Autonomous Runtime Engine
 Built the heartbeat — the loop that replaces the founder in the execution
 cycle. Two architectural tensions resolved and recorded in
@@ -346,6 +429,11 @@ tests, 234 passing overall, zero regressions. Full detail:
 `docs/MISSION_BRIEF_005.md`.
 
 ## Open decisions (not yet locked)
+- ~~Ratify (or reject) ADR-0017's Constitution amendment.~~ **Ratified
+  2026-07-29** and applied as Constitution Amendment 2. The founder also
+  approved the Kernel Service placement and the Broker/AI-Infrastructure-
+  Executive split, and added the learning loop as a first-class objective
+  (ADR-0018).
 - Desktop UI stack: recommended pywebview + local FastAPI server for
   speed-to-ship; Tauri/Electron not ruled out, just not chosen yet.
 - Exact Hermes checkpoint/quantization for the founder's hardware.

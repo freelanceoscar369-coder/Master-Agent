@@ -129,6 +129,36 @@ respectively.
   it can encode), and an under-delivery (the Capability panel counted
   capabilities instead of naming them). 182 new tests, 971 passing. Full
   detail: `docs/MISSION_BRIEF_026.md`, `FOUNDER_DASHBOARD_ARCHITECTURE.md`.
+- **Mission Brief 027 froze the AI Capability Broker** — architecture
+  only, zero code. This is the layer every remaining Executive (Desktop,
+  Research, Knowledge, Terminal, Git) is blocked behind: **no Executive
+  ever decides which AI to use.** It requests an *AI Capability*
+  (`vision.ocr`, `reasoning.planning`) and the Broker returns a decision —
+  which provider, at what cost, with what approval required, and why every
+  other candidate was rejected. Placement was the mission's required
+  analysis, answered without deferring: it is a **kernel service** (Shared
+  Infrastructure), not an Executive, because both the Brain and the
+  Operator need the same answer and it must be consulted *before*
+  dispatch. The machine-touching half — scanning, probing, benchmarking —
+  is a separate **AI Infrastructure Executive**: the Broker decides and
+  never touches the machine; the Executive touches the machine and never
+  decides. Selection walks the cost ladder (local → desktop app → free
+  cloud → aggregator → subscription → paid) and stops at the first tier
+  clearing a configurable *quality floor*, refusing rather than guessing
+  when none does — and never auto-selects anything paid. **Ratified by the
+  founder on 2026-07-29**, at which point the proposed Constitution
+  amendment was applied as **Amendment 2** (§3.3, new §5.7, prior §5.7 →
+  §5.8, §6, §16, §17) — the first *structural* amendment under the freeze
+  process, and the one that established the sequence: proposed by a brief,
+  applied only after ratification. The same ratification added a founder
+  directive — **the learning loop** (ADR-0018): the Broker becomes
+  self-improving through usage analytics, benchmark history, cost
+  optimization, privacy awareness, and Founder-approved ecosystem
+  evolution, owned by the AI Infrastructure Executive. The way that
+  coexists with auditability is the thing to remember: **the versioned
+  policy learns; the decision procedure stays deterministic and
+  replayable.** Key decisions: ADR-0017, ADR-0018. Full detail:
+  `docs/MISSION_BRIEF_027.md`, `AI_CAPABILITY_BROKER_ARCHITECTURE.md`.
 - **Mission Brief 024 built the Runtime Engine — the heartbeat.**
   Kalpavriksha now runs **unattended**: a founder submits an objective,
   calls `start_background()`, and the loop observes Mission Control,
@@ -254,6 +284,7 @@ respectively.
 | How does the system run without a human driving each cycle? | `RUNTIME_ENGINE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_024.md` |
 | How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
+| Which AI runs a given task, what does it cost, and who approves paid ones? | `AI_CAPABILITY_BROKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_027.md`, ADR-0017 |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |

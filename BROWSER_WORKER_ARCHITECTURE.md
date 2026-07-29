@@ -70,7 +70,8 @@ BrowserSessionManager  (one per Operator Instance, per KALPAVRIKSHA_VISION_V2.md
 - `BrowserSessionManager.open_session(session_id) -> BrowserSessionHandle`
   starts Playwright, launches a browser, opens a context and a page, and
   registers it under `session_id`. Deliberately **not** Shared
-  Infrastructure (`KALPAVRIKSHA_VISION_V2.md` §5.7) — a live browser handle
+  Infrastructure (`KALPAVRIKSHA_VISION_V2.md` §5.8, §5.7 before Amendment
+  2 renumbered it) — a live browser handle
   belongs to the Operator Instance that opened it, exactly as the
   Constitution requires, so a second Operator Instance can never reach
   into a session it didn't open.

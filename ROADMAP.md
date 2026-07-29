@@ -47,6 +47,8 @@ the first item under Planned, below.
 
 | **026** — Founder Dashboard (Founder Edition v1) | The first operational window into the running system: nine read-only panels updating live off the Event Bus, no manual refresh. Read-only by construction (a frozen read model between contracts and rendering), and **zero frozen components modified**, enforced by a `git diff` test. Demonstrated live across a real kill-and-restart: reconnected, showed restored state, and watched the mission resume to 100%. 182 new tests, 971 passing. Full detail: `docs/MISSION_BRIEF_026.md`, `FOUNDER_DASHBOARD_ARCHITECTURE.md`. |
 
+| **027** — AI Capability Broker Architecture | Architecture-only (no code): froze the intelligence-selection layer every future Executive is blocked behind. The Broker is a **kernel service** (Shared Infrastructure), not an Executive — both the Brain and the Operator need the same answer, and it must be consulted *before* dispatch. Provider registry, capability matrix, decision engine (cheapest tier clearing a configurable quality floor; refuse rather than guess), AI asset inventory, recommendation engine, cost model, benchmark engine (Verification-backed, observed beats declared), founder approval policy, and the AI Infrastructure Executive / Desktop Executive / Capability Package contracts. Proposed a Constitution amendment rather than making one; **the founder ratified it 2026-07-29 and it was applied as Amendment 2**. The same ratification added the **learning loop** as a first-class objective for the AI Infrastructure Executive — the policy learns, the decision procedure does not (ADR-0018) — and added `IRREVERSIBLE` install/remove/upgrade to that Executive's contract. Key design decisions: ADR-0017, ADR-0018. Full detail: `docs/MISSION_BRIEF_027.md`, `AI_CAPABILITY_BROKER_ARCHITECTURE.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -63,6 +65,19 @@ the first item under Planned, below.
   Autonomous Runtime Engine. The Kalpavriksha Loop is continuous.
 - **Persistence for Mission Control.** ✅ **Done** — shipped as Mission
   Brief 025.
+- **Ratify (or reject) ADR-0017's Constitution amendment.** ✅ **Done** —
+  ratified 2026-07-29 and applied as **Constitution Amendment 2** (§3.3,
+  new §5.7, prior §5.7 → §5.8, §6, §16, §17). The founder also approved
+  the Kernel Service placement and the Broker / AI Infrastructure
+  Executive split, and added the learning loop as a first-class objective
+  (ADR-0018).
+- **Retire `ModelRouter.select_provider()`'s hardcoded provider ladder.**
+  `plugins/model_router.py` branches on the literal strings `"hermes"` and
+  `"chatgpt"` — product names in Brain logic, which Constitution §14/§21
+  forbid. The AI Capability Broker (MB027) supersedes it: the Model Router
+  keeps its `generate()` interface and its role as the Brain's single door
+  to reasoning, and asks the Broker *which* provider instead of ranking
+  them itself. Implementation brief, blocked only on the Broker existing.
 - **Ratify (or reject) ADR-0015.** MB025 ships three additive changes to
   frozen components. Each is documented, isolated, and reversible, and the
   ADR is deliberately marked *Proposed* rather than Accepted. This is a
@@ -138,7 +153,46 @@ each role to the concrete product this roadmap already committed to.
    Mission Brief 022's `BrowserPlugin` is a third instance of the relay
    pattern itself (proven, not just theorized), but see item 6 below for
    the *separate*, still-open Environment Session question it raised.
-6. **A second stateful Worker** (Terminal is the natural next choice) —
+6. **Implement the AI Capability Broker** — MB027 froze the architecture
+   (`AI_CAPABILITY_BROKER_ARCHITECTURE.md`) and the founder ratified it,
+   so this is now an unblocked implementation brief. Deliberately listed
+   here rather than inserted at the top, because sequencing it against the
+   real Planner is a founder call, not a default — but note what it
+   unblocks: **every Executive still to be built that needs AI** (Desktop,
+   Research, Knowledge, Terminal, Git) would otherwise each pick its own
+   provider, hold its own credential, and encode its own fallback ladder.
+   It also retires `ModelRouter.select_provider()`'s hardcoded provider
+   names (see Backlog). Scope it to the decision path first — registry,
+   matrix, decision engine, cost ledger, approval gate. The learning loop
+   is item 7.
+7. **Implement the AI Infrastructure Executive, including the learning
+   loop** — the machine-touching counterpart (`AI_CAPABILITY_BROKER_
+   ARCHITECTURE.md` §11, §19; ADR-0018). Two phases, and they should stay
+   separate briefs: **(a)** discovery, probing, inventory, benchmarking —
+   all `READ_ONLY` except `RunBenchmark`, and the thing the Broker needs
+   to be useful at all; **(b)** the learning loop and ecosystem mutation —
+   `AnalyseUsage` producing `PolicyProposal`s through the existing
+   human-gated queues, plus the `IRREVERSIBLE` install/remove/upgrade
+   capabilities. Phase (b) has a hard prerequisite that is easy to miss:
+   **it needs real decision history to learn from**, so it should not be
+   built until the Broker has been running long enough to have produced
+   some. Building the analytics before the data exists means calibrating
+   guards against nothing.
+8. **The Policy Simulator** — scheduled by founder directive 2026-07-29,
+   deliberately not designed or implemented yet
+   (`AI_CAPABILITY_BROKER_ARCHITECTURE.md` §19.8). Validates a proposed
+   policy version against historical missions *before* it reaches the
+   founder for approval, so approval happens against "this would have
+   changed 34 of 1,206 decisions, here are five" rather than against a
+   claim. Nearly free to build, because §6.6's determinism-and-replay
+   guarantee already makes past decisions re-derivable — the simulator is
+   that mechanism pointed at a different policy version. Sequenced after
+   item 7(b) for the same reason: it needs history to replay. **Build the
+   fact/estimate distinction in from the start** — replay can say what
+   would have been *selected* (fact), never whether it would have
+   *succeeded* (estimate), and blurring them manufactures confidence at
+   exactly the wrong moment.
+9. **A second stateful Worker** (Terminal is the natural next choice) —
    the real test of whether `BrowserSessionManager`'s open/get/close/list
    shape (Mission Brief 022, `BROWSER_WORKER_ARCHITECTURE.md` §4)
    actually generalizes into a shared `EnvironmentSessionManager` base,
