@@ -150,6 +150,34 @@ found by the tests: the dispatcher assigned a second task to an already-busy
 Executive because availability ignored `current_task_id`. 107 new tests,
 461 passing, zero regressions. Full detail: `docs/MISSION_BRIEF_023.md`.
 
+## ADR-0015: Persistence strategy (Mission Brief 025) — **PROPOSED, needs ratification**
+Snapshots for state + an append-only event log for history; JSON files
+rather than SQLite (Memory's row store answers a different question and
+stays unchanged); atomic writes; interrupted tasks quarantined rather than
+re-run. Contains **three additive changes to frozen components**, each
+required by an MB025 deliverable and each isolated/reversible: a
+non-publishing `restore_objective()` on `TaskDispatcher` + `MissionControl`
+(Rule 4 forbids reaching into `_objectives`, and `submit()` would
+republish creation events), plus `depends_on` on `TASK_CREATED` and
+`health` on `EXECUTIVE_REGISTERED` payloads (without them a
+replay-recovered system executes out of dependency order, or is inert).
+Deliberately marked *Proposed* per MB025's "propose an ADR rather than
+making unilateral architectural changes". See
+`docs/adr/0015-persistence-strategy.md`.
+
+## Mission Brief 025 (2026-07-26): Persistent Runtime State Engine
+Kalpavriksha now survives process restarts. New `persistence/` package:
+a service that subscribes to the Event Bus, versioned+checksummed
+snapshots, event replay, and one-call restart recovery. Rules enforced
+mechanically — an AST-walking test proves no component reaches into
+another's private state (Rule 4), Mission Control now forbids every
+filesystem/storage import, and the Runtime's `CheckpointSink` protocol is
+defined *inside* `runtime/` so it acquires no storage dependency (Rule 3).
+Also fixed a real MB024 bug this work exposed: `max_cycles` was absolute,
+so a restored runtime broke out of its loop immediately and did nothing.
+205 new tests, 789 passing, zero regressions. Full detail:
+`docs/MISSION_BRIEF_025.md`.
+
 ## Mission Brief 024 (2026-07-26): Autonomous Runtime Engine
 Built the heartbeat — the loop that replaces the founder in the execution
 cycle. Two architectural tensions resolved and recorded in

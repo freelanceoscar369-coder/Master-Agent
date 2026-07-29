@@ -43,6 +43,8 @@ the first item under Planned, below.
 
 | **024** — Autonomous Runtime Engine (The Heartbeat) | The loop that replaces the founder in the cycle: observe → dispatch → execute → verify → report → idle → repeat. Kalpavriksha now runs unattended, proven live against the real internet (four-task browser mission, `progress: 1.0`, zero founder involvement after start). Executive-agnostic by construction — an import-parsing test forbids `runtime/` from naming any specific Executive. Mechanical retry with escalation, honouring Constitution §11's reservation of strategic recovery for the Brain. 82 new tests, 582 passing. Full detail: `docs/MISSION_BRIEF_024.md`, `RUNTIME_ENGINE_ARCHITECTURE.md`. |
 
+| **025** — Persistent Runtime State Engine | Operational memory: Kalpavriksha survives a kill and resumes exactly where it stopped, demonstrated live (each task executed exactly once across both processes, audit history intact). New `persistence/` package — bus-subscribed event log, versioned+checksummed snapshots, event replay, one-call `recover()`. Interrupted tasks are quarantined rather than re-run. **⚠️ Ships three additive changes to frozen components, recorded in ADR-0015 as *Proposed* and awaiting ratification.** 205 new tests, 789 passing. Full detail: `docs/MISSION_BRIEF_025.md`, `PERSISTENCE_ARCHITECTURE.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -57,13 +59,15 @@ the first item under Planned, below.
   failed) for the first time. See `docs/MISSION_BRIEF_023_1.md`.
 - **The closing loop.** ✅ **Done** — shipped as Mission Brief 024, the
   Autonomous Runtime Engine. The Kalpavriksha Loop is continuous.
-- **Persistence for Mission Control.** Every objective, audit entry, and
-  runtime snapshot currently lives only in memory: the system runs
-  unattended but does not survive a restart. Named as debt since MB023
-  (alongside `LocalExecutor._log`) and now the most load-bearing gap —
-  a dashboard makes it immediately visible, because the first thing
-  anyone does with a dashboard is close it and come back. Worth deciding
-  before or alongside MB025.
+- **Persistence for Mission Control.** ✅ **Done** — shipped as Mission
+  Brief 025.
+- **Ratify (or reject) ADR-0015.** MB025 ships three additive changes to
+  frozen components. Each is documented, isolated, and reversible, and the
+  ADR is deliberately marked *Proposed* rather than Accepted. This is a
+  founder decision, not a default.
+- **Event-log compaction.** The persisted log grows without bound.
+  Segmentation was deliberately not built, because a correct compaction
+  policy needs a retention policy that does not exist yet.
 - **A shipped browser gateway.** MB024's `BrowserGateway` lives in test
   support, which is correct for Rule 2 but means the first real launcher
   has nothing reusable to wire. It belongs beside the Browser Executive,

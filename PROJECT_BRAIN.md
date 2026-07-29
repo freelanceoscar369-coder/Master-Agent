@@ -99,6 +99,22 @@ respectively.
   commit, a shell command's output) doesn't need a schema change.
   `Memory`'s public API and every existing caller are unchanged. Key
   decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
+- **Mission Brief 025 gave Kalpavriksha persistent memory.** It now
+  survives a kill: submit work, run partway, kill the process, restart,
+  and it resumes exactly where it stopped — demonstrated live, with each
+  task executing exactly once across both processes and audit history
+  intact. New `persistence/` package: bus-subscribed event log,
+  versioned+checksummed snapshots, event replay, and one-call
+  `recover()`. Interrupted tasks are **quarantined, never re-run** (their
+  side effects are unknown, and deciding to retry is the Brain's call per
+  Constitution §11). **⚠️ Contains three additive changes to frozen
+  components** — a non-publishing `restore_objective()`, plus `depends_on`
+  and `health` added to two event payloads — each required by a
+  deliverable, each isolated and reversible, all recorded in ADR-0015 as
+  **Proposed and awaiting ratification**. Also fixed a real MB024 bug it
+  exposed (`max_cycles` was absolute, so a restored runtime silently did
+  nothing). 205 new tests, 789 passing, zero regressions. Full detail:
+  `docs/MISSION_BRIEF_025.md`, `PERSISTENCE_ARCHITECTURE.md`.
 - **Mission Brief 024 built the Runtime Engine — the heartbeat.**
   Kalpavriksha now runs **unattended**: a founder submits an objective,
   calls `start_background()`, and the loop observes Mission Control,
@@ -222,6 +238,7 @@ respectively.
 | How is work coordinated, scheduled, audited, and reported? | `MISSION_CONTROL_ARCHITECTURE.md`, `docs/MISSION_BRIEF_023.md` |
 | Is the Mission Control ↔ Executive integration actually proven? | `docs/MIT_001_CERTIFICATION.md` |
 | How does the system run without a human driving each cycle? | `RUNTIME_ENGINE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_024.md` |
+| How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |

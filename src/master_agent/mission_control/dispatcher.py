@@ -55,7 +55,38 @@ class TaskDispatcher:
                 objective_id=objective.objective_id,
                 task_id=task.task_id,
                 capability=task.capability,
+                # `depends_on` is carried so a system rebuilt by event
+                # replay (MB025 deliverable #9) reconstructs the dependency
+                # graph, not just the task list. Without it a replay-
+                # recovered system could dispatch a task before its
+                # prerequisite -- found by MB025's replay tests. Additive
+                # data inside an existing payload; the Event schema is
+                # unchanged and no consumer is affected.
+                payload={"depends_on": list(task.depends_on)},
             )
+        self._recompute_readiness(objective)
+        return objective
+
+    def restore_objective(self, objective: Objective) -> Objective:
+        """Re-admit an objective that was persisted in an earlier process,
+        **without publishing creation events**.
+
+        Added by Mission Brief 025 as the single additive contract that
+        Mission Brief's Rule 4 ("no component reaches into another
+        component's private state") makes necessary: `submit()` is
+        otherwise the only way in, and it would republish
+        OBJECTIVE_SUBMITTED/TASK_CREATED for work submitted hours ago,
+        making a restored audit claim every objective was submitted twice.
+
+        This is an extension, not a redesign. Validation and readiness
+        recomputation are identical to `submit()`; the only difference is
+        silence, because the events this would announce already happened
+        and are already in the persisted log. See
+        docs/adr/0015-persistence-strategy.md (Decision 3) -- that ADR is
+        *Proposed*, and this method is what it proposes.
+        """
+        objective.validate()
+        self._objectives[objective.objective_id] = objective
         self._recompute_readiness(objective)
         return objective
 

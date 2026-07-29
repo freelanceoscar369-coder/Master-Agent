@@ -445,6 +445,41 @@ Three boundaries worth knowing before changing anything here:
 Full design: `RUNTIME_ENGINE_ARCHITECTURE.md`. Full writeup:
 `docs/MISSION_BRIEF_024.md`.
 
+### 4.14 Persistence (`persistence/`)
+Added in Mission Brief 025 — operational memory. Makes Mission Control and
+the Runtime *continuous*: state survives the process exiting, and
+execution resumes where it stopped.
+
+Two mechanisms: an append-only **event log** (`events.jsonl`, written as
+events happen — audit history and replay) and a versioned, checksummed
+**snapshot** (`snapshot.json`, written on checkpoint — fast restart whose
+cost is O(live state) rather than O(history)). `recovery.recover()` is the
+single call a launcher makes.
+
+Four boundaries, each enforced by `tests/test_persistence_architecture.py`
+rather than by convention:
+
+- **Persistence never executes.** No gateway, no Executive, no dispatch
+  surface, no import of anything that performs work.
+- **Mission Control never writes files.** It has no filesystem import at
+  all, and MB025 added `json`/`pathlib`/`sqlite3`/`os`/`io`/`shutil`/
+  `tempfile`/`pickle` to its forbidden-import test.
+- **The Runtime never performs storage.** It calls a `CheckpointSink`
+  protocol defined *inside* `runtime/checkpoint.py`, so `runtime/` still
+  imports nothing but `mission_control` and itself.
+- **Contracts only.** An AST-walking test rejects private-attribute access
+  on anything that is not `self`.
+
+**Interrupted tasks are quarantined, never re-run** — a task in flight
+when the process died has unknown side effects, so it returns as `FAILED`
+and its dependents `BLOCKED`, visible in Founder State. Re-running is a
+strategic judgement reserved for the Brain (Constitution §11).
+
+⚠️ MB025 ships three additive changes to frozen components, recorded in
+`docs/adr/0015-persistence-strategy.md` as **Proposed** and awaiting
+ratification. Full design: `PERSISTENCE_ARCHITECTURE.md`. Full writeup:
+`docs/MISSION_BRIEF_025.md`.
+
 ## 5. The Model Router — how ChatGPT and Hermes coexist
 
 Both integrations sit behind one `ModelProvider` interface

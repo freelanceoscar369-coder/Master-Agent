@@ -29,6 +29,7 @@ from master_agent.mission_control.events import (
 )
 from master_agent.mission_control.mission_control import MissionControl
 from master_agent.mission_control.tasks import Task, TaskState
+from master_agent.runtime.checkpoint import CheckpointSink, RuntimeCheckpoint
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.gateway import ExecutiveGateway, GatewayResult
 from master_agent.runtime.health import RuntimeHealth
@@ -50,9 +51,13 @@ class RuntimeEngine:
         config: RuntimeConfig | None = None,
         clock: Any = None,
         sleep: Any = None,
+        checkpoint_sink: CheckpointSink | None = None,
     ) -> None:
         self._mc = mission_control
         self._config = config or RuntimeConfig()
+        # Rule 3: the Runtime *requests* checkpoints through a protocol it
+        # defines (runtime/checkpoint.py); it never performs storage.
+        self._checkpoint_sink = checkpoint_sink
         # Injected so tests can run a hundred cycles without waiting a
         # hundred seconds, and so uptime is deterministic under test.
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -61,7 +66,15 @@ class RuntimeEngine:
         self._gateways: dict[str, ExecutiveGateway] = {}
         self._state = RuntimeState.INITIALIZING
         self._started_at: datetime | None = None
+        # `_cycle` is cumulative across restarts (restored from a
+        # checkpoint), because "how many cycles has this system ever run"
+        # is the useful health number. `_cycles_this_process` is what
+        # `max_cycles` bounds -- otherwise a runtime restored at cycle N
+        # with max_cycles=N would break out immediately and silently do
+        # nothing, which is exactly what a bounded run after a restart
+        # must not do. Found by MB025's repeated-restart test.
         self._cycle = 0
+        self._cycles_this_process = 0
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -83,6 +96,49 @@ class RuntimeEngine:
     def state(self) -> RuntimeState:
         return self._state
 
+    # ---- checkpointing (MB025) ---------------------------------------
+
+    def checkpoint(self) -> RuntimeCheckpoint:
+        """Capture resumable state. Pure: builds a value object and hands
+        it to the sink, if one was provided. A sink that raises must never
+        take down the loop -- losing a checkpoint is bad, but stopping the
+        heartbeat over it is worse."""
+        snapshot = RuntimeCheckpoint(
+            state=self._state,
+            cycle=self._cycle,
+            tasks_completed=self._tasks_completed,
+            tasks_failed=self._tasks_failed,
+            retries_performed=self._retries_performed,
+            escalations=self._escalations,
+            last_dispatch_at=self._last_dispatch_at,
+            last_verification_at=self._last_verification_at,
+        )
+        if self._checkpoint_sink is not None:
+            try:
+                self._checkpoint_sink.save_checkpoint(snapshot)
+            except Exception as exc:  # noqa: BLE001 — see docstring
+                self._publish(
+                    EventType.RUNTIME_ERROR, error=f"checkpoint failed: {exc}"
+                )
+        return snapshot
+
+    def restore_from(self, checkpoint: RuntimeCheckpoint) -> None:
+        """Resume counters from a previous process.
+
+        The runtime state itself is deliberately NOT restored to whatever
+        it was mid-cycle: a restored Runtime always comes back through
+        INITIALIZING -> IDLE and re-observes Mission Control, because
+        whatever it was doing did not finish and must not be assumed to
+        have.
+        """
+        self._cycle = checkpoint.cycle
+        self._tasks_completed = checkpoint.tasks_completed
+        self._tasks_failed = checkpoint.tasks_failed
+        self._retries_performed = checkpoint.retries_performed
+        self._escalations = checkpoint.escalations
+        self._last_dispatch_at = checkpoint.last_dispatch_at
+        self._last_verification_at = checkpoint.last_verification_at
+
     @property
     def config(self) -> RuntimeConfig:
         return self._config
@@ -102,7 +158,7 @@ class RuntimeEngine:
             while not self._stop_requested.is_set():
                 if (
                     self._config.max_cycles is not None
-                    and self._cycle >= self._config.max_cycles
+                    and self._cycles_this_process >= self._config.max_cycles
                 ):
                     break
                 self._run_cycle()
@@ -149,16 +205,18 @@ class RuntimeEngine:
             self._transition(RuntimeState.STOPPING)
             self._publish(EventType.RUNTIME_STOPPING)
         self._transition(RuntimeState.STOPPED)
-        # The final snapshot goes into the immutable Audit Stream -- the
-        # durable *shape* this architecture has. Durable storage is
-        # Mission Control's named debt, not something the Runtime invents
-        # a second mechanism for (architecture doc §8).
+        # The final snapshot goes into the immutable Audit Stream, and --
+        # since Mission Brief 025 -- through the checkpoint sink to
+        # durable storage as well, so a graceful shutdown is the cleanest
+        # possible restart point.
         self._publish(EventType.RUNTIME_STOPPED, payload=self.health().as_dict())
+        self.checkpoint()
 
     # ---- one cycle ---------------------------------------------------
 
     def _run_cycle(self) -> list[Task]:
         self._cycle += 1
+        self._cycles_this_process += 1
         handled: list[Task] = []
 
         try:
@@ -179,6 +237,11 @@ class RuntimeEngine:
         except Exception as exc:  # noqa: BLE001 — a runtime that dies on one bad cycle is not a heartbeat
             self._publish(EventType.RUNTIME_ERROR, error=f"cycle {self._cycle} failed: {exc}")
             self._recover()
+        finally:
+            # Checkpoint at the end of every cycle, including a failed one
+            # -- a cycle that went wrong is exactly when the state is most
+            # worth having on disk.
+            self.checkpoint()
 
         return handled
 

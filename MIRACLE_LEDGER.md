@@ -28,6 +28,8 @@ except to fix a factual error.
 | **MIT-001** — Mission Control Integration Certified | 2026-07-26 | `v0.7.2-mit-001` | `ef1f736` | 519 passed | ✅ Certified | Certification, not a new capability: proved Mission Control orchestrates the Browser Executive with **zero modification** to it. All seven MIT-001 tests pass (19 automated + a live run to a real URL returning a `matched` verdict). Zero Modification proven three ways, including a test that runs `git diff` against the MB022 tag. Closed four gaps on the Mission Control side (auto-discovery, `TASK_ASSIGNED` rename, `FounderState.result`, capability stamped onto verification events). Two documented deliberate differences from the brief's expected list: `Browser.Fill` is `Browser.TypeText`, and there is no `Browser.Verify` capability by design (ADR-0011). Full detail: `docs/MIT_001_CERTIFICATION.md`. |
 | **024** — Autonomous Runtime Engine (The Heartbeat) | 2026-07-26 | `v0.8.0-miracle-024` | *(see note below — same self-reference problem, same standing resolution)* | 582 passed | ✅ Shipped | Design-first (`RUNTIME_ENGINE_ARCHITECTURE.md`) build of the loop that replaces the founder in the execution cycle: observe → dispatch → execute → verify → report → idle → repeat. **Kalpavriksha now runs unattended**, proven live against the real internet — a four-task browser mission completing at `progress: 1.0` with no founder involvement after `start_background()`. Two architectural tensions resolved rather than fudged: who invokes when nothing may perform work (an `ExecutiveGateway` protocol held by the Runtime, keeping Mission Control mechanically pure), and mechanical retry versus Constitution §11's strategic-recovery-is-the-Brain's rule (Mission Control never sees a retry, only the final outcome). Rules 1 and 2 enforced by an import-parsing test that also forbids any `runtime/` file from naming a specific Executive. Three real bugs found by running it, not by inspection; one genuine constraint surfaced (Playwright sessions are thread-affine). Full writeup: `docs/MISSION_BRIEF_024.md`. |
 
+| **025** — Persistent Runtime State Engine | 2026-07-26 | `v0.9.0-miracle-025` | *(see note below — same self-reference problem, same standing resolution)* | 789 passed | ✅ Shipped | Design-first (`PERSISTENCE_ARCHITECTURE.md`) operational memory: **Kalpavriksha now survives a kill and resumes exactly where it stopped**, demonstrated live with each task executing exactly once across both processes and audit history intact. New `persistence/` package — a bus-subscribed event log, versioned + SHA-256-checksummed snapshots with a migration registry, event replay, atomic writes, and one-call restart recovery. Interrupted tasks are quarantined rather than re-run (unknown side effects; re-running is the Brain's call per Constitution §11). All four MB025 rules enforced mechanically, including an AST-walking test proving no component reaches into another's private state. **⚠️ Ships three additive changes to frozen components** (a non-publishing `restore_objective()`, plus `depends_on` and `health` on two event payloads), each required by a deliverable and each isolated/reversible — recorded in **ADR-0015 as *Proposed*, awaiting founder ratification**. Also fixed a real MB024 bug this work exposed: `max_cycles` was absolute, so a restored runtime broke out of its loop immediately and did nothing. Full writeup: `docs/MISSION_BRIEF_025.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -96,6 +98,13 @@ except to fix a factual error.
   anyway because the ledger is the "what happened when" record, and a
   certification that gates two Mission Briefs being called complete is
   part of that history.
+- **Miracle 025 is the first row to ship with an unratified ADR.** That is
+  deliberate, not an oversight: MB025's own brief instructed that
+  architectural conflicts be *proposed* rather than decided unilaterally,
+  so ADR-0015 is marked Proposed and the ledger says so. If the founder
+  rejects it, the three additive changes revert without touching anything
+  else, and this row gains a follow-up rather than being rewritten.
+  `git tag -n1 v0.9.0-miracle-025` / `git rev-list -n1 v0.9.0-miracle-025`.
 - **Miracle 024 hit the standing self-reference problem** (its ledger row
   ships in the commit it documents) and resolves it the standing way:
   `git tag -n1 v0.8.0-miracle-024` / `git rev-list -n1

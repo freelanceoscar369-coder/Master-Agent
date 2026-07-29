@@ -90,6 +90,14 @@ class MissionControl:
                 "executive_id": executive_id,
                 "version": version,
                 "capability_count": len(descriptors),
+                # Carried so a system rebuilt by event replay (MB025
+                # deliverable #9) knows an Executive was healthy. Without
+                # it a replayed Executive comes back UNKNOWN, is never
+                # considered available, and the whole fallback path is
+                # inert -- found by MB025's replay tests. Additive data in
+                # an existing payload; the Event schema is unchanged.
+                "health": health.value,
+                "dependencies": list(dependencies or []),
             },
         )
         return executive_id
@@ -143,6 +151,26 @@ class MissionControl:
 
     def submit_objective(self, objective: Objective) -> Objective:
         self.dispatcher.submit(objective)
+        if self._current_objective_id is None:
+            self._current_objective_id = objective.objective_id
+        return objective
+
+    def restore_objective(self, objective: Objective) -> Objective:
+        """Re-admit an objective persisted by an earlier process, without
+        republishing its creation events.
+
+        The facade half of Mission Brief 025's additive restore contract
+        (ADR-0015 Decision 3, *Proposed*). It exists because `submit_objective()`
+        publishes -- correct for new work, wrong for work being restored --
+        and because a restored system must also know which objective is
+        current, or `founder_state()` would report an empty snapshot after
+        a successful recovery.
+
+        Additive only: no existing method changes, nothing is removed, and
+        validation and readiness recomputation are identical to
+        `submit_objective()`.
+        """
+        self.dispatcher.restore_objective(objective)
         if self._current_objective_id is None:
             self._current_objective_id = objective.objective_id
         return objective
