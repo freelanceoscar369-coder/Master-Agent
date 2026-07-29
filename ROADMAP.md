@@ -45,6 +45,8 @@ the first item under Planned, below.
 
 | **025** — Persistent Runtime State Engine | Operational memory: Kalpavriksha survives a kill and resumes exactly where it stopped, demonstrated live (each task executed exactly once across both processes, audit history intact). New `persistence/` package — bus-subscribed event log, versioned+checksummed snapshots, event replay, one-call `recover()`. Interrupted tasks are quarantined rather than re-run. **⚠️ Ships three additive changes to frozen components, recorded in ADR-0015 as *Proposed* and awaiting ratification.** 205 new tests, 789 passing. Full detail: `docs/MISSION_BRIEF_025.md`, `PERSISTENCE_ARCHITECTURE.md`. |
 
+| **026** — Founder Dashboard (Founder Edition v1) | The first operational window into the running system: nine read-only panels updating live off the Event Bus, no manual refresh. Read-only by construction (a frozen read model between contracts and rendering), and **zero frozen components modified**, enforced by a `git diff` test. Demonstrated live across a real kill-and-restart: reconnected, showed restored state, and watched the mission resume to 100%. 182 new tests, 971 passing. Full detail: `docs/MISSION_BRIEF_026.md`, `FOUNDER_DASHBOARD_ARCHITECTURE.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -72,6 +74,16 @@ the first item under Planned, below.
   support, which is correct for Rule 2 but means the first real launcher
   has nothing reusable to wire. It belongs beside the Browser Executive,
   never inside `runtime/`.
+- **`count_events()` on the `StateStore` contract.** The Dashboard's
+  "Event Log Size" currently comes from `read_events()`, which returns the
+  entire persisted log — O(log) per persistence refresh. The fix belongs
+  in persistence, which is frozen, so MB026 deliberately did not make it
+  (ADR-0016). First thing that will hurt at high event volumes.
+- **A shipped launcher.** MB026 proved the Dashboard works when a caller
+  wires Mission Control + Runtime + persistence + recovery together, but
+  that wiring still lives in tests. One `kalpavriksha` entry point that
+  recovers, discovers, starts the Runtime, and starts the Dashboard is
+  what turns all of this into something a founder actually runs.
 
 ## Planned — next up
 

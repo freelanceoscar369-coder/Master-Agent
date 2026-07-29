@@ -1,14 +1,18 @@
 # ADR-0015: Persistence strategy — snapshots plus an event log, and one additive restore contract
 
-Status: **Proposed** (2026-07-26) — Mission Brief 025
+Status: **Accepted** (ratified 2026-07-26 by Mission Brief 026, which lists
+ADR-0015 among the frozen architecture) — proposed by Mission Brief 025
 
-> This ADR is deliberately *Proposed*, not Accepted. MB025 was issued with
-> the constraint: "If an architectural conflict is discovered, stop
-> implementation, document it, and propose an ADR rather than making
-> unilateral architectural changes." One such conflict was found. The
-> implementation ships behind this proposal so it can be exercised and
-> judged, and the decision in §"Decision 3" is the one requiring founder
-> ratification. It is isolated and reversible.
+> This ADR shipped as *Proposed* because MB025 was issued with: "If an
+> architectural conflict is discovered, stop implementation, document it,
+> and propose an ADR rather than making unilateral architectural
+> changes." Three conflicts were found, all additive and reversible.
+> MB026's frozen-architecture list names ADR-0015 as Accepted, which
+> ratifies them; the three changes (a non-publishing `restore_objective()`
+> on `TaskDispatcher`/`MissionControl`, plus `depends_on` on
+> `TASK_CREATED` and `health` on `EXECUTIVE_REGISTERED` payloads) are now
+> part of the frozen architecture and may not be redesigned without a new
+> ADR.
 
 ## Context
 

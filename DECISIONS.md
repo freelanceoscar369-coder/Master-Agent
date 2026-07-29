@@ -178,6 +178,33 @@ so a restored runtime broke out of its loop immediately and did nothing.
 205 new tests, 789 passing, zero regressions. Full detail:
 `docs/MISSION_BRIEF_025.md`.
 
+## ADR-0016: The Dashboard Data Contract (Mission Brief 026)
+The Dashboard is the first pure *consumer* component, so its dependency
+direction is the whole design problem. A frozen read model
+(`DashboardSnapshot`) sits between published contracts and rendering:
+panels receive plain data, never live objects, which makes read-only a
+property of the data flow rather than a rule to remember, and makes
+rendering testable without a Runtime. Absence is a first-class value —
+`0` and "unknown" are different facts, and a failed read becomes absent
+data with a reason rather than a fabricated zero. Health classification is
+presentation, quarantined to `health.py` as pure functions whose results
+nothing in Kalpavriksha consumes. See
+`docs/adr/0016-dashboard-data-contract.md`.
+
+## Mission Brief 026 (2026-07-26): Founder Dashboard
+Built the first operational window into the running system: nine read-only
+panels updating live off the Event Bus. A contract survey was done *before*
+any code (MB026 required stopping and raising an ADR if data were
+unreachable) — every panel proved reachable through published surfaces, so
+no blocking ADR was needed, and **no frozen component was modified**, which
+a `git diff` test against the MB025 tag now enforces. Two real findings
+during the build: box-drawing glyphs crash a cp1252 Windows console (fixed
+with a charset chosen by asking the output stream what it can encode, not
+by guessing from the platform), and the Capability panel initially counted
+capabilities rather than naming them, under-delivering Deliverable 5 —
+caught by the Definition-of-Done test. 182 new tests, 971 passing. Full
+detail: `docs/MISSION_BRIEF_026.md`.
+
 ## Mission Brief 024 (2026-07-26): Autonomous Runtime Engine
 Built the heartbeat — the loop that replaces the founder in the execution
 cycle. Two architectural tensions resolved and recorded in

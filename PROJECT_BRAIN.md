@@ -115,6 +115,20 @@ respectively.
   exposed (`max_cycles` was absolute, so a restored runtime silently did
   nothing). 205 new tests, 789 passing, zero regressions. Full detail:
   `docs/MISSION_BRIEF_025.md`, `PERSISTENCE_ARCHITECTURE.md`.
+- **Mission Brief 026 built the Founder Dashboard** — the first
+  operational window into the living system. Read-only by construction: a
+  frozen read model sits between published contracts and rendering, so
+  panels hold nothing mutable and *cannot* affect what they observe (a
+  test renders 25 frames and asserts the system is byte-identical
+  afterwards). Nine panels — runtime, mission, executives, capabilities,
+  audit, persistence, system health, founder state — updating live off the
+  Event Bus with no manual refresh. **No frozen component was modified**,
+  asserted by a `git diff` test against the MB025 tag. Two things the
+  build caught: a portability defect (box-drawing glyphs crash a cp1252
+  Windows console — now an ASCII fallback chosen by asking the stream what
+  it can encode), and an under-delivery (the Capability panel counted
+  capabilities instead of naming them). 182 new tests, 971 passing. Full
+  detail: `docs/MISSION_BRIEF_026.md`, `FOUNDER_DASHBOARD_ARCHITECTURE.md`.
 - **Mission Brief 024 built the Runtime Engine — the heartbeat.**
   Kalpavriksha now runs **unattended**: a founder submits an objective,
   calls `start_background()`, and the loop observes Mission Control,
@@ -238,6 +252,7 @@ respectively.
 | How is work coordinated, scheduled, audited, and reported? | `MISSION_CONTROL_ARCHITECTURE.md`, `docs/MISSION_BRIEF_023.md` |
 | Is the Mission Control ↔ Executive integration actually proven? | `docs/MIT_001_CERTIFICATION.md` |
 | How does the system run without a human driving each cycle? | `RUNTIME_ENGINE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_024.md` |
+| How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
