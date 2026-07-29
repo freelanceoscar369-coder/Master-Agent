@@ -40,7 +40,10 @@ class EventType(str, Enum):
     OBJECTIVE_SUBMITTED = "objective_submitted"
     OBJECTIVE_COMPLETED = "objective_completed"
     OBJECTIVE_FAILED = "objective_failed"
-    TASK_DISPATCHED = "task_dispatched"
+    # Named TASK_ASSIGNED (not TASK_DISPATCHED) to match the event
+    # sequence MIT-001 specifies. One name per event -- an alias would be
+    # exactly the drift the Constitution's terminology freeze forbids.
+    TASK_ASSIGNED = "task_assigned"
     TASK_BLOCKED = "task_blocked"
     EXECUTIVE_REGISTERED = "executive_registered"
     EXECUTIVE_HEALTH_CHANGED = "executive_health_changed"

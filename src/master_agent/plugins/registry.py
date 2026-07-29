@@ -30,6 +30,18 @@ class PluginRegistry:
     def find_for_capability(self, capability: str) -> list[Plugin]:
         return [self._plugins[name] for name in self._capability_index.get(capability, [])]
 
+    def all_plugins(self) -> list[Plugin]:
+        """Every registered plugin, in registration order.
+
+        Added for MIT-001 so Mission Control can *discover* what is
+        installed rather than being handed a hardcoded list. Deliberately
+        a read-only accessor on the existing contract rather than letting
+        a caller reach into `_plugins` — "extend the contract, don't route
+        around it" (ENGINEERING_PRINCIPLES.md #8). Nothing about existing
+        callers changes.
+        """
+        return list(self._plugins.values())
+
     def risk_tier_for(self, plugin_name: str, capability: str) -> RiskTier:
         manifest = self._plugins[plugin_name].manifest
         for cap in manifest.capabilities:

@@ -17,7 +17,7 @@ from typing import Any
 
 from master_agent.mission_control.audit import AuditStream
 from master_agent.mission_control.capabilities import CapabilityDescriptor, CapabilityRegistry
-from master_agent.mission_control.dispatcher import TaskDispatcher
+from master_agent.mission_control.dispatcher import TaskDispatcher, UnknownObjective
 from master_agent.mission_control.events import (
     MISSION_CONTROL_SOURCE,
     Event,
@@ -173,10 +173,12 @@ class MissionControl:
     # ---- Verification reporting -------------------------------------
 
     def verification_started(self, task_id: str, objective_id: str | None = None) -> Event:
+        resolved = self._resolve_objective_id(objective_id, required=False)
         return self._publish(
             EventType.VERIFICATION_STARTED,
-            objective_id=self._resolve_objective_id(objective_id, required=False),
+            objective_id=resolved,
             task_id=task_id,
+            capability=self._capability_of(resolved, task_id),
         )
 
     def verification_completed(
@@ -190,12 +192,29 @@ class MissionControl:
         from Mission Brief 022's Evidence, reused unchanged — Mission
         Control never defines a second evidence type and never recomputes a
         verdict of its own."""
+        resolved = self._resolve_objective_id(objective_id, required=False)
         return self._publish(
             EventType.VERIFICATION_COMPLETED,
-            objective_id=self._resolve_objective_id(objective_id, required=False),
+            objective_id=resolved,
             task_id=task_id,
+            capability=self._capability_of(resolved, task_id),
             payload={"verdict": verdict, "evidence_id": evidence_id},
         )
+
+    def _capability_of(self, objective_id: str | None, task_id: str) -> str | None:
+        """Stamps the capability onto verification events so an audit entry
+        answers "which capability was verified" directly, rather than
+        requiring a join back through task_id (MIT-001 Test 5 asks the
+        audit stream for the Capability used). Returns None rather than
+        raising if the task cannot be resolved — an unattributable
+        verification event is still worth recording."""
+        if objective_id is None:
+            return None
+        try:
+            return self.dispatcher.objective(objective_id).task(task_id).capability
+        except (UnknownObjective, KeyError):
+            # objective() raises UnknownObjective; task() raises KeyError.
+            return None
 
     # ---- Self-Development Queue -------------------------------------
 
@@ -304,6 +323,7 @@ class MissionControl:
                 current_executive=None,
                 current_capability=None,
                 progress=0.0,
+                result=None,
                 waiting_approval=self._waiting_approval(),
                 learning_progress=self._learning_progress(),
             )
@@ -327,12 +347,25 @@ class MissionControl:
             current_executive=active.assigned_executive if active else None,
             current_capability=active.capability if active else None,
             progress=objective.progress,
+            result=self._last_result(objective),
             evidence=[task.evidence_id for task in objective.tasks if task.evidence_id],
             errors=[error for task in objective.tasks for error in task.errors],
             eta_seconds=estimate_eta_seconds(durations, remaining),
             waiting_approval=self._waiting_approval(),
             learning_progress=self._learning_progress(),
         )
+
+    def _last_result(self, objective: Objective) -> Any:
+        """The most recently completed task's result — reported as the
+        Executive returned it, never re-interpreted."""
+        completed = [
+            task
+            for task in objective.tasks
+            if task.state is TaskState.COMPLETED and task.ended_at is not None
+        ]
+        if not completed:
+            return None
+        return max(completed, key=lambda task: task.ended_at).result
 
     def _active_task(self, objective: Objective) -> Task | None:
         for state in (TaskState.RUNNING, TaskState.DISPATCHED, TaskState.READY):

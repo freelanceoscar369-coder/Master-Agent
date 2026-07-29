@@ -39,6 +39,8 @@ the permanent coordination layer; every future Mission Brief plugs into it
 rather than inventing new coordination logic. The next Miracle to start is
 the first item under Planned, below.
 
+| **MIT-001** — Mission Control Integration, Browser Executive | Certification, not a new capability: proved Mission Control can orchestrate the Browser Executive with **zero modification** to it. All seven tests pass (19 automated + a live run to a real URL). Added auto-discovery (`discover_executives`), renamed `TASK_DISPATCHED` → `TASK_ASSIGNED` per the spec, added `FounderState.result`, and stamped the capability onto verification events for audit traceability. Full detail: `docs/MIT_001_CERTIFICATION.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden

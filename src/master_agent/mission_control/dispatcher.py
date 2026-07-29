@@ -131,7 +131,7 @@ class TaskDispatcher:
             self._executives.set_current_task(provider.executive_id, task.task_id)
             dispatched.append(task)
             self._publish(
-                EventType.TASK_DISPATCHED,
+                EventType.TASK_ASSIGNED,
                 objective_id=objective.objective_id,
                 task_id=task.task_id,
                 capability=task.capability,

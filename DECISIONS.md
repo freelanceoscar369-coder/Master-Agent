@@ -150,6 +150,23 @@ found by the tests: the dispatcher assigned a second task to an already-busy
 Executive because availability ignored `current_task_id`. 107 new tests,
 461 passing, zero regressions. Full detail: `docs/MISSION_BRIEF_023.md`.
 
+## MIT-001 (2026-07-26): Mission Control Integration Certified — Browser Executive
+Certification run answering "can Mission Control orchestrate the Browser
+Executive without modifying it?" — yes, all seven tests pass. Four gaps
+closed on the Mission Control side (auto-discovery via
+`discover_executives()`, `TASK_DISPATCHED` renamed to `TASK_ASSIGNED` per
+the spec, `FounderState.result`, capability stamped onto verification
+events) plus one read-only `PluginRegistry.all_plugins()` accessor so
+discovery reads the registry through its contract rather than reaching
+into internals. The Browser Executive itself is byte-identical to the
+MB022 tag, asserted by a test that runs `git diff`. Two documented,
+deliberate differences from the brief's expected capability list:
+`Browser.Fill` is `Browser.TypeText` (deterministic naming rule), and
+there is **no `Browser.Verify` capability by design** — ADR-0011 makes
+Verification structurally independent, so it must never be dispatchable
+through the same `invoke()` path as ordinary work. Full detail:
+`docs/MIT_001_CERTIFICATION.md`.
+
 ## Mission Brief 022 (2026-07-26): Browser Worker
 First implementation Mission Brief against the frozen Founder
 Constitution. Wrapped Playwright (never reimplemented it) behind nine

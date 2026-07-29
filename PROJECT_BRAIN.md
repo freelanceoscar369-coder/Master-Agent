@@ -99,6 +99,20 @@ respectively.
   commit, a shell command's output) doesn't need a schema change.
   `Memory`'s public API and every existing caller are unchanged. Key
   decision: ADR-0008. Full detail: `docs/MISSION_BRIEF_004_1.md`.
+- **MIT-001 certified the integration** — the test that decided whether
+  the architecture actually holds: *can Mission Control orchestrate the
+  Browser Executive without modifying it?* **Yes.** All seven MIT-001
+  tests pass (19 automated tests plus one live run against the real
+  internet, reaching `https://example.com` and returning a `matched`
+  verdict). Zero Modification is proven three ways, including a test that
+  runs `git diff` against the MB022 tag and fails if a Browser Executive
+  file ever changes. Two deliberate differences from the brief's expected
+  output are documented rather than papered over: `Browser.Fill` is named
+  `Browser.TypeText` (deterministic naming rule), and there is
+  **no `Browser.Verify` capability on purpose** — ADR-0011 makes
+  Verification structurally independent, so it must never be dispatchable
+  as ordinary work. Certification and full transcript:
+  `docs/MIT_001_CERTIFICATION.md`.
 - **Mission Brief 023 built Mission Control** — the runtime coordination
   layer everything else now plugs into: a Universal Event Bus (one `Event`
   schema for every Executive, no custom logging anywhere), a Capability
@@ -190,6 +204,7 @@ respectively.
 | What's frozen vs. still open architecturally? | `docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md` (section-status registry, Final Founder Review) |
 | How does a Worker (Browser, and eventually Desktop/Terminal/etc.) plug in? | `BROWSER_WORKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_022.md` |
 | How is work coordinated, scheduled, audited, and reported? | `MISSION_CONTROL_ARCHITECTURE.md`, `docs/MISSION_BRIEF_023.md` |
+| Is the Mission Control ↔ Executive integration actually proven? | `docs/MIT_001_CERTIFICATION.md` |
 | Why was each design choice made? | `docs/adr/*.md`, summarized in `DECISIONS.md` |
 | What's actually built and working right now? | `docs/MISSION_BRIEF_001.md`, `docs/MISSION_BRIEF_002.md`, `docs/MISSION_BRIEF_003.md`, `docs/MISSION_BRIEF_003_1.md`, `docs/MISSION_BRIEF_004.md`, `docs/MISSION_BRIEF_004_1.md`, `docs/MISSION_BRIEF_005.md` |
 | What shipped when, at what commit/tag, with how many passing tests? | `MIRACLE_LEDGER.md` |

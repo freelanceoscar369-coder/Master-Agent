@@ -31,6 +31,14 @@ class FounderState:
     current_executive: str | None
     current_capability: str | None
     progress: float
+    # `result` is the outcome of the most recently completed task, and is
+    # None while nothing has completed yet. Added for MIT-001 Test 6,
+    # which asks Founder State to expose a Result alongside Progress.
+    # Deliberately the *last completed* result rather than an
+    # objective-level summary: Mission Control coordinates and reports
+    # what happened, it does not compute a judgment about what a whole
+    # objective "means" -- that is the Brain's job (Constitution §3.4).
+    result: Any = None
     evidence: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     eta_seconds: float | None = None
@@ -45,6 +53,7 @@ class FounderState:
             "current_executive": self.current_executive,
             "current_capability": self.current_capability,
             "progress": self.progress,
+            "result": self.result,
             "evidence": list(self.evidence),
             "errors": list(self.errors),
             "eta_seconds": self.eta_seconds,

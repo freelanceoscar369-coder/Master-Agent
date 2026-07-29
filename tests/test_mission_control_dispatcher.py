@@ -231,7 +231,7 @@ def test_the_full_task_event_sequence_is_emitted():
     for expected in (
         EventType.OBJECTIVE_SUBMITTED,
         EventType.TASK_CREATED,
-        EventType.TASK_DISPATCHED,
+        EventType.TASK_ASSIGNED,
         EventType.TASK_STARTED,
         EventType.TASK_COMPLETED,
         EventType.OBJECTIVE_COMPLETED,
