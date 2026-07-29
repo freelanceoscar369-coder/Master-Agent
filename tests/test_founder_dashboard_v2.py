@@ -283,7 +283,18 @@ def test_switching_page_marks_the_view_dirty():
 
 
 def test_a_healthy_system_says_working_normally():
-    view = build_founder_view(snapshot())
+    """Every *shipped* Executive registered and nothing failed."""
+    view = build_founder_view(
+        snapshot(
+            executives=ExecutivePanelData(
+                executives=[
+                    ExecutiveRow("filesystem", "healthy", "1.0.0", "ready", 14),
+                    ExecutiveRow("browser", "healthy", "1.0.0", "ready", 9),
+                    ExecutiveRow("desktop", "healthy", "1.0.0", "ready", 12),
+                ]
+            )
+        )
+    )
 
     assert view.status == WORKING
     assert view.status_reason == ""
@@ -413,12 +424,13 @@ def test_registered_executives_read_as_ready():
 
 def test_unbuilt_executives_read_as_planned_not_missing():
     """Planned and Missing are different facts: one is unfinished, the
-    other is wrong."""
+    other is wrong. Desktop moved from Planned to shipped in MB030, so
+    the example is now the Broker."""
     view = build_founder_view(snapshot())
     statuses = {e.label: e.status for e in view.executives}
 
-    assert statuses["Desktop"] == PLANNED
     assert statuses["AI Broker"] == PLANNED
+    assert statuses["Reasoning"] == PLANNED
 
 
 def test_an_expected_but_absent_executive_reads_as_missing():

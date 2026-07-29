@@ -42,6 +42,8 @@ except to fix a factual error.
 
 | **029** — Founder Dashboard V2 | 2026-07-29 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1138 passed, 1 skipped | ✅ Shipped | Pure UX, and the first Miracle in five to change **no architecture at all** — asserted by a `git diff` over `runtime/`, `mission_control/`, and `persistence/` returning empty, which is why it carries no ADR. `kalpavriksha` now opens on a **Founder page**: status in one human sentence, decisions second, then mission, work, executive readiness, self-development, recommendations, next step. MB026's nine engineering panels are intact one keystroke away behind `[V]` — moved, never deleted. Introduced a **view model** (`dashboard/founder.py`) above ADR-0016's read model, so a web/desktop/mobile front-end consumes `FounderView` and writes its own renderer without touching Mission Control (Deliverable 10 by layering, not by promise). The discipline that matters: three deliverables asked for numbers Kalpavriksha does not measure, and none were invented — **Confidence** is a stated reading of the verification record or absent entirely, the self-development bars are **transcribed from the roadmap** with each naming its basis, and **Time saved is reported as "not measured"**. `Missing` and `Planned` are deliberately different words. Caught the cp1252 glyph problem a third time before it shipped, since MB029's own mock uses check marks and block bars. 76 new tests (the brief asked for 40), including a parameterised zero-engineering-leakage check over thirteen banned terms and a frame-length bound, because "understand it in five seconds" is a length claim as much as a content one. Full writeup: `docs/MISSION_BRIEF_029.md`. |
 
+| **030** — Desktop Executive (Foundation Layer) | 2026-07-30 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1367 passed, 1 skipped | ✅ Shipped | Eyes and hands over the local machine: twelve capabilities covering discovery (installed software, versions, running processes with application ownership) and action (launch, open file/folder, close, execute command). **Zero architecture change and therefore no ADR** — a `git diff` over Runtime, Mission Control, Persistence, Executor and Plugins is empty, and everything new lives in a new `desktop/` package built on MB002's Action contract, ADR-0003's Plugin interface, and Mission Control's existing manifest-reading adapter. Adding a twelve-capability Executive for free is the strongest evidence yet that those contracts generalise. **It executes and never decides**, enforced rather than promised: a test parses the whole package for provider vocabulary and fails on any hit, with the two legitimate near-misses ("Anthropic" as an install path, "recommended" for developer tooling) pinned by their own tests — including one asserting no AI application is ever marked recommended. `CloseApplication` and `ExecuteCommand` are `IRREVERSIBLE`, so ADR-0009 makes every one a fresh founder decision, and `ExecuteCommand` refuses a shell string outright. A `SystemProbe` seam means 228 tests run without launching Chrome or killing anything. **Running it against the founder's real Windows machine found three defects a fake never could**: error text (`not found: code`, `At line:1 char:3`) sitting in the version column, `wsl --version` UTF-16 rendering as `W S L   v e r s i o n`, and a multi-line parser error filling an inventory row. The Dashboard gained Machine Readiness and never scans — the launcher submits a scan objective through Mission Control (Rule 4) and hands the result in (ADR-0016 Decision 5). No click, type, mouse, OCR or vision (Deliverable 7). 228 new tests, the brief asked for 100. Full writeup: `docs/MISSION_BRIEF_030.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -179,6 +181,14 @@ except to fix a factual error.
   to the product than any of the 0.10.x rows, even though it changes less
   code. It is also the only row since 025 with **no ADR**, because nothing
   architectural moved — worth noting as the shape a pure-UX Miracle takes.
+
+- **Miracle 030 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.12.0-miracle-030` / `git rev-list -n1
+  v0.12.0-miracle-030`. Minor bump — a new capability family, the same
+  reasoning that made 022 (the Browser Worker) a minor. Like 029 it
+  carries **no ADR**, and for the stronger reason: 029 changed no
+  architecture because it was pure UX, while 030 added a whole Executive
+  and still changed none.
 
 ## How to add a row
 

@@ -51,6 +51,35 @@ def demo_objective() -> Objective:
     )
 
 
+def machine_scan_objective() -> Objective:
+    """MB030's Definition of Done says the Dashboard shows Machine
+    Readiness the moment a founder launches. Rule 4 says everything goes
+    through Mission Control -- so the launcher *submits* a scan rather
+    than calling the Desktop Executive, and the Runtime executes it on its
+    first cycle like any other work.
+
+    Both capabilities are `READ_ONLY`, so nothing here waits on an
+    approval: looking at the machine is not an action that needs
+    permission (Constitution Rule 5).
+    """
+    return Objective(
+        description="Scan this machine",
+        tasks=[
+            Task(
+                capability="Desktop.ListInstalledSoftware",
+                payload={},
+                task_id="scan-software",
+            ),
+            Task(
+                capability="Desktop.ListRunningProcesses",
+                payload={},
+                task_id="scan-processes",
+                depends_on=["scan-software"],
+            ),
+        ],
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kalpavriksha",
@@ -95,6 +124,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Seconds between Dashboard redraws (default: 1.0)",
     )
     parser.add_argument(
+        "--no-scan",
+        action="store_true",
+        help=(
+            "Skip the machine scan at startup. The scan is read-only and "
+            "needs no approval, but it shells out once per known "
+            "application, so a slow machine may want it off."
+        ),
+    )
+    parser.add_argument(
         "--boot-only",
         action="store_true",
         help="Print the boot report and exit without starting anything.",
@@ -130,6 +168,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.boot_only:
         return 0
+
+    if not args.no_scan:
+        system.mission_control.submit_objective(machine_scan_objective())
 
     if args.demo:
         objective = system.mission_control.submit_objective(demo_objective())

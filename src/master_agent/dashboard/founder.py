@@ -105,6 +105,18 @@ class DecisionView:
 
 
 @dataclass(frozen=True)
+class MachineView:
+    """MB030 Deliverables 4 and 9, as founder-facing data."""
+
+    readiness: list[ExecutiveReadiness] = field(default_factory=list)
+    installed_count: int = 0
+    running: list[str] = field(default_factory=list)
+    missing_recommended: list[str] = field(default_factory=list)
+    ai_installed: list[str] = field(default_factory=list)
+    available: bool = False
+
+
+@dataclass(frozen=True)
 class FounderView:
     """Everything the founder page shows, as plain data."""
 
@@ -117,6 +129,7 @@ class FounderView:
     phases: list[PhaseProgress] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
     next_step: str = ""
+    machine: MachineView = field(default_factory=MachineView)
 
     @property
     def needs_founder(self) -> bool:
@@ -143,6 +156,33 @@ def build_founder_view(snapshot: DashboardSnapshot) -> FounderView:
         ],
         recommendations=recommendations,
         next_step=recommendations[0] if recommendations else NOTHING_NEEDED,
+        machine=_machine(snapshot),
+    )
+
+
+def _machine(snapshot: DashboardSnapshot) -> MachineView:
+    """Deliverable 9's Machine Readiness. `Ready` / `Missing` /
+    `Unavailable` come straight from what the Desktop Executive observed
+    -- the Dashboard classifies nothing and decides nothing."""
+    machine = snapshot.machine
+    if not machine.status.available:
+        return MachineView(available=False)
+
+    readiness = [
+        ExecutiveReadiness(
+            label=row.label,
+            status=READY if row.status == "installed" else row.status.title(),
+            detail=row.version or row.detail,
+        )
+        for row in machine.readiness
+    ]
+    return MachineView(
+        readiness=readiness,
+        installed_count=len(machine.installed),
+        running=list(machine.running),
+        missing_recommended=list(machine.missing_recommended),
+        ai_installed=list(machine.ai_installed),
+        available=True,
     )
 
 

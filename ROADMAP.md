@@ -57,6 +57,8 @@ the first item under Planned, below.
 
 | **029** — Founder Dashboard V2 | Pure UX, **zero architecture change** (proved by a `git diff` over Runtime/Mission Control/Persistence: empty). The dashboard now opens on a **Founder page** answering the only three questions a founder has — what is it doing, does it need me, what next — with the nine engineering panels moved one keystroke away behind `[V]`. New **view model** layer (`dashboard/founder.py`) between the read model and rendering: a web, desktop, or phone front-end consumes `FounderView` and writes its own renderer, touching nothing else — Deliverable 10, done by layering rather than by promise. Status is one human sentence with a reason, and *waiting-on-you outranks needs-attention* because being blocked on the founder is not the same as being broken. Where MB029 asked for numbers that do not exist, they are honest: **Confidence** is a stated reading of the verification record (or absent), self-development bars are **transcribed from the roadmap** with each one naming what it is a reading of, and **Time saved is reported as not measured**. Recommendations come from the roadmap, filtered by live state. 76 new tests (40 asked), 1138 passing. No ADR — none was needed. Full detail: `docs/MISSION_BRIEF_029.md`. |
 
+| **030** — Desktop Executive (Foundation Layer) | Kalpavriksha's eyes and hands over the local machine: twelve capabilities discovering installed software, versions, and running processes, and launching, opening, or closing applications. **Zero architecture change** — a `git diff` over Runtime, Mission Control, Persistence, Executor, and Plugins is empty, so no ADR was needed. Adding a twelve-capability Executive for free is the strongest evidence yet that MB002's Action contract generalises. It **executes and never decides**: a test parses the whole package for provider vocabulary and fails on any hit, and `category="ai"` is a Dashboard grouping that nothing reads to make a choice. `CloseApplication` and `ExecuteCommand` are `IRREVERSIBLE`, so ADR-0009 makes each a fresh founder decision; `ExecuteCommand` is argv-only. Found three real defects by scanning the founder's actual machine — error text sitting in the version column, UTF-16 output from `wsl`, and a multi-line error filling an inventory row. The Dashboard gains Machine Readiness, and never scans: the launcher submits a scan objective through Mission Control (Rule 4) and hands the result in (ADR-0016 Decision 5). No click, type, mouse, OCR, or vision — Deliverable 7 keeps those for a later brief. 228 new tests (100 asked), 1367 passing. Full detail: `docs/MISSION_BRIEF_030.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -139,6 +141,13 @@ the first item under Planned, below.
   same posture as ADR-0015.
 - **An approval history view.** The ledger is durable and queryable, but
   nothing renders it: the founder sees pending work, not past decisions.
+- **Desktop interaction** — click, type, mouse, windows, OCR, vision.
+  MB030 deliberately excluded all of it (Deliverable 7). `BringToFront`
+  and `FocusWindow` are registered and report honestly that focus is not
+  built, so the seam is there when the brief comes.
+- **Desktop `unavailable` detection.** The state exists and renders, but
+  nothing produces it: a Docker daemon that is installed but dead still
+  reads as Ready.
 - **Undo a rejection.** Rejection is final for that task; a founder who
   rejects by mistake must resubmit the objective.
 

@@ -183,6 +183,7 @@ def build_dashboard(
         runtime=runtime,
         persistence=persistence,
         recovery_report=recovery_report,
+        inventory_provider=kwargs.pop("inventory_provider", None),
         clock=kwargs.pop("clock", None) or (lambda: datetime.now(UTC)),
     )
     dashboard = FounderDashboard(sources, **kwargs)

@@ -175,6 +175,31 @@ class ApprovalPanelData:
 
 
 @dataclass(frozen=True)
+class MachineRow:
+    """One thing the machine either has or does not (MB030 Deliverable 9)."""
+
+    label: str
+    status: str
+    version: str | None = None
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class MachinePanelData:
+    """What the Desktop Executive last observed. Handed in by the
+    launcher, never discovered by the Dashboard -- ADR-0016 Decision 5,
+    the same rule that keeps recovery status out of here."""
+
+    status: PanelStatus = PanelStatus()
+    readiness: list[MachineRow] = field(default_factory=list)
+    installed: list[MachineRow] = field(default_factory=list)
+    running: list[str] = field(default_factory=list)
+    unavailable: list[MachineRow] = field(default_factory=list)
+    missing_recommended: list[str] = field(default_factory=list)
+    ai_installed: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class DashboardSnapshot:
     """One complete, self-consistent view. Everything a frame needs, and
     nothing live."""
@@ -189,3 +214,4 @@ class DashboardSnapshot:
     system_health: SystemHealthPanelData = field(default_factory=SystemHealthPanelData)
     founder_state: FounderStatePanelData = field(default_factory=FounderStatePanelData)
     approvals: ApprovalPanelData = field(default_factory=ApprovalPanelData)
+    machine: MachinePanelData = field(default_factory=MachinePanelData)

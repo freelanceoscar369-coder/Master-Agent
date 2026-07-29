@@ -34,6 +34,8 @@ from master_agent.dashboard.readmodel import (
     ExecutivePanelData,
     ExecutiveRow,
     FounderStatePanelData,
+    MachinePanelData,
+    MachineRow,
     MissionPanelData,
     PanelStatus,
     PersistencePanelData,
@@ -83,6 +85,7 @@ class DashboardSources:
     def __init__(
         self,
         mission_control: Any = None,
+        inventory_provider: Any = None,
         runtime: RuntimeReader | None = None,
         persistence: PersistenceReader | None = None,
         recovery_report: Any = None,
@@ -90,6 +93,7 @@ class DashboardSources:
         clock: Any = None,
     ) -> None:
         self._mc = mission_control
+        self._inventory_provider = inventory_provider
         self._runtime = runtime
         self._persistence = persistence
         self._recovery = recovery_report
@@ -117,9 +121,65 @@ class DashboardSources:
             ),
             founder_state=self._collect_founder_state(),
             approvals=self._collect_approvals(),
+            machine=self._collect_machine(),
         )
 
     # ---- panels ------------------------------------------------------
+
+    def _collect_machine(self) -> MachinePanelData:
+        """MB030 Deliverables 4 and 9. The inventory is *handed in* by the
+        launcher, never discovered here: a render that scanned the machine
+        would mean looking at the screen changes what the screen reports
+        (ADR-0016 Decision 5, ADR-0016's read-only rule)."""
+        if self._inventory_provider is None:
+            return MachinePanelData(
+                status=PanelStatus.missing("no desktop executive attached")
+            )
+        try:
+            inventory = self._inventory_provider()
+        except Exception as exc:  # noqa: BLE001 - a failed read is absent data
+            return MachinePanelData(status=PanelStatus.missing(str(exc)))
+        if inventory is None:
+            return MachinePanelData(
+                status=PanelStatus.missing("no machine scan has run yet")
+            )
+
+        from master_agent.desktop.catalog import BY_KEY, READINESS_KEYS
+
+        def row(application) -> MachineRow:
+            return MachineRow(
+                label=application.name,
+                status=application.status,
+                version=application.version,
+                detail=application.detail,
+            )
+
+        readiness = []
+        for key in READINESS_KEYS:
+            application = inventory.get(key)
+            if application is None:
+                spec = BY_KEY.get(key)
+                readiness.append(
+                    MachineRow(
+                        label=spec.label if spec else key, status="unavailable"
+                    )
+                )
+            else:
+                readiness.append(row(application))
+
+        owners = {p.owner for p in inventory.processes if p.owner}
+        return MachinePanelData(
+            readiness=readiness,
+            installed=[row(a) for a in inventory.installed()],
+            running=sorted(
+                BY_KEY[key].label for key in owners if key in BY_KEY
+            ),
+            unavailable=[row(a) for a in inventory.unavailable()],
+            missing_recommended=[a.name for a in inventory.missing_recommended()],
+            ai_installed=[
+                a.name for a in inventory.ai_applications() if a.installed
+            ],
+        )
 
     def _collect_approvals(self) -> ApprovalPanelData:
         """Reads `MissionControl.approvals` -- a public attribute, so this

@@ -336,6 +336,21 @@ respectively.
   roadmap with each naming its basis, and "Time saved" is reported as not
   measured. 76 new tests, 1138 passing. Full detail:
   `docs/MISSION_BRIEF_029.md`.
+- **Mission Brief 030 gave Kalpavriksha eyes and hands on the machine.**
+  The Desktop Executive: twelve capabilities that discover installed
+  software, versions and running processes, and launch, open, close, or
+  run things. **It executes and never decides** — choosing between what it
+  finds is the AI Capability Broker's job, and a test parses the whole
+  `desktop/` package for provider vocabulary to keep it that way.
+  **Zero architecture change, and therefore no ADR**: everything new lives
+  in a new package built on MB002's Action contract and Mission Control's
+  existing adapter, which is the strongest evidence yet that those
+  contracts generalise. `CloseApplication` and `ExecuteCommand` are
+  `IRREVERSIBLE`, so each is a fresh founder decision. Running it against
+  the real machine found three defects a fake probe never could — the
+  worst being error text presented as a version number. `kalpavriksha`
+  now shows Machine Readiness on launch. 228 new tests, 1367 passing.
+  Full detail: `docs/MISSION_BRIEF_030.md`.
 
 ## Where to go for what
 
@@ -355,6 +370,7 @@ respectively.
 | What stops it doing something irreversible? | `RUNTIME_ENGINE_ARCHITECTURE.md` §4a, `docs/MISSION_BRIEF_028_0.md`, ADR-0019 |
 | How do I approve, reject, or defer a pending action? | `docs/MISSION_BRIEF_028_1.md`, ADR-0020 |
 | What does the founder actually see, and how do I add a web/mobile UI? | `docs/MISSION_BRIEF_029.md`, `dashboard/founder.py` (the view model) |
+| What software does it know about on my machine? | `docs/MISSION_BRIEF_030.md`, `desktop/catalog.py` |
 | How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Which AI runs a given task, what does it cost, and who approves paid ones? | `AI_CAPABILITY_BROKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_027.md`, ADR-0017 |

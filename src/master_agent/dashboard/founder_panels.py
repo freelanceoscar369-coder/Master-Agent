@@ -49,6 +49,8 @@ def _readiness_glyph(status: str, charset: Charset) -> str:
         READY: charset.ok,
         MISSING: charset.missing,
         PLANNED: charset.unavailable,
+        "Missing": charset.missing,
+        "Unavailable": charset.warning,
     }.get(status, charset.unavailable)
 
 
@@ -145,6 +147,31 @@ def render_readiness(view: FounderView, charset: Charset | None = None) -> list[
     return lines
 
 
+def render_machine(view: FounderView, charset: Charset | None = None) -> list[str]:
+    """MB030 Deliverables 4 and 9: Machine Readiness, plus what is
+    installed and running. Absent when no Desktop Executive is attached —
+    an empty list would read as "you have nothing installed"."""
+    cs = _cs(charset)
+    machine = view.machine
+    if not machine.available:
+        return ["MACHINE READINESS", f"  {cs.unavailable} no machine scan yet"]
+
+    lines = [f"MACHINE READINESS  ({machine.installed_count} installed)"]
+    for row in machine.readiness:
+        glyph = _readiness_glyph(row.status, cs)
+        version = f"  {row.detail}" if row.detail else ""
+        lines.append(f"  {glyph} {row.label:<12} {row.status}{version}"[:70])
+    if machine.running:
+        lines.append(f"  Running        {', '.join(machine.running)}"[:70])
+    if machine.ai_installed:
+        lines.append(f"  AI software    {', '.join(machine.ai_installed)}"[:70])
+    if machine.missing_recommended:
+        lines.append(
+            f"  Not installed  {', '.join(machine.missing_recommended)}"[:70]
+        )
+    return lines
+
+
 def render_self_development(
     view: FounderView, charset: Charset | None = None
 ) -> list[str]:
@@ -208,6 +235,7 @@ def render_founder_frame(
         render_mission(view, cs),
         render_work(view, cs),
         render_readiness(view, cs),
+        render_machine(view, cs),
         render_self_development(view, cs),
         render_recommendations(view, cs),
         render_next_step(view, cs),

@@ -26,6 +26,7 @@ from typing import Any
 
 from master_agent.config import MasterAgentConfig, load_config
 from master_agent.dashboard.app import FounderDashboard, build_dashboard
+from master_agent.desktop.plugin import DesktopPlugin
 from master_agent.executor.action import default_locations
 from master_agent.executor.executor import LocalExecutor
 from master_agent.mission_control.adapters import discover_executives
@@ -231,7 +232,8 @@ def build_system(
     permissions = PermissionSystem()
     executor = LocalExecutor(permissions)
     registry = PluginRegistry()
-    for plugin in plugins if plugins is not None else [FilesystemPlugin(executor)]:
+    default_plugins = [FilesystemPlugin(executor), DesktopPlugin(executor)]
+    for plugin in plugins if plugins is not None else default_plugins:
         registry.register(plugin)
     report.add(
         "Shared Infrastructure",
@@ -336,11 +338,19 @@ def build_system(
     #     Decision 5 it is *handed* the recovery report rather than
     #     discovering one, because calling `recover()` would be both a
     #     mutation and orchestration.
+    # MB030: the Dashboard reads the last machine scan; it never triggers
+    # one (ADR-0016 Decision 5 -- handed in, never discovered).
+    desktop = next(
+        (p for p in registry.all_plugins() if p.manifest.name == "desktop"), None
+    )
     dashboard = build_dashboard(
         mission_control=mission_control,
         runtime=runtime,
         persistence=persistence,
         recovery_report=recovery,
+        inventory_provider=(
+            (lambda: desktop.cached_inventory) if desktop is not None else None
+        ),
         **(dashboard_kwargs or {}),
     )
     report.add("Founder Dashboard", OK, "attached to the event bus")

@@ -46,9 +46,7 @@ class ExpectedExecutive:
 EXPECTED_EXECUTIVES: tuple[ExpectedExecutive, ...] = (
     ExpectedExecutive("Filesystem", "filesystem", source="MB005, shipped"),
     ExpectedExecutive("Browser", "browser", source="MB022, shipped"),
-    ExpectedExecutive(
-        "Desktop", "desktop", planned=True, source="ROADMAP Future — not scheduled"
-    ),
+    ExpectedExecutive("Desktop", "desktop", source="MB030, shipped"),
     ExpectedExecutive(
         "AI Broker", "ai_broker", planned=True, source="ROADMAP Planned item 6"
     ),
@@ -82,9 +80,9 @@ SELF_DEVELOPMENT_PHASES: tuple[RoadmapPhase, ...] = (
     ),
     RoadmapPhase(
         "Implementation",
-        0.6,
+        0.7,
         "Mission Control, Runtime, Persistence, Dashboard, Launcher, "
-        "Approval Workflow shipped; Broker, Planner, Desktop not",
+        "Approval Workflow, Desktop Executive shipped; Broker and Planner not",
     ),
     RoadmapPhase(
         "Testing",
@@ -127,9 +125,9 @@ RECOMMENDATIONS: tuple[RoadmapRecommendation, ...] = (
         source="ROADMAP Planned item 1",
     ),
     RoadmapRecommendation(
-        "Build the Desktop Executive",
-        requires_missing="desktop",
-        source="ROADMAP Future — non-filesystem local actions",
+        "Build Desktop interaction (click, type, windows)",
+        requires_missing="desktop_interaction",
+        source="MB030 Deliverable 7 — deliberately excluded, its own brief",
     ),
     RoadmapRecommendation(
         "Ratify or reject ADR-0015 and ADR-0020",
