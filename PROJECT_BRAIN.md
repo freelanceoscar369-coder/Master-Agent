@@ -351,6 +351,22 @@ respectively.
   worst being error text presented as a version number. `kalpavriksha`
   now shows Machine Readiness on launch. 228 new tests, 1367 passing.
   Full detail: `docs/MISSION_BRIEF_030.md`.
+- **Mission Brief 031 built the AI Capability Broker's decision engine.**
+  The thing MB027 designed and you ratified, now real: hand it provider
+  profiles and a task, and it answers which provider to use — filter,
+  quality floor, rank by policy, take the first, or **refuse rather than
+  guess**. Eight founder policies, byte-identical replay, and a
+  `policy_version` on every decision so history stays readable under the
+  rules it was made under (ADR-0018). **100% coverage, zero changes to
+  anything existing**, and the forbidden list enforced by AST tests — no
+  network imports, no vendor names, no execution surface, and no
+  dependency on any other subsystem. **The finding worth remembering:** a
+  blended quality-per-cost score picked a paid provider over a free one
+  that also cleared the floor, which is exactly what ADR-0017 warned would
+  happen; the blend was deleted and policies now differ by their *floor*.
+  **It is not wired to anything yet** — that is the next brief, and it is
+  where the integration risk lives. 180 new tests, 1543 passing. Full
+  detail: `docs/MISSION_BRIEF_031.md`.
 
 ## Where to go for what
 
@@ -371,6 +387,7 @@ respectively.
 | How do I approve, reject, or defer a pending action? | `docs/MISSION_BRIEF_028_1.md`, ADR-0020 |
 | What does the founder actually see, and how do I add a web/mobile UI? | `docs/MISSION_BRIEF_029.md`, `dashboard/founder.py` (the view model) |
 | What software does it know about on my machine? | `docs/MISSION_BRIEF_030.md`, `desktop/catalog.py` |
+| How does it choose which AI to use? | `docs/MISSION_BRIEF_031.md`, `broker/`, ADR-0017, ADR-0018 |
 | How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Which AI runs a given task, what does it cost, and who approves paid ones? | `AI_CAPABILITY_BROKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_027.md`, ADR-0017 |

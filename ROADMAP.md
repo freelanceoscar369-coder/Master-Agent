@@ -59,6 +59,8 @@ the first item under Planned, below.
 
 | **030** — Desktop Executive (Foundation Layer) | Kalpavriksha's eyes and hands over the local machine: twelve capabilities discovering installed software, versions, and running processes, and launching, opening, or closing applications. **Zero architecture change** — a `git diff` over Runtime, Mission Control, Persistence, Executor, and Plugins is empty, so no ADR was needed. Adding a twelve-capability Executive for free is the strongest evidence yet that MB002's Action contract generalises. It **executes and never decides**: a test parses the whole package for provider vocabulary and fails on any hit, and `category="ai"` is a Dashboard grouping that nothing reads to make a choice. `CloseApplication` and `ExecuteCommand` are `IRREVERSIBLE`, so ADR-0009 makes each a fresh founder decision; `ExecuteCommand` is argv-only. Found three real defects by scanning the founder's actual machine — error text sitting in the version column, UTF-16 output from `wsl`, and a multi-line error filling an inventory row. The Dashboard gains Machine Readiness, and never scans: the launcher submits a scan objective through Mission Control (Rule 4) and hands the result in (ADR-0016 Decision 5). No click, type, mouse, OCR, or vision — Deliverable 7 keeps those for a later brief. 228 new tests (100 asked), 1367 passing. Full detail: `docs/MISSION_BRIEF_030.md`. |
 
+| **031** — AI Capability Broker (Core Decision Engine) | The engine ADR-0017 froze: given provider profiles and a task, which provider should be used — deterministically, auditably, and **without ever contacting a model**. Eight founder policies, a configurable quality floor, ranked candidates, structured refusal, policy versioning, and byte-identical replay. **Zero changes to anything existing** (a `git diff` over eight packages is empty) and **100% statement coverage** of the new `broker/` package. The forbidden list is enforced by tests rather than trusted: no network or subprocess imports, no vendor name anywhere, no execution surface, and no `master_agent` import outside `broker` itself — a kernel service consulted from everywhere must depend on nothing. **Found a real bug by running it:** the first draft's blended quality-per-cost score picked a paid cloud provider over a free local one that also cleared the floor, silently overriding Deliverable 8 — exactly the failure ADR-0017 Decision 3 predicted when it rejected blended scores. The key was deleted; policies now differ by their *floor*, not a hidden weighting. 180 new tests, 1543 passing. Not yet wired to anything — that is the next brief. Full detail: `docs/MISSION_BRIEF_031.md`. |
+
 ## Backlog — tracked, not blocking
 
 - **MB023.1 — Cross-Platform Path Safety.** Harden
@@ -81,6 +83,12 @@ the first item under Planned, below.
   the Kernel Service placement and the Broker / AI Infrastructure
   Executive split, and added the learning loop as a first-class objective
   (ADR-0018).
+- **Wire the Broker into the Runtime.** MB031 shipped the decision engine
+  and deliberately left it unconnected. Nothing calls it yet, and that
+  wiring — replacing `ModelRouter.select_provider()` — is where the real
+  integration risk lives. It also needs the Broker's `requires_approval`
+  path routed into MB028.1's Approval Queue so a founder can say yes to a
+  paid provider.
 - **Retire `ModelRouter.select_provider()`'s hardcoded provider ladder.**
   `plugins/model_router.py` branches on the literal strings `"hermes"` and
   `"chatgpt"` — product names in Brain logic, which Constitution §14/§21
