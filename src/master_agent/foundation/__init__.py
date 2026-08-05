@@ -49,6 +49,10 @@ from master_agent.foundation.execution_request import (
     InvalidExecutionRequest,
     PendingConsequenceEngine,
 )
+from master_agent.foundation.override import (
+    InvalidOverride,
+    OverrideSwitch,
+)
 from master_agent.foundation.principal import (
     InvalidPrincipalRegistry,
     Principal,
@@ -105,6 +109,7 @@ __all__ = [
     "InvalidConsequence",
     "InvalidExecutionRequest",
     "InvalidKernelRefusal",
+    "InvalidOverride",
     "InvalidPrincipalRegistry",
     "InvalidReceipt",
     "InvalidWarrant",
@@ -112,6 +117,7 @@ __all__ = [
     "KernelRefusal",
     "ManualClock",
     "ObjectiveState",
+    "OverrideSwitch",
     "PendingConsequenceEngine",
     "Principal",
     "PrincipalKind",
