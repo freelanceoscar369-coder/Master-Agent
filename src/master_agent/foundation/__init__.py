@@ -19,5 +19,24 @@ from master_agent.foundation.clock import (
     ManualClock,
     SystemClock,
 )
+from master_agent.foundation.execution_context import ExecutionContext
+from master_agent.foundation.principal import (
+    InvalidPrincipalRegistry,
+    Principal,
+    PrincipalKind,
+    PrincipalRegistry,
+    UnknownPrincipal,
+)
 
-__all__ = ["Clock", "Instant", "ManualClock", "SystemClock"]
+__all__ = [
+    "Clock",
+    "ExecutionContext",
+    "Instant",
+    "InvalidPrincipalRegistry",
+    "ManualClock",
+    "Principal",
+    "PrincipalKind",
+    "PrincipalRegistry",
+    "SystemClock",
+    "UnknownPrincipal",
+]
