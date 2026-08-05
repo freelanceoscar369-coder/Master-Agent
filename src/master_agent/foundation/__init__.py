@@ -32,6 +32,13 @@ from master_agent.foundation.consequence import (
     InvalidConsequence,
 )
 from master_agent.foundation.execution_context import ExecutionContext
+from master_agent.foundation.execution_request import (
+    PENDING_CONSEQUENCE_ENGINE,
+    ActionClass,
+    ExecutionRequest,
+    InvalidExecutionRequest,
+    PendingConsequenceEngine,
+)
 from master_agent.foundation.principal import (
     InvalidPrincipalRegistry,
     Principal,
@@ -58,6 +65,8 @@ from master_agent.foundation.warrant import (
 )
 
 __all__ = [
+    "PENDING_CONSEQUENCE_ENGINE",
+    "ActionClass",
     "Attestation",
     "AttestationQuestion",
     "AttestationVerdict",
@@ -67,9 +76,11 @@ __all__ = [
     "CostBasis",
     "ExecutionContext",
     "ExecutionOutcome",
+    "ExecutionRequest",
     "Instant",
     "InvalidAttestation",
     "InvalidConsequence",
+    "InvalidExecutionRequest",
     "InvalidKernelRefusal",
     "InvalidPrincipalRegistry",
     "InvalidReceipt",
@@ -77,6 +88,7 @@ __all__ = [
     "KernelCheck",
     "KernelRefusal",
     "ManualClock",
+    "PendingConsequenceEngine",
     "Principal",
     "PrincipalKind",
     "PrincipalRegistry",
