@@ -13,6 +13,7 @@ Mission Brief 023's "Mission Control never performs work" rule.
 from __future__ import annotations
 
 import ast
+import subprocess
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -329,31 +330,26 @@ CLOCK_MODULE = PACKAGE_DIR / "foundation" / "clock.py"
 #: fails if an entry no longer needs to be here, which forces its removal
 #: rather than letting the list decay into a permanent ignore-list. Each
 #: entry is migrated as the sprint that touches that module reaches it —
-#: not in one heroic commit, which is how a 40-file change becomes a 40-file
+#: not in one heroic commit, which is how a large change becomes a large
 #: risk.
+#:
+#: **It lists git-tracked modules only, and that is the whole point.** The
+#: first version of this list was built by scanning the filesystem, which
+#: swept in ~59 uncommitted files. The result passed in the working
+#: directory and failed in a clean checkout of its own tag — a false green
+#: on the first component of the project. Quality Gate Rule 001 exists
+#: because of it, and `_source_files()` below is that rule expressed in
+#: code.
 LEGACY_AMBIENT_TIME = {
-    "ai_infrastructure/cache.py",
-    "ai_infrastructure/execution.py",
-    "ai_infrastructure/executive/actions.py",
-    "ai_infrastructure/executive/models.py",
-    "ai_infrastructure/executive/probes.py",
-    "broker/benchmark.py",
     "broker/broker.py",
-    "broker/cost.py",
     "broker/decision.py",
-    "broker/learning.py",
-    "broker/recommendation.py",
-    "broker/registry.py",
     "cli.py",
     "dashboard/app.py",
     "dashboard/sources.py",
     "desktop/inventory.py",
     "environment/browser_session.py",
     "executor/executor.py",
-    "launcher/boot.py",
     "memory/conversation.py",
-    "memory/memory_models.py",
-    "memory/memory_service.py",
     "mission_control/approvals.py",
     "mission_control/dispatcher.py",
     "mission_control/events.py",
@@ -362,13 +358,10 @@ LEGACY_AMBIENT_TIME = {
     "mission_control/self_development.py",
     "mission_control/tasks.py",
     "mission_manager/mission.py",
-    "missions/history.py",
     "persistence/schema.py",
     "persistence/serialization.py",
     "plugins/browser_observation.py",
     "plugins/browser_worker.py",
-    "plugins/filesystem_observation.py",
-    "plugins/filesystem_worker.py",
     "runtime/checkpoint.py",
     "runtime/engine.py",
     "verification/verifier.py",
@@ -376,11 +369,45 @@ LEGACY_AMBIENT_TIME = {
 
 
 def _source_files() -> list[Path]:
-    return sorted(
-        path
-        for path in PACKAGE_DIR.rglob("*.py")
-        if "__pycache__" not in path.parts
+    """Every git-tracked Python module in the package.
+
+    Derived from `git ls-files`, never from a filesystem scan. Three
+    consequences, all deliberate:
+
+    **Untracked work is out of scope.** A guard that governs files nobody
+    has committed describes a state no checkout can reproduce.
+
+    **Staged work is in scope.** `git ls-files` reads the index, so a file
+    staged for its first commit is governed before it lands rather than
+    after.
+
+    **A modified tracked file is scanned as it is on disk**, not as it was
+    committed — so a change that *introduces* an ambient-time read is
+    caught before it becomes history, which is the only moment the warning
+    is cheap.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "--", str(PACKAGE_DIR)],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=False,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "cannot enumerate tracked files; this guard's scope is defined by "
+            f"git and has no meaningful fallback. git said: {result.stderr.strip()}"
+        )
+
+    paths = [
+        REPO_ROOT / line
+        for line in result.stdout.splitlines()
+        if line.endswith(".py")
+    ]
+    # A tracked file can be absent from disk mid-rebase or after a delete
+    # that is not yet staged. Skipping it is correct: there is nothing to
+    # parse, and the allowlist test reports it separately.
+    return sorted(path for path in paths if path.is_file())
 
 
 def _relative(path: Path) -> str:
@@ -442,21 +469,29 @@ def test_the_legacy_allowlist_only_shrinks() -> None:
     If a listed module no longer reads ambient time, this fails until the
     entry is deleted — so the debt burns down monotonically and the list
     always states the real remaining work.
+
+    Scope comes from `_source_files()`, the same git-derived set the
+    prohibition uses. Sharing one definition is deliberate: two notions of
+    "in scope" is how a guard and its allowlist drift apart, and asking
+    only whether a file *exists on disk* is what produced the original
+    false green — every untracked file existed on disk too.
     """
+    tracked = {_relative(path) for path in _source_files()}
     stale = []
-    missing = []
+    untracked = []
 
     for relative in sorted(LEGACY_AMBIENT_TIME):
-        path = PACKAGE_DIR / relative
-        if not path.exists():
-            missing.append(relative)
+        if relative not in tracked:
+            untracked.append(relative)
             continue
-        if not _ambient_time_calls(path):
+        if not _ambient_time_calls(PACKAGE_DIR / relative):
             stale.append(relative)
 
-    assert not missing, (
-        f"LEGACY_AMBIENT_TIME names modules that no longer exist: {missing}. "
-        "Remove them."
+    assert not untracked, (
+        f"LEGACY_AMBIENT_TIME names modules git does not track: {untracked}. "
+        "This guard governs committed code only — a list describing "
+        "uncommitted files passes in a working directory and fails in a "
+        "clean checkout. Remove them until the work lands."
     )
     assert not stale, (
         f"these modules no longer read ambient time: {stale}. "
