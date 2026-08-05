@@ -19,6 +19,12 @@ from master_agent.foundation.clock import (
     ManualClock,
     SystemClock,
 )
+from master_agent.foundation.consequence import (
+    Consequence,
+    Cost,
+    CostBasis,
+    InvalidConsequence,
+)
 from master_agent.foundation.execution_context import ExecutionContext
 from master_agent.foundation.principal import (
     InvalidPrincipalRegistry,
@@ -40,9 +46,13 @@ from master_agent.foundation.warrant import (
 
 __all__ = [
     "Clock",
+    "Consequence",
+    "Cost",
+    "CostBasis",
     "ExecutionContext",
     "ExecutionOutcome",
     "Instant",
+    "InvalidConsequence",
     "InvalidPrincipalRegistry",
     "InvalidReceipt",
     "InvalidWarrant",
