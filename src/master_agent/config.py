@@ -19,10 +19,32 @@ class ModelRouterConfig:
 
 
 @dataclass
+class ClockConfig:
+    """The one canonical timezone source (VEDA 04 §7).
+
+    `founder_timezone` is what "Friday 00:00" means. It is configuration
+    and **never the machine's local setting** — a laptop that travels would
+    otherwise silently change when a subscription renews, and §7 forbids
+    ambient local time anywhere in the decision path.
+
+    The default is `UTC` rather than the system zone on purpose. UTC is
+    wrong for most founders, but it is wrong *visibly and identically on
+    every machine*; a system-local default would be wrong invisibly and
+    differently on each one. Set it once, deliberately.
+
+    Storage is always UTC regardless of this setting. This affects only
+    what the founder is told.
+    """
+
+    founder_timezone: str = "UTC"
+
+
+@dataclass
 class MasterAgentConfig:
     """Root config. `app_dir` is where local memory, logs, and plugin state live."""
 
     app_dir: Path = field(default_factory=lambda: Path.home() / ".master_agent")
+    clock: ClockConfig = field(default_factory=ClockConfig)
     model_router: ModelRouterConfig = field(default_factory=ModelRouterConfig)
     require_approval_above: str = "read_only"  # risk tiers gated by the Permission System
 

@@ -1,0 +1,23 @@
+"""Foundation — the things every other layer depends on and nothing depends
+back on.
+
+A module belongs here only if it satisfies three conditions: it has no
+dependency on any other Kalpavriksha package, every layer above it needs
+it, and building it late would force a retrofit across everything written
+before it. That is a deliberately narrow door — `foundation/` is not a
+utilities drawer, and a helper that only two callers need does not belong
+here.
+
+See SPRING_1_IMPLEMENTATION_PLAN.md §3 for the dependency graph this
+package sits at the root of.
+"""
+from __future__ import annotations
+
+from master_agent.foundation.clock import (
+    Clock,
+    Instant,
+    ManualClock,
+    SystemClock,
+)
+
+__all__ = ["Clock", "Instant", "ManualClock", "SystemClock"]
