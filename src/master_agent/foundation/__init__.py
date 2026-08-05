@@ -13,6 +13,12 @@ package sits at the root of.
 """
 from __future__ import annotations
 
+from master_agent.foundation.attestation import (
+    Attestation,
+    AttestationQuestion,
+    AttestationVerdict,
+    InvalidAttestation,
+)
 from master_agent.foundation.clock import (
     Clock,
     Instant,
@@ -45,6 +51,9 @@ from master_agent.foundation.warrant import (
 )
 
 __all__ = [
+    "Attestation",
+    "AttestationQuestion",
+    "AttestationVerdict",
     "Clock",
     "Consequence",
     "Cost",
@@ -52,6 +61,7 @@ __all__ = [
     "ExecutionContext",
     "ExecutionOutcome",
     "Instant",
+    "InvalidAttestation",
     "InvalidConsequence",
     "InvalidPrincipalRegistry",
     "InvalidReceipt",
