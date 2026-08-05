@@ -68,6 +68,12 @@ from master_agent.foundation.refusal import (
     RefusalFamily,
     RefusalReason,
 )
+from master_agent.foundation.reversibility import (
+    Classification,
+    InvalidClassification,
+    ReversibilityRegistry,
+    Unclassified,
+)
 from master_agent.foundation.warrant import (
     InvalidWarrant,
     ReversibilityClass,
@@ -83,6 +89,7 @@ __all__ = [
     "Attestation",
     "AttestationQuestion",
     "AttestationVerdict",
+    "Classification",
     "Clock",
     "Consequence",
     "Cost",
@@ -94,6 +101,7 @@ __all__ = [
     "InvalidAdmissionRecord",
     "InvalidAttemptToken",
     "InvalidAttestation",
+    "InvalidClassification",
     "InvalidConsequence",
     "InvalidExecutionRequest",
     "InvalidKernelRefusal",
@@ -112,7 +120,9 @@ __all__ = [
     "RefusalFamily",
     "RefusalReason",
     "ReversibilityClass",
+    "ReversibilityRegistry",
     "SystemClock",
+    "Unclassified",
     "UnknownPrincipal",
     "Warrant",
 ]
