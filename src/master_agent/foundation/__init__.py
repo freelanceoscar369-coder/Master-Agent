@@ -13,6 +13,11 @@ package sits at the root of.
 """
 from __future__ import annotations
 
+from master_agent.foundation.admission import (
+    AdmissionRecord,
+    InvalidAdmissionRecord,
+    ObjectiveState,
+)
 from master_agent.foundation.attempt_token import (
     FIRST_ATTEMPT,
     AttemptToken,
@@ -73,6 +78,7 @@ __all__ = [
     "FIRST_ATTEMPT",
     "PENDING_CONSEQUENCE_ENGINE",
     "ActionClass",
+    "AdmissionRecord",
     "AttemptToken",
     "Attestation",
     "AttestationQuestion",
@@ -85,6 +91,7 @@ __all__ = [
     "ExecutionOutcome",
     "ExecutionRequest",
     "Instant",
+    "InvalidAdmissionRecord",
     "InvalidAttemptToken",
     "InvalidAttestation",
     "InvalidConsequence",
@@ -96,6 +103,7 @@ __all__ = [
     "KernelCheck",
     "KernelRefusal",
     "ManualClock",
+    "ObjectiveState",
     "PendingConsequenceEngine",
     "Principal",
     "PrincipalKind",
