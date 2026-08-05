@@ -27,16 +27,24 @@ from master_agent.foundation.principal import (
     PrincipalRegistry,
     UnknownPrincipal,
 )
+from master_agent.foundation.warrant import (
+    InvalidWarrant,
+    ReversibilityClass,
+    Warrant,
+)
 
 __all__ = [
     "Clock",
     "ExecutionContext",
     "Instant",
     "InvalidPrincipalRegistry",
+    "InvalidWarrant",
     "ManualClock",
     "Principal",
     "PrincipalKind",
     "PrincipalRegistry",
+    "ReversibilityClass",
     "SystemClock",
     "UnknownPrincipal",
+    "Warrant",
 ]
