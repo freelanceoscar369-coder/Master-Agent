@@ -44,6 +44,13 @@ from master_agent.foundation.receipt import (
     InvalidReceipt,
     Receipt,
 )
+from master_agent.foundation.refusal import (
+    InvalidKernelRefusal,
+    KernelCheck,
+    KernelRefusal,
+    RefusalFamily,
+    RefusalReason,
+)
 from master_agent.foundation.warrant import (
     InvalidWarrant,
     ReversibilityClass,
@@ -63,14 +70,19 @@ __all__ = [
     "Instant",
     "InvalidAttestation",
     "InvalidConsequence",
+    "InvalidKernelRefusal",
     "InvalidPrincipalRegistry",
     "InvalidReceipt",
     "InvalidWarrant",
+    "KernelCheck",
+    "KernelRefusal",
     "ManualClock",
     "Principal",
     "PrincipalKind",
     "PrincipalRegistry",
     "Receipt",
+    "RefusalFamily",
+    "RefusalReason",
     "ReversibilityClass",
     "SystemClock",
     "UnknownPrincipal",
