@@ -19,13 +19,35 @@ is either something only the caller knows (which objective, which
 capability, which payload) or evidence some other component produced (the
 attestations).
 
-This is why the fields §4.3 sources to the Kernel or to an attestor at
-mint are **absent** here: `warrant_id`, `reversibility_class`,
-`compensating_action`, `undo_window`, `consequence_ceiling`, `grant_ref`,
-`rule_ref`, `attempt_budget`, `issued_at`, `expires_at`, `sequence`,
-`decision_ref`, `expected_effect` and `task_ref`. A request carrying any
-of those would be the caller authorizing itself, and the Kernel would have
-nothing left to decide.
+This is why the fields §4.3 sources to the Kernel at mint are **absent**
+here: `warrant_id`, `compensating_action`, `undo_window`,
+`consequence_ceiling`, `grant_ref`, `rule_ref`, `attempt_budget`,
+`issued_at`, `expires_at`, `sequence`, `decision_ref` and `task_ref`. A
+request carrying any of those would be the caller authorizing itself, and
+the Kernel would have nothing left to decide.
+
+## Two fields the request carries *for* the Kernel
+
+`reversibility_class` (**ADR-0022**) and `expected_effect` (**ADR-0023
+D2**) are exceptions, and both by ratified founder decision.
+
+Neither is invented by the caller. `reversibility_class` comes from the
+**Reversibility Registry** — the owner §4.3 names — obtained via
+`classify()` alongside the A2 attestation. `expected_effect` comes from
+the **Planner**, via Constitution §17's `Step` and its Expected Outcome.
+The caller is a courier for both, exactly as it already is for the eight
+attestations.
+
+They are here rather than behind a lookup because the founder's stated
+architectural intent is that *"the Kernel performs no additional lookups
+beyond the already approved `AdmissionProvider`."* The Kernel derives
+`attempt_budget` (§8.5) and `expires_at` (§4.4) from the carried class
+without a further dependency.
+
+**TODO(ADR-0022):** the A2 attestation does not yet bind to the carried
+`reversibility_class` — R34. ADR-0023 D5 specifies the close: A2's subject
+becomes `sha256(payload_digest + "\\x1f" + reversibility_class.value)`.
+Until that ships, the carried class is **trusted**.
 
 ## Incompleteness is legal, and deliberately so
 
@@ -96,6 +118,7 @@ from typing import Any
 
 from master_agent.foundation.attestation import Attestation, AttestationQuestion
 from master_agent.foundation.consequence import Consequence
+from master_agent.foundation.warrant import ReversibilityClass
 
 
 class ActionClass(str, Enum):
@@ -185,6 +208,18 @@ class ExecutionRequest:
     #: Selects the §7.4 attestation set.
     action_class: ActionClass
 
+    #: What this action does to the world. Obtained from the Reversibility
+    #: Registry — §4.3's named owner — never asserted by the caller.
+    #: ADR-0022. The Kernel derives `attempt_budget` (§8.5) and
+    #: `expires_at` (§4.4) from it.
+    reversibility_class: ReversibilityClass
+
+    #: What the world should look like afterwards, in the founder's terms.
+    #: The `Step`'s Expected Outcome (Constitution §17), authored by the
+    #: Planner. ADR-0023 D2. Copied into the permanent `IntentRecord` at
+    #: K3, and later compared against an Observation by Verification.
+    expected_effect: str
+
     #: The quartet, or §14.1's marker. **Never `None`.**
     consequence: Consequence | PendingConsequenceEngine
 
@@ -213,6 +248,23 @@ class ExecutionRequest:
 
         if not isinstance(self.action_class, ActionClass):
             raise InvalidExecutionRequest("action_class must be an ActionClass")
+
+        if not isinstance(self.reversibility_class, ReversibilityClass):
+            raise InvalidExecutionRequest(
+                "reversibility_class must be a ReversibilityClass; it comes "
+                "from the Reversibility Registry, and there is no default "
+                "because A2 fails closed on anything unclassified"
+            )
+
+        if (
+            not isinstance(self.expected_effect, str)
+            or not self.expected_effect.strip()
+        ):
+            raise InvalidExecutionRequest(
+                "expected_effect must say what the world should look like "
+                "afterwards; a blank one is a step whose completion cannot "
+                "be checked"
+            )
 
         self._validate_consequence()
         self._validate_target_ref()
@@ -284,6 +336,8 @@ class ExecutionRequest:
             "capability": self.capability,
             "payload_digest": self.payload_digest,
             "action_class": self.action_class.value,
+            "reversibility_class": self.reversibility_class.value,
+            "expected_effect": self.expected_effect,
             "consequence": self.consequence.as_dict(),
             "target_ref": self.target_ref,
             "attestations": [item.as_dict() for item in self.attestations],

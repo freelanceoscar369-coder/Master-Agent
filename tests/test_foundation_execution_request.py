@@ -83,6 +83,8 @@ def request(**overrides) -> ExecutionRequest:
         "capability": "Filesystem.DeleteFolder",
         "payload_digest": "sha256:abc123",
         "action_class": ActionClass.LOCAL,
+        "reversibility_class": ReversibilityClass.REVERSIBLE,
+        "expected_effect": "the folder is gone",
         "consequence": PENDING_CONSEQUENCE_ENGINE,
     }
     return ExecutionRequest(**{**defaults, **overrides})
@@ -461,6 +463,8 @@ def test_serialisation_carries_every_field() -> None:
         "capability": "Filesystem.DeleteFolder",
         "payload_digest": "sha256:abc123",
         "action_class": "local",
+        "reversibility_class": "reversible",
+        "expected_effect": "the folder is gone",
         "consequence": "pending_consequence_engine",
         "target_ref": "D:/workspace/old",
         "attestations": [attestation(AttestationQuestion.PERMISSION).as_dict()],
@@ -479,6 +483,67 @@ def test_serialisation_never_emits_a_null_consequence() -> None:
     """§14.1's whole point: the gap is explicit, never an absence."""
     for consequence in (PENDING_CONSEQUENCE_ENGINE, QUARTET, PRICED_QUARTET):
         assert request(consequence=consequence).as_dict()["consequence"] is not None
+
+
+# ======================================================================
+# reversibility_class and expected_effect — ADR-0022 and ADR-0023 D2
+# ======================================================================
+
+
+@pytest.mark.parametrize("cls", list(ReversibilityClass))
+def test_every_reversibility_class_is_accepted(cls) -> None:
+    """C4's vocabulary is reused, not restated."""
+    assert request(reversibility_class=cls).reversibility_class is cls
+
+
+@pytest.mark.parametrize("bad", ["reversible", None, 1, ActionClass.LOCAL])
+def test_a_non_reversibility_class_is_refused(bad) -> None:
+    """There is no default: A2 fails closed on anything unclassified, and a
+    defaulted class would be the guess VEDA 04 A2 forbids."""
+    with pytest.raises(InvalidExecutionRequest, match="ReversibilityClass"):
+        request(reversibility_class=bad)
+
+
+def test_the_reversibility_class_has_no_default() -> None:
+    with pytest.raises(TypeError):
+        ExecutionRequest(  # type: ignore[call-arg]
+            objective_id="obj-001",
+            principal_id="founder",
+            capability="Filesystem.DeleteFolder",
+            payload_digest="sha256:abc123",
+            action_class=ActionClass.LOCAL,
+            expected_effect="the folder is gone",
+            consequence=PENDING_CONSEQUENCE_ENGINE,
+        )
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n"])
+def test_a_blank_expected_effect_is_refused(blank) -> None:
+    """A step whose completion cannot be checked is the defect Objective
+    Engine Spec V2 exists against."""
+    with pytest.raises(InvalidExecutionRequest, match="expected_effect"):
+        request(expected_effect=blank)
+
+
+@pytest.mark.parametrize("bad", [None, 42, ["gone"]])
+def test_a_non_string_expected_effect_is_refused(bad) -> None:
+    with pytest.raises(InvalidExecutionRequest, match="expected_effect"):
+        request(expected_effect=bad)
+
+
+def test_the_expected_effect_is_carried_verbatim() -> None:
+    """The founder's words survive into the permanent IntentRecord."""
+    words = "  the old workspace folder no longer exists  "
+    assert request(expected_effect=words).expected_effect == words
+
+
+def test_the_two_carried_fields_are_distinct_from_the_ceiling() -> None:
+    """ADR-0022: `consequence_ceiling` is the objective's upper bound and
+    belongs to the AdmissionRecord. The request carries the action's own
+    class, and never the ceiling."""
+    names = {f.name for f in fields(ExecutionRequest)}
+    assert "reversibility_class" in names
+    assert "consequence_ceiling" not in names
 
 
 # ======================================================================
@@ -520,6 +585,17 @@ def _module_imports() -> list[str]:
     return imported
 
 
+def _module_imported_names() -> set[str]:
+    tree = ast.parse(MODULE.read_text(encoding="utf-8"), filename=str(MODULE))
+    return {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith("master_agent")
+        for alias in node.names
+    }
+
+
 def _public_surface() -> list[str]:
     field_names = {f.name for f in fields(ExecutionRequest)}
     return [
@@ -537,13 +613,17 @@ def test_it_has_no_dependency_on_the_principal() -> None:
     assert "principal" not in {f.name for f in fields(ExecutionRequest)}
 
 
-def test_it_has_no_dependency_on_the_warrant_type() -> None:
-    """A request becomes a warrant; it does not carry one. The only import
-    from `warrant` would be `ReversibilityClass`, which the Reversibility
-    Registry attests (A2) rather than the caller asserting."""
-    assert not any(
-        name.endswith("foundation.warrant") for name in _module_imports()
-    )
+def test_it_carries_no_warrant() -> None:
+    """A request becomes a warrant; it does not carry one.
+
+    **ADR-0022 superseded the stricter form of this guard.** It formerly
+    asserted no import from `warrant` at all, on the reasoning that
+    `ReversibilityClass` is *"attested (A2) rather than the caller
+    asserting."* The founder ruled that the request carries the class so
+    the Kernel needs no second lookup. The vocabulary is imported; the
+    `Warrant` type still is not."""
+    assert "Warrant" not in _module_imported_names()
+    assert not any("warrant_id" in f.name for f in fields(ExecutionRequest))
 
 
 def test_it_has_no_dependency_on_the_clock() -> None:
@@ -551,13 +631,15 @@ def test_it_has_no_dependency_on_the_clock() -> None:
     assert not any("clock" in name for name in _module_imports())
 
 
-def test_it_depends_only_on_components_seven_and_six() -> None:
+def test_it_depends_only_on_components_four_six_and_seven() -> None:
+    """C4's `ReversibilityClass` joined the set under ADR-0022."""
     internal = {
         name for name in _module_imports() if name.startswith("master_agent")
     }
     assert internal == {
         "master_agent.foundation.attestation",
         "master_agent.foundation.consequence",
+        "master_agent.foundation.warrant",
     }
 
 
@@ -596,7 +678,6 @@ def test_it_holds_no_field_the_kernel_owns() -> None:
     kernel_owned = {
         "warrant_id",
         "intent_id",
-        "reversibility_class",
         "compensating_action",
         "undo_window",
         "consequence_ceiling",
@@ -607,7 +688,6 @@ def test_it_holds_no_field_the_kernel_owns() -> None:
         "expires_at",
         "sequence",
         "decision_ref",
-        "expected_effect",
         "task_ref",
     }
     assert not names & kernel_owned
