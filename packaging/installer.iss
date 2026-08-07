@@ -10,7 +10,7 @@
 ; (PrivilegesRequired) for whoever ships this with admin available.
 
 #define MyAppName "Kalpavriksha"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "0.1.0"
 #define MyAppPublisher "Kalpavriksha"
 #define MyAppExeName "Kalpavriksha.exe"
 #define MyDistDir "..\dist\Kalpavriksha"

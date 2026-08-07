@@ -3,8 +3,8 @@
 # file Properties > Details tab). Referenced by kalpavriksha.spec.
 VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(1, 0, 0, 0),
-        prodvers=(1, 0, 0, 0),
+        filevers=(0, 1, 0, 0),
+        prodvers=(0, 1, 0, 0),
         mask=0x3F,
         flags=0x0,
         OS=0x40004,   # VOS_NT_WINDOWS32
@@ -20,12 +20,12 @@ VSVersionInfo(
                     [
                         StringStruct("CompanyName", "Kalpavriksha"),
                         StringStruct("FileDescription", "Kalpavriksha Founder Edition"),
-                        StringStruct("FileVersion", "1.0.0.0"),
+                        StringStruct("FileVersion", "0.1.0.0"),
                         StringStruct("InternalName", "Kalpavriksha"),
                         StringStruct("LegalCopyright", "Kalpavriksha"),
                         StringStruct("OriginalFilename", "Kalpavriksha.exe"),
                         StringStruct("ProductName", "Kalpavriksha Founder Edition"),
-                        StringStruct("ProductVersion", "1.0.0.0"),
+                        StringStruct("ProductVersion", "0.1.0.0"),
                     ],
                 )
             ]
