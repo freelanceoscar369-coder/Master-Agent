@@ -1,0 +1,4 @@
+1786116071.864 starting pipeline (real sounddevice, real 1.5s poll)
+1786116073.278 state=armed device='Microphone Array (2- Realtek(R)'
+1786116073.327 observed device change -> 'Microphone Array (2- Realtek(R)'
+1786116101.869 test window complete
