@@ -54,6 +54,7 @@ class FakeSoundDevice:
         self.play_calls: list[tuple[int, int]] = []
         self.query_calls = 0
         self.fail_query = False
+        self.stop_calls = 0
 
     def query_devices(self, kind=None):
         self.query_calls += 1
@@ -65,6 +66,9 @@ class FakeSoundDevice:
         stream = FakeStream(**kwargs)
         self.streams.append(stream)
         return stream
+
+    def stop(self):
+        self.stop_calls += 1
 
     def play(self, audio, samplerate=None, blocking=None):
         self.play_calls.append((len(audio), samplerate))
@@ -542,6 +546,82 @@ class TestSpeak:
         pipeline.speak("hello")
         time.sleep(0.2)
         assert states[-1] == STATE_ARMED
+
+
+# ══════════════════════════ interrupt (03_VOICE_EXPERIENCE §3.4) ══════════
+
+
+class TestInterruptSpeech:
+    def test_a_noop_when_nothing_is_speaking(self):
+        pipeline, sd, *_rest = build()
+        pipeline._load_and_open()
+        pipeline.interrupt_speech()  # must not raise
+        assert sd.stop_calls == 0
+
+    def test_stops_before_the_next_chunk_and_returns_to_armed(self):
+        pipeline, sd, _whisper, voice, states, _amp, _tx = build(
+            piper_chunks=[
+                FakeAudioChunk(0.5, samples=800), FakeAudioChunk(0.3, samples=800),
+                FakeAudioChunk(0.1, samples=800),
+            ],
+        )
+        pipeline._load_and_open()
+
+        original_play = sd.play
+
+        def play_then_interrupt(*a, **kw):
+            original_play(*a, **kw)
+            pipeline.interrupt_speech()
+
+        sd.play = play_then_interrupt
+        pipeline.speak("A longer reply than the founder wants to hear.")
+        time.sleep(0.3)
+
+        assert len(sd.play_calls) == 1  # cut mid-reply, never reached chunk 2 or 3
+        assert sd.stop_calls == 1
+        assert states[-1] == STATE_ARMED
+        assert pipeline._speaking is False
+
+    def test_a_stop_failure_still_ends_the_loop_via_the_flag(self):
+        pipeline, sd, _whisper, voice, states, _amp, _tx = build(
+            piper_chunks=[FakeAudioChunk(0.5, samples=800), FakeAudioChunk(0.3, samples=800)],
+        )
+        pipeline._load_and_open()
+
+        def boom():
+            raise RuntimeError("stop failed")
+
+        sd.stop = boom
+        original_play = sd.play
+
+        def play_then_interrupt(*a, **kw):
+            original_play(*a, **kw)
+            pipeline.interrupt_speech()
+
+        sd.play = play_then_interrupt
+        pipeline.speak("hello")
+        time.sleep(0.2)
+        assert states[-1] == STATE_ARMED
+
+    def test_founder_speech_onset_interrupts_active_speech(self):
+        """03_VOICE_EXPERIENCE §3.4 trigger 2 — the VAD, not a bridge
+        call, detects the founder speaking over Somesh."""
+        pipeline, sd, *_rest = build()
+        pipeline._load_and_open()
+        pipeline._speaking = True
+
+        pipeline._audio_callback(loud_block(), 480, None, None)
+        time.sleep(0.2)
+
+        assert pipeline._speech_interrupted is True
+        assert sd.stop_calls == 1
+
+    def test_no_interrupt_fires_when_somesh_is_not_speaking(self):
+        pipeline, sd, *_rest = build()
+        pipeline._load_and_open()
+        pipeline._audio_callback(loud_block(), 480, None, None)
+        time.sleep(0.1)
+        assert sd.stop_calls == 0
 
 
 # ══════════════════════════ lifecycle ══════════════════════════════════════

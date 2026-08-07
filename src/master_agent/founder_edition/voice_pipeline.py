@@ -138,6 +138,8 @@ class VoicePipeline:
 
         self._running = False
         self._muted = False
+        self._speaking = False
+        self._speech_interrupted = False
         self._in_speech = False
         self._silence_since: float | None = None
         self._speech_buffer: list[np.ndarray] = []
@@ -170,6 +172,23 @@ class VoicePipeline:
         if self._tts_voice is None or not text.strip():
             return
         threading.Thread(target=self._speak_sync, args=(text,), daemon=True).start()
+
+    def interrupt_speech(self) -> None:
+        """`03_VOICE_EXPERIENCE §3.4`: "audio playback halts immediately
+        — mid-word, mid-phoneme... No fade-out." Called from the bridge
+        when the founder types, clicks the mic, or presses Escape while
+        Somesh is speaking, and from `_audio_callback` itself when the
+        VAD detects the founder speaking over Somesh — the fourth
+        trigger, the one this class alone can see. A no-op when nothing
+        is speaking, so every caller can invoke it unconditionally."""
+        if not self._speaking:
+            return
+        self._speech_interrupted = True
+        sd = self._resolve_sd()
+        try:
+            sd.stop()
+        except Exception:  # noqa: BLE001 — the loop's own flag check ends playback either way
+            pass
 
     # ---- model + stream setup --------------------------------------------
 
@@ -299,6 +318,15 @@ class VoicePipeline:
                     self._in_speech = True
                     self._speech_buffer = []
                     self._utterance_started_at = now
+                    if self._speaking:
+                        # 03_VOICE_EXPERIENCE §3.4 trigger 2 — the VAD
+                        # confirmed the founder speaking over Somesh.
+                        # `interrupt_speech()` calls `sd.stop()`, which
+                        # this real-time audio callback must not do
+                        # itself — moved to its own thread, same
+                        # discipline `_end_utterance`'s transcription
+                        # dispatch already uses.
+                        threading.Thread(target=self.interrupt_speech, daemon=True).start()
                     self._on_state(STATE_CAPTURING)
                 self._silence_since = None
                 self._speech_buffer.append(chunk)
@@ -363,13 +391,18 @@ class VoicePipeline:
 
     def _speak_sync(self, text: str) -> None:
         sd = self._resolve_sd()
+        self._speaking = True
+        self._speech_interrupted = False
         self._on_state(STATE_SPEAKING)
         try:
             for chunk in self._tts_voice.synthesize(text):
+                if self._speech_interrupted:
+                    break
                 audio = chunk.audio_float_array
                 rms = self._rms(audio)
                 self._on_amplitude(min(1.0, rms * 4.0))
                 sd.play(audio, samplerate=chunk.sample_rate, blocking=True)
         except Exception:  # noqa: BLE001, S110 — playback failure ends speech, not the app
             pass
+        self._speaking = False
         self._on_state(STATE_MUTED if self._muted else STATE_ARMED)

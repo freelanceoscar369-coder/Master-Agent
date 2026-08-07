@@ -141,6 +141,45 @@ function micSettingsLink() {
   return link;
 }
 
+// ----------------------------------------------------------- interrupt --
+// 03_VOICE_EXPERIENCE §3.4 — tracked here (not read off the tree) because
+// the tree's own state can lag a frame behind the push that set it, and
+// the mic-click/typing handlers need a synchronous answer to "is Somesh
+// talking right now".
+let isSpeaking = false;
+let lastSomeshMessageEl = null;
+
+function runInterruptVisuals(treeTarget) {
+  els.waveform.style.transitionDuration = 'var(--d-2)'; // §3.4 "waveform... drops to opacity 0 at --d-2"
+  els.waveform.style.opacity = '0';
+  markLastSomeshMessageInterrupted();
+  tree.setState(treeTarget);
+}
+
+function markLastSomeshMessageInterrupted() {
+  if (!lastSomeshMessageEl) return;
+  if (lastSomeshMessageEl.querySelector('.somesh-message__interrupted')) return;
+  const marker = document.createElement('div');
+  marker.className = 'somesh-message__interrupted';
+  marker.textContent = '— interrupted';
+  lastSomeshMessageEl.querySelector('.somesh-message__body').after(marker);
+  requestAnimationFrame(() => marker.classList.add('is-visible'));
+}
+
+// Triggers 1/3/4 (mic click, typing, Escape) — the founder acted, so this
+// tells the bridge to actually stop playback. Trigger 2 (VAD onset) is
+// handled inside setVoiceState below instead: the pipeline detects that
+// one itself and has already called VoicePipeline.interrupt_speech() by
+// the time its state push arrives here, so calling the bridge again
+// would be redundant (interrupt_speech() is a no-op once not speaking,
+// so it would be harmless either way — this just avoids the extra call).
+function interruptSpeech(treeTarget) {
+  if (!isSpeaking) return;
+  isSpeaking = false;
+  Bridge.call('interrupt_speech').catch(() => {});
+  runInterruptVisuals(treeTarget);
+}
+
 // 'speaking' is a tree-only concept (02_ANIMATION_SYSTEM §2.2.4) — the
 // mic component's own state vocabulary (03_VOICE_EXPERIENCE §3.1) has
 // no "speaking" entry, because the founder's mic is not the one making
@@ -148,9 +187,17 @@ function micSettingsLink() {
 // drives both; it updates only the tree, never the mic button/label.
 function setVoiceState(name) {
   if (name === 'speaking') {
+    isSpeaking = true;
     tree.setState('speaking');
     return;
   }
+  if (isSpeaking && (name === 'listening' || name === 'capturing-speech')) {
+    // Trigger 2 — the VAD confirmed the founder speaking over Somesh.
+    // The pipeline has already stopped playback on its own; this just
+    // runs the same visual sequence the other three triggers use.
+    runInterruptVisuals('listening');
+  }
+  isSpeaking = false;
   setMicState(name);
 }
 
@@ -250,6 +297,12 @@ window.onTranscript = function onTranscript(text) {
 };
 
 els.mic.addEventListener('click', () => {
+  // §3.4 trigger 1 — clicking the mic while Somesh is speaking
+  // interrupts instead of toggling mute.
+  if (isSpeaking) {
+    interruptSpeech('listening');
+    return;
+  }
   // 03_VOICE_EXPERIENCE §3.5 — clicking the mic itself while `denied`
   // opens settings too, same as the "here" link in the secondary copy.
   if (micState === 'denied') {
@@ -281,13 +334,21 @@ function markInteracted() {
 }
 
 els.composer.addEventListener('click', () => expandComposer(true));
-els.composerInput.addEventListener('focus', () => expandComposer(false));
+els.composerInput.addEventListener('focus', () => {
+  // §3.4 trigger 3 — "any printable keypress OR focus on composer".
+  if (isSpeaking) interruptSpeech('listening');
+  expandComposer(false);
+});
 els.composerInput.addEventListener('input', () => {
   markInteracted();
   els.composer.classList.toggle('has-text', !!els.composerInput.textContent.trim());
 });
 els.composerInput.addEventListener('blur', () => setTimeout(collapseComposerIfEmpty, 100));
 els.composerInput.addEventListener('keydown', (ev) => {
+  // §3.4 triggers 3 and 4 — any keypress while typing (composer already
+  // focused, so the 'focus' listener above didn't fire) and Escape both
+  // land here.
+  if (isSpeaking) interruptSpeech('listening');
   if (ev.key === 'Enter' && !ev.shiftKey) {
     ev.preventDefault();
     const text = els.composerInput.textContent.trim();
@@ -320,7 +381,15 @@ document.addEventListener('keydown', (ev) => {
   const active = document.activeElement;
   if (active === els.composerInput) return;
   if (els.dashboardBackdrop.classList.contains('is-open')) return;
+  // §3.4 trigger 4 — Escape interrupts even without the composer
+  // focused; the composer's own keydown handler covers it once focused.
+  if (ev.key === 'Escape' && isSpeaking) {
+    interruptSpeech('listening');
+    return;
+  }
   if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    // §3.4 trigger 3 — typing from anywhere, before focus lands.
+    if (isSpeaking) interruptSpeech('listening');
     markInteracted();
     expandComposer(true);
     // let the browser's own focus + keypress land the character naturally
@@ -366,6 +435,7 @@ function appendSomeshMessage(text) {
     <div class="somesh-message__body" data-length="${length}"></div>`;
   wrap.querySelector('.somesh-message__body').textContent = text;
   els.conversation.appendChild(wrap);
+  lastSomeshMessageEl = wrap;
   scrollToBottom();
   // Speaking happens on the Python side (desktop_shell.send_message()
   // already called voice.speak() before this reply arrived) — the tree's
