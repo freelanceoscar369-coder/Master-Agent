@@ -201,9 +201,28 @@ function setVoiceState(name) {
   setMicState(name);
 }
 
+// 03_VOICE_EXPERIENCE §3.1 — "error auto-recovers: after 8000ms, if the
+// runtime has not reported resolution, return to unavailable." The
+// backend keeps retrying to reopen the device on its own 1.5s poll
+// (voice_pipeline.py's _device_watch_loop) and will push 'armed' the
+// moment it succeeds; this timer is the UI's own fallback for a device
+// that never comes back, so 'error' — which reads as transient — does
+// not linger forever once it's clear it isn't resolving.
+let errorRecoveryTimer = null;
+
 function setMicState(name) {
   micState = name;
   els.mic.dataset.state = name;
+  if (errorRecoveryTimer) {
+    clearTimeout(errorRecoveryTimer);
+    errorRecoveryTimer = null;
+  }
+  if (name === 'error') {
+    errorRecoveryTimer = setTimeout(() => {
+      errorRecoveryTimer = null;
+      if (micState === 'error') setMicState('unavailable');
+    }, 8000);
+  }
   const labels = {
     idle: 'TAP TO SPEAK', armed: 'LISTENING', listening: 'LISTENING',
     'capturing-speech': 'CAPTURING', processing: 'PROCESSING', muted: 'MUTED',

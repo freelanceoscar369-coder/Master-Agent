@@ -27,10 +27,14 @@ device — every 1.5 seconds on a background thread, and reopens the audio
 stream the moment the reported device name changes. This satisfies the
 literal requirement (automatic, no restart, no manual selection) with a
 much smaller, more testable surface than a COM notification sink. The
-2-second worst case latency between a founder putting on a headset and
-Somesh hearing through it is a stated trade-off, not an oversight — see
+worst-case latency between a founder putting on a headset and Somesh
+hearing through it is a stated trade-off, not an oversight — see
 `Engineering/HEALTH_C34_1.md` §3 for the argument and the event-driven
-alternative for whoever wants to close that gap later.
+alternative for whoever wants to close that gap later. It is
+`DEVICE_POLL_INTERVAL_S` (1.5s, detection) plus real `InputStream` open
+mechanics — measured at ~0.77s on the dev machine, `Engineering/
+HEALTH_C34_2.md` §9 — for a real total nearer 2.3s than the "2 seconds"
+this comment used to claim from reasoning about the poll interval alone.
 
 ## Amplitude is real, not the fallback constant
 
@@ -89,6 +93,62 @@ STATE_UNAVAILABLE = "unavailable"
 STATE_ERROR = "error"
 STATE_SPEAKING = "speaking"
 
+#: C34.2's Voice Session Manager deliverable — the complete transition
+#: table, in one place, rather than left implicit across the booleans
+#: and `_on_state()` call sites below. `None` as `from` means "before
+#: the first push has happened at all" (no state shown yet). Every
+#: entry traces to a real call site; `tests/test_voice_pipeline.py::
+#: TestStateTransitionTable` checks every listed `to` is one of the
+#: constants above, so this table cannot silently drift from the states
+#: this module can actually produce.
+#:
+#: Two things this table does NOT capture, because they are not
+#: sequencing bugs: (1) `speaking` is pushed on the same channel as
+#: every mic state but is conceptually orthogonal to it (the tree-only
+#: state `desktop_app/web/js/app.js` reads it as) — a reply can arrive
+#: to speak from `armed` or `muted` and always returns to whichever one
+#: the founder's mute preference says, not to whatever the mic was
+#: mid-utterance. (2) `_device_watch_loop` runs independently of
+#: `_speak_sync` on its own thread, so a permission revocation or
+#: device change can supersede `speaking` with `denied`/`unavailable`/
+#: `error` at any moment — the same way it supersedes `armed`/`muted`.
+STATE_TRANSITIONS: tuple[tuple[str | None, str, str], ...] = (
+    # startup — _load_and_open -> _sync_stream_to_permission -> _open_stream
+    (None, "models fail to load", STATE_ERROR),
+    (None, "OS denies microphone permission", STATE_DENIED),
+    (None, "permission granted, no input device found", STATE_UNAVAILABLE),
+    (None, "permission granted, device open fails (busy/error)", STATE_ERROR),
+    (None, "permission granted, device opens, founder pre-muted", STATE_MUTED),
+    (None, "permission granted, device opens, not muted", STATE_ARMED),
+    # listening / capture — _audio_callback, _end_utterance, _transcribe
+    (STATE_ARMED, "VAD detects speech onset", STATE_CAPTURING),
+    (STATE_CAPTURING, "utterance ends (silence hangover or max duration)", STATE_PROCESSING),
+    (STATE_PROCESSING, "transcription completes, not muted", STATE_ARMED),
+    (STATE_PROCESSING, "transcription completes, muted meanwhile", STATE_MUTED),
+    # founder-chosen mute — set_muted()
+    (STATE_ARMED, "founder mutes", STATE_MUTED),
+    (STATE_MUTED, "founder unmutes", STATE_ARMED),
+    # permission changes mid-session — _device_watch_loop -> _sync_stream_to_permission
+    (STATE_ARMED, "OS revokes microphone permission", STATE_DENIED),
+    (STATE_MUTED, "OS revokes microphone permission", STATE_DENIED),
+    (STATE_DENIED, "OS grants permission, device opens", STATE_ARMED),
+    (STATE_DENIED, "OS grants permission, device opens, pre-muted", STATE_MUTED),
+    (STATE_DENIED, "OS grants permission, no device found", STATE_UNAVAILABLE),
+    (STATE_DENIED, "OS grants permission, device open fails", STATE_ERROR),
+    # device changes and recovery — _device_watch_loop -> _open_stream
+    (STATE_ARMED, "default input device changes (e.g. Bluetooth), reopen succeeds", STATE_ARMED),
+    (STATE_MUTED, "default input device changes, reopen succeeds", STATE_MUTED),
+    (STATE_UNAVAILABLE, "a device becomes available", STATE_ARMED),
+    (STATE_ERROR, "the busy/erroring device becomes free, reopen succeeds", STATE_ARMED),
+    (STATE_ERROR, "the busy/erroring device becomes free, reopen succeeds, pre-muted", STATE_MUTED),
+    # speaking — speak() / _speak_sync() / interrupt_speech()
+    (STATE_ARMED, "a reply arrives to speak", STATE_SPEAKING),
+    (STATE_MUTED, "a reply arrives to speak", STATE_SPEAKING),
+    (STATE_SPEAKING, "VAD detects the founder speaking over Somesh (barge-in)", STATE_CAPTURING),
+    (STATE_SPEAKING, "speech ends (natural completion or any interrupt trigger), not muted", STATE_ARMED),
+    (STATE_SPEAKING, "speech ends (natural completion or any interrupt trigger), muted", STATE_MUTED),
+)
+
 
 class VoicePipeline:
     """Owns one microphone stream and one TTS voice. Constructed once by
@@ -140,6 +200,7 @@ class VoicePipeline:
         self._muted = False
         self._speaking = False
         self._speech_interrupted = False
+        self._speak_thread: threading.Thread | None = None
         self._in_speech = False
         self._silence_since: float | None = None
         self._speech_buffer: list[np.ndarray] = []
@@ -155,6 +216,7 @@ class VoicePipeline:
 
     def stop(self) -> None:
         self._running = False
+        self.interrupt_speech()
         self._close_stream()
 
     # ---- founder-facing controls ----------------------------------------
@@ -167,11 +229,26 @@ class VoicePipeline:
     def speak(self, text: str) -> None:
         """Synthesise and play `text`, pushing a real amplitude envelope
         and driving the mic state to `speaking` and back. Runs on its
-        own thread — never blocks the caller (`desktop_shell.send_
-        message`, answering a bridge call the page is awaiting)."""
+        own thread — never blocks the caller for the full reply (
+        `desktop_shell.send_message`, answering a bridge call the page
+        is awaiting) — but if a previous reply is still speaking, this
+        call first interrupts it and waits (briefly — `interrupt_speech`
+        makes the block a currently-running `sd.play()` is in return
+        almost immediately) for that thread to actually exit. C34.2:
+        without this, a second `speak()` arriving before the first
+        finishes started a second `_speak_sync` thread concurrently —
+        two threads calling `sd.play()` on the shared default output
+        stream at once, and racing on `_speaking`/`_speech_interrupted`.
+        `03_VOICE_EXPERIENCE`'s own rule that interruption is instant
+        applies here too, not just to a founder-triggered interrupt."""
         if self._tts_voice is None or not text.strip():
             return
-        threading.Thread(target=self._speak_sync, args=(text,), daemon=True).start()
+        self.interrupt_speech()
+        old_thread = self._speak_thread
+        if old_thread is not None and old_thread.is_alive():
+            old_thread.join(timeout=1.0)
+        self._speak_thread = threading.Thread(target=self._speak_sync, args=(text,), daemon=True)
+        self._speak_thread.start()
 
     def interrupt_speech(self) -> None:
         """`03_VOICE_EXPERIENCE §3.4`: "audio playback halts immediately
@@ -261,6 +338,13 @@ class VoicePipeline:
             self._on_state(STATE_DENIED)
 
     def _open_stream(self) -> None:
+        """Opens the input stream, or reports why it could not — and
+        never raises. This method runs on both the startup thread and
+        `_device_watch_loop`'s own thread; an uncaught exception here
+        used to kill whichever one called it (silently, since both are
+        daemon threads), which meant a busy/erroring device on open
+        didn't just fail once — it permanently stopped all future
+        reconnect attempts for the rest of the session. C34.2."""
         sd = self._resolve_sd()
         try:
             device_info = sd.query_devices(kind="input")
@@ -270,12 +354,18 @@ class VoicePipeline:
 
         self._close_stream()
 
+        try:
+            stream = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                blocksize=BLOCK_SIZE, callback=self._audio_callback,
+            )
+            stream.start()
+        except Exception:  # noqa: BLE001 — a busy/removed device on open is an honest error, not a crash
+            self._on_state(STATE_ERROR)
+            return
+
         self._current_device_name = device_info.get("name")
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-            blocksize=BLOCK_SIZE, callback=self._audio_callback,
-        )
-        self._stream.start()
+        self._stream = stream
         self._on_state(STATE_MUTED if self._muted else STATE_ARMED)
 
     def _device_watch_loop(self) -> None:

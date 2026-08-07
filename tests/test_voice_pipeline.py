@@ -11,6 +11,7 @@ slow and machine-dependent.
 """
 from __future__ import annotations
 
+import threading
 import time
 
 import numpy as np
@@ -25,9 +26,40 @@ from master_agent.founder_edition.voice_pipeline import (
     STATE_MUTED,
     STATE_PROCESSING,
     STATE_SPEAKING,
+    STATE_TRANSITIONS,
     STATE_UNAVAILABLE,
     VoicePipeline,
 )
+
+ALL_STATES = {
+    STATE_ARMED, STATE_CAPTURING, STATE_PROCESSING, STATE_MUTED, STATE_DENIED,
+    STATE_UNAVAILABLE, STATE_ERROR, STATE_SPEAKING,
+}
+
+
+class TestStateTransitionTable:
+    """C34.2 — the table is documentation, not runtime-enforced control
+    flow (see its own module-level docstring for why), so what a test
+    can actually hold it to is structural: every `to` is a state this
+    module can really produce, no duplicate (from, event) pair claims
+    two different destinations, and every state the module defines
+    appears somewhere as a destination — the "no state may become
+    unreachable" requirement, checked mechanically."""
+
+    def test_every_destination_is_a_real_state(self):
+        for _from, _event, to in STATE_TRANSITIONS:
+            assert to in ALL_STATES
+
+    def test_no_from_and_event_pair_claims_two_destinations(self):
+        seen: dict[tuple[str | None, str], str] = {}
+        for from_state, event, to in STATE_TRANSITIONS:
+            key = (from_state, event)
+            assert key not in seen, f"{key} already maps to {seen.get(key)}"
+            seen[key] = to
+
+    def test_every_state_is_reachable_as_a_destination(self):
+        reached = {to for _from, _event, to in STATE_TRANSITIONS}
+        assert reached == ALL_STATES
 
 
 class FakeStream:
@@ -54,6 +86,7 @@ class FakeSoundDevice:
         self.play_calls: list[tuple[int, int]] = []
         self.query_calls = 0
         self.fail_query = False
+        self.fail_open = False
         self.stop_calls = 0
 
     def query_devices(self, kind=None):
@@ -63,6 +96,8 @@ class FakeSoundDevice:
         return {"name": self.device_name}
 
     def InputStream(self, **kwargs):
+        if self.fail_open:
+            raise RuntimeError("device busy")
         stream = FakeStream(**kwargs)
         self.streams.append(stream)
         return stream
@@ -202,6 +237,111 @@ class TestLoadAndOpen:
 
 
 # ══════════════════════════ device tracking ═══════════════════════════════
+
+
+class TestOpenStreamRobustness:
+    """C34.2 — a busy/erroring device on open used to raise uncaught out
+    of `_open_stream()`, killing whichever daemon thread called it. On
+    the startup thread that just stranded the mic with no state ever
+    pushed; on `_device_watch_loop`'s own thread it was worse — the
+    watch loop itself died, so no device change would ever be noticed
+    again for the rest of the session."""
+
+    def test_a_busy_device_reports_error_not_a_crash(self):
+        pipeline, sd, *_rest, states, _amp, _tx = build()
+        sd.fail_open = True
+        pipeline._load_and_open()  # must not raise
+        assert states == [STATE_ERROR]
+        assert pipeline._stream is None
+
+    def test_the_watch_loop_survives_repeated_busy_retries(self, monkeypatch):
+        pipeline, sd, *_rest, states, _amp, _tx = build()
+        sd.fail_open = True
+        pipeline._load_and_open()
+        assert states == [STATE_ERROR]
+
+        pipeline._running = True
+        calls = {"n": 0}
+
+        def fake_sleep(_seconds):
+            calls["n"] += 1
+            if calls["n"] > 2:
+                pipeline._running = False
+
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        pipeline._device_watch_loop()  # must not raise across multiple failed retries
+        assert states[-1] == STATE_ERROR
+
+    def test_recovers_automatically_once_the_device_is_free(self, monkeypatch):
+        pipeline, sd, *_rest, states, _amp, _tx = build()
+        sd.fail_open = True
+        pipeline._load_and_open()
+        assert states == [STATE_ERROR]
+
+        calls = {"n": 0}
+
+        def fake_sleep(_seconds):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                sd.fail_open = False  # the device becomes free before the next retry
+            if calls["n"] > 1:
+                pipeline._running = False
+
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        pipeline._running = True
+        pipeline._device_watch_loop()
+
+        assert states[-1] == STATE_ARMED
+        assert sd.streams  # a real stream finally opened, no restart needed
+
+
+class TestNoOverlappingPlayback:
+    """C34.2 — `speak()` had no guard against a second reply arriving
+    while the first was still playing; two `_speak_sync` threads could
+    call `sd.play()` concurrently on the shared default output stream.
+    `speak()` now interrupts and joins the previous thread first, so
+    exactly one is ever alive."""
+
+    def test_a_second_reply_never_overlaps_the_first(self):
+        pipeline, sd, _whisper, voice, states, _amp, _tx = build(
+            piper_chunks=[FakeAudioChunk(0.5, samples=800)],
+        )
+        pipeline._load_and_open()
+
+        concurrency = {"active": 0, "max_seen": 0}
+        lock = threading.Lock()
+        original_play = sd.play
+
+        def tracked_play(*a, **kw):
+            with lock:
+                concurrency["active"] += 1
+                concurrency["max_seen"] = max(concurrency["max_seen"], concurrency["active"])
+            time.sleep(0.15)  # held long enough that a real race would overlap
+            original_play(*a, **kw)
+            with lock:
+                concurrency["active"] -= 1
+
+        sd.play = tracked_play
+        pipeline.speak("First reply.")
+        time.sleep(0.03)  # let the first thread actually enter tracked_play
+        pipeline.speak("Second reply.")  # speak() itself waits for the first to end
+        time.sleep(0.3)
+
+        assert concurrency["max_seen"] == 1
+        assert voice.requests == ["First reply.", "Second reply."]
+        assert states[-1] == STATE_ARMED
+
+    def test_stop_interrupts_any_lingering_playback(self):
+        pipeline, sd, _whisper, voice, states, _amp, _tx = build(
+            piper_chunks=[FakeAudioChunk(0.5, samples=800), FakeAudioChunk(0.3, samples=800)],
+        )
+        pipeline._load_and_open()
+        pipeline._speaking = True  # simulate mid-reply at window-close time
+
+        pipeline.stop()
+
+        assert sd.stop_calls == 1
+        assert pipeline._speech_interrupted is True
 
 
 class TestDeviceWatch:
