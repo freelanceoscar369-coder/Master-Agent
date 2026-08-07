@@ -1,0 +1,51 @@
+/**
+ * PresenceSigil — 28×28 canvas mark.
+ *
+ * The canvas runs an rAF loop in normal motion mode.
+ * Under prefers-reduced-motion, the canvas is hidden and a static CSS circle
+ * is shown instead.
+ */
+
+.root {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.canvas {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+/* Static fallback — hidden by default, shown only under reduced-motion */
+.static {
+  display: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--signal-live);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas {
+    display: none;
+  }
+
+  .static {
+    display: block;
+  }
+
+  /* Colour the static dot by inferred presence state.
+     The parent sets --presence-state via inline style. */
+  .root[style*="awaiting"] .static {
+    background-color: var(--signal-needs-you);
+  }
+
+  .root[style*="speaking"] .static {
+    background-color: var(--signal-done);
+  }
+}

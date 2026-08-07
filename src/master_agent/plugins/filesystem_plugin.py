@@ -44,6 +44,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from master_agent.capabilities.contract import Schema
+from master_agent.capabilities.extraction import (
+    EXTRACTED_VERSION,
+    contract_from_action,
+    contracts_from_actions,
+)
 from master_agent.executor.action import Action
 from master_agent.executor.actions.append_file import APPEND_FILE, AppendFileAction
 from master_agent.executor.actions.copy_file import COPY_FILE, CopyFileAction
@@ -57,7 +63,10 @@ from master_agent.executor.actions.move_file import MOVE_FILE, MoveFileAction
 from master_agent.executor.actions.read_file import READ_FILE, ReadFileAction
 from master_agent.executor.actions.rename_file import RENAME_FILE, RenameFileAction
 from master_agent.executor.actions.search_files import SEARCH_FILES, SearchFilesAction
-from master_agent.executor.actions.workspace_bootstrap import WORKSPACE_BOOTSTRAP, WorkspaceBootstrapAction
+from master_agent.executor.actions.workspace_bootstrap import (
+    WORKSPACE_BOOTSTRAP,
+    WorkspaceBootstrapAction,
+)
 from master_agent.executor.actions.write_file import WRITE_FILE, WriteFileAction
 from master_agent.executor.executor import LocalExecutor
 from master_agent.permissions.permission_system import GrantScope
@@ -141,6 +150,25 @@ class FilesystemPlugin(Plugin):
 
     @property
     def manifest(self) -> PluginManifest:
+        # Build contracts from actions once, then derive manifest from them.
+        # This ensures the manifest's input/output schemas come from the
+        # single source of truth (the Action objects themselves) and the
+        # two cannot drift. The extraction system already knows how to
+        # turn an Action into a CapabilityContract with inputs/outputs.
+
+        def qualified_name(executive_id: str, capability: str) -> str:
+            """Same rule Mission Control uses: PascalCase.Executive + PascalCase.Capability."""
+            def _pascal(raw: str) -> str:
+                return "".join(p[:1].upper() + p[1:] for p in raw.replace("-", "_").split("_") if p)
+            return f"{_pascal(executive_id)}.{_pascal(capability)}"
+
+        contracts = {
+            contract.metadata["local_name"]: contract
+            for contract in contracts_from_actions(
+                self._actions, "filesystem", qualified_name
+            )
+        }
+
         return PluginManifest(
             name="filesystem",
             version="0.5.0",
@@ -150,6 +178,8 @@ class FilesystemPlugin(Plugin):
                     description=action.description,
                     risk_tier=action.risk_tier,
                     permission_category=action.permission_category,
+                    input_schema=contracts[action.name].inputs.as_dict(),
+                    output_schema=contracts[action.name].outputs.as_dict(),
                 )
                 for action in self._actions.values()
             ],

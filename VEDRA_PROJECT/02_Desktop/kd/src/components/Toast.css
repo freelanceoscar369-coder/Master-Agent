@@ -1,0 +1,70 @@
+/**
+ * UndoToast — the ONLY transient surface in this product.
+ * NOTIFICATIONS ARE FORBIDDEN by the Kalpavriksha Design Constitution.
+ * This component exists solely for the undo flow after a consequential action.
+ *
+ * Transient plane: z-index --z-transient, 14px backdrop-blur, transparency 0.94.
+ */
+
+.k-undo-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 48px; /* aligns to --margin */
+  z-index: var(--z-transient);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 320px;
+  max-width: 480px;
+  background-color: rgba(8, 11, 16, 0.94); /* --color-deep at .94 */
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-0);
+  /* 14px backdrop-blur: transient plane only */
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow: hidden;
+}
+
+.k-undo-toast__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 16px 8px;
+}
+
+.k-undo-toast__message {
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  color: var(--color-ink);
+  flex: 1;
+  min-width: 0;
+}
+
+.k-undo-toast__countdown {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.k-undo-toast__actions {
+  padding: 0 16px 8px;
+}
+
+/* Countdown bar — linear transition only per constitution */
+.k-undo-toast__bar {
+  height: 2px;
+  background-color: var(--color-hair);
+  margin: 0;
+}
+
+.k-undo-toast__bar-fill {
+  height: 100%;
+  background-color: var(--signal-needs-you);
+  transition: width var(--dur-1) var(--ease-linear);
+}

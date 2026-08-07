@@ -21,6 +21,7 @@ master-agent-demo = "master_agent.cli:main"
 voice = [
     "faster-whisper>=1.0",
     "piper-tts>=1.2",
+    "sounddevice>=0.5",
 ]
 ui = [
     "pywebview>=5.1",

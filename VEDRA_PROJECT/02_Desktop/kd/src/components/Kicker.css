@@ -1,0 +1,35 @@
+/**
+ * Kicker — small uppercase label above a heading.
+ * Mono, kicker scale, signal colour or muted.
+ * State carried by colour AND word (greyscale-survivable).
+ */
+
+.k-kicker {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-kicker-size);
+  line-height: var(--fs-kicker-lh);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.k-kicker--muted {
+  color: var(--color-ink-3);
+}
+
+.k-kicker--live {
+  color: var(--signal-live);
+}
+
+.k-kicker--needs-you {
+  color: var(--signal-needs-you);
+}
+
+.k-kicker--done {
+  color: var(--signal-done);
+}
+
+.k-kicker--risk {
+  color: var(--signal-risk);
+}

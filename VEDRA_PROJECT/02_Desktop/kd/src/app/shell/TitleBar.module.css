@@ -1,0 +1,95 @@
+/**
+ * TitleBar — 40px fixed header.
+ *
+ * The entire bar is a drag region in desktop hosts; controls have no-drag.
+ * In a browser context -webkit-app-region has no effect.
+ */
+
+.root {
+  grid-area: titlebar;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding-inline: 16px;
+  background-color: var(--color-deep);
+  border-bottom: 1px solid var(--color-hair);
+  /* Drag region for desktop shells — no-op in browser */
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* ── Left cluster ─────────────────────────────────────────────────────── */
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wordmark {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  letter-spacing: 0.12em;
+  color: var(--color-ink);
+  font-weight: 500;
+}
+
+/* ── Window controls ──────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Remove from drag region so clicks reach the buttons */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.controlBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-radius: var(--radius-1);
+}
+
+.controlBtn:focus-visible {
+  outline: 2px solid var(--signal-live);
+  outline-offset: 2px;
+}
+
+.controlDot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--color-hair);
+  transition: background-color var(--dur-1) var(--ease-settle);
+}
+
+.controlBtn:hover .controlDot[data-action="minimize"] {
+  background-color: var(--signal-needs-you);
+}
+
+.controlBtn:hover .controlDot[data-action="maximize"] {
+  background-color: var(--signal-done);
+}
+
+.controlBtn:hover .controlDot[data-action="close"] {
+  background-color: var(--signal-risk);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .controlDot {
+    transition: none;
+  }
+}

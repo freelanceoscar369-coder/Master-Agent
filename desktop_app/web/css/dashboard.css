@@ -1,0 +1,89 @@
+/* Dashboard overlay — Product Veda Deliverable 5 (best-effort; see
+   Engineering/HEALTH_C34.md for the scope note on this file). Content
+   unchanged from the founder_edition dashboard() projection; only
+   presentation is styled here, per the token system. */
+
+.dashboard-backdrop {
+  position: fixed; inset: 0; z-index: var(--z-transient);
+  background: var(--glass-dark);
+  backdrop-filter: blur(var(--blur-transient));
+  -webkit-backdrop-filter: blur(var(--blur-transient));
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+  transition: opacity var(--d-7) var(--e-settle), transform var(--d-7) var(--e-settle);
+  overflow-y: auto;
+}
+[data-theme="light"] .dashboard-backdrop { background: var(--glass-light); }
+.dashboard-backdrop.is-open {
+  opacity: 1; transform: translateY(0); pointer-events: auto;
+  transition: opacity var(--d-7) var(--e-settle), transform var(--d-7) var(--e-settle);
+}
+.dashboard-backdrop.is-closing {
+  transition: opacity var(--d-6) var(--e-exit), transform var(--d-6) var(--e-exit);
+}
+
+.dashboard-panel {
+  max-width: 920px; margin: var(--sp-9) auto var(--sp-9);
+  padding: 0 var(--frame-margin);
+}
+
+.dashboard-close {
+  position: absolute; top: var(--frame-margin); right: var(--frame-margin);
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+}
+.dashboard-close svg { width: 20px; height: 20px; stroke: var(--c-ink-3); }
+.dashboard-close:hover svg { stroke: var(--c-ink); }
+
+.dashboard-title {
+  font-size: var(--t-display-size); line-height: var(--t-display-lh);
+  font-weight: var(--t-display-weight);
+  color: var(--c-ink);
+  margin: 0 0 var(--sp-2) 0;
+}
+.dashboard-sub {
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  color: var(--c-ink-2); margin: 0 0 var(--sp-7) 0;
+}
+
+.dash-section { margin-bottom: var(--sp-7); }
+.dash-section-title {
+  font-size: var(--t-label-size); font-weight: var(--t-label-weight);
+  letter-spacing: var(--t-label-track); text-transform: uppercase;
+  color: var(--c-ink-3); margin: 0 0 var(--sp-4) 0;
+}
+
+.dash-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--c-hair-soft);
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  color: var(--c-ink);
+}
+.dash-row:last-child { border-bottom: none; }
+.dash-row__label { color: var(--c-ink-2); }
+.dash-row__value { font-family: var(--font-mono); font-size: var(--t-mono-size); }
+.dash-row__value[data-signal="live"] { color: var(--s-live); }
+.dash-row__value[data-signal="attend"] { color: var(--s-attend); }
+.dash-row__value[data-signal="settled"] { color: var(--s-settled); }
+.dash-row__value[data-signal="risk"] { color: var(--s-risk); }
+
+/* 8.2 — theme segmented control */
+.theme-control {
+  display: inline-flex; border: 1px solid var(--c-hair-soft); border-radius: var(--r-1);
+  overflow: hidden;
+}
+.theme-control button {
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--t-label-size); font-weight: var(--t-label-weight);
+  letter-spacing: var(--t-label-track); text-transform: uppercase;
+  color: var(--c-ink-2);
+  background: transparent;
+  transition: background-color var(--d-1) var(--e-settle), color var(--d-1) var(--e-settle);
+}
+.theme-control button[aria-pressed="true"] { background: var(--c-raise-2); color: var(--c-ink); }
+.theme-control button:hover { color: var(--c-ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-backdrop { transform: none !important; }
+}

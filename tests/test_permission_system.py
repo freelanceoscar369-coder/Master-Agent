@@ -18,7 +18,6 @@ from master_agent.permissions.permission_system import (
 )
 from master_agent.plugins.base import RiskTier
 
-
 # ---- READ_ONLY short-circuit (pre-existing, regression) -------------------------
 
 def test_read_only_never_requires_a_grant():

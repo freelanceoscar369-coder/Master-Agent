@@ -253,7 +253,16 @@ def test_the_read_model_is_frozen_so_a_panel_cannot_mutate_it():
 # human-gated queues, the Runtime's third outcome (pending, as distinct
 # from denied), and one snapshot key so a deferred approval survives a
 # restart.
+#
+# MB032 / ADR-0017 (ratified 2026-07-29, applied as Constitution Amendment
+# 2) wired the AI Capability Broker in. The amendment's §3.3 row says it
+# outright: *the Model Router resolves which Reasoning Provider by
+# consulting the Broker, rather than implementing its own ranking* -- and
+# ADR-0017's Consequences name `plugins/model_router.py` as the file that
+# has to change for that to be true. One file, named in advance by a
+# ratified ADR, which is exactly what this list is for.
 RATIFIED_EXCEPTIONS = {
+    "src/master_agent/plugins/model_router.py": "ADR-0017",
     "src/master_agent/runtime/approval.py": "ADR-0019",
     "src/master_agent/runtime/engine.py": "ADR-0019, ADR-0020",
     "src/master_agent/mission_control/events.py": "ADR-0019, ADR-0020",

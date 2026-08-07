@@ -1,0 +1,14 @@
+# Voiceover Script
+## VEDRA – A Founder's Promise
+
+Every revolution begins
+with a decision.
+
+Tonight...
+
+we made ours.
+
+I will build
+what does not yet exist.
+
+VEDRA

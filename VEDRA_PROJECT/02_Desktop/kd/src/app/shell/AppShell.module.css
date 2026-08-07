@@ -1,0 +1,82 @@
+/**
+ * AppShell — full-viewport CSS Grid frame.
+ *
+ * Grid:
+ *   titlebar  (40px)
+ *   nav + main (remainder)
+ *   statusbar (32px)
+ *
+ * The mainWrapper holds the CommandBar (position:absolute, z-transient)
+ * and the main scroll region together, so the command bar overlays the
+ * content without escaping the grid cell.
+ */
+
+.root {
+  display: grid;
+  grid-template-areas:
+    "titlebar titlebar"
+    "nav      main"
+    "statusbar statusbar";
+  grid-template-rows: 40px 1fr 32px;
+  grid-template-columns: auto 1fr;
+  height: 100dvh;
+  overflow: hidden;
+  background-color: var(--color-void);
+}
+
+/* ── Main wrapper — holds CommandBar + scrollable main together ─────────── */
+
+.mainWrapper {
+  grid-area: main;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Main scroll region ─────────────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  /* Ensure grid guides render on top of content */
+}
+
+.contentWrap {
+  max-width: var(--maxw);
+  width: 100%;
+  /* Content padding — top pads below any CommandBar sheet */
+  padding: calc(var(--bl) * 4) var(--margin) calc(var(--bl) * 6);
+  margin-inline: 0;
+}
+
+/* Loading fallback — intentionally blank, no spinner */
+.loadingFallback {
+  min-height: 120px;
+}
+
+/* ── Responsive: ≤ 860px, rail becomes top bar ──────────────────────────── */
+
+@media (max-width: 860px) {
+  .root {
+    grid-template-areas:
+      "titlebar"
+      "nav"
+      "main"
+      "statusbar";
+    grid-template-rows: 40px 48px 1fr 32px;
+    grid-template-columns: 1fr;
+  }
+
+  /* mainWrapper fills the full width */
+  .mainWrapper {
+    grid-area: main;
+  }
+
+  .contentWrap {
+    padding-inline: calc(var(--margin) / 2);
+  }
+}

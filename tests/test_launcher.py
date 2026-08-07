@@ -56,11 +56,19 @@ def test_every_boot_step_is_reported(tmp_path):
         "Mission Control",
         "Persistence",
         "Runtime",
+        "Founder Memory",
         "Recovery",
         "Event recording",
         "Executives",
         "AI Capability Broker",
+        "Provider execution",
         "Approval boundary",
+        # MB037. After the boundary because a plan is only worth having if
+        # the thing that executes it is gated, and before the Dashboard
+        # because the Dashboard reads the plan history.
+        "Intent Layer",
+        "Reporter",
+        "Planner",
         "Founder Dashboard",
     ]
 
@@ -92,17 +100,39 @@ def test_capabilities_reach_mission_control_from_the_plugin_manifest(tmp_path):
     assert len(names) >= 14, "MB005 shipped fourteen filesystem capabilities"
 
 
-# ---- the Broker gap is reported, never claimed --------------------------
+# ---- the Broker is wired, and says what it wired ------------------------
 
 
-def test_the_broker_step_reports_unavailable_with_a_reason(tmp_path):
+def test_the_broker_step_reports_what_it_built(tmp_path):
+    """MB027.5 reported this step as "frozen but not implemented"; MB031
+    built the engine and MB032 wired it. The step now names the policy and
+    the estate, because "OK" without a reason is the same non-answer as
+    "unavailable" without one."""
     system = quiet_system(tmp_path / "state")
     step = system.report.step("AI Capability Broker")
 
     assert step is not None
+    assert step.status == OK
+    assert "balanced/1" in step.detail
+    assert "provider(s) available" in step.detail
+    assert system.broker is not None
+    assert system.intelligence is not None
+
+
+def test_a_broker_that_cannot_be_built_fails_the_system_closed(tmp_path):
+    """Deliverable 10. An unknown policy name is the cheapest way to make
+    construction fail for real, rather than by patching a mock in."""
+    from master_agent.config import BrokerConfig, MasterAgentConfig
+
+    config = MasterAgentConfig(broker=BrokerConfig(policy="no-such-policy"))
+    system = quiet_system(tmp_path / "state", config=config)
+    step = system.report.step("AI Capability Broker")
+
     assert step.status == UNAVAILABLE
-    assert step.detail == BROKER_UNAVAILABLE_REASON
+    assert BROKER_UNAVAILABLE_REASON in step.detail
     assert system.broker is None
+    assert system.intelligence is None
+    assert system.model_router.has_broker is False
 
 
 def test_an_unavailable_step_is_never_reported_as_ok(tmp_path):
@@ -113,9 +143,10 @@ def test_an_unavailable_step_is_never_reported_as_ok(tmp_path):
     for step in system.report.steps:
         if step.status != OK:
             assert step.detail, f"{step.name} is not OK without saying why"
-    assert [s.name for s in system.report.needs_attention] == [
-        "AI Capability Broker"
-    ], "MB028.0 removed the execution-posture warning by removing the hazard"
+    assert system.report.needs_attention == [], (
+        "MB028.0 removed the execution-posture warning by removing the hazard, "
+        "and MB032 removed the Broker warning by wiring the Broker"
+    )
 
 
 # ---- execution posture --------------------------------------------------
@@ -354,7 +385,7 @@ def test_boot_only_prints_the_report_and_starts_nothing(tmp_path, capsys):
     assert code == 0
     assert "boot report" in out
     assert "AI Capability Broker" in out
-    assert "not implemented" in out
+    assert "balanced/1" in out, "the boot report should name the policy in force"
 
 
 def test_launcher_output_is_ascii_only(tmp_path, capsys):

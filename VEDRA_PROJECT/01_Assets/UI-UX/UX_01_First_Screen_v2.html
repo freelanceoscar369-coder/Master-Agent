@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kalpavriksha — The First Screen v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cols:12; --bl:8px; --lh:24px; --gutter:24px; --margin:48px; --pad:96px; --maxw:1440px;
+  --void:#05070A; --deep:#080B10;
+  --panel:rgba(255,255,255,.028); --hair:rgba(150,190,220,.16); --hair-soft:rgba(150,190,220,.09);
+  --ink:#E9EFF5; --ink-2:#9FB0BF; --ink-3:#63727F;
+  --accent:#7FD3FF; --amber:#FFB454; --green:#63E6A8; --red:#FF6B6B;
+  --g-col:rgba(127,211,255,.055); --g-edge:rgba(127,211,255,.30);
+  --g-base:rgba(127,211,255,.22); --g-base-min:rgba(127,211,255,.07);
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--void);color:var(--ink);
+  font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:var(--lh);
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;}
+::selection{background:rgba(127,211,255,.28);}
+button{font-family:inherit;}
+
+.spread{position:relative;width:100%;}
+.wrap{position:relative;max-width:var(--maxw);margin:0 auto;padding:var(--pad) var(--margin);}
+.grid{display:grid;grid-template-columns:repeat(var(--cols),1fr);column-gap:var(--gutter);row-gap:var(--lh);}
+.band{grid-column:1 / -1;display:grid;grid-template-columns:subgrid;
+  column-gap:var(--gutter);row-gap:var(--lh);align-items:start;}
+@supports not (grid-template-columns:subgrid){.band{grid-template-columns:repeat(var(--cols),1fr);}}
+
+.guides{position:absolute;inset:0;pointer-events:none;z-index:60;opacity:0;transition:opacity .26s ease;}
+body.grid-on .guides{opacity:1;}
+.guides .cols{position:absolute;top:0;bottom:0;left:var(--margin);right:var(--margin);
+  display:grid;grid-template-columns:repeat(var(--cols),1fr);column-gap:var(--gutter);}
+.guides .col{background:var(--g-col);box-shadow:inset 1px 0 0 var(--g-edge),inset -1px 0 0 var(--g-edge);position:relative;}
+.guides .col span{position:absolute;top:32px;left:0;right:0;text-align:center;
+  font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:1;color:var(--accent);opacity:.8;}
+.guides .rows{position:absolute;left:var(--margin);right:var(--margin);top:var(--pad);bottom:0;
+  background-image:repeating-linear-gradient(to bottom,var(--g-base) 0 1px,transparent 1px var(--lh)),
+    repeating-linear-gradient(to bottom,var(--g-base-min) 0 1px,transparent 1px var(--bl));}
+.guides .mline{position:absolute;top:0;bottom:0;width:1px;background:var(--g-edge);}
+.guides .mline.l{left:var(--margin);} .guides .mline.r{right:var(--margin);}
+
+.mono{font-family:"IBM Plex Mono",monospace;}
+.kicker{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-3);}
+.kicker.live{color:var(--accent);} .kicker.warn{color:var(--amber);} .kicker.good{color:var(--green);}
+.h1b{font-size:44px;line-height:48px;font-weight:600;letter-spacing:-.025em;margin:0;}
+.h2b{font-size:27px;line-height:32px;font-weight:600;letter-spacing:-.018em;margin:0;}
+.h3b{font-size:19px;line-height:24px;font-weight:600;letter-spacing:-.01em;margin:0;}
+.lede{font-size:19px;line-height:32px;font-weight:300;color:var(--ink-2);margin:0;}
+p{margin:0 0 var(--lh) 0;} p:last-child{margin-bottom:0;}
+.soft{color:var(--ink-2);} .dim{color:var(--ink-3);}
+.rule{height:1px;background:var(--hair);grid-column:1 / -1;}
+.note{border-left:2px solid var(--accent);padding-left:15px;font-size:14px;line-height:24px;color:var(--ink-2);}
+.note b{color:var(--ink);font-weight:500;}
+.note.warn{border-left-color:var(--amber);} .note.red{border-left-color:var(--red);}
+.panel{background:var(--panel);border:1px solid var(--hair-soft);}
+.pad-a{padding:23px;}
+.btn{padding:11px 20px;border:1px solid var(--hair);background:transparent;color:var(--ink-2);
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  cursor:pointer;transition:all .25s;}
+.btn:hover{color:var(--ink);border-color:var(--ink-2);}
+.btn.primary{border-color:rgba(99,230,168,.5);color:var(--green);}
+.btn.primary:hover{background:rgba(99,230,168,.1);border-color:var(--green);}
+.btn.accent{border-color:rgba(127,211,255,.5);color:var(--accent);}
+.btn.accent:hover{background:rgba(127,211,255,.1);}
+.btn.ghost:hover{border-color:var(--red);color:var(--red);}
+.toggle{position:fixed;top:18px;right:18px;z-index:200;display:flex;align-items:center;gap:10px;
+  background:rgba(10,14,20,.9);color:var(--ink-2);border:1px solid var(--hair);cursor:pointer;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  padding:11px 14px;backdrop-filter:blur(10px);transition:all .25s;}
+.toggle:hover{color:var(--ink);border-color:var(--ink-3);}
+.toggle .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-3);}
+body.grid-on .toggle{border-color:var(--accent);color:var(--accent);}
+body.grid-on .toggle .dot{background:var(--accent);}
+
+/* ============================================================
+   THE FIRST SCREEN — one viewport, no scroll, no chrome
+   ============================================================ */
+#screen{height:100vh;min-height:760px;position:relative;overflow:hidden;
+  background:radial-gradient(130% 100% at 22% 50%,#0A1018 0%,#05070A 66%);}
+#tree{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:.85;}
+#screen .veil{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(90deg,rgba(5,7,10,.72) 0%,rgba(5,7,10,.35) 55%,rgba(5,7,10,.8) 100%);}
+.screen-inner{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;
+  max-width:var(--maxw);margin:0 auto;padding:40px var(--margin);}
+
+/* top: the only chrome that exists */
+.top{display:flex;justify-content:space-between;align-items:flex-start;}
+.mark{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;letter-spacing:.32em;
+  text-transform:uppercase;color:var(--ink-3);}
+.mark b{color:var(--ink-2);font-weight:500;}
+.vtog{display:flex;align-items:center;gap:10px;background:transparent;border:1px solid var(--hair-soft);
+  padding:7px 12px;cursor:pointer;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);transition:all .3s;}
+.vtog:hover{border-color:var(--hair);color:var(--ink-2);}
+.vtog .vd{width:6px;height:6px;border-radius:50%;background:var(--ink-3);transition:all .3s;}
+.vtog.on{color:var(--accent);border-color:rgba(127,211,255,.35);}
+.vtog.on .vd{background:var(--accent);box-shadow:0 0 0 3px rgba(127,211,255,.16);}
+
+/* the body of the screen */
+.body{flex:1;display:grid;grid-template-columns:repeat(var(--cols),1fr);column-gap:var(--gutter);
+  align-content:center;padding:40px 0;}
+
+/* THE VOICE — the AI speaks first, in prose */
+.voice{grid-column:1 / 8;}
+.speech{font-size:38px;line-height:48px;font-weight:300;letter-spacing:-.022em;margin:0;
+  min-height:96px;}
+.speech .b{font-weight:500;color:#fff;}
+.speech .cur{display:inline-block;width:2px;height:32px;background:var(--accent);
+  vertical-align:-4px;margin-left:3px;animation:blink 1.05s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+
+/* THE DECISION — the reason the screen exists */
+.decision{margin-top:32px;border-left:2px solid var(--amber);padding-left:23px;
+  opacity:0;transform:translateY(12px);transition:opacity .6s ease,transform .6s ease;}
+.decision.on{opacity:1;transform:none;}
+.decision.calm{border-left-color:var(--green);}
+.dhead{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;}
+.dhead .idx{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--amber);}
+.dhead .exp{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);}
+.dtitle{font-size:24px;line-height:32px;font-weight:500;letter-spacing:-.015em;margin-top:8px;}
+.drec{font-size:15px;line-height:24px;color:var(--ink-2);margin-top:16px;max-width:620px;}
+.drec b{color:var(--ink);font-weight:500;}
+.dfacts{display:flex;gap:32px;margin-top:16px;flex-wrap:wrap;}
+.dfacts div{}
+.dfacts .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);}
+.dfacts .v{font-size:14px;line-height:24px;color:var(--ink);}
+.dfacts .v.warn{color:var(--amber);}
+.dacts{display:flex;gap:8px;margin-top:24px;flex-wrap:wrap;}
+
+/* THE RECEIPT — everything done, collapsed to one honest line */
+.receipt{grid-column:9 / 13;align-self:center;
+  opacity:0;transform:translateY(12px);transition:opacity .8s ease .2s,transform .8s ease .2s;}
+.receipt.on{opacity:1;transform:none;}
+.rline{border-top:1px solid var(--hair-soft);padding-top:15px;}
+.rline + .rline{margin-top:16px;}
+.rtop{display:flex;align-items:baseline;justify-content:space-between;gap:16px;cursor:pointer;}
+.rtop:hover .rnum{color:var(--accent);}
+.rnum{font-family:"IBM Plex Mono",monospace;font-size:22px;line-height:32px;
+  font-variant-numeric:tabular-nums;transition:color .25s;}
+.rnum.g{color:var(--green);}
+.rlbl{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);text-align:right;}
+.rdesc{font-size:14px;line-height:24px;color:var(--ink-2);margin-top:8px;}
+.rlist{max-height:0;overflow:hidden;transition:max-height .5s cubic-bezier(.16,1,.3,1);}
+.rlist.on{max-height:520px;}
+.rlist .it{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid rgba(150,190,220,.05);
+  font-size:13px;line-height:24px;color:var(--ink-3);}
+.rlist .it .d{color:var(--green);flex:0 0 auto;font-family:"IBM Plex Mono",monospace;}
+
+/* the flagged judgment call — the trust moment */
+.flag{border:1px solid rgba(255,180,84,.3);background:rgba(255,180,84,.045);padding:15px;
+  margin-top:16px;transition:all .5s;}
+.flag.settled{border-color:rgba(99,230,168,.35);background:rgba(99,230,168,.04);}
+.flag .fh{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--amber);}
+.flag.settled .fh{color:var(--green);}
+.flag .ft{font-size:13px;line-height:24px;color:var(--ink-2);margin-top:8px;}
+.flag .ft b{color:var(--ink);font-weight:500;}
+.flag .fa{display:flex;gap:8px;margin-top:16px;}
+.flag .fa .btn{padding:7px 12px;font-size:10px;}
+.flag .fsettled{display:none;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--green);margin-top:16px;}
+.flag.settled .fsettled{display:block;} .flag.settled .fa{display:none;}
+
+/* bottom: doorways, not navigation */
+.bottom{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
+  opacity:0;transition:opacity .8s ease .4s;}
+.bottom.on{opacity:1;}
+.doors{display:flex;gap:32px;}
+.doors a{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);text-decoration:none;transition:color .25s;
+  border-bottom:1px solid transparent;padding-bottom:2px;}
+.doors a:hover{color:var(--accent);border-bottom-color:rgba(127,211,255,.4);}
+.nowline{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:right;}
+.nowline .p{color:var(--accent);}
+
+/* wake */
+.wake{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;text-align:center;
+  transition:opacity .6s ease,transform .6s ease;}
+.wake.gone{opacity:0;transform:translate(-50%,-58%);pointer-events:none;}
+.wake button{background:transparent;border:1px solid var(--hair);color:var(--ink);padding:15px 32px;
+  font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.24em;text-transform:uppercase;
+  cursor:pointer;transition:all .3s;}
+.wake button:hover{border-color:var(--accent);color:var(--accent);background:rgba(127,211,255,.05);}
+.wake .n{margin-top:16px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;
+  letter-spacing:.1em;color:var(--ink-3);}
+
+/* state control for the demo */
+.demo{position:fixed;left:18px;bottom:18px;z-index:200;display:flex;gap:8px;align-items:center;
+  background:rgba(10,14,20,.9);border:1px solid var(--hair-soft);padding:8px;backdrop-filter:blur(10px);}
+.demo .dl{font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);padding:0 8px;}
+.demo button{background:transparent;border:1px solid var(--hair-soft);color:var(--ink-3);
+  font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  padding:6px 10px;cursor:pointer;transition:all .2s;}
+.demo button:hover,.demo button.on{color:var(--accent);border-color:rgba(127,211,255,.4);}
+
+/* rationale appendix */
+.refuse{display:flex;gap:12px;align-items:flex-start;padding:8px 0;}
+.refuse .x{color:var(--red);font-family:"IBM Plex Mono",monospace;font-size:13px;line-height:24px;flex:0 0 auto;}
+.refuse .t{font-size:14px;line-height:24px;color:var(--ink-2);}
+.refuse .t b{color:var(--ink);font-weight:500;}
+.vs{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair-soft);
+  border:1px solid var(--hair-soft);}
+.vs div{background:var(--deep);padding:15px;}
+.vs .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);}
+.vs .v{font-size:14px;line-height:24px;margin-top:8px;}
+.vs .v.old{color:var(--ink-3);text-decoration:line-through;}
+.vs .v.new{color:var(--ink);}
+
+@media (max-width:1080px){
+  :root{--margin:32px;--pad:64px;}
+  .speech{font-size:27px;line-height:40px;}
+  .voice{grid-column:1 / 13;} .receipt{grid-column:1 / 13;margin-top:32px;}
+  .body{align-content:start;overflow-y:auto;}
+  #screen{height:auto;min-height:100vh;}
+  .h1b{font-size:34px;line-height:40px;}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition-duration:.01ms!important;}}
+</style>
+<style>
+.ha-img-placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;background:#f4f4f5;border:1px dashed #d4d4d8;border-radius:8px;color:#71717a;font-size:12px;font-family:system-ui,sans-serif;min-height:80px;padding:16px;box-sizing:border-box;animation:ha-img-pulse 1.5s ease-in-out infinite}
+.ha-img-placeholder.ha-failed{animation:none;opacity:.7}
+@keyframes ha-img-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@media(prefers-color-scheme:dark){.ha-img-placeholder{background:#27272a;border-color:#3f3f46;color:#a1a1aa}}
+</style>
+</head>
+<body>
+
+<button class="toggle" id="gridToggle" aria-pressed="false"><span class="dot"></span><span class="lbl">Show grid</span></button>
+
+<div class="demo">
+  <span class="dl">State</span>
+  <button data-state="pending" class="on">Judgment required</button>
+  <button data-state="clear">All clear</button>
+  <button data-state="replay">Replay arrival</button>
+</div>
+
+<!-- ============================================================
+     THE FIRST SCREEN
+     ============================================================ -->
+<section class="spread" id="screen">
+  <canvas id="tree"></canvas>
+  <div class="veil"></div>
+
+  <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+    <div class="mline l"></div><div class="mline r"></div></div>
+
+  <div class="screen-inner">
+    <div class="top">
+      <div class="mark"><b>Kalpavriksha</b></div>
+      <button class="vtog" id="vtog"><span class="vd"></span><span id="vlbl">Voice off</span></button>
+    </div>
+
+    <div class="body">
+      <!-- THE VOICE -->
+      <div class="voice">
+        <h1 class="speech" id="speech"></h1>
+
+        <div class="decision" id="decision">
+          <div class="dhead">
+            <span class="idx" id="dIdx">Decision 1 of 2</span>
+            <span class="exp" id="dExp">Irreversible after Friday 00:00 · 4 days</span>
+          </div>
+          <div class="dtitle" id="dTitle">Datastack renews at ₹18.4L — 22% above market.</div>
+          <div class="drec" id="dRec">I'd send the counter. We're using <b>34% of the seats</b> we pay for, their quarter closes the same day as our renewal, and two comparable teams pay ₹14.3L for this tier. <b>Open at ₹13.8L, settle at ₹14.5L.</b> The draft is written.</div>
+          <div class="dfacts" id="dFacts">
+            <div><div class="k">If you do nothing</div><div class="v warn">It renews Friday at full price</div></div>
+            <div><div class="k">Upside</div><div class="v">≈ ₹4.1L / year</div></div>
+            <div><div class="k">Reversible</div><div class="v">Until Thursday 23:59</div></div>
+          </div>
+          <div class="dacts" id="dActs">
+            <button class="btn primary" id="dYes">Send the counter</button>
+            <button class="btn accent" id="dTalk">Discuss</button>
+            <button class="btn ghost" id="dNo">Let it renew</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- THE RECEIPT -->
+      <div class="receipt" id="receipt">
+        <div class="kicker">While you were away · 14h 22m</div>
+
+        <div class="rline" style="margin-top:16px;">
+          <div class="rtop" id="rToggle">
+            <span class="rnum g">12</span>
+            <span class="rlbl">Handled<br>without you</span>
+          </div>
+          <div class="rdesc">Nothing in here changed anything you'd want reversed.</div>
+          <div class="rlist" id="rList">
+            <div class="it"><span class="d">✓</span><span>Vendor contract review — 3 renewals</span></div>
+            <div class="it"><span class="d">✓</span><span>Overnight sweep — 6 checks clean</span></div>
+            <div class="it"><span class="d">✓</span><span>Contractor invoice matched to SOW</span></div>
+            <div class="it"><span class="d">✓</span><span>Runway model reconciled to hiring plan</span></div>
+            <div class="it"><span class="d">✓</span><span>AWS reserved instance top-up</span></div>
+            <div class="it"><span class="d">✓</span><span>Productivity score recomputed — 87</span></div>
+            <div class="it"><span class="d">✓</span><span>+ 6 more routine items</span></div>
+
+            <div class="flag" id="flag">
+              <div class="fh" id="flagH">⚑ One judgment call</div>
+              <div class="ft" id="flagT">I approved the <b>Sentry upgrade (₹7,200)</b> under your tooling rule — three days after a similar one. The rule allowed it, but the pattern might not be what you meant. <b>Want me to narrow it to once a month?</b></div>
+              <div class="fa">
+                <button class="btn accent" id="flagNarrow">Narrow it</button>
+                <button class="btn" id="flagOk">That was right</button>
+              </div>
+              <div class="fsettled" id="flagS">✓ Rule narrowed · once per vendor per month</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rline">
+          <div class="rtop">
+            <span class="rnum">3</span>
+            <span class="rlbl">Running<br>right now</span>
+          </div>
+          <div class="rdesc">Runway refresh 68% · competitor sweep · infra memo. I'll interrupt only if one turns.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom" id="bottom">
+      <div class="doors">
+        <a href="#rationale">Everything I did</a>
+        <a href="#rationale">Mission control</a>
+        <a href="#rationale">Talk to me</a>
+      </div>
+      <div class="nowline">
+        IST 17:06 · Session 0447<br>
+        <span class="p">Autonomy 64%</span> · 6 rules active
+      </div>
+    </div>
+  </div>
+
+  <div class="wake" id="wake">
+    <button id="wakeBtn">Wake Kalpavriksha</button>
+    <div class="n">Press to enable voice · or hit any key</div>
+  </div>
+</section>
+
+<!-- ============================================================
+     RATIONALE APPENDIX
+     ============================================================ -->
+<section class="spread" id="rationale">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div style="grid-column:1 / 13;display:flex;align-items:center;gap:12px;">
+          <span class="mono" style="font-size:11px;letter-spacing:.2em;color:var(--accent);">SCREEN 01 · V2</span>
+          <span style="flex:1;height:1px;background:var(--hair-soft);"></span>
+          <span class="kicker">Why the first screen looks like this</span>
+        </div>
+      </div>
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <h2 class="h1b">The dashboard is now a footnote to a sentence.</h2>
+          <p class="lede" style="margin-top:24px;">If the AI is the interface, then the first screen is not a place where information is displayed. It is a <b style="color:var(--ink);">moment where an intelligence reports to a principal</b>. Everything that isn't the report or the decision had to go — including most of what I designed in v1.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note"><b>The test I applied to every element.</b> Does this explain what the AI did, or does it ask for human judgment? If neither, it was deleted. Not moved, not collapsed — deleted.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 7;">
+          <div class="kicker warn">What I killed from my own v1</div>
+          <h3 class="h2b" style="margin-top:16px;margin-bottom:16px;">Four deletions</h3>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>The stat row.</b> "12 completed / 3 improved / 2 recommendations / 1 approval." Four big numerals I was proud of. But "12 completed" doesn't explain what was done and doesn't require judgment — it's vanity telemetry dressed as mission control. It became one line: <b>12 handled without you.</b></div></div>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>The greeting as its own beat.</b> "Good evening, Onkar." full stop, was the most valuable moment in the product spent on nothing. The greeting now carries payload in the same breath: <b>"Two things need you. This one first — it expires Friday."</b></div></div>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>Scroll.</b> The v1 first screen was ceremony, then you scrolled into a dashboard. If the first screen scrolls, it's a dashboard again. This one fits a viewport and <b>empties</b>.</div></div>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>Navigation.</b> There is no rail, no menu, no tabs. Three lowercase doorways sit at the bottom for when the founder doubts. <b>You go to Mission Control when you don't trust the summary</b> — so its prominence should be inversely proportional to how well the AI is doing its job.</div></div>
+        </div>
+
+        <div style="grid-column:8 / 13;">
+          <div class="kicker live">What replaced them</div>
+          <h3 class="h2b" style="margin-top:16px;margin-bottom:16px;">Three elements. That's the whole screen.</h3>
+          <div class="vs">
+            <div><div class="k">01 · The voice</div><div class="v new">The AI speaks first, in prose, at 38px. Not a card. Not a widget. A sentence with a subject and a verb.</div></div>
+            <div><div class="k">Why</div><div class="v">Prose is the only format that can carry judgment. A metric can't say "I'd open at ₹13.8L."</div></div>
+            <div><div class="k">02 · The decision</div><div class="v new">One decision, in full, with its recommendation and its consequence. Not a link to an approval centre.</div></div>
+            <div><div class="k">Why</div><div class="v">Where judgment is required <i>is</i> the product. It gets the largest object on screen.</div></div>
+            <div><div class="k">03 · The receipt</div><div class="v new">Everything done, collapsed to two numbers, expandable. Deliberately low-contrast.</div></div>
+            <div><div class="k">Why</div><div class="v">Explaining what it did is an obligation, not a boast. It should be available, not loud.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 5;">
+          <div class="kicker">Decision 01</div>
+          <h3 class="h3b" style="margin-top:16px;">One decision at a time, never a list</h3>
+          <p class="soft" style="font-size:14px;margin-top:16px;">A chief of staff doesn't hand you a stack. They say "this one first, here's why." The consequence ranking from Screen 04b already produces the order — the first screen just takes the top item and shows it completely. Resolve it and the next one rises into the same slot. <b style="color:var(--ink);">The screen empties as you work.</b> Try it.</p>
+        </div>
+        <div style="grid-column:6 / 9;">
+          <div class="kicker">Decision 02</div>
+          <h3 class="h3b" style="margin-top:16px;">The AI reports its own judgment calls</h3>
+          <p class="soft" style="font-size:14px;margin-top:16px;">Inside the receipt, one item is flagged: <b style="color:var(--ink);">"I approved this under your rule, but the pattern might not be what you meant. Want me to narrow it?"</b> Nothing else in this product does more for trust. An AI that only reports successes is a marketing surface; one that surfaces its own borderline calls — unprompted, when nobody would have caught it — is a colleague.</p>
+        </div>
+        <div style="grid-column:10 / 13;">
+          <div class="kicker">Decision 03</div>
+          <h3 class="h3b" style="margin-top:16px;">The tree is the emotional register</h3>
+          <p class="soft" style="font-size:14px;margin-top:16px;">It's no longer a ceremony that ends. It lives behind the words for the entire session, weighted left, dimmed under the text. It <b style="color:var(--ink);">tightens and warms toward amber when judgment is pending</b>, and settles into a slow cool breathe when the screen is clear. The founder reads the system's state before reading a word.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;">
+        <div style="grid-column:1 / 7;">
+          <div class="kicker good">The success condition</div>
+          <h3 class="h2b" style="margin-top:16px;">This screen should get emptier every month.</h3>
+          <p class="soft" style="margin-top:16px;">Same inversion as the approval queue. As standing rules accumulate, the number on the left shrinks and the number on the right grows. Eventually the founder opens Kalpavriksha and reads: <b style="color:var(--green);">"Nothing needs you. Here's what I'm doing."</b> — with three lines of receipt beneath it. That is not a degraded state of the product. <b style="color:var(--ink);">That is the product having won.</b></p>
+          <p class="soft" style="margin-top:16px;">Switch the demo control to <b style="color:var(--ink);">All clear</b> to see it.</p>
+        </div>
+        <div style="grid-column:8 / 13;">
+          <p class="note red"><b>The risk I'm accepting, stated openly.</b> A screen this sparse can read as "the product doesn't do much" in a demo to someone who hasn't lived with it. Density signals value to a stranger; restraint signals value to an owner. I'm optimising for the owner on day 200, not the stranger on day 0 — but that means the sales demo needs Mission Control, not this screen. Worth deciding deliberately rather than discovering later.</p>
+          <div class="mono" style="font-size:11px;line-height:24px;color:var(--ink-3);letter-spacing:.1em;margin-top:32px;">
+            KALPAVRIKSHA<br>THE FIRST SCREEN · V2<br>PRESS G FOR GRID
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<script>
+/* ---------- grid overlay ---------- */
+var btn=document.getElementById('gridToggle');
+function setGrid(on){document.body.classList.toggle('grid-on',on);
+  btn.setAttribute('aria-pressed',on?'true':'false');
+  btn.querySelector('.lbl').textContent=on?'Hide grid':'Show grid';}
+btn.addEventListener('click',function(){setGrid(!document.body.classList.contains('grid-on'));});
+document.addEventListener('keydown',function(e){
+  if((e.key==='g'||e.key==='G')&&!e.metaKey&&!e.ctrlKey&&!e.altKey){
+    setGrid(!document.body.classList.contains('grid-on'));}});
+document.querySelectorAll('.guides .cols').forEach(function(h){
+  var n=getComputedStyle(document.documentElement).getPropertyValue('--cols').trim()||'12';
+  for(var i=1;i<=parseInt(n,10);i++){var c=document.createElement('div');c.className='col';
+    var s=document.createElement('span');s.textContent=i;c.appendChild(s);h.appendChild(c);}});
+
+/* ---------- optical alignment ---------- */
+(function(){
+  var cvs=document.createElement('canvas'),ctx=cvs.getContext('2d');
+  var sel='.speech, .h1b, .h2b, .dtitle';
+  function align(){
+    document.querySelectorAll(sel).forEach(function(el){
+      el.style.marginLeft='0px';
+      var cs=getComputedStyle(el),ch=(el.textContent||'').trim().charAt(0); if(!ch) return;
+      ctx.font=cs.fontStyle+' '+cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily;ctx.textAlign='left';
+      var abl=ctx.measureText(ch).actualBoundingBoxLeft;
+      if(isFinite(abl)) el.style.marginLeft=abl.toFixed(2)+'px';});
+  }
+  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(align);}
+  align();
+  var t;window.addEventListener('resize',function(){clearTimeout(t);t=setTimeout(align,120);});
+})();
+
+/* ============================================================
+   THE TREE — emotional register, weighted left, state-reactive
+   ============================================================ */
+function TreeField(canvas){
+  var ctx=canvas.getContext('2d'),dpr=Math.min(window.devicePixelRatio||1,2);
+  var W=0,H=0,parts=[],edges=[],t0=performance.now();
+  var mood=1;           /* 0 = calm/green, 1 = pending/amber */
+  var moodT=1;
+  function rnd(a,b){return a+Math.random()*(b-a);}
+  function build(){
+    edges=[];
+    function branch(x,y,ang,len,depth,w){
+      if(depth<=0||len<0.008) return;
+      var segs=Math.max(2,Math.round(len*44)),px=x,py=y,pa=ang;
+      for(var i=0;i<segs;i++){
+        pa+=rnd(-0.055,0.055);
+        var nx=px+Math.cos(pa)*(len/segs),ny=py+Math.sin(pa)*(len/segs);
+        edges.push({x1:px,y1:py,x2:nx,y2:ny,d:depth,w:w});px=nx;py=ny;
+      }
+      var n=depth>4?2:(Math.random()<0.72?2:3);
+      for(var k=0;k<n;k++){
+        var sp=rnd(0.34,0.78)*(k%2?1:-1)*(1+(3-Math.min(depth,3))*0.1);
+        branch(px,py,pa+sp+rnd(-0.12,0.12),len*rnd(0.60,0.78),depth-1,w*0.68);
+      }
+    }
+    branch(0.5,0.97,-Math.PI/2,0.27,6,2.2);
+  }
+  function seed(){
+    parts=[];
+    for(var i=0;i<2600;i++){
+      var e=edges[(Math.random()*edges.length)|0],f=Math.random();
+      var tx=e.x1+(e.x2-e.x1)*f,ty=e.y1+(e.y2-e.y1)*f;
+      var j=0.004+(7-e.d)*0.0016;
+      parts.push({tx:tx+rnd(-j,j),ty:ty+rnd(-j,j),x:0.5+rnd(-.5,.5),y:1.2+rnd(-.1,.35),
+        ph:Math.random()*6.283,sp:rnd(.55,1.5),d:e.d,s:rnd(.5,1.7),a:rnd(.18,.85),del:Math.random()*.55});
+    }
+  }
+  function resize(){var r=canvas.getBoundingClientRect();W=r.width;H=r.height;
+    canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  function frame(now){
+    var el=(now-t0)/1000, ease=1-Math.pow(1-Math.min(1,el/2.4),3);
+    moodT+=(mood-moodT)*0.02;
+    ctx.clearRect(0,0,W,H);
+    var breathe=1+Math.sin(el*(0.85+moodT*0.5))*(0.010+moodT*0.008);
+    /* weighted left so the type has the right two-thirds */
+    var cx=W*(W>1080?0.30:0.5), cy=H*0.54, sc=Math.min(W,H*1.4);
+    /* colour drifts amber when judgment pending, cool green when clear */
+    var R=Math.round(127+moodT*100), G=Math.round(214-moodT*34), B=Math.round(214-moodT*130);
+    for(var i=0;i<edges.length;i++){
+      var e=edges[i],o=(0.026+(7-e.d)*0.009)*ease;
+      ctx.strokeStyle='rgba('+R+','+G+','+B+','+o.toFixed(3)+')';
+      ctx.lineWidth=Math.max(0.4,e.w*0.4);
+      ctx.beginPath();
+      ctx.moveTo(cx+(e.x1-0.5)*sc*breathe,cy+(e.y1-0.54)*H*breathe);
+      ctx.lineTo(cx+(e.x2-0.5)*sc*breathe,cy+(e.y2-0.54)*H*breathe);
+      ctx.stroke();
+    }
+    var pulseY=1.0-((el*(0.26+moodT*0.16))%1.35);
+    for(var j=0;j<parts.length;j++){
+      var p=parts[j],pr=Math.max(0,Math.min(1,(ease-p.del)/(1-p.del)));
+      var wob=Math.sin(el*p.sp+p.ph)*0.0030*(1+moodT), wob2=Math.cos(el*p.sp*.7+p.ph)*0.0030*(1+moodT);
+      p.x+=(p.tx+wob-p.x)*(0.012+pr*0.055);
+      p.y+=(p.ty+wob2-p.y)*(0.012+pr*0.055);
+      var sx=cx+(p.x-0.5)*sc*breathe, sy=cy+(p.y-0.54)*H*breathe;
+      var near=1-Math.min(1,Math.abs(p.ty-pulseY)/0.10), glow=near*near;
+      var alpha=p.a*pr*(0.40+0.60*Math.abs(Math.sin(el*0.6*p.sp+p.ph)))*(0.55+moodT*0.35);
+      var size=p.s*(1+glow*1.5);
+      if(glow>0.02){ctx.fillStyle='rgba('+Math.min(255,R+60)+','+Math.min(255,G+25)+','+Math.min(255,B+40)+','+(alpha*glow*0.9).toFixed(3)+')';
+        ctx.beginPath();ctx.arc(sx,sy,size*1.9,0,6.283);ctx.fill();}
+      ctx.fillStyle='rgba('+R+','+G+','+B+','+alpha.toFixed(3)+')';
+      ctx.beginPath();ctx.arc(sx,sy,size,0,6.283);ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+  build();seed();resize();
+  window.addEventListener('resize',resize);
+  requestAnimationFrame(frame);
+  return {mood:function(v){mood=v;}};
+}
+var tree=TreeField(document.getElementById('tree'));
+
+/* ============================================================
+   THE SEQUENCE
+   ============================================================ */
+var voiceOn=false, woken=false;
+var vtog=document.getElementById('vtog'), vlbl=document.getElementById('vlbl');
+var speech=document.getElementById('speech');
+var decision=document.getElementById('decision'), receipt=document.getElementById('receipt'),
+    bottom=document.getElementById('bottom');
+
+function salutation(){var h=new Date().getHours();return h<12?'Good morning':(h<17?'Good afternoon':'Good evening');}
+
+var DECISIONS=[
+  {idx:'Decision 1 of 2', exp:'Irreversible after Friday 00:00 · 4 days',
+   title:'Datastack renews at ₹18.4L — 22% above market.',
+   rec:'I’d send the counter. We’re using <b>34% of the seats</b> we pay for, their quarter closes the same day as our renewal, and two comparable teams pay ₹14.3L for this tier. <b>Open at ₹13.8L, settle at ₹14.5L.</b> The draft is written.',
+   facts:[['If you do nothing','It renews Friday at full price','warn'],['Upside','≈ ₹4.1L / year',''],['Reversible','Until Thursday 23:59','']],
+   yes:'Send the counter', no:'Let it renew'},
+  {idx:'Decision 2 of 2', exp:'Reversible until she signs · 2 days',
+   title:'Staff Engineer offer at ₹92L — above your band.',
+   rec:'I’d send it. She’s the only candidate in 40 who has shipped at this scale, and <b>you set that band 14 months ago</b>, before the last two raises in the market. If you’d rather hold the band, I’ll tell her today rather than let it drift.',
+   facts:[['If you do nothing','She has another offer expiring Wednesday','warn'],['Over band by','₹14L',''],['Reversible','Until she signs','']],
+   yes:'Send the offer', no:'Hold the band'}
+];
+var di=0;
+
+function paintDecision(d){
+  document.getElementById('dIdx').textContent=d.idx;
+  document.getElementById('dExp').textContent=d.exp;
+  document.getElementById('dTitle').textContent=d.title;
+  document.getElementById('dRec').innerHTML=d.rec;
+  document.getElementById('dFacts').innerHTML=d.facts.map(function(f){
+    return '<div><div class="k">'+f[0]+'</div><div class="v '+f[2]+'">'+f[1]+'</div></div>';}).join('');
+  document.getElementById('dYes').textContent=d.yes;
+  document.getElementById('dNo').textContent=d.no;
+}
+
+function say(text,html,done){
+  var i=0;speech.innerHTML='';
+  var span=document.createElement('span'),cur=document.createElement('span');
+  cur.className='cur';speech.appendChild(span);speech.appendChild(cur);
+  if(voiceOn&&window.speechSynthesis){
+    var u=new SpeechSynthesisUtterance(text);u.rate=0.94;u.pitch=0.92;
+    var vs=window.speechSynthesis.getVoices();
+    var pick=vs.filter(function(v){return /en-GB|en-IN|Daniel|Google UK/.test(v.lang+v.name);})[0];
+    if(pick)u.voice=pick;
+    vtog.classList.add('on');window.speechSynthesis.speak(u);
+  }
+  var iv=setInterval(function(){
+    i++;
+    span.innerHTML=html.slice(0,i).replace(/<[^>]*$/,'');
+    if(i>=html.length){clearInterval(iv);setTimeout(function(){cur.remove();done&&done();},380);}
+  },30);
+}
+
+function showPending(){
+  di=0;paintDecision(DECISIONS[0]);
+  tree.mood(1);
+  var plain=salutation()+', Onkar. Two things need you. This one first — it expires Friday.';
+  var html=salutation()+', Onkar. <span class="b">Two things need you.</span> This one first — it expires Friday.';
+  say(plain,html,function(){
+    decision.classList.add('on');decision.classList.remove('calm');
+    receipt.classList.add('on');bottom.classList.add('on');
+  });
+}
+
+function showClear(){
+  tree.mood(0);
+  decision.classList.remove('on');
+  var plain=salutation()+', Onkar. Nothing needs you.';
+  var html=salutation()+', Onkar. <span class="b">Nothing needs you.</span>';
+  say(plain,html,function(){
+    document.getElementById('dIdx').textContent='All clear · 17:06 IST';
+    document.getElementById('dIdx').style.color='var(--green)';
+    document.getElementById('dExp').textContent='Next scheduled check 18:00';
+    document.getElementById('dTitle').textContent='Three missions running. I’ll interrupt only if one turns.';
+    document.getElementById('dRec').innerHTML='Burn is on plan, no approvals pending, no risks opened in 14 hours. The infra decision I flagged last week is now unblocked — the memo did it. <b>You don’t need to be here.</b>';
+    document.getElementById('dFacts').innerHTML=
+      '<div><div class="k">Checks clean</div><div class="v" style="color:var(--green);">6 / 6</div></div>'+
+      '<div><div class="k">Awaiting you</div><div class="v">0</div></div>'+
+      '<div><div class="k">Burn</div><div class="v">On plan</div></div>';
+    document.getElementById('dActs').innerHTML='<button class="btn accent" onclick="location.hash=\'#rationale\'">Show me anyway</button>';
+    decision.classList.add('on','calm');
+    receipt.classList.add('on');bottom.classList.add('on');
+  });
+}
+
+function nextDecision(){
+  di++;
+  if(di<DECISIONS.length){
+    decision.classList.remove('on');
+    setTimeout(function(){
+      paintDecision(DECISIONS[di]);
+      var plain='Sent. Next — the offer for the staff engineer.';
+      var html='Sent. <span class="b">Next</span> — the offer for the staff engineer.';
+      say(plain,html,function(){decision.classList.add('on');});
+    },420);
+  } else {
+    decision.classList.remove('on');
+    setTimeout(showClear,420);
+  }
+}
+
+document.getElementById('dYes').addEventListener('click',nextDecision);
+document.getElementById('dNo').addEventListener('click',nextDecision);
+document.getElementById('dTalk').addEventListener('click',function(){location.hash='#rationale';});
+
+/* voice */
+function setVoice(on){voiceOn=on;vtog.classList.toggle('on',on);
+  vlbl.textContent=on?'Voice on':'Voice off';
+  if(!on&&window.speechSynthesis)window.speechSynthesis.cancel();}
+vtog.addEventListener('click',function(e){e.stopPropagation();setVoice(!voiceOn);});
+
+/* wake */
+function wake(){
+  if(woken)return;woken=true;setVoice(true);
+  document.getElementById('wake').classList.add('gone');
+  setTimeout(showPending,650);
+}
+document.getElementById('wakeBtn').addEventListener('click',wake);
+document.addEventListener('keydown',function(e){if(!woken&&e.key!=='g'&&e.key!=='G')wake();});
+
+/* receipt expand */
+document.getElementById('rToggle').addEventListener('click',function(){
+  document.getElementById('rList').classList.toggle('on');
+});
+
+/* the flagged judgment call */
+document.getElementById('flagNarrow').addEventListener('click',function(){
+  document.getElementById('flag').classList.add('settled');
+  document.getElementById('flagH').textContent='✓ Rule updated';
+});
+document.getElementById('flagOk').addEventListener('click',function(){
+  var f=document.getElementById('flag');f.classList.add('settled');
+  document.getElementById('flagH').textContent='✓ Noted';
+  document.getElementById('flagS').textContent='✓ Rule unchanged · I’ll stop flagging this pattern';
+});
+
+/* demo state control */
+document.querySelectorAll('.demo button').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelectorAll('.demo button').forEach(function(x){x.classList.remove('on');});
+    b.classList.add('on');
+    var s=b.dataset.state;
+    if(window.speechSynthesis)window.speechSynthesis.cancel();
+    decision.classList.remove('on');
+    if(s==='replay'){
+      woken=false;receipt.classList.remove('on');bottom.classList.remove('on');
+      speech.innerHTML='';document.getElementById('wake').classList.remove('gone');
+      document.getElementById('dActs').innerHTML=
+        '<button class="btn primary" id="dYes">Send the counter</button>'+
+        '<button class="btn accent" id="dTalk">Discuss</button>'+
+        '<button class="btn ghost" id="dNo">Let it renew</button>';
+      document.getElementById('dIdx').style.color='';
+      rewire();
+    } else if(s==='clear'){ setTimeout(showClear,300); }
+    else {
+      document.getElementById('dActs').innerHTML=
+        '<button class="btn primary" id="dYes">Send the counter</button>'+
+        '<button class="btn accent" id="dTalk">Discuss</button>'+
+        '<button class="btn ghost" id="dNo">Let it renew</button>';
+      document.getElementById('dIdx').style.color='';
+      rewire();setTimeout(showPending,300);
+    }
+  });
+});
+function rewire(){
+  document.getElementById('dYes').addEventListener('click',nextDecision);
+  document.getElementById('dNo').addEventListener('click',nextDecision);
+  document.getElementById('dTalk').addEventListener('click',function(){location.hash='#rationale';});
+}
+</script>
+<script>
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && window.parent !== window) {
+    window.parent.postMessage({ type: 'close-fullscreen' }, '*');
+  }
+});
+</script>
+<!-- broken-img-handler -->
+<script>
+(function(){
+  if(window.__brokenImgHandler)return;
+  window.__brokenImgHandler=true;
+  var MAX=5,DELAYS=[2000,4000,8000,16000,32000];
+  document.addEventListener('error',function(e){
+    var img=e.target;
+    if(!img||img.tagName!=='IMG')return;
+    var liveSrc=img.getAttribute('src');
+    var src=img.dataset.haOriginalSrc||liveSrc;
+    if(!src)return;
+    if(img.dataset.haOriginalSrc&&liveSrc&&liveSrc!==img.dataset.haOriginalSrc&&liveSrc.indexOf('_r=')<0){src=liveSrc;img.dataset.haOriginalSrc=src;img.dataset.haRetryCount='0'}
+    else if(!img.dataset.haOriginalSrc){img.dataset.haOriginalSrc=src}
+    var attempt=parseInt(img.dataset.haRetryCount||'0',10);
+    if(img.dataset.haPhId){var old=document.getElementById(img.dataset.haPhId);if(old)old.remove()}
+    var ph=document.createElement('div');
+    ph.className='ha-img-placeholder'+(attempt>=MAX?' ha-failed':'');
+    ph.id='ha-ph-'+Math.random().toString(36).slice(2,9);
+    var w=img.getAttribute('width');var h=img.getAttribute('height');
+    if(w)ph.style.width=w+(isNaN(Number(w))?'':'px');
+    else if(img.style.width)ph.style.width=img.style.width;
+    else if(img.width>1)ph.style.width=img.width+'px';
+    if(h)ph.style.height=h+(isNaN(Number(h))?'':'px');
+    else if(img.style.height)ph.style.height=img.style.height;
+    else if(img.height>1)ph.style.height=img.height+'px';
+    ph.textContent=attempt>=MAX?'Image unavailable':'Loading image\u2026';
+    img.dataset.haPhId=ph.id;
+    if(img.dataset.haOrigDisplay==null)img.dataset.haOrigDisplay=img.style.display||'';
+    img.style.display='none';
+    img.insertAdjacentElement('afterend',ph);
+    if(attempt<MAX){
+      img.dataset.haRetryCount=String(attempt+1);
+      setTimeout(function(){
+        if(!img.isConnected)return;
+        if(img.dataset.haOriginalSrc!==src)return;
+        if(img.complete&&img.naturalWidth>0)return;
+        var curSrc=img.getAttribute('src');
+        if(curSrc&&curSrc.indexOf(src)!==0)return;
+        var fresh=src+(src.indexOf('?')>=0?'&':'?')+'_r='+(attempt+1)+'_'+Date.now();
+        img.src=fresh;
+      },DELAYS[attempt]);
+    }
+  },true);
+  document.addEventListener('load',function(e){
+    var img=e.target;
+    if(!img||img.tagName!=='IMG')return;
+    if(img.dataset.haPhId){
+      var ph=document.getElementById(img.dataset.haPhId);
+      if(ph)ph.remove();
+      delete img.dataset.haPhId;
+      img.style.display=img.dataset.haOrigDisplay||'';
+      delete img.dataset.haOrigDisplay;
+      delete img.dataset.haOriginalSrc;
+      delete img.dataset.haRetryCount;
+    }
+  },true);
+})();
+</script>
+</body>
+</html>

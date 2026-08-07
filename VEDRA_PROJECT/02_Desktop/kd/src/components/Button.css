@@ -1,0 +1,90 @@
+/**
+ * Button — interactive control.
+ * 48px height at md (6 × 8px baseline). Hard-edged (radius-0).
+ * Focus ring uses --signal-live per base.css :focus-visible rule.
+ */
+
+.k-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start; /* flush-left content per constitution */
+  gap: 8px;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  letter-spacing: 0;
+  border-radius: var(--radius-0);
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-1) var(--ease-settle),
+    border-color var(--dur-1) var(--ease-settle),
+    color var(--dur-1) var(--ease-settle);
+  text-align: left;
+}
+
+.k-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── Sizes ── */
+.k-button--md {
+  height: 48px;
+  padding-inline: 24px;
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+}
+
+.k-button--sm {
+  height: 32px;
+  padding-inline: 16px;
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+}
+
+/* ── Variants ── */
+.k-button--default {
+  background-color: var(--color-panel);
+  border-color: var(--color-hair);
+  color: var(--color-ink);
+}
+
+.k-button--default:hover:not(:disabled) {
+  background-color: var(--color-panel-active);
+  border-color: rgba(150, 190, 220, 0.28);
+}
+
+.k-button--primary {
+  background-color: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-void);
+}
+
+.k-button--primary:hover:not(:disabled) {
+  background-color: var(--color-ink-2);
+  border-color: var(--color-ink-2);
+  color: var(--color-void);
+}
+
+.k-button--accent {
+  background-color: transparent;
+  border-color: var(--signal-live);
+  color: var(--signal-live);
+}
+
+.k-button--accent:hover:not(:disabled) {
+  background-color: rgba(127, 211, 255, 0.08);
+}
+
+.k-button--ghost {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--color-ink-2);
+}
+
+.k-button--ghost:hover:not(:disabled) {
+  background-color: var(--color-panel);
+  color: var(--color-ink);
+}

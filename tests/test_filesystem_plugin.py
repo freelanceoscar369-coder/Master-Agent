@@ -205,3 +205,55 @@ def test_invoke_workspace_bootstrap_does_not_ask_twice_on_repeat_invocation(tmp_
 
     assert first.success
     assert second.success
+
+
+# ---- capability manifest input/output schemas (MB039) ------------------------
+
+
+def test_manifest_capabilities_carry_input_schema_from_contracts():
+    """Every capability's input_schema comes from the extracted contract."""
+    executor = LocalExecutor(PermissionSystem())
+    plugin = FilesystemPlugin(executor, locations={})
+    by_name = {cap.name: cap for cap in plugin.manifest.capabilities}
+
+    # create_folder requires 'name'
+    create_folder = by_name["create_folder"]
+    assert create_folder.input_schema["known"] is True
+    assert create_folder.input_schema["fields"][0]["name"] == "name"
+    assert create_folder.input_schema["fields"][0]["required"] is True
+
+    # read_file requires 'path'
+    read_file = by_name["read_file"]
+    assert read_file.input_schema["known"] is True
+    assert read_file.input_schema["fields"][0]["name"] == "path"
+    assert read_file.input_schema["fields"][0]["required"] is True
+
+    # append_file requires 'path' and 'content'
+    append_file = by_name["append_file"]
+    assert append_file.input_schema["known"] is True
+    field_names = {f["name"] for f in append_file.input_schema["fields"]}
+    assert field_names == {"path", "content"}
+    assert all(f["required"] for f in append_file.input_schema["fields"])
+
+
+def test_manifest_capabilities_carry_output_schema_from_contracts():
+    """Every capability's output_schema comes from the extracted contract (unknown for now)."""
+    executor = LocalExecutor(PermissionSystem())
+    plugin = FilesystemPlugin(executor, locations={})
+    by_name = {cap.name: cap for cap in plugin.manifest.capabilities}
+
+    # All capabilities currently have unknown output schemas (expected_result is prose)
+    for cap in by_name.values():
+        assert cap.output_schema["known"] is False
+        assert cap.output_schema["fields"] == []
+
+
+def test_manifest_input_schemas_are_known_but_not_closed():
+    """Extracted schemas declare required args but are open to optional ones (e.g., 'location')."""
+    executor = LocalExecutor(PermissionSystem())
+    plugin = FilesystemPlugin(executor, locations={})
+    by_name = {cap.name: cap for cap in plugin.manifest.capabilities}
+
+    for cap in by_name.values():
+        assert cap.input_schema["known"] is True
+        assert cap.input_schema["closed"] is False

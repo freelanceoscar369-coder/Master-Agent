@@ -9,15 +9,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from master_agent.plugins.base import RiskTier
-
 # PermissionCategory lives in plugins/base.py, alongside RiskTier — see
 # that module for why (the same reason RiskTier does: plugins/Actions
 # declare it about themselves, and this module consumes it, so it belongs
 # with the contract being described, not with the system enforcing it).
 # Re-exported here for convenience so permission-related code can import
 # it from either module without ambiguity about which is canonical.
-from master_agent.plugins.base import PermissionCategory  # noqa: F401
+from master_agent.plugins.base import (
+    PermissionCategory,  # noqa: F401
+    RiskTier,
+)
 
 
 class GrantScope(str, Enum):

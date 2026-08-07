@@ -11,6 +11,7 @@ dist/
 *.sqlite3
 .env
 .master_agent/
+.coverage
 
 # Runtime/data folders bootstrapped by Mission Brief 001.5 — structure is
 # tracked (via README.md in each), contents are not. See each folder's

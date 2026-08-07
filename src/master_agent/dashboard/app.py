@@ -184,6 +184,9 @@ def build_dashboard(
         persistence=persistence,
         recovery_report=recovery_report,
         inventory_provider=kwargs.pop("inventory_provider", None),
+        broker_provider=kwargs.pop("broker_provider", None),
+        memory_provider=kwargs.pop("memory_provider", None),
+        plan_provider=kwargs.pop("plan_provider", None),
         clock=kwargs.pop("clock", None) or (lambda: datetime.now(UTC)),
     )
     dashboard = FounderDashboard(sources, **kwargs)

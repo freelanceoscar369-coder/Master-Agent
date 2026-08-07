@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kalpavriksha — Founder Dashboard, Experience Concept v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   KALPAVRIKSHA — ONE SOURCE OF TRUTH
+   Swiss modular grid discipline, inverted to a mission-control surface.
+   12 columns · 8px baseline · 24px leading · 24px gutter · 48px margin
+   ============================================================ */
+:root{
+  --cols:12;
+  --bl:8px;
+  --lh:24px;
+  --gutter:24px;
+  --margin:48px;
+  --pad:96px;
+  --maxw:1440px;
+
+  /* surface */
+  --void:#05070A;
+  --deep:#080B10;
+  --panel:rgba(255,255,255,.028);
+  --panel-2:rgba(255,255,255,.05);
+  --hair:rgba(150,190,220,.16);
+  --hair-soft:rgba(150,190,220,.09);
+
+  /* ink */
+  --ink:#E9EFF5;
+  --ink-2:#9FB0BF;
+  --ink-3:#63727F;
+
+  /* signal */
+  --accent:#7FD3FF;      /* live / AI presence */
+  --amber:#FFB454;       /* requires you */
+  --green:#63E6A8;       /* completed */
+  --red:#FF6B6B;         /* risk */
+
+  /* grid overlay */
+  --g-col:rgba(127,211,255,.055);
+  --g-edge:rgba(127,211,255,.30);
+  --g-base:rgba(127,211,255,.22);
+  --g-base-min:rgba(127,211,255,.07);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;background:var(--void);color:var(--ink);
+  font-family:"Inter",system-ui,-apple-system,sans-serif;
+  font-size:15px;line-height:var(--lh);font-weight:400;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+::selection{background:rgba(127,211,255,.28);}
+img{display:block;width:100%;height:100%;object-fit:cover;}
+button{font-family:inherit;}
+
+/* ---------- grid scaffold ---------- */
+.spread{position:relative;width:100%;}
+.wrap{position:relative;max-width:var(--maxw);margin:0 auto;padding:var(--pad) var(--margin);}
+.grid{display:grid;grid-template-columns:repeat(var(--cols),1fr);
+  column-gap:var(--gutter);row-gap:var(--lh);}
+.band{grid-column:1 / -1;display:grid;grid-template-columns:subgrid;
+  column-gap:var(--gutter);row-gap:var(--lh);align-items:start;}
+@supports not (grid-template-columns:subgrid){
+  .band{grid-template-columns:repeat(var(--cols),1fr);}
+}
+
+/* ---------- overlay (SAME content box as content) ---------- */
+.guides{position:absolute;inset:0;pointer-events:none;z-index:60;opacity:0;
+  transition:opacity .26s ease;}
+body.grid-on .guides{opacity:1;}
+.guides .cols{position:absolute;top:0;bottom:0;left:var(--margin);right:var(--margin);
+  display:grid;grid-template-columns:repeat(var(--cols),1fr);column-gap:var(--gutter);}
+.guides .col{background:var(--g-col);
+  box-shadow:inset 1px 0 0 var(--g-edge),inset -1px 0 0 var(--g-edge);position:relative;}
+.guides .col span{position:absolute;top:32px;left:0;right:0;text-align:center;
+  font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:1;color:var(--accent);opacity:.8;}
+.guides .rows{position:absolute;left:var(--margin);right:var(--margin);top:var(--pad);bottom:0;
+  background-image:
+    repeating-linear-gradient(to bottom,var(--g-base) 0 1px,transparent 1px var(--lh)),
+    repeating-linear-gradient(to bottom,var(--g-base-min) 0 1px,transparent 1px var(--bl));}
+.guides .mline{position:absolute;top:0;bottom:0;width:1px;background:var(--g-edge);}
+.guides .mline.l{left:var(--margin);} .guides .mline.r{right:var(--margin);}
+
+/* ---------- typography ---------- */
+.mono{font-family:"IBM Plex Mono",monospace;}
+.kicker{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);}
+.kicker.live{color:var(--accent);}
+.kicker.warn{color:var(--amber);}
+.masthead{font-size:76px;line-height:80px;font-weight:600;letter-spacing:-.035em;margin:0;}
+.h1b{font-size:44px;line-height:48px;font-weight:600;letter-spacing:-.025em;margin:0;}
+.h2b{font-size:27px;line-height:32px;font-weight:600;letter-spacing:-.018em;margin:0;}
+.h3b{font-size:19px;line-height:24px;font-weight:600;letter-spacing:-.01em;margin:0;}
+.numeral{font-size:68px;line-height:72px;font-weight:600;letter-spacing:-.04em;margin:0;
+  font-variant-numeric:tabular-nums;}
+.lede{font-size:19px;line-height:32px;font-weight:300;color:var(--ink-2);margin:0;}
+p{margin:0 0 var(--lh) 0;}
+p:last-child{margin-bottom:0;}
+.soft{color:var(--ink-2);}
+.dim{color:var(--ink-3);}
+.rule{height:1px;background:var(--hair);grid-column:1 / -1;}
+
+/* ============================================================
+   SCREEN 1 — FOUNDER ARRIVAL
+   ============================================================ */
+#arrival{height:100vh;min-height:720px;position:relative;overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 42%,#0A1018 0%,#05070A 62%);}
+#treeCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+.arrival-veil{position:absolute;inset:0;
+  background:radial-gradient(60% 45% at 50% 46%,transparent 0%,rgba(5,7,10,.55) 100%);
+  pointer-events:none;}
+.arrival-ui{position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:space-between;padding:40px 48px;z-index:10;}
+.arrival-top{display:flex;justify-content:space-between;align-items:flex-start;}
+.wordmark{font-family:"IBM Plex Mono",monospace;font-size:12px;line-height:16px;
+  letter-spacing:.34em;text-transform:uppercase;color:var(--ink-2);}
+.wordmark b{color:var(--ink);font-weight:500;}
+.sysline{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;
+  letter-spacing:.14em;color:var(--ink-3);text-align:right;}
+.sysline .ok{color:var(--green);}
+
+.arrival-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(760px,86vw);text-align:center;z-index:12;pointer-events:none;}
+.greeting{font-size:46px;line-height:56px;font-weight:300;letter-spacing:-.02em;
+  min-height:56px;margin:0;color:var(--ink);}
+.greeting .cur{display:inline-block;width:2px;height:38px;background:var(--accent);
+  vertical-align:-6px;margin-left:4px;animation:blink 1.05s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+.subgreet{margin-top:16px;font-size:16px;line-height:24px;color:var(--ink-2);font-weight:300;
+  opacity:0;transition:opacity .8s ease .2s;}
+.subgreet.on{opacity:1;}
+
+.wake{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:14;
+  text-align:center;transition:opacity .6s ease,transform .6s ease;}
+.wake.gone{opacity:0;transform:translate(-50%,-58%);pointer-events:none;}
+.wake-btn{background:transparent;border:1px solid var(--hair);color:var(--ink);
+  padding:15px 32px;font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.24em;
+  text-transform:uppercase;cursor:pointer;transition:border-color .3s,background .3s,color .3s;}
+.wake-btn:hover{border-color:var(--accent);color:var(--accent);
+  background:rgba(127,211,255,.05);}
+.wake-note{margin-top:16px;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  line-height:16px;letter-spacing:.1em;color:var(--ink-3);}
+
+.arrival-bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;}
+.voice-toggle{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.03);
+  border:1px solid var(--hair);padding:11px 15px;cursor:pointer;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-2);transition:all .3s;}
+.voice-toggle:hover{border-color:var(--accent);color:var(--ink);}
+.voice-toggle .vdot{width:7px;height:7px;border-radius:50%;background:var(--ink-3);transition:all .3s;}
+.voice-toggle.on .vdot{background:var(--accent);box-shadow:0 0 0 4px rgba(127,211,255,.16);}
+.voice-toggle.on{color:var(--accent);border-color:rgba(127,211,255,.4);}
+.voice-bars{display:flex;align-items:flex-end;gap:2px;height:14px;}
+.voice-bars i{width:2px;background:var(--accent);height:3px;display:block;opacity:.35;}
+.voice-toggle.speaking .voice-bars i{animation:vb .7s ease-in-out infinite;opacity:1;}
+.voice-bars i:nth-child(2){animation-delay:.1s;} .voice-bars i:nth-child(3){animation-delay:.2s;}
+.voice-bars i:nth-child(4){animation-delay:.3s;}
+@keyframes vb{0%,100%{height:3px;}50%{height:14px;}}
+
+/* ambient choice tray — surfaces silently, never asks aloud */
+.tray{display:flex;gap:16px;opacity:0;transform:translateY(10px);
+  transition:opacity .9s ease,transform .9s ease;pointer-events:none;}
+.tray.on{opacity:1;transform:none;pointer-events:auto;}
+.tray-card{width:224px;text-align:left;background:rgba(255,255,255,.026);
+  border:1px solid var(--hair-soft);padding:15px 16px;cursor:pointer;
+  transition:border-color .3s,background .3s,transform .3s;}
+.tray-card:hover{border-color:rgba(127,211,255,.45);background:rgba(127,211,255,.05);
+  transform:translateY(-2px);}
+.tray-card .t{font-size:14px;line-height:24px;font-weight:500;color:var(--ink);}
+.tray-card .d{font-size:12px;line-height:16px;color:var(--ink-3);margin-top:8px;}
+.tray-label{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:16px;}
+
+.scroll-cue{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);
+  font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--ink-3);opacity:0;transition:opacity .8s ease;z-index:12;}
+.scroll-cue.on{opacity:.7;animation:bob 2.4s ease-in-out infinite;}
+@keyframes bob{50%{transform:translateX(-50%) translateY(5px);}}
+
+/* ============================================================
+   PERSISTENT PRESENCE SIGIL (the tree, demoted to state)
+   ============================================================ */
+.sigil-rail{position:fixed;left:0;top:0;bottom:0;width:88px;z-index:90;
+  border-right:1px solid var(--hair-soft);background:rgba(5,7,10,.86);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  display:flex;flex-direction:column;align-items:center;padding:24px 0;
+  opacity:0;pointer-events:none;transition:opacity .6s ease;}
+.sigil-rail.on{opacity:1;pointer-events:auto;}
+#sigilCanvas{width:56px;height:56px;display:block;cursor:pointer;}
+.sigil-state{font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--accent);margin-top:8px;text-align:center;}
+.rail-nav{margin-top:40px;display:flex;flex-direction:column;gap:8px;width:100%;align-items:center;}
+.rail-nav a{display:block;width:100%;text-align:center;padding:8px 0;text-decoration:none;
+  font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;color:var(--ink-3);
+  border-left:2px solid transparent;transition:color .25s,border-color .25s,background .25s;}
+.rail-nav a:hover{color:var(--ink);background:rgba(255,255,255,.03);}
+.rail-nav a.active{color:var(--accent);border-left-color:var(--accent);}
+.rail-foot{margin-top:auto;font-family:"IBM Plex Mono",monospace;font-size:9px;
+  letter-spacing:.12em;color:var(--ink-3);text-align:center;line-height:16px;}
+.rail-foot .ini{width:32px;height:32px;border:1px solid var(--hair);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;margin:0 auto 8px;
+  font-size:11px;color:var(--ink-2);letter-spacing:0;}
+body.railed .spread:not(#arrival) .wrap{padding-left:calc(var(--margin) + 88px);}
+body.railed .spread:not(#arrival) .guides .cols,
+body.railed .spread:not(#arrival) .guides .rows{left:calc(var(--margin) + 88px);}
+body.railed .spread:not(#arrival) .guides .mline.l{left:calc(var(--margin) + 88px);}
+
+/* ============================================================
+   SHARED PANEL / CARD LANGUAGE — glass, hairline, never mush
+   ============================================================ */
+.panel{background:var(--panel);border:1px solid var(--hair-soft);position:relative;}
+.panel:before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.035),transparent 40%);}
+.pad-a{padding:23px;}      /* 23 + 1px border = 24 */
+.pad-b{padding:31px;}      /* 31 + 1 = 32 */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;}
+.sec-head .id{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;
+  color:var(--ink-3);text-transform:uppercase;}
+
+/* headline stat row */
+.stat{border-left:2px solid var(--hair);padding-left:15px;}
+.stat .n{font-size:44px;line-height:48px;font-weight:600;letter-spacing:-.035em;
+  font-variant-numeric:tabular-nums;}
+.stat .l{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-top:8px;}
+.stat.good{border-left-color:var(--green);} .stat.good .n{color:var(--green);}
+.stat.warn{border-left-color:var(--amber);} .stat.warn .n{color:var(--amber);}
+.stat.live{border-left-color:var(--accent);} .stat.live .n{color:var(--accent);}
+
+/* mission card */
+.mcard{background:var(--panel);border:1px solid var(--hair-soft);padding:23px;
+  transition:border-color .3s,background .3s,transform .3s;cursor:pointer;}
+.mcard:hover{border-color:rgba(127,211,255,.36);background:rgba(127,211,255,.035);
+  transform:translateY(-2px);}
+.mcard .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+  margin-bottom:16px;}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:16px;letter-spacing:.14em;
+  text-transform:uppercase;padding:0 8px;border:1px solid var(--hair);color:var(--ink-3);
+  white-space:nowrap;}
+.tag.done{color:var(--green);border-color:rgba(99,230,168,.4);}
+.tag.wait{color:var(--amber);border-color:rgba(255,180,84,.45);}
+.tag.run{color:var(--accent);border-color:rgba(127,211,255,.45);}
+.mcard .name{font-size:17px;line-height:24px;font-weight:500;letter-spacing:-.01em;}
+.mcard .sum{font-size:14px;line-height:24px;color:var(--ink-2);margin-top:8px;}
+.mcard .meta{display:flex;gap:24px;margin-top:16px;padding-top:15px;
+  border-top:1px solid var(--hair-soft);
+  font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);}
+
+/* progress */
+.bar{height:2px;background:rgba(255,255,255,.08);position:relative;overflow:hidden;}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);display:block;}
+.bar.g i{background:var(--green);}
+
+/* timeline */
+.tl{position:relative;padding-left:23px;}
+.tl:before{content:"";position:absolute;left:3px;top:6px;bottom:6px;width:1px;background:var(--hair);}
+.tl-item{position:relative;padding-bottom:24px;}
+.tl-item:last-child{padding-bottom:0;}
+.tl-item:before{content:"";position:absolute;left:-23px;top:6px;width:7px;height:7px;
+  border-radius:50%;background:var(--void);border:1px solid var(--ink-3);}
+.tl-item.done:before{background:var(--green);border-color:var(--green);}
+.tl-item.now:before{background:var(--accent);border-color:var(--accent);
+  box-shadow:0 0 0 4px rgba(127,211,255,.18);}
+.tl-item.wait:before{background:var(--amber);border-color:var(--amber);}
+.tl-item .tm{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;
+  color:var(--ink-3);text-transform:uppercase;}
+.tl-item .tx{font-size:14px;line-height:24px;color:var(--ink);}
+
+/* approval card — consequence framing */
+.acard{background:rgba(255,180,84,.035);border:1px solid rgba(255,180,84,.26);
+  padding:31px;position:relative;transition:opacity .5s,transform .5s;}
+.acard.resolved{opacity:.34;}
+.acard .why{font-size:14px;line-height:24px;color:var(--ink-2);
+  border-left:2px solid rgba(255,180,84,.5);padding-left:15px;}
+.conseq{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--hair-soft);
+  border:1px solid var(--hair-soft);margin-top:24px;}
+.conseq div{background:var(--deep);padding:15px;}
+.conseq .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);}
+.conseq .v{font-size:14px;line-height:24px;color:var(--ink);margin-top:8px;}
+.actions{display:flex;gap:8px;margin-top:24px;flex-wrap:wrap;}
+.btn{padding:11px 20px;border:1px solid var(--hair);background:transparent;color:var(--ink-2);
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  cursor:pointer;transition:all .25s;}
+.btn:hover{color:var(--ink);border-color:var(--ink-2);}
+.btn.primary{border-color:rgba(99,230,168,.5);color:var(--green);}
+.btn.primary:hover{background:rgba(99,230,168,.1);border-color:var(--green);}
+.btn.ghost:hover{border-color:var(--red);color:var(--red);}
+.btn.accent{border-color:rgba(127,211,255,.5);color:var(--accent);}
+.btn.accent:hover{background:rgba(127,211,255,.1);}
+.resolved-note{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--green);margin-top:16px;display:none;}
+.acard.resolved .resolved-note{display:block;}
+.acard.resolved .actions{display:none;}
+
+/* conversation */
+.convo{display:flex;flex-direction:column;gap:24px;}
+.msg{max-width:600px;}
+.msg .who{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;}
+.msg .bub{font-size:16px;line-height:24px;padding:15px 19px;border:1px solid var(--hair-soft);
+  background:var(--panel);}
+.msg.ai .who{color:var(--accent);}
+.msg.ai .bub{border-color:rgba(127,211,255,.22);background:rgba(127,211,255,.035);}
+.msg.me{align-self:flex-end;}
+.msg.me .bub{background:rgba(255,255,255,.05);}
+.composer{display:flex;align-items:center;gap:16px;border:1px solid var(--hair);
+  padding:15px 19px;background:rgba(255,255,255,.02);margin-top:24px;}
+.composer .ph{flex:1;color:var(--ink-3);font-size:15px;}
+.mic{width:40px;height:40px;border-radius:50%;border:1px solid rgba(127,211,255,.4);
+  display:flex;align-items:center;justify-content:center;color:var(--accent);flex:0 0 auto;
+  position:relative;}
+.mic:after{content:"";position:absolute;inset:-6px;border-radius:50%;
+  border:1px solid rgba(127,211,255,.25);animation:ring 2.6s ease-out infinite;}
+@keyframes ring{0%{transform:scale(.85);opacity:.9;}100%{transform:scale(1.25);opacity:0;}}
+
+/* spec / annotation blocks */
+.note{border-left:2px solid var(--accent);padding-left:15px;font-size:14px;line-height:24px;
+  color:var(--ink-2);}
+.note b{color:var(--ink);font-weight:500;}
+
+/* screen header block */
+.screen-tag{display:flex;align-items:center;gap:12px;}
+.screen-tag .num{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.2em;
+  color:var(--accent);}
+.screen-tag .ln{flex:1;height:1px;background:var(--hair-soft);}
+
+/* toggle button */
+.toggle{position:fixed;top:18px;right:18px;z-index:200;display:flex;align-items:center;gap:10px;
+  background:rgba(10,14,20,.9);color:var(--ink-2);border:1px solid var(--hair);cursor:pointer;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;padding:11px 14px;backdrop-filter:blur(10px);transition:all .25s;}
+.toggle:hover{color:var(--ink);border-color:var(--ink-3);}
+.toggle .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-3);}
+body.grid-on .toggle{border-color:var(--accent);color:var(--accent);}
+body.grid-on .toggle .dot{background:var(--accent);}
+
+/* section divider label */
+.sep{border-top:1px solid var(--hair-soft);padding-top:23px;}
+
+@media (max-width:1080px){
+  :root{--margin:32px;--pad:64px;}
+  .masthead{font-size:52px;line-height:56px;}
+  .greeting{font-size:34px;line-height:40px;}
+  .sigil-rail{display:none;}
+  body.railed .spread:not(#arrival) .wrap{padding-left:var(--margin);}
+  .tray{flex-wrap:wrap;}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition-duration:.01ms !important;}
+}
+</style>
+<style>
+.ha-img-placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;background:#f4f4f5;border:1px dashed #d4d4d8;border-radius:8px;color:#71717a;font-size:12px;font-family:system-ui,sans-serif;min-height:80px;padding:16px;box-sizing:border-box;animation:ha-img-pulse 1.5s ease-in-out infinite}
+.ha-img-placeholder.ha-failed{animation:none;opacity:.7}
+@keyframes ha-img-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@media(prefers-color-scheme:dark){.ha-img-placeholder{background:#27272a;border-color:#3f3f46;color:#a1a1aa}}
+</style>
+</head>
+<body>
+
+<button class="toggle" id="gridToggle" aria-pressed="false">
+  <span class="dot"></span><span class="lbl">Show grid</span>
+</button>
+
+<!-- ============ PERSISTENT PRESENCE RAIL ============ -->
+<aside class="sigil-rail" id="rail">
+  <canvas id="sigilCanvas" width="112" height="112" title="Kalpavriksha presence — click to return to arrival"></canvas>
+  <div class="sigil-state" id="sigilState">Idle</div>
+  <nav class="rail-nav" id="railNav">
+    <a href="#arrival" data-s="arrival">01</a>
+    <a href="#brief" data-s="brief">02</a>
+    <a href="#mission" data-s="mission">03</a>
+    <a href="#approvals" data-s="approvals">04</a>
+    <a href="#conversation" data-s="conversation">05</a>
+    <a href="#system" data-s="system">DS</a>
+  </nav>
+  <div class="rail-foot">
+    <div class="ini">O</div>
+    IST<br>16:47
+  </div>
+</aside>
+
+<!-- ============================================================
+     SCREEN 1 — FOUNDER ARRIVAL
+     ============================================================ -->
+<section class="spread" id="arrival">
+  <canvas id="treeCanvas"></canvas>
+  <div class="arrival-veil"></div>
+
+  <div class="arrival-ui">
+    <div class="arrival-top">
+      <div class="wordmark"><b>Kalpavriksha</b> &nbsp;/&nbsp; Executive Intelligence</div>
+      <div class="sysline">
+        SESSION 0447 · IST 16:47<br>
+        ALL SYSTEMS <span class="ok">NOMINAL</span> · UPTIME 41d
+      </div>
+    </div>
+
+    <div class="arrival-bottom">
+      <button class="voice-toggle" id="voiceToggle" aria-pressed="false">
+        <span class="vdot"></span>
+        <span id="voiceLabel">Voice off</span>
+        <span class="voice-bars"><i></i><i></i><i></i><i></i></span>
+      </button>
+      <div>
+        <div class="tray-label" id="trayLabel" style="opacity:0;transition:opacity .6s;">Kalpavriksha is listening</div>
+        <div class="tray" id="tray">
+          <button class="tray-card" data-go="#brief">
+            <div class="t">Executive Brief</div>
+            <div class="d">Show today's intelligence.</div>
+          </button>
+          <button class="tray-card" data-go="#conversation">
+            <div class="t">Continue Conversation</div>
+            <div class="d">Talk with Kalpavriksha.</div>
+          </button>
+          <button class="tray-card" data-go="#mission">
+            <div class="t">Live Dashboard</div>
+            <div class="d">Open operational view.</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrival-center">
+    <h1 class="greeting" id="greeting"></h1>
+    <div class="subgreet" id="subgreet">I've been working. Four things need you — one of them today.</div>
+  </div>
+
+  <div class="wake" id="wake">
+    <button class="wake-btn" id="wakeBtn">Wake Kalpavriksha</button>
+    <div class="wake-note">Press to enable voice · or hit any key</div>
+  </div>
+
+  <div class="scroll-cue" id="scrollCue">Scroll ↓</div>
+</section>
+
+<!-- ============================================================
+     SCREEN 2 — EXECUTIVE BRIEF
+     ============================================================ -->
+<section class="spread" id="brief">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div class="screen-tag" style="grid-column:1 / 13;">
+          <span class="num">SCREEN 02</span><span class="ln"></span>
+          <span class="kicker">Executive Brief</span>
+        </div>
+      </div>
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <div class="kicker live">While you were away · 14h 22m</div>
+          <h2 class="h1b" style="margin-top:16px;">Four missions closed themselves. One is waiting on you.</h2>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note"><b>Headline first.</b> The founder reads four numbers in two seconds and knows whether today is calm or not. Detail is one click below — never the opening move.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;">
+        <div class="stat good" style="grid-column:1 / 4;"><div class="n">12</div><div class="l">Missions completed</div></div>
+        <div class="stat live" style="grid-column:4 / 7;"><div class="n">3</div><div class="l">Systems improved</div></div>
+        <div class="stat" style="grid-column:7 / 10;"><div class="n">2</div><div class="l">Recommendations ready</div></div>
+        <div class="stat warn" style="grid-column:10 / 13;"><div class="n">1</div><div class="l">Approval required</div></div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="sec-head" style="margin-bottom:24px;">
+            <h3 class="h2b">What changed</h3><span class="id">Expandable · 12 items</span>
+          </div>
+
+          <div class="mcard" style="margin-bottom:16px;">
+            <div class="top">
+              <div class="name">Founder Dashboard Architecture</div>
+              <span class="tag done">Completed</span>
+            </div>
+            <div class="sum">Improved the founder interaction experience and created a faster approval workflow. Median time-to-decision fell from 3h 10m to 26m.</div>
+            <div class="meta"><span>Impact · High</span><span>Ran 4h 12m</span><span>MSN-2291</span></div>
+          </div>
+
+          <div class="mcard" style="margin-bottom:16px;">
+            <div class="top">
+              <div class="name">Vendor contract review — 3 renewals</div>
+              <span class="tag done">Completed</span>
+            </div>
+            <div class="sum">Flagged one auto-renewal at 22% above market. Drafted a renegotiation position; it's in your recommendations.</div>
+            <div class="meta"><span>Impact · Medium</span><span>Ran 51m</span><span>MSN-2288</span></div>
+          </div>
+
+          <div class="mcard">
+            <div class="top">
+              <div class="name">Runway model refresh</div>
+              <span class="tag run">Running · 68%</span>
+            </div>
+            <div class="sum">Reconciling June burn against the hiring plan. Nothing looks off so far.</div>
+            <div class="bar" style="margin-top:16px;"><i style="width:68%"></i></div>
+            <div class="meta"><span>Impact · High</span><span>ETA 40m</span><span>MSN-2294</span></div>
+          </div>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="sec-head" style="margin-bottom:24px;">
+            <h3 class="h2b">Intelligence</h3><span class="id">02</span>
+          </div>
+          <div class="panel pad-a" style="margin-bottom:16px;">
+            <div class="kicker">Productivity score</div>
+            <div class="numeral" style="margin:8px 0;color:var(--green);">87<span style="font-size:24px;color:var(--ink-3);letter-spacing:0;">/100</span></div>
+            <div class="bar g" style="margin-bottom:16px;"><i style="width:87%"></i></div>
+            <p class="soft" style="font-size:14px;">Up 9 points. Kalpavriksha completed more autonomous tasks this week and escalated fewer of them to you.</p>
+          </div>
+          <div class="panel pad-a">
+            <div class="kicker warn">Risk · 1 open</div>
+            <p style="font-size:14px;line-height:24px;margin-top:8px;">Two engineers are both blocked on the same infra decision. It's been open 6 days. I can draft the decision memo if you want it.</p>
+            <button class="btn accent" style="margin-top:16px;">Draft it</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;"><div class="rule"></div></div>
+
+      <!-- THE QUIET DAY — the state the brief was missing -->
+      <div class="band">
+        <div style="grid-column:1 / 5;">
+          <div class="kicker">State variant · the hard one</div>
+          <h3 class="h2b" style="margin-top:16px;">The quiet day</h3>
+          <p class="soft" style="margin-top:16px;font-size:14px;">Most AI-partner products die on the day nothing happened. A wall of zeros reads as "the product is broken." Kalpavriksha reports calm with the same conviction it reports activity — that is the trust signal.</p>
+        </div>
+        <div style="grid-column:6 / 13;">
+          <div class="panel pad-b">
+            <div class="kicker live">While you were away · 11h 04m</div>
+            <h4 class="h2b" style="margin-top:16px;">Nothing needed you. That's the report.</h4>
+            <p class="soft" style="margin-top:16px;">I ran 6 routine checks, closed 2 low-impact tasks, and found nothing worth your attention. Burn is on plan. No approvals pending. No risks opened.</p>
+            <div style="display:flex;gap:32px;margin-top:24px;padding-top:23px;border-top:1px solid var(--hair-soft);">
+              <div><div class="mono" style="font-size:24px;line-height:32px;color:var(--green);">6/6</div><div class="kicker">Checks clean</div></div>
+              <div><div class="mono" style="font-size:24px;line-height:32px;">0</div><div class="kicker">Awaiting you</div></div>
+              <div><div class="mono" style="font-size:24px;line-height:32px;">On plan</div><div class="kicker">Burn</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCREEN 3 — MISSION CONTROL
+     ============================================================ -->
+<section class="spread" id="mission" style="background:var(--deep);">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div class="screen-tag" style="grid-column:1 / 13;">
+          <span class="num">SCREEN 03</span><span class="ln"></span>
+          <span class="kicker">Mission Control</span>
+        </div>
+      </div>
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <h2 class="h1b">Operational view</h2>
+          <p class="lede" style="margin-top:16px;">Every mission Kalpavriksha is running, has run, or is holding. Telemetry, not analytics — the founder should be able to scan it like an instrument panel.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <div class="panel pad-a">
+            <div class="kicker live">System state</div>
+            <div style="display:flex;justify-content:space-between;margin-top:16px;
+              font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:24px;">
+              <span class="dim">AUTONOMY</span><span style="color:var(--accent);">LEVEL 3</span></div>
+            <div style="display:flex;justify-content:space-between;
+              font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:24px;">
+              <span class="dim">ACTIVE</span><span>3 MISSIONS</span></div>
+            <div style="display:flex;justify-content:space-between;
+              font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:24px;">
+              <span class="dim">QUEUED</span><span>7 MISSIONS</span></div>
+            <div style="display:flex;justify-content:space-between;
+              font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:24px;">
+              <span class="dim">HELD</span><span style="color:var(--amber);">1 MISSION</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="sec-head" style="margin-bottom:24px;">
+            <h3 class="h2b">Active</h3><span class="id">Live · updates every 30s</span>
+          </div>
+
+          <div class="mcard" style="margin-bottom:16px;">
+            <div class="top"><div class="name">Runway model refresh</div><span class="tag run">Running</span></div>
+            <div class="sum">Reconciling June burn against the hiring plan.</div>
+            <div class="bar" style="margin-top:16px;"><i style="width:68%"></i></div>
+            <div class="meta"><span>68% · ETA 40m</span><span>Impact High</span><span>MSN-2294</span></div>
+          </div>
+          <div class="mcard" style="margin-bottom:16px;">
+            <div class="top"><div class="name">Competitor signal sweep</div><span class="tag run">Running</span></div>
+            <div class="sum">Watching 14 sources for pricing and positioning moves.</div>
+            <div class="bar" style="margin-top:16px;"><i style="width:31%"></i></div>
+            <div class="meta"><span>31% · ETA 2h</span><span>Impact Medium</span><span>MSN-2296</span></div>
+          </div>
+          <div class="mcard" style="margin-bottom:32px;">
+            <div class="top"><div class="name">Enable Voice Executive Mode</div><span class="tag wait">Held for you</span></div>
+            <div class="sum">Cannot proceed without your approval. Waiting 2h 14m.</div>
+            <div class="meta"><span>Blocked</span><span>Impact High</span><span>MSN-2299</span></div>
+          </div>
+
+          <div class="sec-head sep" style="margin-bottom:24px;">
+            <h3 class="h2b">Completed · last 24h</h3><span class="id">12 missions</span>
+          </div>
+          <div class="mcard" style="margin-bottom:16px;">
+            <div class="top"><div class="name">Founder Dashboard Architecture</div><span class="tag done">Completed</span></div>
+            <div class="sum">Improved the founder interaction experience and created a faster approval workflow.</div>
+            <div class="meta"><span>Impact High</span><span>4h 12m</span><span>MSN-2291</span></div>
+          </div>
+          <div class="mcard">
+            <div class="top"><div class="name">Vendor contract review</div><span class="tag done">Completed</span></div>
+            <div class="sum">One auto-renewal flagged at 22% above market.</div>
+            <div class="meta"><span>Impact Medium</span><span>51m</span><span>MSN-2288</span></div>
+          </div>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="sec-head" style="margin-bottom:24px;">
+            <h3 class="h2b">Timeline</h3><span class="id">IST</span>
+          </div>
+          <div class="tl">
+            <div class="tl-item now"><div class="tm">16:47 · Now</div><div class="tx">Runway model refresh at 68%.</div></div>
+            <div class="tl-item wait"><div class="tm">14:33</div><div class="tx">Voice Executive Mode held for founder approval.</div></div>
+            <div class="tl-item done"><div class="tm">13:02</div><div class="tx">Dashboard architecture mission closed.</div></div>
+            <div class="tl-item done"><div class="tm">11:20</div><div class="tx">Vendor renewal flagged — 22% above market.</div></div>
+            <div class="tl-item done"><div class="tm">09:14</div><div class="tx">Productivity score recomputed: 87.</div></div>
+            <div class="tl-item done"><div class="tm">06:41</div><div class="tx">Overnight sweep complete. 6 checks clean.</div></div>
+            <div class="tl-item done"><div class="tm">02:28</div><div class="tx">Infra decision risk opened — day 6.</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCREEN 4 — APPROVAL CENTER
+     ============================================================ -->
+<section class="spread" id="approvals">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div class="screen-tag" style="grid-column:1 / 13;">
+          <span class="num">SCREEN 04</span><span class="ln"></span>
+          <span class="kicker warn">Approval Center</span>
+        </div>
+      </div>
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <h2 class="h1b">The AI waits for your decisions.</h2>
+          <p class="lede" style="margin-top:16px;">This is where the product earns its subscription. Every approval answers four questions before asking for a verdict.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note"><b>Approve / Discuss / Reject isn't enough.</b> A founder can't decide without knowing the cost, the cost of doing nothing, and whether it's reversible. Consequence framing is the Bloomberg 10% doing real work.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="acard" style="margin-bottom:24px;">
+            <div class="top" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+              <div>
+                <div class="kicker warn">Permission request · MSN-2299</div>
+                <h3 class="h2b" style="margin-top:8px;">Enable Voice Executive Mode</h3>
+              </div>
+              <span class="tag wait">Waiting 2h 14m</span>
+            </div>
+            <div class="why" style="margin-top:24px;">Recommended because it reduces manual interaction time. You currently spend ~40 minutes a day typing instructions I could take by voice.</div>
+            <div class="conseq">
+              <div><div class="k">What changes</div><div class="v">I gain microphone access during active sessions only.</div></div>
+              <div><div class="k">Cost</div><div class="v">₹0 · uses existing capacity</div></div>
+              <div><div class="k">If you do nothing</div><div class="v">Nothing breaks. The mission stays held indefinitely.</div></div>
+              <div><div class="k">Reversible</div><div class="v">Yes — one toggle, instant.</div></div>
+            </div>
+            <div class="actions">
+              <button class="btn primary" data-approve>Approve</button>
+              <button class="btn accent" data-discuss>Discuss</button>
+              <button class="btn ghost" data-reject>Reject</button>
+            </div>
+            <div class="resolved-note">✓ Approved · mission resumed at 16:47</div>
+          </div>
+
+          <div class="acard" style="margin-bottom:24px;border-color:rgba(255,180,84,.2);">
+            <div class="top" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+              <div>
+                <div class="kicker warn">Financial · MSN-2288</div>
+                <h3 class="h2b" style="margin-top:8px;">Renegotiate the Datastack renewal</h3>
+              </div>
+              <span class="tag wait">Due in 4 days</span>
+            </div>
+            <div class="why" style="margin-top:24px;">Their auto-renewal lands Friday at ₹18.4L/yr — 22% above what comparable teams pay. I've drafted the counter-position.</div>
+            <div class="conseq">
+              <div><div class="k">What changes</div><div class="v">I send the counter and hold the renewal.</div></div>
+              <div><div class="k">Upside</div><div class="v">≈ ₹4.1L/yr if they meet market</div></div>
+              <div><div class="k">If you do nothing</div><div class="v">It auto-renews Friday at full price.</div></div>
+              <div><div class="k">Reversible</div><div class="v">Until Friday 00:00 IST.</div></div>
+            </div>
+            <div class="actions">
+              <button class="btn primary" data-approve>Approve</button>
+              <button class="btn accent" data-discuss>Read the draft</button>
+              <button class="btn ghost" data-reject>Let it renew</button>
+            </div>
+            <div class="resolved-note">✓ Approved · counter-position sent</div>
+          </div>
+
+          <div class="acard" style="border-color:rgba(150,190,220,.2);background:rgba(255,255,255,.026);">
+            <div class="top" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+              <div>
+                <div class="kicker">Strategic · MSN-2301</div>
+                <h3 class="h2b" style="margin-top:8px;">Unblock the infra decision</h3>
+              </div>
+              <span class="tag">Open 6 days</span>
+            </div>
+            <div class="why" style="margin-top:24px;border-left-color:rgba(127,211,255,.5);">Two engineers are blocked on the same call. I can write the decision memo with both options costed — you'd only need to pick one.</div>
+            <div class="conseq">
+              <div><div class="k">What changes</div><div class="v">You get a one-page memo by 18:00.</div></div>
+              <div><div class="k">Cost</div><div class="v">≈ 20 min of my capacity</div></div>
+              <div><div class="k">If you do nothing</div><div class="v">Two engineers stay blocked into week two.</div></div>
+              <div><div class="k">Reversible</div><div class="v">Fully.</div></div>
+            </div>
+            <div class="actions">
+              <button class="btn primary" data-approve>Write it</button>
+              <button class="btn accent" data-discuss>Discuss</button>
+              <button class="btn ghost" data-reject>Not now</button>
+            </div>
+            <div class="resolved-note">✓ Memo scheduled for 18:00 IST</div>
+          </div>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="panel pad-a" style="margin-bottom:16px;">
+            <div class="kicker">Decision velocity</div>
+            <div class="numeral" style="margin:8px 0;">26<span style="font-size:24px;color:var(--ink-3);letter-spacing:0;">m</span></div>
+            <p class="soft" style="font-size:14px;">Median time from request to decision. Was 3h 10m before the new workflow.</p>
+          </div>
+          <div class="panel pad-a" style="margin-bottom:16px;">
+            <div class="kicker">This week</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:24px;margin-top:8px;">
+              <div style="display:flex;justify-content:space-between;"><span class="dim">APPROVED</span><span style="color:var(--green);">14</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">REJECTED</span><span>3</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">DISCUSSED</span><span style="color:var(--accent);">5</span></div>
+            </div>
+          </div>
+          <p class="note"><b>Open question for you.</b> Past ~5 approvals a day this becomes a queue, and a queue needs batching, muting, and standing rules ("always approve under ₹50K"). Worth designing now or after v1?</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCREEN 5 — CONVERSATION MODE
+     ============================================================ -->
+<section class="spread" id="conversation" style="background:var(--deep);">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div class="screen-tag" style="grid-column:1 / 13;">
+          <span class="num">SCREEN 05</span><span class="ln"></span>
+          <span class="kicker">Conversation Mode</span>
+        </div>
+      </div>
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <h2 class="h1b">Talking is a state, not a page.</h2>
+          <p class="lede" style="margin-top:16px;">Conversation doesn't replace the dashboard — the dashboard dims to 30% and slides right while the exchange takes the left seven columns. Context stays visible. The founder never loses their place.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note"><b>Why not a takeover.</b> Full-screen chat is what makes an AI feel like a chatbot. Keeping the mission telemetry alive in the periphery is what makes it feel like mission control.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="convo">
+            <div class="msg ai">
+              <div class="who">Kalpavriksha · speaking</div>
+              <div class="bub">The Datastack renewal is the one I'd look at first. It's the only decision with a hard deadline this week.</div>
+            </div>
+            <div class="msg me">
+              <div class="who">Onkar</div>
+              <div class="bub">What's our leverage?</div>
+            </div>
+            <div class="msg ai">
+              <div class="who">Kalpavriksha</div>
+              <div class="bub">Three things. We're at 34% of the seats we're paying for. Their Q3 ends Friday, same day as our renewal — they want the logo booked. And two comparable teams I can name are paying ₹14.3L for the same tier.<br><br>I'd open at ₹13.8L and settle at ₹14.5L. Want me to send it?</div>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="mic">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>
+              </svg>
+            </div>
+            <div class="ph">Speak, or type to Kalpavriksha…</div>
+            <span class="kicker">⌘K</span>
+          </div>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="kicker">Context · stays visible</div>
+          <div class="panel pad-a" style="margin-top:16px;margin-bottom:16px;opacity:.55;">
+            <div class="kicker warn">Held for you</div>
+            <div class="h3b" style="margin-top:8px;">Datastack renewal</div>
+            <div class="soft" style="font-size:14px;margin-top:8px;">Due in 4 days · ₹18.4L/yr</div>
+          </div>
+          <div class="panel pad-a" style="opacity:.55;">
+            <div class="kicker live">Running</div>
+            <div class="h3b" style="margin-top:8px;">Runway model refresh</div>
+            <div class="bar" style="margin-top:16px;"><i style="width:68%"></i></div>
+          </div>
+          <p class="note" style="margin-top:24px;">Voice and text are one stream. Whatever is spoken is typed; whatever is typed can be spoken back. Text is the source of truth — voice is a layer, never the only channel.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     DESIGN SYSTEM + INTERACTION MODEL
+     ============================================================ -->
+<section class="spread" id="system">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div class="screen-tag" style="grid-column:1 / 13;">
+          <span class="num">SYSTEM</span><span class="ln"></span>
+          <span class="kicker">Design language</span>
+        </div>
+      </div>
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <h2 class="h1b">Swiss structure, mission-control surface.</h2>
+          <p class="lede" style="margin-top:16px;">Every element on all five screens sits on a 12-column modular grid with an 8px baseline. Press <b style="color:var(--accent);">G</b> to see it. Alignment is not decoration here — telemetry earns trust by being rigorously aligned.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <div class="panel pad-a">
+            <div class="kicker live">Grid tokens</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:24px;margin-top:8px;">
+              <div style="display:flex;justify-content:space-between;"><span class="dim">COLUMNS</span><span>12</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">BASELINE</span><span>8px</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">LEADING</span><span>24px</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">GUTTER</span><span>24px</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">MARGIN</span><span>48px</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">MAX WIDTH</span><span>1440px</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 4;">
+          <div class="kicker">01 · Palette</div>
+          <h3 class="h3b" style="margin-top:16px;margin-bottom:16px;">Near-black, one live signal</h3>
+          <div style="display:flex;flex-direction:column;gap:1px;">
+            <div style="display:flex;align-items:center;gap:12px;height:32px;">
+              <span style="width:32px;height:32px;background:#05070A;border:1px solid var(--hair);"></span>
+              <span class="mono" style="font-size:11px;">#05070A · void</span></div>
+            <div style="display:flex;align-items:center;gap:12px;height:32px;">
+              <span style="width:32px;height:32px;background:#080B10;border:1px solid var(--hair);"></span>
+              <span class="mono" style="font-size:11px;">#080B10 · deep</span></div>
+            <div style="display:flex;align-items:center;gap:12px;height:32px;">
+              <span style="width:32px;height:32px;background:#E9EFF5;"></span>
+              <span class="mono" style="font-size:11px;">#E9EFF5 · ink</span></div>
+            <div style="display:flex;align-items:center;gap:12px;height:32px;">
+              <span style="width:32px;height:32px;background:#7FD3FF;"></span>
+              <span class="mono" style="font-size:11px;">#7FD3FF · live</span></div>
+            <div style="display:flex;align-items:center;gap:12px;height:32px;">
+              <span style="width:32px;height:32px;background:#FFB454;"></span>
+              <span class="mono" style="font-size:11px;">#FFB454 · needs you</span></div>
+            <div style="display:flex;align-items:center;gap:12px;height:32px;">
+              <span style="width:32px;height:32px;background:#63E6A8;"></span>
+              <span class="mono" style="font-size:11px;">#63E6A8 · done</span></div>
+          </div>
+          <p class="soft" style="font-size:14px;margin-top:16px;">Colour carries meaning, never mood. Cyan means the system is alive. Amber means it is waiting on a human. Nothing else is coloured.</p>
+        </div>
+
+        <div style="grid-column:5 / 9;">
+          <div class="kicker">02 · Type</div>
+          <h3 class="h3b" style="margin-top:16px;margin-bottom:16px;">Grotesque + mono telemetry</h3>
+          <div style="font-size:40px;line-height:48px;font-weight:600;letter-spacing:-.03em;">Inter</div>
+          <p class="soft" style="font-size:14px;margin-top:8px;">Display and body. Few sizes, large jumps. Flush-left, ragged-right, always.</p>
+          <div class="mono" style="font-size:22px;line-height:32px;margin-top:24px;">IBM Plex Mono</div>
+          <p class="soft" style="font-size:14px;margin-top:8px;">Mission IDs, timestamps, labels, telemetry, folios. The mono is what makes this read as an instrument rather than an app — it's doing more work than the palette.</p>
+          <div class="mono" style="margin-top:24px;font-size:12px;line-height:24px;color:var(--ink-3);">
+            76/80 &nbsp;masthead<br>44/48 &nbsp;h1<br>27/32 &nbsp;h2<br>19/24 &nbsp;h3<br>15/24 &nbsp;body<br>11/16 &nbsp;kicker
+          </div>
+        </div>
+
+        <div style="grid-column:10 / 13;">
+          <div class="kicker">03 · Motion</div>
+          <h3 class="h3b" style="margin-top:16px;margin-bottom:16px;">Weight, not flourish</h3>
+          <div class="mono" style="font-size:11px;line-height:24px;color:var(--ink-2);">
+            <div class="sep" style="padding-top:8px;">TREE ASSEMBLE<br><span class="dim">2400ms · cubic-bezier(.16,1,.3,1)</span></div>
+            <div class="sep" style="padding-top:8px;margin-top:8px;">BREATHE IDLE<br><span class="dim">6s loop · ±3% scale</span></div>
+            <div class="sep" style="padding-top:8px;margin-top:8px;">THINKING<br><span class="dim">particles reorganize · 1.2s</span></div>
+            <div class="sep" style="padding-top:8px;margin-top:8px;">TYPE GREETING<br><span class="dim">38ms/char · synced to speech</span></div>
+            <div class="sep" style="padding-top:8px;margin-top:8px;">CARD ENTER<br><span class="dim">420ms · 60ms stagger · rise 12px</span></div>
+            <div class="sep" style="padding-top:8px;margin-top:8px;">APPROVAL SETTLE<br><span class="dim">540ms · slight overshoot</span></div>
+          </div>
+          <p class="soft" style="font-size:14px;margin-top:16px;">Nothing bounces. Nothing spins. Motion communicates state changes and mass — a founder should never wait on an animation.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 5;">
+          <div class="kicker live">Presence model</div>
+          <h3 class="h2b" style="margin-top:16px;">The tree is state, not scenery</h3>
+          <p class="soft" style="margin-top:16px;font-size:14px;">Full-screen on arrival. Then it demotes to a 56px sigil in the rail that keeps the same particle engine and reports what the system is doing: <b style="color:var(--accent);">idle</b>, <b style="color:var(--accent);">thinking</b>, <b style="color:var(--accent);">speaking</b>, <b style="color:var(--amber);">awaiting you</b>. A particle organism that never gets out of the way becomes a screensaver you resent by day four.</p>
+        </div>
+        <div style="grid-column:6 / 9;">
+          <div class="kicker">Voice model</div>
+          <h3 class="h2b" style="margin-top:16px;">Gesture unlocks the voice</h3>
+          <p class="soft" style="margin-top:16px;font-size:14px;">Browsers block unprompted audio — a greeting that silently fails makes the AI feel broken on turn one. The "Wake Kalpavriksha" gesture is the permission grant, disguised as ceremony. Typing is the source of truth; speech rides on top and is always skippable.</p>
+        </div>
+        <div style="grid-column:10 / 13;">
+          <div class="kicker">Attention model</div>
+          <h3 class="h2b" style="margin-top:16px;">Ambient, never needy</h3>
+          <p class="soft" style="margin-top:16px;font-size:14px;">After 18s the three choices fade up silently — no modal, no spoken question. Kalpavriksha only re-engages by voice if the founder has been idle and then moves the cursor: attention returned. An assistant that interrupts a CEO mid-thought is not a senior executive.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;">
+        <div style="grid-column:1 / 9;">
+          <div class="kicker">Concept · v1 · design milestone</div>
+          <p class="lede" style="margin-top:16px;">This is a design artifact, not the product. Sample data throughout. Voice demo uses the browser speech engine; production would use a real TTS with a chosen executive voice.</p>
+        </div>
+        <div style="grid-column:10 / 13;">
+          <div class="mono" style="font-size:11px;line-height:24px;color:var(--ink-3);letter-spacing:.1em;">
+            KALPAVRIKSHA<br>FOUNDER DASHBOARD<br>EXPERIENCE DESIGN V1<br>PRESS G FOR GRID
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<script>
+/* =========================================================
+   GRID OVERLAY TOGGLE
+   ========================================================= */
+var btn=document.getElementById('gridToggle');
+function setGrid(on){document.body.classList.toggle('grid-on',on);
+  if(btn){btn.setAttribute('aria-pressed',on?'true':'false');
+    var l=btn.querySelector('.lbl'); if(l) l.textContent=on?'Hide grid':'Show grid';}}
+if(btn) btn.addEventListener('click',function(){setGrid(!document.body.classList.contains('grid-on'));});
+document.addEventListener('keydown',function(e){
+  if((e.key==='g'||e.key==='G')&&!e.metaKey&&!e.ctrlKey&&!e.altKey){
+    setGrid(!document.body.classList.contains('grid-on'));}});
+
+document.querySelectorAll('.guides .cols').forEach(function(h){
+  var n=getComputedStyle(document.documentElement).getPropertyValue('--cols').trim()||'12';
+  for(var i=1;i<=parseInt(n,10);i++){var c=document.createElement('div');c.className='col';
+    var s=document.createElement('span');s.textContent=i;c.appendChild(s);h.appendChild(c);}});
+
+/* =========================================================
+   OPTICAL ALIGNMENT — put display INK on the column line
+   ========================================================= */
+(function(){
+  var cvs=document.createElement('canvas'),ctx=cvs.getContext('2d');
+  var sel='.masthead, .numeral, .h1b, .h2b';
+  function align(){
+    document.querySelectorAll(sel).forEach(function(el){
+      el.style.marginLeft='0px';
+      var cs=getComputedStyle(el),ch=(el.textContent||'').trim().charAt(0); if(!ch) return;
+      if(cs.textTransform==='uppercase') ch=ch.toUpperCase();
+      ctx.font=cs.fontStyle+' '+cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily;
+      ctx.textAlign='left';
+      var abl=ctx.measureText(ch).actualBoundingBoxLeft;
+      if(isFinite(abl)) el.style.marginLeft=abl.toFixed(2)+'px';
+    });
+  }
+  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(align);}
+  align();
+  var t;window.addEventListener('resize',function(){clearTimeout(t);t=setTimeout(align,120);});
+})();
+
+/* =========================================================
+   THE NEURAL TREE — particle organism
+   Procedural branching structure; particles seek targets along
+   the branches with organic drift. Pulses travel root -> tip.
+   ========================================================= */
+function TreeField(canvas,opts){
+  opts=opts||{};
+  var ctx=canvas.getContext('2d'),dpr=Math.min(window.devicePixelRatio||1,2);
+  var W=0,H=0,parts=[],nodes=[],edges=[],t0=performance.now(),assembled=0;
+  var COUNT=opts.count||2200, MINI=!!opts.mini;
+  var state='idle';
+
+  function rnd(a,b){return a+Math.random()*(b-a);}
+
+  /* build a branching skeleton */
+  function buildTree(){
+    nodes=[];edges=[];
+    var baseY=MINI?0.94:0.96, topLen=MINI?0.30:0.26;
+    function branch(x,y,ang,len,depth,w){
+      if(depth<=0||len<0.008) return;
+      var segs=Math.max(2,Math.round(len*(MINI?30:46)));
+      var px=x,py=y,pa=ang;
+      for(var i=0;i<segs;i++){
+        pa+=rnd(-0.055,0.055);
+        var nx=px+Math.cos(pa)*(len/segs), ny=py+Math.sin(pa)*(len/segs);
+        edges.push({x1:px,y1:py,x2:nx,y2:ny,d:depth,w:w});
+        px=nx;py=ny;
+      }
+      nodes.push({x:px,y:py,d:depth});
+      var n=depth>4?2:(Math.random()<0.72?2:3);
+      for(var k=0;k<n;k++){
+        var spread=rnd(0.34,0.78)*(k%2?1:-1)*(1+(3-Math.min(depth,3))*0.1);
+        branch(px,py,pa+spread+rnd(-0.12,0.12),len*rnd(0.60,0.78),depth-1,w*0.68);
+      }
+    }
+    branch(0.5,baseY,-Math.PI/2,topLen,MINI?4:6,2.2);
+  }
+
+  function seed(){
+    parts=[];
+    var n=MINI?260:COUNT;
+    for(var i=0;i<n;i++){
+      var e=edges[(Math.random()*edges.length)|0];
+      var f=Math.random();
+      var tx=e.x1+(e.x2-e.x1)*f, ty=e.y1+(e.y2-e.y1)*f;
+      var jitter=0.004+(7-e.d)*0.0016;
+      parts.push({
+        tx:tx+rnd(-jitter,jitter), ty:ty+rnd(-jitter,jitter),
+        x:0.5+rnd(-0.5,0.5), y:1.15+rnd(-0.1,0.35),
+        ph:Math.random()*Math.PI*2, sp:rnd(0.55,1.5),
+        d:e.d, s:rnd(0.5,1.7), a:rnd(0.18,0.85), del:Math.random()*0.55
+      });
+    }
+  }
+
+  function resize(){
+    var r=canvas.getBoundingClientRect();
+    W=r.width;H=r.height;
+    canvas.width=W*dpr;canvas.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+
+  function frame(now){
+    var el=(now-t0)/1000;
+    assembled=Math.min(1,el/2.4);
+    var ease=1-Math.pow(1-assembled,3);
+    ctx.clearRect(0,0,W,H);
+
+    var breathe=1+Math.sin(el*1.05)*0.012;
+    var cx=W*0.5, cy=H*(MINI?0.5:0.52);
+    var thinking = state==='thinking' ? (Math.sin(el*3.1)*0.5+0.5) : 0;
+
+    /* faint branch filaments */
+    ctx.lineCap='round';
+    for(var i=0;i<edges.length;i++){
+      var e=edges[i];
+      var o=(0.030+(7-e.d)*0.010)*ease;
+      ctx.strokeStyle='rgba(127,211,255,'+o.toFixed(3)+')';
+      ctx.lineWidth=Math.max(0.4,e.w*0.4);
+      ctx.beginPath();
+      ctx.moveTo(cx+(e.x1-0.5)*W*breathe, cy+(e.y1-0.52)*H*breathe);
+      ctx.lineTo(cx+(e.x2-0.5)*W*breathe, cy+(e.y2-0.52)*H*breathe);
+      ctx.stroke();
+    }
+
+    /* travelling pulse, root -> canopy */
+    var pulseY = 1.0 - ((el*0.30)%1.35);
+
+    for(var j=0;j<parts.length;j++){
+      var p=parts[j];
+      var pr=Math.max(0,Math.min(1,(ease-p.del)/(1-p.del)));
+      var wob=Math.sin(el*p.sp+p.ph)*0.0032*(1+thinking*3);
+      var wob2=Math.cos(el*p.sp*0.7+p.ph)*0.0032*(1+thinking*3);
+      var gx=p.tx+wob, gy=p.ty+wob2;
+      p.x+=(gx-p.x)*(0.012+pr*0.055);
+      p.y+=(gy-p.y)*(0.012+pr*0.055);
+
+      var sx=cx+(p.x-0.5)*W*breathe, sy=cy+(p.y-0.52)*H*breathe;
+      var near=1-Math.min(1,Math.abs(p.ty-pulseY)/0.10);
+      var glow=near*near;
+      var alpha=p.a*pr*(0.42+0.58*Math.abs(Math.sin(el*0.6*p.sp+p.ph)))*(1-thinking*0.15);
+      var size=p.s*(1+glow*1.5);
+
+      if(glow>0.02){
+        ctx.fillStyle='rgba(190,235,255,'+(alpha*glow*0.95).toFixed(3)+')';
+        ctx.beginPath();ctx.arc(sx,sy,size*1.9,0,6.283);ctx.fill();
+      }
+      ctx.fillStyle='rgba('+(glow>0.3?'214,240,255':'127,196,235')+','+alpha.toFixed(3)+')';
+      ctx.beginPath();ctx.arc(sx,sy,size,0,6.283);ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  buildTree();seed();resize();
+  window.addEventListener('resize',function(){resize();});
+  if(reduce){ t0=performance.now()-3000; ctx&&frame(performance.now()); }
+  else requestAnimationFrame(frame);
+
+  return {setState:function(s){state=s;}};
+}
+
+var tree=TreeField(document.getElementById('treeCanvas'),{count:2400});
+var sigil=TreeField(document.getElementById('sigilCanvas'),{mini:true});
+
+/* =========================================================
+   ARRIVAL SEQUENCE — wake gesture, synced type + speech
+   ========================================================= */
+var voiceOn=false, woken=false;
+var vt=document.getElementById('voiceToggle'), vl=document.getElementById('voiceLabel');
+var greetEl=document.getElementById('greeting');
+var sigilState=document.getElementById('sigilState');
+
+function hour(){return new Date().getHours();}
+function salutation(){var h=hour();return h<12?'Good morning':(h<17?'Good afternoon':'Good evening');}
+
+function setVoice(on){
+  voiceOn=on;
+  vt.classList.toggle('on',on);
+  vt.setAttribute('aria-pressed',on?'true':'false');
+  vl.textContent=on?'Voice on':'Voice off';
+  if(!on&&window.speechSynthesis) window.speechSynthesis.cancel();
+}
+vt.addEventListener('click',function(e){e.stopPropagation();setVoice(!voiceOn);});
+
+function typeAndSpeak(text,done){
+  var i=0;greetEl.innerHTML='';
+  var cur=document.createElement('span');cur.className='cur';
+  var span=document.createElement('span');
+  greetEl.appendChild(span);greetEl.appendChild(cur);
+
+  var utter=null;
+  if(voiceOn&&window.speechSynthesis){
+    utter=new SpeechSynthesisUtterance(text);
+    utter.rate=0.94;utter.pitch=0.92;
+    var vs=window.speechSynthesis.getVoices();
+    var pick=vs.filter(function(v){return /en-GB|en-IN|Daniel|Google UK/.test(v.lang+v.name);})[0];
+    if(pick) utter.voice=pick;
+    utter.onstart=function(){vt.classList.add('speaking');sigil.setState('thinking');sigilState.textContent='Speaking';};
+    utter.onend=function(){vt.classList.remove('speaking');sigil.setState('idle');sigilState.textContent='Idle';};
+    window.speechSynthesis.speak(utter);
+  }
+  var iv=setInterval(function(){
+    i++;span.textContent=text.slice(0,i);
+    if(i>=text.length){clearInterval(iv);setTimeout(function(){cur.remove();done&&done();},420);}
+  },38);
+}
+
+function wake(){
+  if(woken) return; woken=true;
+  setVoice(true);
+  document.getElementById('wake').classList.add('gone');
+  sigil.setState('thinking');sigilState.textContent='Waking';
+  setTimeout(function(){
+    typeAndSpeak(salutation()+', Onkar.',function(){
+      document.getElementById('subgreet').classList.add('on');
+      document.getElementById('scrollCue').classList.add('on');
+      document.getElementById('rail').classList.add('on');
+      document.body.classList.add('railed');
+      sigilState.textContent='Awaiting';
+      /* ambient tray — surfaces silently at 18s, never asks aloud */
+      setTimeout(function(){
+        document.getElementById('tray').classList.add('on');
+        document.getElementById('trayLabel').style.opacity='.8';
+      },18000);
+    });
+  },700);
+}
+document.getElementById('wakeBtn').addEventListener('click',wake);
+document.addEventListener('keydown',function(e){
+  if(!woken && e.key!=='g' && e.key!=='G') wake();
+});
+
+/* tray navigation */
+document.querySelectorAll('[data-go]').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelector(b.getAttribute('data-go')).scrollIntoView({behavior:'smooth'});
+  });
+});
+document.getElementById('sigilCanvas').addEventListener('click',function(){
+  document.getElementById('arrival').scrollIntoView({behavior:'smooth'});
+});
+
+/* =========================================================
+   APPROVAL INTERACTIONS
+   ========================================================= */
+document.querySelectorAll('[data-approve]').forEach(function(b){
+  b.addEventListener('click',function(){
+    var c=b.closest('.acard');c.classList.add('resolved');
+    sigil.setState('thinking');sigilState.textContent='Acting';
+    setTimeout(function(){sigil.setState('idle');sigilState.textContent='Idle';},2600);
+  });
+});
+document.querySelectorAll('[data-reject]').forEach(function(b){
+  b.addEventListener('click',function(){
+    var c=b.closest('.acard');c.classList.add('resolved');
+    c.querySelector('.resolved-note').textContent='✕ Declined · noted, I won\'t raise it again this quarter';
+    c.querySelector('.resolved-note').style.color='var(--ink-3)';
+  });
+});
+document.querySelectorAll('[data-discuss]').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.getElementById('conversation').scrollIntoView({behavior:'smooth'});
+  });
+});
+
+/* =========================================================
+   RAIL NAV — active state
+   ========================================================= */
+var secs=['arrival','brief','mission','approvals','conversation','system'];
+var links={};document.querySelectorAll('#railNav a').forEach(function(a){links[a.dataset.s]=a;});
+var io=new IntersectionObserver(function(es){
+  es.forEach(function(e){
+    if(e.isIntersecting){
+      Object.keys(links).forEach(function(k){links[k].classList.remove('active');});
+      var l=links[e.target.id]; if(l) l.classList.add('active');
+    }
+  });
+},{threshold:.35});
+secs.forEach(function(s){var el=document.getElementById(s); if(el) io.observe(el);});
+</script>
+<script>
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && window.parent !== window) {
+    window.parent.postMessage({ type: 'close-fullscreen' }, '*');
+  }
+});
+</script>
+<!-- broken-img-handler -->
+<script>
+(function(){
+  if(window.__brokenImgHandler)return;
+  window.__brokenImgHandler=true;
+  var MAX=5,DELAYS=[2000,4000,8000,16000,32000];
+  document.addEventListener('error',function(e){
+    var img=e.target;
+    if(!img||img.tagName!=='IMG')return;
+    var liveSrc=img.getAttribute('src');
+    var src=img.dataset.haOriginalSrc||liveSrc;
+    if(!src)return;
+    if(img.dataset.haOriginalSrc&&liveSrc&&liveSrc!==img.dataset.haOriginalSrc&&liveSrc.indexOf('_r=')<0){src=liveSrc;img.dataset.haOriginalSrc=src;img.dataset.haRetryCount='0'}
+    else if(!img.dataset.haOriginalSrc){img.dataset.haOriginalSrc=src}
+    var attempt=parseInt(img.dataset.haRetryCount||'0',10);
+    if(img.dataset.haPhId){var old=document.getElementById(img.dataset.haPhId);if(old)old.remove()}
+    var ph=document.createElement('div');
+    ph.className='ha-img-placeholder'+(attempt>=MAX?' ha-failed':'');
+    ph.id='ha-ph-'+Math.random().toString(36).slice(2,9);
+    var w=img.getAttribute('width');var h=img.getAttribute('height');
+    if(w)ph.style.width=w+(isNaN(Number(w))?'':'px');
+    else if(img.style.width)ph.style.width=img.style.width;
+    else if(img.width>1)ph.style.width=img.width+'px';
+    if(h)ph.style.height=h+(isNaN(Number(h))?'':'px');
+    else if(img.style.height)ph.style.height=img.style.height;
+    else if(img.height>1)ph.style.height=img.height+'px';
+    ph.textContent=attempt>=MAX?'Image unavailable':'Loading image\u2026';
+    img.dataset.haPhId=ph.id;
+    if(img.dataset.haOrigDisplay==null)img.dataset.haOrigDisplay=img.style.display||'';
+    img.style.display='none';
+    img.insertAdjacentElement('afterend',ph);
+    if(attempt<MAX){
+      img.dataset.haRetryCount=String(attempt+1);
+      setTimeout(function(){
+        if(!img.isConnected)return;
+        if(img.dataset.haOriginalSrc!==src)return;
+        if(img.complete&&img.naturalWidth>0)return;
+        var curSrc=img.getAttribute('src');
+        if(curSrc&&curSrc.indexOf(src)!==0)return;
+        var fresh=src+(src.indexOf('?')>=0?'&':'?')+'_r='+(attempt+1)+'_'+Date.now();
+        img.src=fresh;
+      },DELAYS[attempt]);
+    }
+  },true);
+  document.addEventListener('load',function(e){
+    var img=e.target;
+    if(!img||img.tagName!=='IMG')return;
+    if(img.dataset.haPhId){
+      var ph=document.getElementById(img.dataset.haPhId);
+      if(ph)ph.remove();
+      delete img.dataset.haPhId;
+      img.style.display=img.dataset.haOrigDisplay||'';
+      delete img.dataset.haOrigDisplay;
+      delete img.dataset.haOriginalSrc;
+      delete img.dataset.haRetryCount;
+    }
+  },true);
+})();
+</script>
+</body>
+</html>

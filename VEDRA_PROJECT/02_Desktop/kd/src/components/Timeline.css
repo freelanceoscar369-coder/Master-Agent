@@ -1,0 +1,122 @@
+/**
+ * Timeline — vertical event list.
+ * 7px nodes, 4px halo on active items.
+ * Connecting line uses hairline colour.
+ */
+
+.k-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+
+.k-timeline__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+  padding-bottom: 24px;
+}
+
+.k-timeline__item:last-child {
+  padding-bottom: 0;
+}
+
+/* Vertical connecting line */
+.k-timeline__item:not(:last-child) .k-timeline__track::after {
+  content: '';
+  position: absolute;
+  top: 7px; /* node height */
+  left: 3px; /* center of 7px node */
+  width: 1px;
+  height: calc(100% - 7px + 16px); /* extend through gap */
+  background-color: var(--color-hair);
+}
+
+.k-timeline__track {
+  position: relative;
+  flex-shrink: 0;
+  width: 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px; /* align with first line of text */
+}
+
+/* Node — 7px circle */
+.k-timeline__node {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--color-hair);
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+/* Active halo — 4px ring */
+.k-timeline__item--active .k-timeline__node {
+  background-color: var(--color-ink-2);
+  box-shadow: 0 0 0 4px rgba(150, 190, 220, 0.20);
+}
+
+/* Tone variants for nodes */
+.k-timeline__item--tone-live .k-timeline__node {
+  background-color: var(--signal-live);
+}
+
+.k-timeline__item--tone-live.k-timeline__item--active .k-timeline__node {
+  box-shadow: 0 0 0 4px rgba(127, 211, 255, 0.20);
+}
+
+.k-timeline__item--tone-needs-you .k-timeline__node {
+  background-color: var(--signal-needs-you);
+}
+
+.k-timeline__item--tone-needs-you.k-timeline__item--active .k-timeline__node {
+  box-shadow: 0 0 0 4px rgba(255, 180, 84, 0.20);
+}
+
+.k-timeline__item--tone-done .k-timeline__node {
+  background-color: var(--signal-done);
+}
+
+.k-timeline__item--tone-done.k-timeline__item--active .k-timeline__node {
+  box-shadow: 0 0 0 4px rgba(99, 230, 168, 0.20);
+}
+
+.k-timeline__item--tone-risk .k-timeline__node {
+  background-color: var(--signal-risk);
+}
+
+.k-timeline__item--tone-risk.k-timeline__item--active .k-timeline__node {
+  box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.20);
+}
+
+.k-timeline__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.k-timeline__at {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-3);
+  display: block;
+}
+
+.k-timeline__line {
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  color: var(--color-ink);
+  display: block;
+}
+
+.k-timeline__item--active .k-timeline__line {
+  color: var(--color-ink);
+  font-weight: 500;
+}

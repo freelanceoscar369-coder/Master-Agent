@@ -17,7 +17,30 @@ long-term goals stated formally, `WHY.md` for the origin-story version,
 how we build, how it should feel, and why it's shaped the way it is,
 respectively.
 
-## Where things stand right now (2026-07-23)
+## Where things stand right now (2026-07-31)
+
+**The loop is closed.** As of Mission Brief 037 a founder types a
+sentence into `kalpavriksha` and it becomes a plan, runs, is verified
+step by step, and is remembered:
+
+```
+Founder -> Planner -> MissionPlan -> Mission Control -> Executives
+        -> Broker -> Providers -> Verifier -> Evidence -> Memory
+```
+
+Nothing in that line is a stub. The Planner is the only producer of a
+plan (MB036), the Broker is the only chooser of a provider (MB031/032),
+the Verifier is the only judge of an answer (MB035), Memory is the only
+keeper of what was learned (MB034), and Mission Control is the only
+orchestrator (MB023). Each of those is asserted by a test rather than by
+this paragraph.
+
+Two things are known-missing and named rather than hidden: **pause /
+resume / cancel** (needs a ratified ADR — MB037 §5), and **nothing
+publishes what arguments a capability takes**, so the Planner guesses
+them (MB036 Findings 4 and 5; top of the backlog).
+
+The rest of this section is the historical record of how it got here.
 
 - **The architecture is designed and documented**, not just implemented
   ad hoc: `ARCHITECTURE.md` is the system design; `docs/adr/` explains
@@ -367,6 +390,86 @@ respectively.
   **It is not wired to anything yet** — that is the next brief, and it is
   where the integration risk lives. 180 new tests, 1543 passing. Full
   detail: `docs/MISSION_BRIEF_031.md`.
+- **Mission Brief 032 wired the Broker in, and it is now the only thing
+  that answers "which AI?".** A task goes `Broker -> DecisionRecord ->
+  approval if needed -> execution`, and nothing reaches a provider before
+  the first three have happened. The Model Router's four hardcoded
+  branches are gone — including the one that answered *"I need this done
+  well"* with a named cloud model, which is now a **quality floor**.
+  Provider profiles come from the Desktop Executive's machine scan, so
+  what is available is a fact about your machine rather than a list in
+  code, and **"nothing has scanned yet" is reported as absence rather than
+  assumed present**. Paid providers reach your existing Approval panel
+  before anything is spent; free local ones run immediately. Every
+  decision is stored and replays against **its own** policy, so changing
+  your policy never rewrites history. **The things worth remembering:**
+  exactly one frozen file changed and a ratified ADR had named it five
+  Miracles earlier; a missing Broker **fails closed** rather than falling
+  back, because a fallback is itself a provider decision; and every
+  quality number in the catalogue is a *declared* guess, labelled as such
+  on screen, until a benchmark store exists. 397 new tests, 1945 passing,
+  100% coverage of the new package. Full detail:
+  `docs/MISSION_BRIEF_032.md`.
+- **Mission Brief 033 made it actually think.** `kalpavriksha --ask "..."`
+  now goes Broker → Ollama → answer, on your own machine, for free: a live
+  run against `gemma4:latest` took 22.8 s, used 30 tokens, cost nothing,
+  and is on the record with all of that attached. **The provider only
+  ever executes** — it cannot rank, route, or fall back, and if it fails
+  you get a fact you can act on rather than a substitution: a missing
+  model answers with *the models you do have*, a stopped daemon answers
+  with the address it tried. Only the Broker may choose a different
+  provider, and that rule is why the record can be trusted later. The
+  **Token Economy** starts counting here, and it will not flatter you:
+  "money saved" is never what a frontier model *would* have cost, only
+  what was genuinely reused instead of repeated — so it reads zero today,
+  and the panel says why. **The thing to know:** the Prompt Cache is
+  wired and always misses, because reuse requires *verified* work and
+  nothing yet verifies generated text. A verifier is now the highest-value
+  next step for cost. 350 new tests, 2295 passing, 100% coverage of the
+  new packages, and zero frozen files touched. Full detail:
+  `docs/MISSION_BRIEF_033.md`.
+- **Mission Brief 034 gave it a memory.** Type `remember "Never delete
+  logs automatically"` and it is still there next launch; type `memory
+  docker` and you get back exactly what you wrote, ranked and repeatable.
+  It also writes things down on its own — missions that finished, missions
+  that failed, verifications, your approvals, and recoveries that actually
+  recovered something — by listening to the Event Bus that already
+  existed. **No LLM is involved anywhere in this**: no embeddings, no
+  semantic search, no summarisation. Retrieval is deterministic and the
+  ranking is written down, so the same question gives the same answer
+  forever. Memory lives **beside** the state directory, never inside it,
+  because a recovery may throw operational state away and must never throw
+  away what you said — and a corrupt memory file is moved aside rather
+  than overwritten, so you can always open it and copy your notes out.
+  **The things to know:** saying something twice is one memory (and can
+  raise its importance, never lower it); search is whole-word, so `fail`
+  will not find `failure`; and there is no `forget()` yet — deleting
+  founder memory deserves its own thinking. 315 new tests, 2610 passing,
+  100% coverage of the five new modules, zero frozen files touched. Full
+  detail: `docs/MISSION_BRIEF_034.md`.
+- **Mission Brief 035 taught it to check its own answers.** Ask it
+  something *and say what a good answer looks like* — "must mention blue",
+  "must be JSON with a `name` field", "at least twenty words" — and it
+  tells you whether the answer actually met that. Live: `Blue` came back
+  from your local model, all three checks passed, verdict **matched**, and
+  the answer was cached; asking the same question with a *different*
+  requirement correctly re-asked rather than reusing it. **No model judges
+  another model** — that recursion is the one thing this system has now
+  refused to start three briefs running. A verdict is arithmetic over what
+  you asked for *before* the answer arrived, which is the only kind you
+  can argue with. **What this unblocks:** MB033's Prompt Cache now
+  actually hits (and ships on, because the reason it was off is gone), and
+  MB034's Prompt Library finally writes itself — a prompt that worked is
+  filed under Prompt Library, one that did not under Failure Library, with
+  the evidence id attached. **The thing to know:** somebody has to say
+  what a good answer looks like. Nothing infers it, and nothing should — a
+  check invented *after* the answer arrived is a rationalisation. Until
+  the real Planner attaches one to every step, the cache and the Prompt
+  Library fill only for callers that say what they want. And the checks
+  are structural: they catch a blank answer, a refusal, a truncation, a
+  wrong format — not an answer that is fluent, well-formed and wrong. 153
+  new tests, 2763 passing, 100% coverage of both changed modules, zero
+  frozen files touched. Full detail: `docs/MISSION_BRIEF_035.md`.
 
 ## Where to go for what
 
@@ -387,7 +490,12 @@ respectively.
 | How do I approve, reject, or defer a pending action? | `docs/MISSION_BRIEF_028_1.md`, ADR-0020 |
 | What does the founder actually see, and how do I add a web/mobile UI? | `docs/MISSION_BRIEF_029.md`, `dashboard/founder.py` (the view model) |
 | What software does it know about on my machine? | `docs/MISSION_BRIEF_030.md`, `desktop/catalog.py` |
-| How does it choose which AI to use? | `docs/MISSION_BRIEF_031.md`, `broker/`, ADR-0017, ADR-0018 |
+| How does it choose which AI to use? | `docs/MISSION_BRIEF_031.md` (the engine), `docs/MISSION_BRIEF_032.md` (how it is wired in), `broker/`, `ai_infrastructure/`, ADR-0017, ADR-0018 |
+| Which providers does it know about, and where do their numbers come from? | `ai_infrastructure/catalog.py` — the one file allowed to name a product, and every number in it is a stated guess |
+| Why did it pick that provider, and can I see the history? | The AI Decisions panel on the founder page; the durable ledger at `<state-dir>/broker_decisions.json`, replayable with `DecisionLedger.replay()` |
+| How do I actually ask it something? | `kalpavriksha --ask "your question"` (add `--model` if yours is not the configured one) — `docs/MISSION_BRIEF_033.md` |
+| How does a provider actually run a prompt, and what happens when it fails? | `providers/ollama.py`, `providers/transport.py`, `docs/MISSION_BRIEF_033.md` §3 |
+| What has AI actually cost me, and what did it save? | The Token Economy block on the founder page; `ai_infrastructure/economy.py` for exactly what each number counts and refuses to count |
 | How do I watch what it is doing? | `FOUNDER_DASHBOARD_ARCHITECTURE.md`, `docs/MISSION_BRIEF_026.md` |
 | How does state survive a restart, and what happens to interrupted work? | `PERSISTENCE_ARCHITECTURE.md`, `docs/MISSION_BRIEF_025.md`, ADR-0015 |
 | Which AI runs a given task, what does it cost, and who approves paid ones? | `AI_CAPABILITY_BROKER_ARCHITECTURE.md`, `docs/MISSION_BRIEF_027.md`, ADR-0017 |
@@ -398,6 +506,18 @@ respectively.
 | How does a *composite* mission (several actions together) plug in? | `docs/MISSION_BRIEF_003.md`, `docs/adr/0006-composite-action-relay.md` |
 | How does typed/spoken conversation become a mission? | `ARCHITECTURE.md` §4.1-4.2, `docs/MISSION_BRIEF_003_1.md` |
 | How does mission history get remembered, and how do I query it? | `MEMORY_ARCHITECTURE.md`, `docs/MISSION_BRIEF_004.md`, `docs/adr/0007-sqlite-memory-backend.md` |
+| How do I tell it something it should remember forever? | `remember "..."` in the console, or `memory <words>` to ask — `docs/MISSION_BRIEF_034.md` |
+| What does it know about me, and where is that stored? | The MEMORY section on the founder page; `<app-dir>/memory/knowledge.json`, readable by hand |
+| Why did that search return those results in that order? | `memory/memory_query.py` — the weights and tie-breaks are a table, not a tuned score |
+| How does it know whether an answer was any good? | `ai_infrastructure/text_verifier.py`, ADR-0011, `docs/MISSION_BRIEF_035.md` — deterministic checks against what you asked for, never a model's opinion |
+| Why did it re-ask instead of reusing a cached answer? | A cached answer is only served if it still satisfies *your* expectation — `docs/MISSION_BRIEF_035.md` §5 |
+| How do I just tell it what I want? | Type it into `kalpavriksha`. Anything that is not a console verb becomes an objective: it is planned, submitted to Mission Control, executed, and verified — `docs/MISSION_BRIEF_037.md` |
+| What is it doing right now, step by step? | The CURRENT MISSION panel on the founder page — current step, what it expects, what is waiting on a dependency, what failed verification |
+| How does an objective become steps? | `planner/`, `docs/MISSION_BRIEF_036.md`. The Planner is the **only** producer of a `MissionPlan`, asserted by an AST test over all of `src/` |
+| How does a plan become work Mission Control runs? | `missions/translation.py` — a 1:1 copy into `Task`, and the gate that refuses a plan missing a capability, inputs, an expected outcome or dependency information |
+| What did it do last time, and can I see it again? | `replay` in the console. Reads recorded evidence only and can reach no provider at all — `missions/history.py`, `docs/MISSION_BRIEF_037.md` §4.5 |
+| Why can't I pause or cancel a mission? | Deliberately not built — it needs a ratified ADR. `docs/MISSION_BRIEF_037.md` §5 explains exactly why, and a test enforces the absence |
+| Why did my step fail with the right idea but the wrong arguments? | Nothing publishes a capability's argument names yet, so the Planner guesses them. `CapabilityManifest.input_schema` is the empty seam — MB036 Findings 4 and 5, top of the backlog |
 | What's next, and in what order? | `ROADMAP.md` |
 | How should a new Miracle actually be built, reviewed, tested, shipped? | `FOUNDER_PLAYBOOK.md` |
 | What's known/unknown about the founder and constraints? | `FOUNDER_CONTEXT.md` |

@@ -1,0 +1,45 @@
+/**
+ * Tag — mono, uppercase, hairline box.
+ * Inline label. State carried by colour AND uppercase word per constitution.
+ */
+
+.k-tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-kicker-size);
+  line-height: var(--fs-kicker-lh);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0 8px;
+  height: 24px;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-0);
+  color: var(--color-ink-2);
+}
+
+.k-tag--muted {
+  color: var(--color-ink-3);
+  border-color: var(--color-hair-soft);
+}
+
+.k-tag--live {
+  color: var(--signal-live);
+  border-color: var(--signal-live);
+}
+
+.k-tag--needs-you {
+  color: var(--signal-needs-you);
+  border-color: var(--signal-needs-you);
+}
+
+.k-tag--done {
+  color: var(--signal-done);
+  border-color: var(--signal-done);
+}
+
+.k-tag--risk {
+  color: var(--signal-risk);
+  border-color: var(--signal-risk);
+}

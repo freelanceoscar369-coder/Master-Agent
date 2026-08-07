@@ -1,0 +1,103 @@
+/**
+ * StatusBar — 32px mono one-liner at the bottom of the shell.
+ */
+
+.root {
+  grid-area: statusbar;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 32px;
+  padding-inline: 16px;
+  background-color: var(--color-deep);
+  border-top: 1px solid var(--color-hair);
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: background-color var(--dur-2) var(--ease-settle);
+}
+
+/* When autonomy is suspended the whole bar turns signal-risk */
+.suspended {
+  background-color: var(--signal-risk);
+  border-top-color: var(--signal-risk);
+}
+
+.suspended .segment,
+.suspended .plain,
+.suspended .divider {
+  color: #000;
+}
+
+.suspendedLabel {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #000;
+  margin-right: 16px;
+}
+
+/* ── Segments ───────────────────────────────────────────────────────────── */
+
+.segment {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  color: var(--color-ink-3);
+  white-space: nowrap;
+}
+
+.plain {
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+}
+
+.divider {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  color: var(--color-ink-3);
+  margin-inline: 8px;
+}
+
+/* ── Signal colours ─────────────────────────────────────────────────────── */
+
+.signalLive {
+  color: var(--signal-live);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+}
+
+.signalRisk {
+  color: var(--signal-risk);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+}
+
+/* ── Adapter name ────────────────────────────────────────────────────────── */
+
+/* mock adapter is visually distinct so it's never confused with production */
+.adapterMock {
+  color: var(--signal-needs-you);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+}
+
+.adapterHttp {
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
+}

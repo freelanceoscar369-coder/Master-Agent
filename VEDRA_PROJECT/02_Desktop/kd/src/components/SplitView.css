@@ -1,0 +1,23 @@
+/**
+ * SplitView — master/detail layout for explorer screens.
+ * Left panel is the list; right panel is the detail.
+ * Uses CSS custom property for ratio to allow runtime overrides.
+ */
+
+.k-split-view {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.k-split-view__left {
+  border-right: 1px solid var(--color-hair);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.k-split-view__right {
+  overflow-y: auto;
+  min-height: 0;
+}

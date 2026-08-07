@@ -69,6 +69,65 @@ class ProviderProfile:
     requires_approval: bool = False
     max_context_tokens: int | None = None
     notes: str = ""
+    # ---- MB038 throughput ------------------------------------------------
+    #
+    # `None` means **not measured**, and it is never a synonym for slow,
+    # fast, or any default. A rate is a fact about one model on one
+    # machine; inventing one here would produce a budget that looks
+    # derived and is actually a guess, which is worse than no budget at
+    # all because it is not visibly a guess. `budgets.py` reads `None` as
+    # "cannot estimate from size" and falls back to the class ceiling,
+    # recording that it did (`FROM_CEILING`).
+    #
+    # Same posture `latency_ms` and `benchmark` already take, and the same
+    # posture MB032 took toward an unscanned machine: absence is reported,
+    # never assumed away.
+    prefill_tokens_per_second: float | None = None
+    decode_tokens_per_second: float | None = None
+    expected_itl_ms: float | None = None
+    #: Characters per token for this provider's tokenizer, measured. Needed
+    #: to turn a prompt into the token count the rates above are expressed
+    #: in. `None` means the tokenizer has not been characterised, and a
+    #: prompt therefore cannot be sized -- which the deriver reads the same
+    #: way it reads an unknown rate.
+    chars_per_token: float | None = None
+    #: True when this provider runs one call at a time, so a second call
+    #: queues rather than running alongside. A **declared** property, like
+    #: `supports_streaming`: local runtimes serialise per model, hosted
+    #: APIs do not. Default False, because refusing calls to a provider
+    #: that would have handled them is the more damaging mistake.
+    serialises: bool = False
+    #: MB038A. How long this provider takes to get the model into memory
+    #: before any work starts. **Neither prefill nor decode** -- it does
+    #: not scale with the prompt and no rate represents it, which is why
+    #: the acceptance run failed: a cold call spent longer loading than
+    #: the whole budget allowed.
+    #:
+    #: Always added to the prefill estimate, because nothing tracks
+    #: whether a model is currently resident. Budgeting every call as
+    #: though it were cold over-waits on warm calls and never under-waits
+    #: on cold ones -- and under-waiting is the failure that reports a
+    #: healthy provider as broken.
+    #:
+    #: `None` means not measured, and adds nothing.
+    model_load_ms: float | None = None
+    #: A capability declaration, not a measurement. False means "not known
+    #: to stream", which degrades safely to `ttft == total` with no
+    #: heartbeat -- exactly today's behaviour, now named.
+    supports_streaming: bool = False
+
+    @property
+    def throughput_known(self) -> bool:
+        """Can a size-based estimate be made for this provider at all?"""
+        return (
+            self.prefill_tokens_per_second is not None
+            and self.decode_tokens_per_second is not None
+        )
+
+    @property
+    def can_size_a_prompt(self) -> bool:
+        """Rates are useless without a way to count what they apply to."""
+        return self.chars_per_token is not None
 
     @property
     def effective_quality(self) -> float:
@@ -111,6 +170,17 @@ class ProviderProfile:
             "requires_approval": self.requires_approval,
             "max_context_tokens": self.max_context_tokens,
             "notes": self.notes,
+            # MB038. Round-tripped because MB032 stores the profiles a
+            # decision was made against and replays against *those*. A
+            # budget derived from a rate that the replay could not see
+            # would not be reproducible.
+            "prefill_tokens_per_second": self.prefill_tokens_per_second,
+            "decode_tokens_per_second": self.decode_tokens_per_second,
+            "expected_itl_ms": self.expected_itl_ms,
+            "supports_streaming": self.supports_streaming,
+            "chars_per_token": self.chars_per_token,
+            "serialises": self.serialises,
+            "model_load_ms": self.model_load_ms,
         }
 
     @classmethod
@@ -130,6 +200,16 @@ class ProviderProfile:
             requires_approval=data.get("requires_approval", False),
             max_context_tokens=data.get("max_context_tokens"),
             notes=data.get("notes", ""),
+            # `.get()` with no default: a record written before MB038 has
+            # no throughput, and the honest reading of that is "not
+            # measured" rather than a substituted number.
+            prefill_tokens_per_second=data.get("prefill_tokens_per_second"),
+            decode_tokens_per_second=data.get("decode_tokens_per_second"),
+            expected_itl_ms=data.get("expected_itl_ms"),
+            supports_streaming=data.get("supports_streaming", False),
+            chars_per_token=data.get("chars_per_token"),
+            serialises=data.get("serialises", False),
+            model_load_ms=data.get("model_load_ms"),
         )
 
 

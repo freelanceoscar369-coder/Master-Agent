@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from uuid import uuid4
 
+from master_agent.config import load_config
 from master_agent.dashboard.founder import build_daily_summary
 from master_agent.dashboard.founder_panels import render_daily_summary
 from master_agent.launcher.boot import KalpavrikshaSystem, build_system
@@ -24,6 +26,11 @@ from master_agent.runtime.config import RuntimeConfig
 # into that list is the real Planner (`ROADMAP.md`, Planned item 1). Until
 # it exists, this is the only way to watch the loop actually run.
 DEMO_FOLDER = "Kalpavriksha Demo"
+
+#: How many Runtime cycles `--ask` gives the one-off machine scan. The
+#: scan is two dependent tasks, so two cycles is the answer; the extra one
+#: is for a cycle spent on something else that happened to be ready.
+SCAN_CYCLES = 3
 # --demo needs create_folder and write_file. It grants nothing: MB028.1
 # routes every approval through the Founder Console, so the demo objective
 # appears in the Approval panel and waits for you like anything else.
@@ -137,6 +144,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the boot report and exit without starting anything.",
     )
+    parser.add_argument(
+        "--ask",
+        metavar="PROMPT",
+        default=None,
+        help=(
+            "Ask Kalpavriksha one question and exit. The Broker chooses the "
+            "provider, the provider answers, and the decision and its "
+            "execution are both recorded."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Override the local model to run (default: whatever config "
+            "says). A model that is not installed is reported, with the "
+            "ones that are."
+        ),
+    )
     return parser
 
 
@@ -155,11 +181,83 @@ def print_boot_report(system: KalpavrikshaSystem) -> None:
     print()
 
 
+def ask_once(system: KalpavrikshaSystem, prompt: str) -> int:
+    """One question, one answer, and both halves of the record (MB033).
+
+    Prints exactly what MB033's founder view specifies -- which provider
+    is thinking, what it cost, how long it took, and whether the answer
+    came out of the cache -- then the answer itself. A refusal prints the
+    reason instead and returns non-zero, because "the Broker declined" is
+    not a successful run.
+    """
+    if system.prompt_executor is None:
+        print("  No AI Capability Broker is wired; nothing can be asked.")
+        return 1
+
+    from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+
+    # A provider the machine has never been scanned for reads as absent,
+    # and rightly: MB032 refuses to assume a local runtime is installed
+    # because assuming it is how a selection succeeds and the call fails
+    # ten seconds later. So scan first -- submitted through Mission
+    # Control and executed by the Runtime, exactly as the normal launch
+    # path does it (MB030 Rule 4), never by reaching into the Desktop
+    # Executive from here.
+    if not system.intelligence.providers.has_scan():
+        print("  Scanning this machine first (one-off, a few seconds)...")
+        system.mission_control.submit_objective(machine_scan_objective())
+        for _ in range(SCAN_CYCLES):
+            system.runtime.run_once()
+            if system.intelligence.providers.has_scan():
+                break
+
+    outcome = system.prompt_executor.run(
+        prompt,
+        SelectionRequest.from_context(
+            RoutingContext(task_id=f"ask-{uuid4().hex[:8]}", requester="founder")
+        ),
+    )
+
+    if outcome.refused:
+        print(f"\n  Refused: {outcome.reason}\n")
+        for provider_id, why in (outcome.refusal.rejected if outcome.refusal else ()):
+            print(f"    - {provider_id}: {why}")
+        print()
+        return 1
+
+    execution = outcome.execution
+    print()
+    print(f"  Thinking with  {outcome.provider_id}"
+          f"{f' ({execution.model})' if execution and execution.model else ''}")
+    if execution is not None:
+        latency = execution.latency_seconds
+        print(f"  Cost           {'Free' if not execution.cost else execution.cost:}")
+        print(f"  Latency        {'unknown' if latency is None else f'{latency:.1f} s'}")
+    print(f"  Prompt Cache   {outcome.cache.replace('_', ' ').upper()}")
+    print()
+
+    if not outcome.ok:
+        print(f"  Failed: {outcome.reason}\n")
+        for key, value in (outcome.detail or {}).items():
+            print(f"    {key}: {value}")
+        print()
+        return 1
+
+    print(outcome.text.strip())
+    print()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    config = load_config()
+    if args.model:
+        config.ollama.model = args.model
+
     system = build_system(
         state_dir=args.state_dir,
+        config=config,
         runtime_config=RuntimeConfig(poll_interval_seconds=args.poll_interval),
         approval_timeout_seconds=args.approval_timeout,
         dashboard_kwargs={"refresh_interval_seconds": args.refresh_interval},
@@ -168,6 +266,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.boot_only:
         return 0
+
+    if args.ask:
+        # Deliberately before the Runtime starts: one question is not a
+        # mission, and starting a heartbeat to answer it would leave a
+        # thread running for the length of a print statement.
+        return ask_once(system, args.ask)
 
     if not args.no_scan:
         system.mission_control.submit_objective(machine_scan_objective())
@@ -181,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
         system.dashboard,
         system.mission_control,
         refresh_seconds=args.refresh_interval,
+        memory=system.memory,
+        missions=system.missions,
     )
     try:
         console.run()

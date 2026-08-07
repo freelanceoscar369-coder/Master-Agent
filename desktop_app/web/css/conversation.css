@@ -1,0 +1,96 @@
+/* Conversation view — Product Veda Deliverable 4.
+   Source: veda/04_CONVERSATION_DESIGN.md */
+
+.conversation-scroll {
+  position: absolute; inset: 0;
+  overflow-y: auto; overflow-x: hidden;
+  scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+  z-index: var(--z-content);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--d-5) var(--e-settle);
+}
+.conversation-scroll.is-visible { opacity: 1; pointer-events: auto; }
+
+.conversation {
+  width: var(--measure-conversation);
+  max-width: calc(100% - 2 * var(--frame-margin));
+  margin: 0 auto;
+  padding-top: var(--sp-8);
+  padding-bottom: 220px;
+}
+
+.founder-message { display: flex; justify-content: flex-end; margin-bottom: var(--sp-5); opacity: 0; transform: translateY(0); animation: msg-enter var(--d-5) var(--e-settle) forwards; }
+.somesh-message { display: flex; align-items: flex-start; gap: var(--sp-5); margin-bottom: var(--sp-5); opacity: 0; animation: msg-enter var(--d-5) var(--e-settle) forwards; }
+
+@keyframes msg-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .founder-message, .somesh-message { animation: msg-enter-reduced var(--d-1) linear forwards; }
+  @keyframes msg-enter-reduced { from { opacity: 0; } to { opacity: 1; } }
+}
+
+.founder-message__bubble {
+  max-width: 480px;
+  background: var(--c-raise-2);
+  border-radius: var(--r-2);
+  border: 1px solid var(--c-hair-soft);
+  padding: var(--sp-4) var(--sp-5);
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  font-weight: var(--t-body-weight);
+  font-family: var(--font-text);
+  color: var(--c-ink);
+  text-align: left;
+  white-space: pre-wrap; word-break: break-word;
+}
+.founder-message__time {
+  font: var(--t-mono-size)/var(--t-mono-lh) var(--font-mono);
+  color: var(--c-ink-4);
+  margin-top: var(--sp-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.founder-message-col { display: flex; flex-direction: column; align-items: flex-end; }
+
+.somesh-message__hairline {
+  flex-shrink: 0; width: 1.5px; align-self: stretch;
+  background: var(--s-live); border-radius: var(--r-0); opacity: 0.6;
+}
+.somesh-message__body { flex: 1; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
+.somesh-message__body[data-length="short"] {
+  font-size: var(--t-speech-size); line-height: var(--t-speech-lh);
+  font-weight: var(--t-speech-weight); font-family: var(--font-display);
+  color: var(--c-ink); letter-spacing: -0.015em;
+}
+.somesh-message__body[data-length="long"] {
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  font-weight: var(--t-body-weight); font-family: var(--font-text);
+  color: var(--c-ink);
+}
+.somesh-message__interrupted {
+  font: var(--t-mono-size)/var(--t-mono-lh) var(--font-mono);
+  color: var(--c-ink-3);
+  margin-top: var(--sp-2);
+  opacity: 0; transition: opacity var(--d-3) var(--e-settle);
+}
+.somesh-message__interrupted.is-visible { opacity: 1; }
+
+/* 4.6 — thinking indicator */
+.thinking-indicator {
+  display: flex; align-items: center; gap: var(--sp-4);
+  height: 40px; margin-bottom: var(--sp-5);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--d-3) var(--e-settle);
+}
+.thinking-indicator.is-visible { opacity: 1; }
+.thinking-indicator__hairline { flex-shrink: 0; width: 1.5px; height: 40px; background: var(--s-live); opacity: 0.3; border-radius: var(--r-0); }
+.thinking-indicator__label {
+  font-size: var(--t-label-size); font-weight: var(--t-label-weight);
+  letter-spacing: var(--t-label-track); text-transform: uppercase; color: var(--c-ink-3);
+}
+
+@media (max-width: 1439px) { .conversation { max-width: calc(100% - 96px); } }
+@media (max-width: 1179px) { .conversation { max-width: calc(100% - 64px); } }

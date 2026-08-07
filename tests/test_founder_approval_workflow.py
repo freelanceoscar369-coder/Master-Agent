@@ -577,7 +577,12 @@ def test_a_bad_command_is_a_message_not_a_crash():
     seed(mc)
     console = console_for(mc)
 
-    assert "unknown command" in console.execute("aprove 1")
+    # MB037 changed what an unrecognised line means: it is now an
+    # objective, not an error. The guarantee this test exists for is
+    # unchanged and is the assertion at the bottom -- a typo must never
+    # decide an approval. With no Planner wired the console says so
+    # instead of crashing, which is the "message not a crash" half.
+    assert "no planner is wired" in console.execute("aprove 1")
     assert "not an approval number" in console.execute("approve two")
     assert "no pending approval numbered 9" in console.execute("approve 9")
     assert "which?" in console.execute("approve")

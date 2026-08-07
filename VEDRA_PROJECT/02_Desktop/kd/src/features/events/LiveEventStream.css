@@ -1,0 +1,227 @@
+/* LiveEventStream layout */
+
+.les-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 24px;
+  gap: 16px;
+}
+
+/* ── header ───────────────────────────────────────────────────────────────── */
+
+.les-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.les-header__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.les-buffer-label {
+  font-size: 0.75rem;
+  color: var(--color-ink-3);
+}
+
+/* ── controls ─────────────────────────────────────────────────────────────── */
+
+.les-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.les-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  flex: 1 1 auto;
+}
+
+.les-filters > * {
+  flex: 1 1 160px;
+  min-width: 140px;
+  max-width: 220px;
+}
+
+.les-stream-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.les-paused-label {
+  font-size: 0.75rem;
+  color: var(--signal-needs-you);
+}
+
+/* ── stream status bar ────────────────────────────────────────────────────── */
+
+.les-stream-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.les-stream-status__transport {
+  font-size: 0.75rem;
+  color: var(--color-ink-3);
+}
+
+.les-stream-status__retries {
+  font-size: 0.75rem;
+  color: var(--signal-needs-you);
+}
+
+/* ── follow banner ────────────────────────────────────────────────────────── */
+
+.les-follow-banner {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-1);
+  text-align: left;
+  cursor: pointer;
+  color: var(--signal-live);
+  flex-shrink: 0;
+  transition: background 240ms var(--ease-settle);
+}
+
+.les-follow-banner:hover {
+  background: var(--color-panel-active);
+}
+
+/* ── log container ────────────────────────────────────────────────────────── */
+
+.les-log {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  /* Dense — each row is one line of context */
+}
+
+/* ── event row ────────────────────────────────────────────────────────────── */
+
+.les-event-row {
+  display: grid;
+  grid-template-columns: 6rem 12rem 1fr 6rem auto;
+  gap: 12px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--color-hair-soft);
+  font-size: 0.8125rem;
+  transition: opacity 240ms var(--ease-settle);
+}
+
+/* Signal-based left border */
+.les-event-row--signal-live {
+  border-left: 2px solid var(--signal-live);
+  padding-left: 8px;
+}
+.les-event-row--signal-needs-you {
+  border-left: 2px solid var(--signal-needs-you);
+  padding-left: 8px;
+}
+.les-event-row--signal-done {
+  border-left: 2px solid var(--signal-done);
+  padding-left: 8px;
+}
+.les-event-row--signal-risk {
+  border-left: 2px solid var(--signal-risk);
+  padding-left: 8px;
+}
+
+/* New-row fade-in */
+.les-event-row--new {
+  animation: les-fade-in 240ms var(--ease-settle) forwards;
+}
+
+@keyframes les-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.les-event-row__time {
+  font-size: 0.8125rem;
+  color: var(--color-ink-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.les-event-row__type {
+  /* Type tag — keep compact */
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.les-event-row__line {
+  font-family: var(--font-prose);
+  font-size: 0.8125rem;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.les-event-row__domain {
+  font-size: 0.75rem;
+  color: var(--color-ink-3);
+  white-space: nowrap;
+}
+
+.les-event-row__refs {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.les-event-row__ref-link {
+  padding: 2px 6px;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-1);
+  background: var(--color-panel);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--signal-live);
+  text-decoration: underline;
+  white-space: nowrap;
+  transition: background 120ms var(--ease-settle);
+}
+
+.les-event-row__ref-link:hover {
+  background: var(--color-panel-active);
+}
+
+/* ── reduced motion ───────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .les-event-row--new {
+    animation: none;
+    opacity: 1;
+  }
+
+  .les-event-row,
+  .les-follow-banner,
+  .les-event-row__ref-link {
+    transition: none;
+  }
+}

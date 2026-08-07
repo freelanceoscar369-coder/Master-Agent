@@ -53,6 +53,9 @@ class CapabilityManifest:
     name: str
     description: str
     risk_tier: RiskTier
+    # Input/output schemas — populated from capability contracts (MB039).
+    # Declared as dict for Plugin contract compatibility; the extraction
+    # system produces Schema objects which serialise to this shape.
     input_schema: dict[str, Any] = field(default_factory=dict)
     output_schema: dict[str, Any] = field(default_factory=dict)
     # Optional — mirrors an Action's `permission_category` for plugins

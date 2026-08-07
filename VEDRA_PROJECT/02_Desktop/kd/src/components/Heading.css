@@ -1,0 +1,41 @@
+/**
+ * Heading — H1, H2, H3 and Speech (AI voice).
+ * Inter prose font. Flush left. Weight 500 for emphasis only.
+ * All line-heights are multiples of 8px per the constitution.
+ */
+
+.k-speech {
+  font-family: var(--font-prose);
+  font-size: var(--fs-speech-size);
+  line-height: var(--fs-speech-lh);
+  font-weight: 400;
+  color: var(--color-ink);
+  letter-spacing: -0.01em;
+}
+
+.k-h1 {
+  font-family: var(--font-prose);
+  font-size: var(--fs-h1-size);
+  line-height: var(--fs-h1-lh);
+  font-weight: 500;
+  color: var(--color-ink);
+  letter-spacing: -0.02em;
+}
+
+.k-h2 {
+  font-family: var(--font-prose);
+  font-size: var(--fs-h2-size);
+  line-height: var(--fs-h2-lh);
+  font-weight: 500;
+  color: var(--color-ink);
+  letter-spacing: -0.01em;
+}
+
+.k-h3 {
+  font-family: var(--font-prose);
+  font-size: var(--fs-h3-size);
+  line-height: var(--fs-h3-lh);
+  font-weight: 500;
+  color: var(--color-ink);
+  letter-spacing: 0;
+}

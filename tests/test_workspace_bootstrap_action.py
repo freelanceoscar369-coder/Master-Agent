@@ -14,10 +14,17 @@ from __future__ import annotations
 import pytest
 
 from master_agent.executor.actions.create_folder import CREATE_FOLDER, CreateFolderAction
-from master_agent.executor.actions.workspace_bootstrap import WORKSPACE_BOOTSTRAP, WorkspaceBootstrapAction
+from master_agent.executor.actions.workspace_bootstrap import (
+    WORKSPACE_BOOTSTRAP,
+    WorkspaceBootstrapAction,
+)
 from master_agent.executor.actions.write_file import WRITE_FILE, WriteFileAction
 from master_agent.executor.executor import LocalExecutor
-from master_agent.permissions.permission_system import ApprovalRequired, GrantScope, PermissionSystem
+from master_agent.permissions.permission_system import (
+    ApprovalRequired,
+    GrantScope,
+    PermissionSystem,
+)
 from master_agent.plugins.base import RiskTier
 
 

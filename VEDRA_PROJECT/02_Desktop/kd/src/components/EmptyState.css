@@ -1,0 +1,45 @@
+/**
+ * EmptyState — calm, not broken.
+ * Constitution: "the empty state is the destination, not a failure."
+ * No error language. No centred text. Flush left always.
+ */
+
+.k-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 48px 0;
+}
+
+.k-empty-state__headline {
+  font-family: var(--font-prose);
+  font-size: var(--fs-h3-size);
+  line-height: var(--fs-h3-lh);
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+.k-empty-state__body {
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  font-weight: 400;
+  color: var(--color-ink-3);
+}
+
+/* Tone — for contextual colouring */
+.k-empty-state--live .k-empty-state__headline {
+  color: var(--signal-live);
+}
+
+.k-empty-state--needs-you .k-empty-state__headline {
+  color: var(--signal-needs-you);
+}
+
+.k-empty-state--done .k-empty-state__headline {
+  color: var(--signal-done);
+}
+
+.k-empty-state--risk .k-empty-state__headline {
+  color: var(--signal-risk);
+}

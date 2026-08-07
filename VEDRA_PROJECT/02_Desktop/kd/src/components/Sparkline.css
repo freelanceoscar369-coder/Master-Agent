@@ -1,0 +1,36 @@
+/**
+ * Sparkline — inline SVG trend line. No axes, no animation.
+ */
+
+.k-sparkline {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.k-sparkline__line {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.k-sparkline--muted .k-sparkline__line {
+  stroke: var(--color-ink-3);
+}
+
+.k-sparkline--live .k-sparkline__line {
+  stroke: var(--signal-live);
+}
+
+.k-sparkline--needs-you .k-sparkline__line {
+  stroke: var(--signal-needs-you);
+}
+
+.k-sparkline--done .k-sparkline__line {
+  stroke: var(--signal-done);
+}
+
+.k-sparkline--risk .k-sparkline__line {
+  stroke: var(--signal-risk);
+}

@@ -47,7 +47,6 @@ from master_agent.plugins.filesystem_plugin import (
 )
 from master_agent.plugins.registry import PluginRegistry
 
-
 # ---- parse_intent -----------------------------------------------------
 
 @pytest.mark.parametrize(

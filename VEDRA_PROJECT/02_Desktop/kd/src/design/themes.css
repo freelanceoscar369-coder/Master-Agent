@@ -1,0 +1,85 @@
+/**
+ * Kalpavriksha Design System — Theme System
+ *
+ * THREE dark themes only.
+ * A LIGHT THEME IS FORBIDDEN BY THE KALPAVRIKSHA DESIGN CONSTITUTION.
+ * The constitution explicitly states this is a dark-canonical product.
+ * Do not add a light theme under any circumstances.
+ *
+ * Theme application: set data-theme="midnight|depth|contrast" on <html>.
+ * Default (no attribute) resolves to midnight via tokens.css :root values.
+ *
+ * Rules:
+ *  · Only surface/ink/hairline values change between themes.
+ *  · The four signal HUES never change identity.
+ *  · `contrast` may brighten signals but must not change their identity.
+ */
+
+/* ── midnight (canonical) ─────────────────────────────────────────────── */
+/* midnight is the :root default in tokens.css — no overrides needed here. */
+/* Declared for completeness so consumers can set data-theme="midnight" explicitly. */
+[data-theme="midnight"] {
+  --color-void: #05070a;
+  --color-deep: #080b10;
+  --color-panel: rgba(255, 255, 255, 0.028);
+  --color-panel-active: rgba(255, 255, 255, 0.05);
+  --color-hair: rgba(150, 190, 220, 0.16);
+  --color-hair-soft: rgba(150, 190, 220, 0.09);
+  --color-ink: #e9eff5;
+  --color-ink-2: #9fb0bf;
+  --color-ink-3: #63727f;
+
+  /* Signals — canonical */
+  --signal-live: #7fd3ff;
+  --signal-needs-you: #ffb454;
+  --signal-done: #63e6a8;
+  --signal-risk: #ff6b6b;
+}
+
+/* ── depth (for long sessions — lower contrast, darker panels) ──────────── */
+[data-theme="depth"] {
+  /* Surfaces — slightly darker, panels less prominent */
+  --color-void: #030508;
+  --color-deep: #050709;
+  --color-panel: rgba(255, 255, 255, 0.020);
+  --color-panel-active: rgba(255, 255, 255, 0.038);
+
+  /* Hairlines — slightly softer for long-session comfort */
+  --color-hair: rgba(150, 190, 220, 0.11);
+  --color-hair-soft: rgba(150, 190, 220, 0.065);
+
+  /* Ink — dimmed for reduced eye strain */
+  --color-ink: #c8d4de;
+  --color-ink-2: #7a8e9b;
+  --color-ink-3: #4a5860;
+
+  /* Signals — same hue identity, very slightly muted */
+  --signal-live: #6abde8;
+  --signal-needs-you: #e8a040;
+  --signal-done: #55cc94;
+  --signal-risk: #e85c5c;
+}
+
+/* ── contrast (accessibility — high contrast, stronger hairlines) ─────── */
+[data-theme="contrast"] {
+  /* Surfaces — kept dark, slightly more distinct */
+  --color-void: #000000;
+  --color-deep: #05070a;
+  --color-panel: rgba(255, 255, 255, 0.06);
+  --color-panel-active: rgba(255, 255, 255, 0.10);
+
+  /* Hairlines — at 0.30 opacity for visibility */
+  --color-hair: rgba(150, 190, 220, 0.30);
+  --color-hair-soft: rgba(150, 190, 220, 0.18);
+
+  /* Ink — maximum contrast */
+  --color-ink: #ffffff;
+  --color-ink-2: #c8d8e8;
+  --color-ink-3: #8aa0b0;
+
+  /* Signals — full saturation, brightened for accessibility */
+  --signal-live: #a8e4ff;
+  --signal-needs-you: #ffd080;
+  --signal-done: #80f0b8;
+  --signal-risk: #ff9090;
+}

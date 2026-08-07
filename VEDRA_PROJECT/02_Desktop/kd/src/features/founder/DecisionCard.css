@@ -1,0 +1,124 @@
+/* DecisionCard — full consequence card for a JudgmentRequest */
+
+.dc-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--bl) * 2); /* 16px */
+}
+
+.dc-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--bl);
+  flex-wrap: wrap;
+}
+
+.dc-card__deadline {
+  color: var(--color-ink-2);
+  flex-shrink: 0;
+}
+
+.dc-card__title {
+  margin: 0;
+}
+
+.dc-card__recommendation {
+  margin: 0;
+}
+
+.dc-card__confidence {
+  /* ConfidenceMark already has its own internal spacing */
+}
+
+.dc-card__consequence {
+  /* ConsequenceGrid handles its own layout */
+}
+
+/* Silence default */
+.dc-card__silence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+  padding: calc(var(--bl) * 2);
+  border-left: 2px solid var(--signal-needs-you);
+  background: rgba(255, 180, 84, 0.04);
+}
+
+.dc-card__silence-label {
+  color: var(--signal-needs-you);
+}
+
+.dc-card__silence-text {
+  margin: 0;
+}
+
+.dc-card__silence-caveat {
+  color: var(--color-ink-2);
+}
+
+/* Rank */
+.dc-card__rank {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.dc-card__rank-toggle {
+  all: unset;
+  cursor: pointer;
+  color: var(--color-ink-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+
+  transition: color var(--dur-1) var(--ease-settle);
+}
+
+.dc-card__rank-toggle:hover {
+  color: var(--color-ink-2);
+}
+
+.dc-card__rank-text {
+  margin: 0;
+  color: var(--color-ink-2);
+}
+
+/* Error */
+.dc-card__error {
+  margin: 0;
+  color: var(--signal-risk);
+}
+
+/* Delegate select */
+.dc-card__delegate-select {
+  max-width: 360px;
+}
+
+/* Actions row */
+.dc-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bl);
+  align-items: center;
+}
+
+/* Footer */
+.dc-card__footer {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--bl) * 2);
+  padding-top: var(--bl);
+  border-top: 1px solid var(--color-hair-soft);
+}
+
+.dc-card__opened {
+  color: var(--color-ink-3);
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-card__rank-toggle {
+    transition: none;
+  }
+}

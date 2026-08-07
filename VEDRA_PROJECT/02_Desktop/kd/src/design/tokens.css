@@ -1,0 +1,101 @@
+/**
+ * Kalpavriksha Design System — Design Tokens
+ * Single source of truth for all design constants.
+ * All values derived from the Kalpavriksha Design Constitution.
+ */
+
+:root {
+  /* ─────────────────────────── Grid ─────────────────────────── */
+  --cols: 12;
+  --bl: 8px;          /* baseline unit */
+  --lh: 24px;         /* base line-height (3 × 8px) */
+  --gutter: 24px;     /* column gutter */
+  --margin: 48px;     /* page margin */
+  --maxw: 1440px;     /* max content width */
+
+  /* ─────────────────────────── Colour ───────────────────────── */
+  /* Surfaces */
+  --color-void: #05070a;
+  --color-deep: #080b10;
+  --color-panel: rgba(255, 255, 255, 0.028);
+  --color-panel-active: rgba(255, 255, 255, 0.05);
+
+  /* Hairlines */
+  --color-hair: rgba(150, 190, 220, 0.16);
+  --color-hair-soft: rgba(150, 190, 220, 0.09);
+
+  /* Ink */
+  --color-ink: #e9eff5;
+  --color-ink-2: #9fb0bf;
+  --color-ink-3: #63727f;
+
+  /* Signals — four only, never add more */
+  --signal-live: #7fd3ff;
+  --signal-needs-you: #ffb454;
+  --signal-done: #63e6a8;
+  --signal-risk: #ff6b6b;
+
+  /* ─────────────────────────── Typography ───────────────────── */
+  /* Font families */
+  --font-prose: 'Inter', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Code', monospace;
+
+  /* Type scale: --fs-{name}: font-size/line-height */
+  /* Speech — AI voice, large */
+  --fs-speech-size: 38px;
+  --fs-speech-lh: 48px;
+
+  /* Headings */
+  --fs-h1-size: 44px;
+  --fs-h1-lh: 48px;
+
+  --fs-h2-size: 27px;
+  --fs-h2-lh: 32px;
+
+  --fs-h3-size: 19px;
+  --fs-h3-lh: 24px;
+
+  /* Body variants */
+  --fs-lede-size: 19px;
+  --fs-lede-lh: 32px;
+
+  --fs-body-size: 15px;
+  --fs-body-lh: 24px;
+
+  --fs-mono-size: 12px;
+  --fs-mono-lh: 24px;
+
+  --fs-kicker-size: 11px;
+  --fs-kicker-lh: 16px;
+
+  /* Large numeral — tabular */
+  --fs-numeral-size: 68px;
+  --fs-numeral-lh: 72px;
+
+  /* ─────────────────────────── Motion ───────────────────────── */
+  /* Three easing curves only */
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-linear: linear;
+  --ease-breathe: cubic-bezier(0.45, 0, 0.55, 1); /* sine approximation */
+
+  /* Duration ladder — ms values only */
+  --dur-1: 120ms;
+  --dur-2: 240ms;
+  --dur-3: 420ms;
+  --dur-4: 600ms;
+  --dur-5: 900ms;
+  --dur-6: 1400ms;
+  --dur-7: 2400ms;
+
+  /* ─────────────────────────── Radii ────────────────────────── */
+  /* Hard-edged product — 0 or 2px only */
+  --radius-0: 0px;
+  --radius-1: 2px;
+
+  /* ─────────────────────────── Z-index Planes ───────────────── */
+  /* Four planes: field / content / live / transient */
+  --z-field: 0;
+  --z-content: 10;
+  --z-live: 20;
+  --z-transient: 30;
+}

@@ -1,0 +1,57 @@
+/**
+ * Stat — large tabular numeral with label.
+ * Left rule in tone colour carries the signal identity.
+ * State carried by colour AND word (greyscale-survivable via label).
+ */
+
+.k-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-left: 16px;
+  border-left: 2px solid var(--color-hair);
+  /* Min-height aligns to baseline grid */
+  min-height: 80px;
+}
+
+.k-stat__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-numeral-size);
+  line-height: var(--fs-numeral-lh);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+  letter-spacing: -0.02em;
+}
+
+.k-stat__label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-kicker-size);
+  line-height: var(--fs-kicker-lh);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+  margin-top: 8px;
+}
+
+/* Tone variants — border colour carries the signal */
+.k-stat--muted {
+  border-left-color: var(--color-hair);
+}
+
+.k-stat--live {
+  border-left-color: var(--signal-live);
+}
+
+.k-stat--needs-you {
+  border-left-color: var(--signal-needs-you);
+}
+
+.k-stat--done {
+  border-left-color: var(--signal-done);
+}
+
+.k-stat--risk {
+  border-left-color: var(--signal-risk);
+}

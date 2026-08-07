@@ -46,6 +46,14 @@ except to fix a factual error.
 
 | **031** — AI Capability Broker (Core Decision Engine) | 2026-07-30 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1543 passed, 1 skipped | ✅ Shipped | The engine ADR-0017 froze in MB027, now real: given provider profiles and a task, which provider should be used — filter on hard constraints, apply a configurable quality floor, rank by founder policy, take the first, or **refuse rather than guess**. Eight policies (balanced, lowest_cost, best_quality, prefer_local, prefer_free, offline_only, cloud_allowed, privacy_first), ranked candidates not just a winner, twelve named rejection reasons, policy versioning, and byte-identical replay from a JSON round trip. **Zero changes to anything existing** — a `git diff` over runtime, mission_control, persistence, executor, plugins, verification, dashboard and desktop is empty — and **100% statement coverage** of the new `broker/` package. MB031's "Absolutely Forbidden" list is enforced by tests rather than trusted: AST checks that the package imports no network or subprocess module, that no vendor name appears in any file, that no `def invoke`/`execute`/`launch`/`download`/`install` exists, and that its only `master_agent` import is itself — because a kernel service consulted from everywhere must depend on nothing. **A real bug, found by running it:** the first draft's blended quality-per-cost ranking picked a paid cloud provider over a free local one that also cleared the floor, silently overriding Deliverable 8's "lowest-cost that satisfies the minimum quality" — precisely the failure ADR-0017 Decision 3 predicted when it rejected blended scores as unauditable. The key was deleted and policies now differ by their **floor**, not a hidden weighting. Two of the golden regression answers and two unit expectations were also wrong, with the engine right in all four cases. 180 new tests. **Deliberately not wired to anything** — the integration is its own brief. Full writeup: `docs/MISSION_BRIEF_031.md`. |
 
+| **032** — Wiring the AI Capability Broker | 2026-07-30 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 1945 passed, 1 skipped | ✅ Shipped | MB031's engine stops being a component and becomes the system's only answer to *"which AI?"*: `Task -> Broker -> DecisionRecord -> Approval -> Execution`, with nothing reaching a provider before the first four have happened. The four hardcoded branches in `ModelRouter.select_provider()` are gone, and with them the last product names in Brain logic — **"I need this done well" is now a quality floor**, not a route to a named cloud model, which was the whole of ADR-0017's "documented contradiction". **Exactly one frozen file changed** (`plugins/model_router.py`), named in advance by a ratified ADR and recorded in the same `RATIFIED_EXCEPTIONS` list every prior amendment used; the Broker package itself was not edited at all. **Zero new event types, zero new approval paths, zero new snapshot keys** — paid selections ride MB028.1's Approval Queue through its published contract, classified `IRREVERSIBLE` so ADR-0009 forbids any standing grant from authorising the next spend, and `approve 1` in the existing console decides a provider question exactly as it decides a filesystem one. Provider profiles come from the Desktop Executive's machine scan rather than a hardcoded list, and **"nothing has scanned yet" is reported as absence rather than assumed present** — the discipline that stops a selection succeeding and the call failing later. Every decision including every refusal is stored with its own policy and provider profiles and **replays against those, not today's**, proven across a restart with the founder's policy changed in between. New founder panel shows selected provider, the Broker's own sentence, cost tier and quality tier — labelled `declared`, because no benchmark store exists and a guess presented as a measurement is a lie. A Broker that cannot be built **fails closed**: no fallback, because a fallback is itself a provider decision. **Two real defects found by running it**, both in the new panel: a refusal rendered with a green tick and "Approval not required" beneath it, and the reason truncated mid-number at *"quality 0.72 clears the qual"*. 397 new tests (the brief asked for 200), **100% statement coverage** of the new `ai_infrastructure/` package and the rewritten router. Full writeup: `docs/MISSION_BRIEF_032.md`. |
+
+| **033** — Ollama Provider & the Token Economy | 2026-07-30 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 2295 passed, 1 skipped | ✅ Shipped | **Kalpavriksha thinks for the first time.** MB032 made the Broker the single authority on which AI and nobody answered; this is the execution path, proved live against the founder's own daemon: `Thinking with ollama.local (gemma4:latest) / Cost Free / Latency 22.8 s / Prompt Cache MISS` → `Blue`, recorded with its tokens and replayable afterwards. **Zero frozen files modified** — MB032 needed one ratified exception, this needed none. The network went into a new `providers/` package rather than weakening MB032's purity tests, and the wiring layer imports exactly one pure-dataclass module from it, so it can *record* an execution without acquiring the ability to *perform* one; `providers/__init__.py` re-exports nothing so importing the package cannot pull in an HTTP client, and a test asserts it has no imports at all. A provider is registered in a **second registry and never as an Executive**: ADR-0017 Decision 8 says an AI Capability is not a Constitution Capability, so it must not reach Mission Control, the Runtime's gateway map, or the Dashboard's Executive list. **Rule 5 is the load-bearing one:** five named failure outcomes, each returned as data and never substituted, because a system that quietly swaps providers cannot learn anything true about either one — live, a missing model answers `HTTP 404: model 'x' not found` *with the models that are installed*, and a dead daemon asks whether Ollama is running at the address it tried. A timeout is deliberately never retried; a refused connection is, once. The **Token Economy** begins accumulating and refuses to invent: `money_saved` is not the counterfactual cost of a frontier model — unfalsifiable, always flattering, and fastest-growing on the days the system does least — but the recorded cost of work that happened once and was reused instead of repeated. Every saving is therefore zero in this build, with the panel stating *which* of "nothing ran", "nothing was reused" and "this is real" the zeroes mean. `PromptCache` ships as the interface plus an always-miss default, because nothing verifies generated text yet and a cache of unverified output would only make a wrong answer repeat faster. **Three defects found:** a latent `NameError` in the Dashboard caught by the linter (every existing test happened to supply both a latency and a cost), economy totals indented so they read as part of the last decision, and an MB032 test passing on a substring — `def execute` matching `def executed` — now AST-checked in both places. 350 new tests against the brief's 250, **100% statement coverage** of both new packages. Full writeup: `docs/MISSION_BRIEF_033.md`. |
+
+| **034** — Persistent Founder Memory | 2026-07-30 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 2610 passed, 1 skipped | ✅ Shipped | **Kalpavriksha stops being a stateless executor.** It now remembers what the founder told it — preferences, decisions, what worked, what failed — across restarts, **with no LLM anywhere near the answer**. Proved live: four facts typed into one process, recalled by a fresh one, a repeat folded into the original, and a word nobody wrote honestly returning nothing. **Zero frozen files modified**, no ADR needed. `memory/` was not a new package — MB004 shipped Layers 1–3 there — so the five modules compose *beside* them, `cli.py` is untouched, and this is Layer 4 arriving where `memory/future.py` had reserved it. Ten categories, four importance levels and six sources, all closed and enforced at write time. **Retrieval is deterministic and the ranking is stated rather than tuned** (tag 8, title 4, summary 2, body 1; ties broken by importance, then recency, then id), so the same query returns the same list forever and the order never depends on insertion order; matching is exact, because `fail` silently finding `failure` is a surprise a founder cannot see. Automatic memory rides the **existing** Event Bus, subscribed per event type rather than to everything — the Runtime publishes a heartbeat every cycle, and a memory that had to ignore most of what it saw would eventually stop ignoring one. Saying the same thing twice is one memory, and repeating it raises importance but never lowers it. Memory lives **beside** the state directory: a recovery may legitimately discard operational state and must never discard what the founder said. A corrupt knowledge file is **moved aside, never overwritten** — a founder can copy their notes out of a `.corrupt` file, but not out of one the program replaced — while the index, being derived, is rebuilt in silence and checked by *equality* rather than size, because an index with the right number of wrong entries is the failure hardest to notice. **Three defects found by running it:** a full stop the founder did not type ("exceeds 0.9."), missions titled with a raw UUID because the completion event carries no description, and every restart writing "Recovered 0 objective(s)" until that line owned Recent Learnings, Top Tags and Last Written. A fourth was a *test* defect worth recording — a mission naming an unregistered capability really does fail at dispatch, so Mission Control was right and the fixture was wrong; the behaviour it exposed became its own test. 315 new tests against the brief's 250, **100% statement coverage** of all five modules. Full writeup: `docs/MISSION_BRIEF_034.md`. |
+
+| **035** — Verifying Generated Text | 2026-07-30 | *(see note below — same self-reference problem, same standing resolution)* | *(see note below)* | 2763 passed, 1 skipped | ✅ Shipped | **Kalpavriksha can finally tell whether an answer was any good**, and two features that shipped inert now work: MB033's Prompt Cache never hit and MB034's Prompt Library had no automatic writer, both waiting on this one sentence. ADR-0011 froze the Verification Subsystem long ago and `BrowserVerifier` proved the shape generalises, so the second concrete Verifier is a handful of lines. **Zero frozen files modified**, no ADR needed — `verification/` is itself frozen, so the new Verifier lives *outside* it and implements the published contract, which is what a Worker's Verifier does anyway; a test asserts the package still holds exactly its five original files. **The one interpretation required:** ADR-0011 says re-observe reality fresh, and for generated text *the answer is the artefact* — so the observation is re-derived from the text by deterministic measurement (length, word count, JSON shape, what it contains) and the producer is never asked whether it thinks it did well, which a test enforces by name. **No model judges another model** — that is the recursion ADR-0017 refused to start for provider selection and MB034 refused for memory; a verdict here is arithmetic over an expectation stated *before* the answer arrived, which is also the only kind that is falsifiable. And no sixth operator: the five frozen ones express everything, so a minimum word count is a regex rather than an edit to a frozen file. **Consequences:** the cache stores on *evidence rather than a caller's promise* (and `partially_matched` is deliberately not enough — half of what was asked for is not what was asked for); the cache **ships on**, because the reason MB033 defaulted it off is gone; a checked prompt writes itself into the Prompt Library through an outbound port, so `ai_infrastructure` stays free of `memory/` and `memory/` stays free of the Broker; and the founder page shows the verdict with **not checked** distinguished from **not matched**. **Two defects found by running it:** "at least 1 word" passed on a blank answer because the regex ended in `\S*` — the exact silent pass this subsystem exists to prevent, in the first check written against it — and a cache hit ignored what the *new* caller asked for, serving an answer verified against one expectation to somebody asking for another, which is how "everything reused was verified" quietly stops being true. A hit is now re-checked against the current expectation, which is arithmetic where a second provider call is seconds. A third, in MB034's family: the evidence id in `full_text` made every repeat of a prompt a new memory, because the digest is taken over that field — two runs produce two Evidence records and one lesson. 153 new tests, **100% statement coverage** of both changed modules. Full writeup: `docs/MISSION_BRIEF_035.md`. |
+
 ## Notes on gaps in this table
 
 - **Miracle 001.5 has no dedicated git tag.** It extended Miracle 001's
@@ -199,6 +207,79 @@ except to fix a factual error.
   architecture was already decided in MB027 and ratified, so MB031 is the
   first Miracle in this project to *implement a previously-frozen design
   without amending it*.
+
+- **Miracle 032 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.14.0-miracle-032` / `git rev-list -n1
+  v0.14.0-miracle-032`. Minor bump — it changes what the system *does*
+  with a whole class of work, even though the engine underneath shipped in
+  031. It is the **first row to change a frozen component under an ADR
+  ratified in an earlier Miracle**: 028.0 and 028.1 ratified their ADRs in
+  the same breath as using them, whereas here ADR-0017 named the file and
+  the change a full five Miracles before either happened. That gap is the
+  point — a ratified amendment stayed good, and the exception list read
+  the same way on the day it was used as on the day it was written.
+
+- **Miracle 033 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.15.0-miracle-033` / `git rev-list -n1
+  v0.15.0-miracle-033`. Minor bump — a new capability family, like 022,
+  030 and 031. It is the first row whose headline evidence is **a real
+  model's real answer** rather than a state transition, and the first
+  since 026 to add a package that touches the outside world; both are
+  worth noting, because from here the suite can no longer prove
+  everything on its own. The unit tests script the transport deliberately,
+  and the live run is recorded in the brief rather than in a test that
+  would pass or fail depending on what the machine happens to be running.
+
+- **Miracle 034 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.16.0-miracle-034` / `git rev-list -n1
+  v0.16.0-miracle-034`. Minor bump — a new capability family, like 022,
+  030, 031 and 033. Worth noting as the first row where the *product*
+  changes shape rather than the machinery: every Miracle before it made
+  Kalpavriksha better at doing things, and this one makes it accumulate.
+  It is also the fourth in a row with **no ADR**, and the second (after
+  031) to touch no frozen file at all.
+
+- **Miracle 035 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.17.0-miracle-035` / `git rev-list -n1
+  v0.17.0-miracle-035`. Minor bump, though patch would have been
+  defensible — it adds one Verifier and changes what two existing
+  features do with it. It is the **first Miracle whose main effect is to
+  make earlier ones work**: MB033's cache and MB034's Prompt Library both
+  shipped complete and inert, and this is the sentence they were waiting
+  for. Worth noting for the pattern, because shipping a feature that
+  cannot yet do anything is only honest if the brief that unblocks it
+  actually arrives.
+
+- **Miracle 036 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.18.0-miracle-036` / `git rev-list -n1
+  v0.18.0-miracle-036`. Minor bump — a new subsystem, like 022, 030, 031
+  and 033. Fifth row in a row with **no ADR**, and the third to touch no
+  frozen file at all (after 031 and 034). It is the **counterpart to
+  035**: that row's main effect was to make earlier Miracles work, and
+  this one supplies the caller they were waiting for — 035 built the
+  checker, 036 built the thing that states what to check. Worth noting
+  that the pair took two briefs on purpose: a verifier that invented its
+  own expectations would have been one brief and worthless, because a
+  check written after the answer arrived is a rationalisation.
+
+- **Miracle 037 hit the standing self-reference problem** and resolves it
+  the standing way: `git tag -n1 v0.19.0-miracle-037` / `git rev-list -n1
+  v0.19.0-miracle-037`. Minor bump — the founder-facing product changes
+  shape, the way 029 and 034 did: a founder types a sentence and the
+  system plans, runs, verifies and remembers it. Sixth row in a row with
+  **no ADR** and the fourth to touch no frozen file at all.
+
+  Worth recording for two reasons beyond the code. First, it is the
+  clearest evidence so far that the Constitution's decomposition was
+  right: the brief that finally connects six subsystems needed **no new
+  architecture from any of them**, and the field it depended on most
+  (`Task.expected_outcome`) was cut by MB023 for a Planner that would not
+  exist for fourteen briefs. Second, it is the first row to ship with a
+  **named, deliberate refusal**: pause/resume/cancel were asked for and
+  are absent, because building them required either editing a frozen file
+  or standing up a second scheduler, and the brief forbade both. That
+  refusal is itself under test, so it cannot quietly become a defect
+  nobody remembers choosing.
 
 ## How to add a row
 

@@ -20,28 +20,62 @@ Ordering rationale for each step is in `docs/MISSION_BRIEF_027_5.md`.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from master_agent.ai_infrastructure.approval import ProviderApprovalGate
+from master_agent.ai_infrastructure.cache import ExactPromptCache, NullPromptCache
+from master_agent.ai_infrastructure.execution import PromptExecutor
+from master_agent.ai_infrastructure.ledger import (
+    LEDGER_FILENAME,
+    DecisionLedger,
+    JsonFileDecisionStore,
+)
+from master_agent.ai_infrastructure.occupancy import ProviderOccupancy
+from master_agent.ai_infrastructure.profiles import ProviderSource
+from master_agent.ai_infrastructure.service import AiCapabilityService
+from master_agent.ai_infrastructure.executive import AiInfrastructurePlugin
+from master_agent.broker.broker import CapabilityBroker
+from master_agent.broker.policy import get_policy
+from master_agent.capabilities.extraction import contracts_from_actions
+from master_agent.capabilities.index import build_index
 from master_agent.config import MasterAgentConfig, load_config
 from master_agent.dashboard.app import FounderDashboard, build_dashboard
 from master_agent.desktop.plugin import DesktopPlugin
 from master_agent.executor.action import default_locations
 from master_agent.executor.executor import LocalExecutor
+from master_agent.memory.knowledge_store import JsonKnowledgeStore
+from master_agent.memory.memory_service import MemoryService
 from master_agent.mission_control.adapters import discover_executives
+from master_agent.mission_control.capabilities import qualified_name
 from master_agent.mission_control.mission_control import MissionControl
+from master_agent.missions.history import (
+    HISTORY_FILENAME,
+    JsonFilePlanStore,
+    PlanHistory,
+)
+from master_agent.missions.service import MissionService
 from master_agent.permissions.permission_system import GrantScope, PermissionSystem
 from master_agent.persistence.recovery import RecoveryReport, recover
 from master_agent.persistence.service import PersistenceService
 from master_agent.persistence.store import JsonFileStateStore
+from master_agent.brain import IntentLayer, Reporter
+from master_agent.planner.planner import Planner
 from master_agent.plugins.base import Plugin
 from master_agent.plugins.filesystem_plugin import FilesystemPlugin
+from master_agent.plugins.model_router import ModelRouter
 from master_agent.plugins.registry import PluginRegistry
+from master_agent.providers.ollama import OllamaProvider
 from master_agent.runtime.approval import FounderApprovalGate, PermissionSystemGate
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.engine import RuntimeEngine
 from master_agent.runtime.gateway import PluginGateway
+from master_agent.plugins.filesystem_gateway import FilesystemGateway
+from master_agent.plugins.filesystem_worker import FilesystemWorker
+from master_agent.verification.evidence import Evidence, ExpectedOutcome, Verdict
+from datetime import UTC, datetime
 
 OK = "ok"
 UNAVAILABLE = "unavailable"
@@ -86,15 +120,19 @@ def estimate_impact(request: Any) -> str:
         return f"{capability.replace('_', ' ')} on '{target}'"
     return "unknown"
 
-# Why the Broker step exists but cannot succeed: MB027 froze the AI
-# Capability Broker's architecture and the founder ratified it, but no
-# implementation exists yet (`ROADMAP.md`, Planned item 6). The launcher
-# reports that honestly instead of omitting the step, so the gap is
-# visible at every boot rather than discovered later by someone wondering
-# why nothing selects a provider.
+# MB027.5 shipped this step reporting "frozen but not implemented", because
+# the Broker was architecture and nothing more. MB031 built the engine and
+# **MB032 wired it**, so the step now constructs it and reports what it
+# actually built.
+#
+# The reason survives for the case that still matters: a Broker that could
+# not be constructed. The system then **fails closed** -- the Model Router
+# is left with no selector and refuses every AI request (MB032 Deliverable
+# 10). A launcher that silently continued would hand the founder a system
+# that looks fine and quietly cannot think.
 BROKER_UNAVAILABLE_REASON = (
-    "architecture frozen (MB027, ADR-0017) but not implemented; "
-    "no provider selection is available in this build"
+    "the AI Capability Broker could not be constructed; no provider "
+    "selection is available and every AI request will be refused"
 )
 
 
@@ -160,11 +198,45 @@ class KalpavrikshaSystem:
     runtime: RuntimeEngine
     dashboard: FounderDashboard
     report: BootReport
-    # Reserved seam, deliberately empty. When the AI Capability Broker is
-    # implemented it is constructed in `build_system()` and lands here;
-    # nothing else in this module changes. It is None rather than absent
-    # so the gap is a value the system can report, not a hole.
+    # MB027.5 reserved this seam and left it empty; MB032 fills it. Still
+    # `None`-able, because a Broker that failed to construct must be a
+    # value the system can report rather than a hole -- and because
+    # `intelligence` being None is what makes the Model Router refuse
+    # (`ModelRouter.has_broker`).
     broker: Any = None
+    #: The Broker, wired: profiles in, decisions recorded, paid selections
+    #: routed to the Approval Queue (`ai_infrastructure.AiCapabilityService`).
+    intelligence: Any = None
+    #: The Brain's door to reasoning. Constructed here so that *one* router
+    #: exists with the Broker behind it, rather than each caller building
+    #: its own and choosing whether to wire one.
+    model_router: Any = None
+    #: MB033. A **second** `PluginRegistry`, holding model providers only.
+    #: Deliberately not the Executive registry: ADR-0017 Decision 8 rules
+    #: that an AI Capability is not a Constitution Capability, so a
+    #: provider is not a dispatchable Executive and must not appear in
+    #: Mission Control's registry, the Runtime's gateway map, or the
+    #: Dashboard's Executive list. Same class, different instance, no
+    #: change to any of the three.
+    providers: Any = None
+    #: Runs what the Broker chose, and records what happened.
+    prompt_executor: Any = None
+    #: MB034. What the founder has told Kalpavriksha, and what it observed
+    #: about its own work, across restarts.
+    memory: Any = None
+    #: The Intent Layer — turns raw input into structured Intent.
+    intent_layer: Any = None
+    #: The Reporter — converts Mission outcome + Evidence into founder-facing reports.
+    reporter: Any = None
+    #: MB037. The Planner, the durable record of what it planned, and the
+    #: one path from a founder objective to submitted work. `None` when
+    #: nothing can execute a prompt -- an objective that cannot be planned
+    #: is reported as absent, never planned by something else.
+    planner: Any = None
+    plan_history: Any = None
+    missions: Any = None
+    #: MB039. The contract index the Planner plans against.
+    capability_index: Any = None
 
     def start(self) -> None:
         """Start the heartbeat. The Dashboard is *not* started here —
@@ -232,7 +304,7 @@ def build_system(
     permissions = PermissionSystem()
     executor = LocalExecutor(permissions)
     registry = PluginRegistry()
-    default_plugins = [FilesystemPlugin(executor), DesktopPlugin(executor)]
+    default_plugins = [FilesystemPlugin(executor), DesktopPlugin(executor), AiInfrastructurePlugin(executor)]
     for plugin in plugins if plugins is not None else default_plugins:
         registry.register(plugin)
     report.add(
@@ -283,6 +355,19 @@ def build_system(
     )
     report.add("Runtime", OK, "heartbeat constructed, not yet started")
 
+    # 4b. Founder memory (MB034). Before recovery, so the recovery itself
+    #     can be remembered; beside the state directory rather than inside
+    #     it, because a recovery may legitimately discard operational state
+    #     and must never discard what the founder said.
+    memory = MemoryService(store=JsonKnowledgeStore(state_dir.parent))
+    memory_load = memory.load()
+    watching = memory.attach_to(mission_control)
+    report.add(
+        "Founder Memory",
+        WARNING if memory_load.problems else OK,
+        f"{memory_load.summary}; watching {len(watching)} event type(s)",
+    )
+
     # 5. Recover *before* recording starts. Restoring republishes nothing
     #    (ADR-0015's non-publishing `restore_objective()`), but starting
     #    the recorder first would still risk appending recovered state
@@ -290,6 +375,10 @@ def build_system(
     #    recording writes it; they must not overlap.
     recovery = recover(persistence, mission_control, runtime)
     report.recovery = recovery
+    # Recovery publishes nothing (ADR-0015's non-publishing restore), so
+    # there is no event to subscribe to and the composition root hands the
+    # report in -- the same shape the Dashboard receives it.
+    memory.remember_recovery(recovery)
     report.add(
         "Recovery",
         OK,
@@ -317,43 +406,330 @@ def build_system(
         f"{len(mission_control.capabilities.all())} capabilities",
     )
 
-    # 8. AI Capability Broker — reported, not skipped. See
-    #    BROKER_UNAVAILABLE_REASON.
-    broker = None
-    report.add("AI Capability Broker", UNAVAILABLE, BROKER_UNAVAILABLE_REASON)
+    # 8. AI Capability Broker (MB032) — constructed, not merely reported.
+    #    After Executives, because the estate it decides over is read from
+    #    the Desktop Executive's machine scan; before the Dashboard,
+    #    because the Dashboard displays its decisions.
+    #
+    #    The whole step is guarded: a Broker that cannot be built leaves
+    #    `intelligence` None, which leaves the Model Router without a
+    #    selector, which makes it refuse every request with a reason.
+    #    Failing closed is the design, not the error path.
+    desktop = next(
+        (p for p in registry.all_plugins() if p.manifest.name == "desktop"), None
+    )
+    inventory_provider = (
+        (lambda: desktop.cached_inventory) if desktop is not None else None
+    )
+    broker: Any = None
+    intelligence: Any = None
+    try:
+        policy = get_policy(config.broker.policy)
+        ledger = DecisionLedger(
+            store=JsonFileDecisionStore(state_dir / LEDGER_FILENAME)
+        )
+        restored = ledger.load()
+        # The ledger is the Broker's `sink` (MB031's outbound port), so
+        # every decision it makes is recorded before any caller can act on
+        # it -- including decisions made by a caller that is not the
+        # service below.
+        broker = CapabilityBroker(policy=policy, sink=ledger.record)
+        providers = ProviderSource(
+            inventory_provider=inventory_provider,
+            enabled_cloud_providers=config.broker.enabled_cloud_providers,
+        )
+        intelligence = AiCapabilityService(
+            broker=broker,
+            providers=providers,
+            ledger=ledger,
+            approvals=ProviderApprovalGate(
+                mission_control=mission_control,
+                permissions=permissions,
+                timeout_seconds=approval_timeout_seconds,
+            ),
+            strong_reasoning_min_quality=config.broker.strong_reasoning_min_quality,
+        )
+        available, total = providers.counts()
+        report.add(
+            "AI Capability Broker",
+            OK,
+            f"policy {policy.policy_version}; {available}/{total} provider(s) "
+            f"available, {restored} past decision(s) restored",
+        )
+    except Exception as exc:  # noqa: BLE001 - a broken Broker must not stop the boot
+        broker = None
+        intelligence = None
+        report.add(
+            "AI Capability Broker", UNAVAILABLE, f"{BROKER_UNAVAILABLE_REASON}: {exc}"
+        )
+
+    # 8a. Provider execution (MB033). A separate registry, for the reason
+    #     given on `KalpavrikshaSystem.providers`: a provider is not an
+    #     Executive, and putting one in the Executive registry would add it
+    #     to Mission Control, the Runtime and the Dashboard -- three of the
+    #     subsystems this brief must not touch.
+    #
+    #     The provider is constructed whether or not Ollama is running.
+    #     Reachability is a question for the moment of use, not for boot:
+    #     a daemon started five minutes after launch should work, and a
+    #     provider that probed at boot would have decided otherwise.
+    providers = PluginRegistry()
+    provider_detail = "no provider is enabled; nothing can execute a prompt"
+    if config.ollama.enabled:
+        providers.register(
+            OllamaProvider(
+                model=config.ollama.model,
+                base_url=config.ollama.base_url,
+                timeout_seconds=config.ollama.timeout_seconds,
+            )
+        )
+        provider_detail = (
+            f"{len(providers.all_plugins())} provider(s) executable; "
+            f"model '{config.ollama.model}' at {config.ollama.base_url}"
+        )
+
+    # 8b. The Brain's door to reasoning, with the Broker behind it. Given
+    #     `intelligence=None` it refuses every request rather than falling
+    #     back to a provider nobody chose (MB032 Deliverable 10).
+    model_router = ModelRouter(providers, selector=intelligence)
+
+    # 8c. The thing that carries a decision out. The cache is
+    #     `NullPromptCache` unless the founder turns one on -- shipped
+    #     behaviour is every lookup missing, because nothing verifies
+    #     generated text yet (MB033 Rule 2).
+    prompt_executor = None
+    if intelligence is not None:
+        # MB038. One occupancy register per system, so admission can see
+        # that a serialising local provider is already busy -- and so an
+        # abandoned call stays counted until something establishes the
+        # provider is idle again.
+        occupancy = ProviderOccupancy(clock=time.monotonic)
+        prompt_executor = PromptExecutor(
+            service=intelligence,
+            providers=providers,
+            ledger=intelligence.ledger,
+            cache=(
+                ExactPromptCache(allow_unverified=config.prompt_cache.store_unverified)
+                if config.prompt_cache.enabled
+                else NullPromptCache()
+            ),
+            store_unverified=config.prompt_cache.store_unverified,
+            occupancy=occupancy,
+            # MB035: a checked answer teaches the founder's memory
+            # something. An outbound port rather than an import, so
+            # `ai_infrastructure` stays free of `memory/` and `memory/`
+            # stays free of the Broker (MB034 asserts the second).
+            memory_sink=lambda prompt, outcome: memory.remember_prompt(
+                prompt=prompt,
+                provider_id=outcome.provider_id or "unknown",
+                verdict=outcome.verdict,
+                expectation=(
+                    outcome.evidence.expected.description
+                    if outcome.evidence is not None
+                    else ""
+                ),
+                evidence_id=(
+                    outcome.evidence.evidence_id if outcome.evidence is not None else ""
+                ),
+            ),
+        )
+    report.add(
+        "Provider execution",
+        OK if prompt_executor is not None else UNAVAILABLE,
+        provider_detail
+        if prompt_executor is not None
+        else "no Broker, so nothing can be executed",
+    )
 
     # 9. Gateways. Registered unconditionally now: the boundary is in the
     #    Runtime (step 4a), not in whether a gateway exists, so refusing
     #    to wire one would no longer be a safety measure -- just a system
     #    that cannot work.
     for plugin in registry.all_plugins():
-        runtime.register_gateway(plugin.manifest.name, PluginGateway(plugin))
+        if plugin.manifest.name == "filesystem":
+            # Wire FilesystemGateway with real verification (same pattern as BrowserGateway in tests)
+            # Use the plugin's executor (which has the correct permissions) and extract locations
+            plugin_executor = getattr(plugin, "_executor", executor)
+            plugin_permissions = getattr(plugin_executor, "permissions", permissions)
+            actions = getattr(plugin, "_actions", {})
+            locations = None
+            for action in actions.values():
+                if hasattr(action, "_locations"):
+                    locations = action._locations
+                    break
+            worker = FilesystemWorker(plugin_executor, locations=locations)
+            runtime.register_gateway(plugin.manifest.name, FilesystemGateway(worker, plugin_permissions, plugin_executor.name))
+        else:
+            runtime.register_gateway(plugin.manifest.name, PluginGateway(plugin))
     report.add(
         "Approval boundary",
         OK,
         APPROVAL_BOUNDARY_DETAIL,
     )
 
+    # 9a. The Planner and the mission pipeline (MB037). Built after the
+    #     prompt executor, because planning is a Broker decision like any
+    #     other and there is nothing to plan with until one exists; and
+    #     before the Dashboard, which reads the plan history.
+    #
+    #     The catalogue handed to the Planner is Mission Control's own
+    #     capability registry -- so the Planner can only ever name a
+    #     capability that is really registered, and nothing here holds a
+    #     capability name of its own.
+    
+    # Intent Layer (Constitution §3.1) - turns raw input into structured Intent
+    intent_layer = IntentLayer()
+    report.add("Intent Layer", OK, "rule-based parsing with clarification support")
+
+    # Reporter (Constitution §3.4) - converts internal state into founder-facing responses
+    reporter = Reporter()
+    report.add("Reporter", OK, "templates for mission/step outcomes, approvals, clarifications")
+
+    planner = None
+    plan_history = None
+    missions = None
+    # MB039. `None` rather than an empty index: a system with no Broker
+    # never built one, which is a different fact from a system whose
+    # capabilities publish nothing. An empty index would read as the
+    # second.
+    capability_index = None
+    if prompt_executor is None:
+        report.add(
+            "Planner",
+            UNAVAILABLE,
+            "no provider execution, so an objective cannot be planned",
+        )
+    else:
+        # MB039. The Planner reads the **contract index**, not the
+        # capability registry: the registry publishes a sentence about a
+        # capability and the index publishes its argument names. MB037's
+        # first live plan named the right two capabilities and got both
+        # payloads wrong because a sentence was all there was.
+        #
+        # Contracts are derived from the Action objects the plugins
+        # already hold, so adding a capability adds a contract and the two
+        # cannot drift.
+        contracts: list[Any] = []
+        for plugin in registry.all_plugins():
+            actions = getattr(plugin, "_actions", None)
+            if isinstance(actions, dict):
+                contracts.extend(
+                    contracts_from_actions(
+                        actions, plugin.manifest.name, qualified_name
+                    )
+                )
+        capability_index = build_index(
+            contracts, loader={c.canonical_id: c for c in contracts}.get
+        )
+        planner = Planner(prompt_executor, capability_index)
+        plan_history = PlanHistory(
+            store=JsonFilePlanStore(state_dir / HISTORY_FILENAME)
+        )
+        watched = plan_history.attach_to(mission_control)
+        missions = MissionService(
+            planner=planner,
+            mission_control=mission_control,
+            intent_layer=intent_layer,
+            reporter=reporter,
+            history=plan_history,
+            memory=memory,
+        )
+        report.add(
+            "Planner",
+            OK,
+            f"{len(capability_index)} capability contract(s) to plan with, "
+            f"{len(capability_index.unspecified())} with no published "
+            f"arguments; history watching {len(watched)} event type(s)",
+        )
+
     # 10. Dashboard last: it observes everything above, and per ADR-0016
     #     Decision 5 it is *handed* the recovery report rather than
     #     discovering one, because calling `recover()` would be both a
     #     mutation and orchestration.
     # MB030: the Dashboard reads the last machine scan; it never triggers
-    # one (ADR-0016 Decision 5 -- handed in, never discovered).
-    desktop = next(
-        (p for p in registry.all_plugins() if p.manifest.name == "desktop"), None
-    )
+    # one (ADR-0016 Decision 5 -- handed in, never discovered). MB032 hands
+    # in Broker decisions through the same kind of read-only callable: the
+    # Dashboard displays what was decided and can no more cause a decision
+    # than it can cause a scan.
     dashboard = build_dashboard(
         mission_control=mission_control,
         runtime=runtime,
         persistence=persistence,
         recovery_report=recovery,
-        inventory_provider=(
-            (lambda: desktop.cached_inventory) if desktop is not None else None
+        inventory_provider=inventory_provider,
+        broker_provider=(
+            (lambda: intelligence.report()) if intelligence is not None else None
         ),
+        memory_provider=memory.summary,
+        plan_provider=(lambda: plan_history) if plan_history is not None else None,
         **(dashboard_kwargs or {}),
     )
     report.add("Founder Dashboard", OK, "attached to the event bus")
+
+    # Wire Reporter to Mission Control events for mission outcome reporting
+    if reporter is not None and missions is not None:
+        from master_agent.mission_control.events import EventType
+        from master_agent.verification.evidence import Evidence, Verdict
+        from master_agent.mission_manager.mission import Mission, MissionStatus
+        
+        def _on_objective_completed(event: Any) -> None:
+            """Generate mission completed report."""
+            plan_id = event.objective_id
+            if plan_id:
+                record = plan_history.get(plan_id) if plan_history else None
+                if record:
+                    mission = Mission(intent_summary=record.objective)
+                    mission.mission_id = plan_id
+                    mission.status = MissionStatus.COMPLETED
+                    # Get evidence from history - use evidence_ids to create minimal Evidence objects
+                    evidence_list = []
+                    for step in record.steps:
+                        if step.evidence_id:
+                            # Create a minimal Evidence object with just the evidence_id and verdict
+                            evidence = Evidence(
+                                evidence_id=step.evidence_id,
+                                worker="filesystem",
+                                environment="filesystem_environment",
+                                captured_at=datetime.now(UTC),
+                                expected=ExpectedOutcome(description=step.expectation, checks=[]),
+                                observation={},
+                                verdict=Verdict(step.verdict) if step.verdict else Verdict.ERROR,
+                                check_results=[],
+                                errors=step.errors,
+                            )
+                            evidence_list.append(evidence)
+                    reporter.report_mission_outcome(mission, evidence_list)
+        
+        def _on_objective_failed(event: Any) -> None:
+            """Generate mission failed report."""
+            plan_id = event.objective_id
+            if plan_id:
+                record = plan_history.get(plan_id) if plan_history else None
+                if record:
+                    mission = Mission(intent_summary=record.objective)
+                    mission.mission_id = plan_id
+                    mission.status = MissionStatus.FAILED
+                    mission.outcome = {"error": event.error or "Unknown error"}
+                    # Get evidence from history
+                    evidence_list = []
+                    for step in record.steps:
+                        if step.evidence_id:
+                            evidence = Evidence(
+                                evidence_id=step.evidence_id,
+                                worker="filesystem",
+                                environment="filesystem_environment",
+                                captured_at=datetime.now(UTC),
+                                expected=ExpectedOutcome(description=step.expectation, checks=[]),
+                                observation={},
+                                verdict=Verdict(step.verdict) if step.verdict else Verdict.ERROR,
+                                check_results=[],
+                                errors=step.errors,
+                            )
+                            evidence_list.append(evidence)
+                    reporter.report_mission_outcome(mission, evidence_list)
+        
+        mission_control.bus.subscribe(_on_objective_completed, EventType.OBJECTIVE_COMPLETED)
+        mission_control.bus.subscribe(_on_objective_failed, EventType.OBJECTIVE_FAILED)
 
     return KalpavrikshaSystem(
         config=config,
@@ -368,4 +744,15 @@ def build_system(
         dashboard=dashboard,
         report=report,
         broker=broker,
+        intelligence=intelligence,
+        model_router=model_router,
+        providers=providers,
+        prompt_executor=prompt_executor,
+        memory=memory,
+        intent_layer=intent_layer,
+        reporter=reporter,
+        planner=planner,
+        capability_index=capability_index,
+        plan_history=plan_history,
+        missions=missions,
     )

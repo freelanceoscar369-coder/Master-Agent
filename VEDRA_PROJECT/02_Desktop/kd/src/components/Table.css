@@ -1,0 +1,107 @@
+/**
+ * DataTable — hairline-separated rows, sticky header, hover = panel-active.
+ * Mono columns use IBM Plex Mono. No borders except hairlines.
+ */
+
+.k-table-root {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-0);
+}
+
+.k-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Sticky header */
+.k-table__head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-content);
+  background-color: var(--color-deep);
+  border-bottom: 1px solid var(--color-hair);
+}
+
+.k-table__th {
+  padding: 0 16px;
+  height: 40px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-kicker-size);
+  line-height: var(--fs-kicker-lh);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.k-table__th--right {
+  text-align: right;
+}
+
+.k-table__th--center {
+  text-align: center;
+}
+
+/* Body rows */
+.k-table__body .k-table__row {
+  border-bottom: 1px solid var(--color-hair-soft);
+  transition: background-color var(--dur-1) var(--ease-settle);
+}
+
+.k-table__body .k-table__row:last-child {
+  border-bottom: none;
+}
+
+.k-table__body .k-table__row--clickable {
+  cursor: pointer;
+}
+
+.k-table__body .k-table__row--clickable:hover {
+  background-color: var(--color-panel-active);
+}
+
+.k-table__td {
+  padding: 0 16px;
+  height: 48px;
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  font-weight: 400;
+  color: var(--color-ink);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.k-table__td--right {
+  text-align: right;
+}
+
+.k-table__td--center {
+  text-align: center;
+}
+
+.k-table__td--mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-2);
+}
+
+/* Empty state row */
+.k-table__empty {
+  padding: 48px 16px;
+  text-align: left;
+  color: var(--color-ink-3);
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+}

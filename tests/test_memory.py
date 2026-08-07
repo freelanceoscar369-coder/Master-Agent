@@ -8,7 +8,7 @@ written before it was closed — i.e. mission history survives a
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -19,7 +19,7 @@ from master_agent.memory.store import MissionQuery, MissionRecord, SQLiteMemoryS
 
 
 def _record(mission_id: str, status: str = "completed", **overrides) -> MissionRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     defaults = dict(
         mission_id=mission_id,
         title=f'Create Folder "{mission_id}"',
@@ -82,7 +82,7 @@ def test_save_mission_is_idempotent_upsert():
 
 def test_query_missions_orders_newest_first():
     store = SQLiteMemoryStore(":memory:")
-    base = datetime.now(timezone.utc)
+    base = datetime.now(UTC)
     store.save_mission(_record("Oldest", completed_at=base - timedelta(minutes=10)))
     store.save_mission(_record("Newest", completed_at=base))
     store.save_mission(_record("Middle", completed_at=base - timedelta(minutes=5)))
@@ -125,7 +125,7 @@ def test_query_missions_offset_pages_through_results():
     existing because it's a one-field, zero-complexity addition to
     MissionQuery, not new infrastructure."""
     store = SQLiteMemoryStore(":memory:")
-    base = datetime.now(timezone.utc)
+    base = datetime.now(UTC)
     for i in range(5):
         store.save_mission(_record(f"m{i}", completed_at=base - timedelta(minutes=i)))
 
@@ -192,7 +192,7 @@ def test_mission_history_survives_reopening_the_store(tmp_path):
 
 def test_memory_last_mission_returns_most_recent():
     memory = Memory(SQLiteMemoryStore(":memory:"))
-    base = datetime.now(timezone.utc)
+    base = datetime.now(UTC)
     memory.persist_mission(_record("First", completed_at=base - timedelta(minutes=1)))
     memory.persist_mission(_record("Second", completed_at=base))
 

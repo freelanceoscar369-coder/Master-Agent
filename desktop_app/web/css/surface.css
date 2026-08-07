@@ -1,0 +1,280 @@
+/* Founder Surface — Product Veda Deliverable 1.
+   Source: veda/01_FOUNDER_SURFACE.md. Reference layout 1440x900. */
+
+#app { position: fixed; inset: 0; overflow: hidden; background: var(--c-void); }
+
+/* 1.2 — tree canvas, full-bleed, never a bounded box */
+canvas#tree {
+  position: absolute; inset: 0;
+  z-index: var(--z-field);
+  width: 100%; height: 100%;
+  display: block;
+}
+
+/* 1.3 — ambient lighting, layer A (base field) */
+.field-base {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(ellipse 120% 90% at 50% 62%, #0A1018 0%, var(--c-void) 66%);
+  opacity: 0;
+  transition: opacity var(--d-3) var(--e-settle);
+}
+[data-theme="light"] .field-base { background: var(--c-void); }
+.field-base.is-visible { opacity: 1; }
+
+/* 1.3 — layer B, canopy bloom */
+.bloom {
+  position: absolute; left: 50%; top: 34%; z-index: 2;
+  width: 56%; aspect-ratio: 1; transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(127,211,255,0.055) 0%, transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--d-8) var(--e-settle), background var(--d-8) var(--e-settle);
+}
+[data-theme="light"] .bloom { opacity: 0 !important; pointer-events: none; }
+
+/* 1.2 — the veil: text is never rendered directly over undimmed particles */
+.veil {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  background: radial-gradient(ellipse 70% 40% at 50% 78%,
+    rgba(5,7,10,0.82) 0%, rgba(5,7,10,0.55) 45%, rgba(5,7,10,0.00) 100%);
+}
+[data-theme="light"] .veil {
+  background: radial-gradient(ellipse 70% 40% at 50% 78%,
+    rgba(244,242,238,0.88) 0%, rgba(244,242,238,0.60) 45%, rgba(244,242,238,0.00) 100%);
+}
+
+/* 1.7 — persistent chrome: wordmark + dashboard chevron */
+.chrome-corner {
+  position: absolute; top: var(--frame-margin);
+  z-index: var(--z-content);
+  font-size: var(--t-label-size); line-height: var(--t-label-lh);
+  font-weight: var(--t-label-weight); letter-spacing: var(--t-label-track);
+  text-transform: uppercase;
+  color: var(--c-ink-3);
+  opacity: 0;
+  transition: color var(--d-1) var(--e-settle), opacity var(--d-3) var(--e-settle);
+}
+.chrome-corner.is-visible { opacity: 1; }
+.wordmark { left: var(--frame-margin); }
+.wordmark:hover { color: var(--c-ink-2); }
+
+.dashboard-chevron {
+  right: var(--frame-margin);
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+}
+.dashboard-chevron svg { width: 20px; height: 20px; stroke: var(--c-ink-3); transition: stroke var(--d-1) var(--e-settle); }
+.dashboard-chevron:hover svg { stroke: var(--c-ink-2); }
+
+/* 1.1 — the vertical stack, bottom-anchored, centred on the tree's axis */
+.stack {
+  position: absolute;
+  left: 50%; bottom: 8%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 2 * var(--frame-margin)));
+  z-index: var(--z-content);
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center;
+}
+
+.greeting {
+  font-family: var(--font-text);
+  font-size: var(--t-greeting-size); line-height: var(--t-greeting-lh);
+  font-weight: var(--t-greeting-weight); letter-spacing: -0.02em;
+  color: var(--c-ink);
+  max-width: 640px;
+  margin: 0 0 var(--sp-5) 0;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--d-7) var(--e-settle), transform var(--d-7) var(--e-settle);
+}
+.greeting.is-visible { opacity: 1; transform: translateY(0); }
+.greeting:empty { margin-bottom: 0; }
+
+.presence-line {
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  color: var(--c-ink-2);
+  margin: 0 0 var(--sp-5) 0;
+  opacity: 0;
+  transition: opacity var(--d-3) var(--e-settle);
+}
+.presence-line.is-visible { opacity: 1; }
+
+/* 1.5 — microphone, the primary affordance */
+.mic-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  margin-bottom: var(--sp-6);
+  opacity: 0; transform: translateY(12px);
+  transition: opacity var(--d-5) var(--e-settle), transform var(--d-5) var(--e-settle);
+}
+.mic-wrap.is-visible { opacity: 1; transform: translateY(0); }
+
+.mic {
+  position: relative;
+  width: 72px; height: 72px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--c-hair);
+  background: var(--c-raise-1);
+  display: flex; align-items: center; justify-content: center;
+  transition: background-color var(--d-4) var(--e-settle);
+}
+.mic svg { width: 24px; height: 24px; stroke: var(--c-ink-2); stroke-width: 1.5; transition: stroke var(--d-4) var(--e-settle); }
+.mic::after {
+  content: ''; position: absolute; inset: -8px;
+  border-radius: var(--r-full);
+  border: 1.5px solid transparent;
+  transition: border-color var(--d-4) var(--e-settle), transform var(--d-4) var(--e-settle);
+}
+.mic-label {
+  margin-top: var(--sp-3);
+  font-size: var(--t-label-size); line-height: var(--t-label-lh);
+  font-weight: var(--t-label-weight); letter-spacing: var(--t-label-track);
+  text-transform: uppercase;
+  color: var(--c-ink-3);
+  transition: color var(--d-2) var(--e-settle);
+}
+.mic-secondary {
+  margin-top: var(--sp-3);
+  font-size: var(--t-body-sm-size); line-height: var(--t-body-sm-lh);
+  color: var(--c-ink-2);
+  max-width: 360px; text-align: center;
+  display: none;
+}
+.mic-secondary.is-visible { display: block; }
+.mic-secondary a { color: var(--s-live); cursor: pointer; text-decoration: none; }
+
+/* mic states — 03_VOICE_EXPERIENCE §3.1. `unavailable` is the state this
+   build ships with; the rest are wired for a future real voice channel. */
+.mic[data-state="idle"] { }
+.mic[data-state="idle"] svg { stroke: var(--c-ink-2); }
+
+.mic[data-state="armed"]::after { border-color: color-mix(in srgb, var(--s-live) 35%, transparent); }
+.mic[data-state="armed"] svg { stroke: var(--s-live); }
+
+.mic[data-state="listening"] { transform: scale(1.0); }
+.mic[data-state="listening"]::after { border-color: color-mix(in srgb, var(--s-live) 70%, transparent); transform: scale(1.06); }
+.mic[data-state="listening"] svg { stroke: var(--s-live); }
+
+.mic[data-state="capturing-speech"]::after { border-color: color-mix(in srgb, var(--s-live) 90%, transparent); transform: scale(1.10); }
+.mic[data-state="capturing-speech"] svg { stroke: var(--s-live); }
+
+.mic[data-state="processing"]::after { border-color: color-mix(in srgb, var(--s-live) 50%, transparent); }
+.mic[data-state="processing"] svg { stroke: var(--s-live); }
+
+.mic[data-state="muted"]::after { border: 1px dashed var(--c-ink-3); }
+.mic[data-state="muted"] svg { stroke: var(--c-ink-3); }
+
+.mic[data-state="denied"]::after { border-color: color-mix(in srgb, var(--s-attend) 50%, transparent); border-width: 1.5px; }
+.mic[data-state="denied"] svg { stroke: var(--s-attend); }
+
+.mic[data-state="unavailable"]::after { border-color: var(--c-hair-soft); border-width: 1.5px; }
+.mic[data-state="unavailable"] svg { stroke: var(--c-ink-4); }
+.mic[data-state="unavailable"] { cursor: not-allowed; }
+
+.mic[data-state="error"]::after { border-color: color-mix(in srgb, var(--s-risk) 45%, transparent); }
+.mic[data-state="error"] svg { stroke: var(--s-risk); }
+
+/* 3.2 — listening indicator bar */
+.listening-bar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  width: 40px; height: 2px; border-radius: var(--r-1);
+  background: var(--s-live); opacity: 0;
+  transition: opacity var(--d-3) var(--e-settle), width var(--d-4) var(--e-settle);
+}
+
+/* 1.6 — composer capsule */
+.composer-wrap {
+  position: relative;
+  display: flex; justify-content: center;
+  width: 100%;
+  opacity: 0; transform: translateY(12px);
+  transition: opacity var(--d-5) var(--e-settle), transform var(--d-5) var(--e-settle);
+}
+.composer-wrap.is-visible { opacity: 1; transform: translateY(0); }
+
+.composer {
+  display: flex; align-items: center; gap: var(--sp-3);
+  width: 320px; min-height: 56px;
+  border-radius: var(--r-4);
+  border: 1px solid var(--c-hair-soft);
+  background: var(--glass-dark);
+  backdrop-filter: blur(var(--blur-transient));
+  -webkit-backdrop-filter: blur(var(--blur-transient));
+  padding: var(--sp-4) var(--sp-5);
+  transition: width var(--d-4) var(--e-settle), border-color var(--d-4) var(--e-settle),
+              min-height var(--d-4) var(--e-settle);
+}
+[data-theme="light"] .composer { background: var(--glass-light); }
+.composer.is-expanded {
+  width: min(720px, calc(100% - 2 * var(--frame-margin)));
+  min-height: 56px;
+  max-height: 184px;
+  border-color: var(--c-hair);
+  align-items: flex-start;
+}
+.composer svg.keyboard-icon { width: 20px; height: 20px; stroke: var(--c-ink-3); flex-shrink: 0; transition: opacity var(--d-2) var(--e-settle); }
+.composer.is-expanded svg.keyboard-icon { opacity: 0; width: 0; }
+
+.composer-placeholder {
+  color: var(--c-ink-3);
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  transition: opacity var(--d-2) var(--e-settle);
+  pointer-events: none;
+  position: absolute;
+}
+.composer-input:not(:empty) ~ .composer-placeholder,
+.composer.has-text .composer-placeholder { opacity: 0; }
+
+.composer-input {
+  flex: 1;
+  min-height: 24px; max-height: 144px;
+  overflow-y: auto;
+  outline: none;
+  font-family: var(--font-text);
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  color: var(--c-ink);
+  white-space: pre-wrap; word-break: break-word;
+}
+.composer-input.is-interim { color: var(--c-ink-2); font-style: italic; opacity: 0.8; }
+
+.composer-send {
+  width: 20px; height: 20px; flex-shrink: 0; align-self: flex-end;
+  opacity: 0; transition: opacity var(--d-2) var(--e-settle);
+}
+.composer.has-text .composer-send { opacity: 1; }
+.composer-send svg { width: 20px; height: 20px; stroke: var(--c-ink-2); }
+
+/* 1.6 — footer hint */
+.footer-hint {
+  margin-top: var(--sp-5);
+  font-size: var(--t-label-size); line-height: var(--t-label-lh);
+  font-weight: var(--t-label-weight); letter-spacing: var(--t-label-track);
+  text-transform: uppercase;
+  color: var(--c-ink-3);
+  opacity: 0;
+  transition: opacity var(--d-3) var(--e-settle);
+}
+.footer-hint.is-visible { opacity: 1; }
+.footer-hint.is-hidden { opacity: 0 !important; }
+
+/* 1.8 — responsive */
+@media (max-width: 1439px), (max-height: 799px) {
+  .greeting { font-size: 34px; line-height: 44px; }
+  .stack > * + * { }
+}
+@media (max-height: 759px) {
+  .footer-hint { display: none; }
+}
+@media (max-width: 1179px) {
+  .greeting { font-size: 30px; line-height: 40px; }
+  .mic, .mic::after { }
+  .mic { width: 80px; height: 80px; }
+  .mic svg { width: 26px; height: 26px; }
+}
+
+/* 1.10 — reduced motion: static endpoints, no transform */
+@media (prefers-reduced-motion: reduce) {
+  .greeting, .presence-line, .mic-wrap, .composer-wrap, .footer-hint {
+    transform: none !important;
+  }
+}

@@ -40,6 +40,12 @@ Same task + same providers + same policy ⇒ the same decision, always.
 Providers are sorted before anything reads them, ties break on
 `provider_id`, and nothing consults a clock except to stamp
 `decided_at` (which is excluded from the digest).
+
+## Verification Learning Loop
+
+The Broker owns `record_outcome()` — called by callers after Verification
+completes. It feeds the BenchmarkStore which updates effective_quality for
+future decisions (ADR-0018).
 """
 from __future__ import annotations
 
@@ -66,14 +72,8 @@ from master_agent.broker.decision import (
     DecisionRecord,
     compute_digest,
 )
-from master_agent.broker.policy import DEFAULT_POLICY, SelectionPolicy, ranking_key
-from master_agent.broker.profiles import (
-    CLOUD,
-    PRIVATE,
-    SENSITIVE,
-    ProviderProfile,
-    TaskProfile,
-)
+from master_agent.broker.learning import VerificationLearningLoop, OutcomeReport
+from master_agent.broker.cost import CostModel, check_budget_for_decision
 
 
 class CapabilityBroker:
@@ -92,12 +92,39 @@ class CapabilityBroker:
         policy: SelectionPolicy | None = None,
         sink: Any = None,
         clock: Any = None,
+        # Verification Learning Loop components
+        benchmark_store: Any = None,
+        learning_loop: Any = None,
+        cost_model: Any = None,
     ) -> None:
+        from master_agent.broker.policy import DEFAULT_POLICY
+        from master_agent.broker.profiles import (
+            CLOUD,
+            PRIVATE,
+            SENSITIVE,
+            ProviderProfile,
+            TaskProfile,
+        )
+        from master_agent.broker.policy import ranking_key
+
         self._policy = policy or DEFAULT_POLICY
         self._sink = sink
         self._clock = clock or (lambda: datetime.now(UTC))
         self._records: list[DecisionRecord] = []
         self.recording_failures: list[str] = []
+
+        # Store imports locally to avoid circular deps
+        self._ProviderProfile = ProviderProfile
+        self._TaskProfile = TaskProfile
+        self._CLOUD = CLOUD
+        self._PRIVATE = PRIVATE
+        self._SENSITIVE = SENSITIVE
+        self._ranking_key = ranking_key
+
+        # Verification Learning Loop
+        self._benchmark_store = benchmark_store
+        self._learning_loop = learning_loop
+        self._cost_model = cost_model
 
     @property
     def policy(self) -> SelectionPolicy:
@@ -137,7 +164,31 @@ class CapabilityBroker:
             else:
                 candidates.append(_candidate(provider, eligible=False, reason=reason))
 
-        ranked = sorted(eligible, key=lambda p: ranking_key(policy, p))
+        # Budget check: filter out providers that would exceed budget
+        if self._cost_model is not None:
+            budget_filtered = []
+            for provider in eligible:
+                allowed, exceeded = check_budget_for_decision(
+                    self._cost_model,
+                    BrokerDecision(
+                        outcome=SELECTED,
+                        task=task,
+                        policy_version=policy.policy_version,
+                        quality_floor=floor,
+                        candidates=tuple(candidates),
+                        winner=provider.provider_id,
+                        reason="",
+                        inputs_digest="",
+                        decided_at=self._clock(),
+                    ),
+                )
+                if allowed:
+                    budget_filtered.append(provider)
+                else:
+                    candidates.append(_candidate(provider, eligible=False, reason="OVER_BUDGET"))
+            eligible = budget_filtered
+
+        ranked = sorted(eligible, key=lambda p: self._ranking_key(policy, p))
         for position, provider in enumerate(ranked, start=1):
             candidates.append(_candidate(provider, eligible=True, rank=position))
 
@@ -219,14 +270,14 @@ class CapabilityBroker:
             return UNAVAILABLE
         if task.offline and provider.requires_network:
             return NEEDS_NETWORK
-        if not policy.allow_cloud and provider.locality == CLOUD:
+        if not policy.allow_cloud and provider.locality == self._CLOUD:
             return CLOUD_FORBIDDEN
         if not policy.allow_paid and not provider.is_free:
             return PAID_FORBIDDEN
         if (
-            task.sensitivity == SENSITIVE
+            task.sensitivity == self._SENSITIVE
             and policy.require_private_for_sensitive
-            and provider.privacy != PRIVATE
+            and provider.privacy != self._PRIVATE
         ):
             return NOT_PRIVATE
         if provider.requires_approval:

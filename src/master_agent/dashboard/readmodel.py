@@ -200,6 +200,192 @@ class MachinePanelData:
 
 
 @dataclass(frozen=True)
+class BrokerDecisionRow:
+    """One AI provider decision, as plain data (MB032 Deliverable 9).
+
+    Every field is already resolved -- the tiers especially. A panel that
+    worked out for itself what "expensive" means would be a second opinion
+    about cost in the layer least able to defend it (ADR-0016).
+    """
+
+    task_id: str
+    capability: str
+    outcome: str
+    provider_id: str | None
+    reason: str
+    cost_tier: str
+    quality_tier: str
+    cost_detail: str
+    quality_detail: str
+    policy_version: str
+    decided_at: str
+    approval_state: str
+    locality: str = ""
+
+
+@dataclass(frozen=True)
+class ExecutionRow:
+    """The last piece of thinking that actually happened (MB033).
+
+    Separate from `BrokerDecisionRow` because a decision and its execution
+    are different events: one chose, the other ran, and one can happen
+    without the other in both directions.
+    """
+
+    provider_id: str
+    outcome: str
+    succeeded: bool
+    latency: str
+    cost: str
+    cache: str
+    model: str = ""
+    tokens: int | None = None
+    retries: int = 0
+    error: str = ""
+    # ---- MB038 reporting ----------------------------------------------
+    #
+    # Transcribed, never computed. Empty strings mean "this call had none"
+    # -- a pre-MB038 execution, or one made without a budget -- which is a
+    # different fact from a budget of zero.
+    budget: str = ""
+    bound_by: str = ""
+    timeout_reason: str = ""
+    admission: str = ""
+    lifecycle: str = ""
+    #: MB035. The Verification verdict, already worded for a founder, or
+    #: the marker when nothing was asked of the answer -- which is a
+    #: different fact from "it was checked and failed".
+    verified: str = ""
+
+
+@dataclass(frozen=True)
+class TokenEconomyRow:
+    """What the founder's quota has gone on. Counts only -- every value is
+    a total over executions that actually occurred (MB033)."""
+
+    local_executions: int = 0
+    cloud_executions: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    avoided_cloud_executions: int = 0
+    money_saved: float = 0.0
+    total_spend: float = 0.0
+    failed_executions: int = 0
+    total_tokens: int | None = None
+    basis: str = ""
+
+
+@dataclass(frozen=True)
+class BrokerPanelData:
+    """What the AI Capability Broker last decided. Handed in by the
+    launcher exactly as the machine inventory is -- the Dashboard reads
+    decisions and can no more cause one than it can cause a machine scan
+    (ADR-0016 Decision 5)."""
+
+    status: PanelStatus = PanelStatus()
+    policy_version: str | None = None
+    providers_available: int | None = None
+    providers_total: int | None = None
+    scanned: bool = False
+    total_decisions: int | None = None
+    awaiting_approval: int | None = None
+    decisions: list[BrokerDecisionRow] = field(default_factory=list)
+    recording_failures: list[str] = field(default_factory=list)
+    #: None until something has actually run -- absence rather than a row
+    #: of zeroes that reads as "it ran and achieved nothing".
+    last_execution: ExecutionRow | None = None
+    economy: TokenEconomyRow = field(default_factory=TokenEconomyRow)
+
+    @property
+    def count(self) -> int:
+        return len(self.decisions)
+
+
+@dataclass(frozen=True)
+class MemoryRow:
+    """One remembered thing, as the panel shows it (MB034)."""
+
+    id: str
+    title: str
+    category: str
+    importance: str
+    written_at: str
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class MemoryPanelData:
+    """What Kalpavriksha knows about the founder. Handed in by the
+    launcher like every other live read (ADR-0016 Decision 5) -- the
+    Dashboard displays memory and can no more write one than it can
+    trigger a machine scan."""
+
+    status: PanelStatus = PanelStatus()
+    total: int | None = None
+    critical: int | None = None
+    recent: list[MemoryRow] = field(default_factory=list)
+    top_tags: list[tuple[str, int]] = field(default_factory=list)
+    last_written: MemoryRow | None = None
+    problems: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PlanStepRow:
+    """One planned step, as the panel shows it (MB037)."""
+
+    step_id: str
+    capability: str
+    state: str
+    verdict: str = ""
+    priority: str = "normal"
+    complexity: str = "moderate"
+    expectation: str = ""
+    blocked_by: list[str] = field(default_factory=list)
+    #: True when something this step waits on has *failed*. "Waiting on
+    #: step_1" is true but misleading once step_1 will never finish, and
+    #: a founder reading it would keep waiting too.
+    unreachable: bool = False
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PlanPanelData:
+    """The mission the Planner produced, and how far through it is.
+
+    Handed in by the launcher like every other live read (ADR-0016
+    Decision 5). The Dashboard renders a plan and can no more create one
+    than it can trigger a machine scan.
+
+    Deliberately absent: the prompt, the raw reply, and anything else
+    resembling a provider's reasoning. MB037 forbids showing internal LLM
+    reasoning on the founder page, and the cheapest way to honour that is
+    for the read model to have nowhere to put it.
+    """
+
+    # Absent by default, unlike every panel above it. Those describe
+    # subsystems that exist as soon as the system boots; a *plan* does not
+    # exist until somebody asks for something. Defaulting to available
+    # would render "0/0 steps" for a mission nobody started -- `0`
+    # standing in for "unknown", which ADR-0016 exists to prevent.
+    status: PanelStatus = field(
+        default_factory=lambda: PanelStatus.missing("nothing planned yet")
+    )
+    objective: str = ""
+    plan_id: str = ""
+    state: str = ""
+    steps: list[PlanStepRow] = field(default_factory=list)
+    current: PlanStepRow | None = None
+    completed: int = 0
+    remaining: int = 0
+    blocked: int = 0
+    failed: int = 0
+    unverified: int = 0
+    progress: float = 0.0
+    planned_by: str | None = None
+    history_count: int = 0
+
+
+@dataclass(frozen=True)
 class DashboardSnapshot:
     """One complete, self-consistent view. Everything a frame needs, and
     nothing live."""
@@ -215,3 +401,6 @@ class DashboardSnapshot:
     founder_state: FounderStatePanelData = field(default_factory=FounderStatePanelData)
     approvals: ApprovalPanelData = field(default_factory=ApprovalPanelData)
     machine: MachinePanelData = field(default_factory=MachinePanelData)
+    broker: BrokerPanelData = field(default_factory=BrokerPanelData)
+    memory: MemoryPanelData = field(default_factory=MemoryPanelData)
+    plan: PlanPanelData = field(default_factory=PlanPanelData)

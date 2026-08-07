@@ -1,0 +1,138 @@
+/**
+ * Kalpavriksha Design System — Grid
+ *
+ * 12-column grid, 24px gutters, 48px margins, 1440px max content width.
+ * Baseline: 8px. Leading: 24px.
+ */
+
+/* ─────────────────────────── k-wrap ─────────────────────────────────── */
+/* Max-width container with enforced margins */
+
+.k-wrap {
+  width: 100%;
+  max-width: var(--maxw);
+  margin-inline: auto;
+  padding-inline: var(--margin);
+}
+
+/* ─────────────────────────── k-grid ─────────────────────────────────── */
+/* 12-column CSS grid */
+
+.k-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 1fr);
+  column-gap: var(--gutter);
+}
+
+/* Column span helpers — span 1 through 12 */
+.k-col-1  { grid-column: span 1; }
+.k-col-2  { grid-column: span 2; }
+.k-col-3  { grid-column: span 3; }
+.k-col-4  { grid-column: span 4; }
+.k-col-5  { grid-column: span 5; }
+.k-col-6  { grid-column: span 6; }
+.k-col-7  { grid-column: span 7; }
+.k-col-8  { grid-column: span 8; }
+.k-col-9  { grid-column: span 9; }
+.k-col-10 { grid-column: span 10; }
+.k-col-11 { grid-column: span 11; }
+.k-col-12 { grid-column: span 12; }
+
+/* ─────────────────────────── k-band ─────────────────────────────────── */
+/* Subgrid band — inherits parent grid tracks via subgrid where supported */
+
+@supports (grid-template-columns: subgrid) {
+  .k-band {
+    display: grid;
+    grid-template-columns: subgrid;
+    column-gap: var(--gutter);
+  }
+}
+
+/* Fallback for browsers without subgrid support */
+@supports not (grid-template-columns: subgrid) {
+  .k-band {
+    display: grid;
+    grid-template-columns: repeat(var(--cols), 1fr);
+    column-gap: var(--gutter);
+  }
+}
+
+/* ─────────────────────────── k-guides ───────────────────────────────── */
+/*
+ * Debug overlay — column numbers + baseline lines.
+ * Hidden by default; shown only when `body.grid-on` is set.
+ *
+ * The overlay lives INSIDE the same content box as the page content:
+ * left/right are clamped to var(--margin) to match .k-wrap exactly.
+ * It is pointer-events: none so it never interrupts interaction.
+ */
+
+.k-guides {
+  display: none;
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-transient) + 10);
+  /* Left/right match the page margin exactly */
+  left: var(--margin);
+  right: var(--margin);
+}
+
+body.grid-on .k-guides {
+  display: block;
+}
+
+/* Column overlay — 12 equally-spaced columns */
+.k-guides::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 1fr);
+  column-gap: var(--gutter);
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      rgba(127, 211, 255, 0.06) 0,
+      rgba(127, 211, 255, 0.06) calc(100% / var(--cols) - var(--gutter)),
+      transparent calc(100% / var(--cols) - var(--gutter)),
+      transparent calc(100% / var(--cols))
+    );
+}
+
+/* Baseline lines — 8px grid */
+.k-guides::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--bl) - 1px),
+      rgba(150, 190, 220, 0.05) calc(var(--bl) - 1px),
+      rgba(150, 190, 220, 0.05) var(--bl)
+    );
+  background-size: 100% var(--bl);
+}
+
+/* Column number labels */
+.k-guides__labels {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 1fr);
+  column-gap: var(--gutter);
+  pointer-events: none;
+}
+
+.k-guides__label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 16px;
+  color: rgba(127, 211, 255, 0.40);
+  text-align: center;
+}

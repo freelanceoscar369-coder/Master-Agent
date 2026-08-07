@@ -1,0 +1,180 @@
+/**
+ * Kalpavriksha Design System — Base Reset & Defaults
+ */
+
+@import './tokens.css';
+@import './themes.css';
+
+/* ─────────────────────────── Box model ──────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ─────────────────────────── Root / Body ────────────────────────────── */
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  background-color: var(--color-void);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  background-color: var(--color-void);
+  color: var(--color-ink);
+  /* Flush left — no centred text anywhere per constitution */
+  text-align: left;
+  /* Tabular numerals globally via font-variant-numeric */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
+}
+
+/* ─────────────────────────── Focus visible ──────────────────────────── */
+/* 2px ring using --signal-live; never hidden for keyboard users */
+
+:focus-visible {
+  outline: 2px solid var(--signal-live);
+  outline-offset: 2px;
+  border-radius: var(--radius-1);
+}
+
+/* Browsers that support :focus-visible: suppress default on pointer events */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ─────────────────────────── Selection ──────────────────────────────── */
+
+::selection {
+  background-color: rgba(127, 211, 255, 0.20); /* --signal-live at low opacity */
+  color: var(--color-ink);
+}
+
+/* ─────────────────────────── Scrollbars ─────────────────────────────── */
+
+/* Webkit thin scrollbar with hairline styling */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-hair);
+  border-radius: var(--radius-1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 190, 220, 0.30);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hair) transparent;
+}
+
+/* ─────────────────────────── Typography helpers ─────────────────────── */
+
+/* Monospace class — IBM Plex Mono for facts */
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Text utility classes */
+.text-ink-2 {
+  color: var(--color-ink-2);
+}
+
+.text-ink-3 {
+  color: var(--color-ink-3);
+}
+
+/* Emphasis — weight 500 only, per constitution */
+strong,
+b,
+.text-emphasis {
+  font-weight: 500;
+}
+
+/* Never use italic; not in the constitution's vocabulary */
+em {
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Links */
+a {
+  color: var(--signal-live);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Lists */
+ul,
+ol {
+  list-style: none;
+}
+
+/* Images / media */
+img,
+video,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* Buttons / inputs — reset */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  appearance: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* ─────────────────── prefers-reduced-motion global block ────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

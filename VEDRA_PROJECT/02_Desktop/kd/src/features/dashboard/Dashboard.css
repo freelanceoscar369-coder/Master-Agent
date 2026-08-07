@@ -1,0 +1,314 @@
+/* Dashboard — Screen 01 v2 */
+
+.db-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: calc(var(--bl) * 6) var(--margin);
+  max-width: var(--maxw);
+  margin-inline: auto;
+  gap: calc(var(--bl) * 8); /* 64px */
+}
+
+/* 12-col grid: main (8 cols) + receipt (4 cols) */
+.db-grid {
+  display: grid;
+  grid-template-columns: 8fr 4fr;
+  gap: calc(var(--gutter) * 2);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .db-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Left column ── */
+
+.db-main {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--bl) * 6); /* 48px */
+}
+
+/* Voice */
+.db-voice {
+  /* no extra decoration — let Speech scale speak */
+}
+
+.db-voice__skeleton {
+  margin-bottom: calc(var(--bl) * 2);
+}
+
+.db-voice__speech {
+  /* Speech component handles font size/lh */
+  margin: 0;
+}
+
+/* Typewriter cursor: 2px --signal-live blinking block */
+.db-voice__cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--signal-live);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: db-cursor-blink 900ms var(--ease-breathe) infinite;
+}
+
+@keyframes db-cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* Vigilance gate */
+.db-vigilance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.db-vigilance__skeleton {
+  height: 24px;
+}
+
+.db-vigilance__calm {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--bl) * 2);
+}
+
+.db-vigilance__calm-time {
+  color: var(--color-ink-3);
+}
+
+.db-vigilance__gap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.db-vigilance__gap-text {
+  margin: 0;
+  color: var(--color-ink-2);
+}
+
+.db-vigilance__gap-time {
+  color: var(--color-ink-3);
+}
+
+/* Decision slot */
+.db-decision {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--bl) * 2);
+}
+
+.db-decision__heading {
+  margin: 0;
+  color: var(--color-ink-2);
+}
+
+.db-decision__skeleton {
+  width: 100%;
+}
+
+/* Decision card transitions */
+.db-decision-slot {
+  transition: opacity var(--dur-3) var(--ease-settle),
+              transform var(--dur-3) var(--ease-settle);
+}
+
+.db-decision-slot--out {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.db-decision-slot--in {
+  opacity: 0;
+  transform: translateY(8px);
+  /* The 'in' class is set then removed after 420ms;
+     the transition drives it to visible */
+}
+
+.db-decision-slot__empty {
+  /* EmptyState handles its own styling */
+}
+
+.db-decision-slot__position {
+  color: var(--color-ink-3);
+  margin-top: var(--bl);
+}
+
+/* ── Right column — receipt ── */
+
+.db-receipt-col {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--bl) * 3);
+  /* Deliberately lower contrast per spec */
+  opacity: 0.72;
+}
+
+.db-receipt-col__counts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.db-receipt-col__count-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--bl);
+}
+
+.db-receipt-col__count-num {
+  font-size: var(--fs-h2-size);
+  line-height: var(--fs-h2-lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+}
+
+.db-receipt-col__count-label {
+  margin: 0;
+  color: var(--color-ink-2);
+}
+
+.db-receipt-col__expand {
+  all: unset;
+  cursor: pointer;
+  color: var(--color-ink-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+  transition: color var(--dur-1) var(--ease-settle);
+}
+
+.db-receipt-col__expand:hover {
+  color: var(--color-ink-2);
+}
+
+.db-receipt-col__details {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--bl) * 3);
+}
+
+.db-receipt-col__section-label {
+  display: block;
+  margin-bottom: var(--bl);
+}
+
+.db-receipt-col__flagged {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.db-receipt-col__flagged-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.db-receipt-col__flagged-action {
+  margin: 0;
+  font-weight: 500;
+}
+
+.db-receipt-col__flagged-why {
+  margin: 0;
+  font-size: var(--fs-body-size);
+}
+
+.db-receipt-col__flagged-actions {
+  display: flex;
+  gap: var(--bl);
+  flex-wrap: wrap;
+}
+
+.db-receipt-col__flagged-time {
+  color: var(--color-ink-3);
+}
+
+.db-receipt-col__disclosures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.db-receipt-col__disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bl);
+}
+
+.db-receipt-col__disclosure-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: var(--bl);
+  align-items: baseline;
+}
+
+.db-receipt-col__disclosure-step {
+  color: var(--color-ink-3);
+  flex-shrink: 0;
+}
+
+.db-receipt-col__disclosure-text {
+  margin: 0;
+}
+
+.db-receipt-col__disclosure-time {
+  color: var(--color-ink-3);
+  padding-top: var(--bl);
+}
+
+/* ── Doorways ── */
+
+.db-doorways {
+  display: flex;
+  gap: calc(var(--bl) * 4);
+  padding-top: calc(var(--bl) * 4);
+  border-top: 1px solid var(--color-hair-soft);
+}
+
+.db-doorways__link {
+  color: var(--color-ink-3);
+  text-decoration: none;
+  transition: color var(--dur-1) var(--ease-settle);
+}
+
+.db-doorways__link:hover,
+.db-doorways__link:focus-visible {
+  color: var(--color-ink-2);
+}
+
+/* ── Undo toast anchor ── */
+
+.db-toast-anchor {
+  position: fixed;
+  bottom: calc(var(--bl) * 4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-transient);
+}
+
+/* ── Reduced motion ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .db-voice__cursor {
+    animation: none;
+    opacity: 1;
+  }
+
+  .db-decision-slot {
+    transition: none;
+  }
+
+  .db-doorways__link,
+  .db-receipt-col__expand {
+    transition: none;
+  }
+}

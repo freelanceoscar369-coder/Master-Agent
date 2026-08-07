@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kalpavriksha</title>
+<!-- 08_THEME_SYSTEM §8.13 — synchronous, inline, first child of <head>,
+     so the correct theme is set before first paint. -->
+<script>
+(function () {
+  var p = localStorage.getItem('theme-preference') || 'auto';
+  var theme = p === 'light' ? 'light'
+            : p === 'dark'  ? 'dark'
+            : window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+</script>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/surface.css">
+<link rel="stylesheet" href="css/conversation.css">
+<link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="tree"></canvas>
+  <div class="field-base"></div>
+  <div class="bloom"></div>
+  <div class="veil"></div>
+
+  <div class="chrome-corner wordmark">KALPAVRIKSHA</div>
+  <button class="chrome-corner dashboard-chevron" aria-label="Open dashboard">
+    <svg viewBox="0 0 20 20" fill="none" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+      <path d="M4 7l6 6 6-6"/>
+    </svg>
+  </button>
+
+  <div class="conversation-scroll">
+    <div class="conversation">
+      <div class="thinking-indicator">
+        <div class="thinking-indicator__hairline"></div>
+        <div class="thinking-indicator__label">THINKING</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="greeting"></div>
+    <div class="presence-line"></div>
+
+    <div class="waveform">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+
+    <div class="mic-wrap">
+      <button class="mic" data-state="idle" aria-label="Microphone">
+        <svg viewBox="0 0 20 20" fill="none" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+          <rect x="7" y="2" width="6" height="10" rx="3"/>
+          <path d="M4 9v1a6 6 0 0 0 12 0V9M10 16v2M7 18h6"/>
+        </svg>
+      </button>
+      <div class="listening-bar"></div>
+      <div class="mic-label">TAP TO SPEAK</div>
+      <div class="mic-secondary"></div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <svg class="keyboard-icon" viewBox="0 0 20 20" fill="none" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+          <rect x="2" y="5" width="16" height="10" rx="1"/>
+          <path d="M5 8h.01M8 8h.01M11 8h.01M14 8h.01M5 11h8"/>
+        </svg>
+        <div class="composer-placeholder">Type instead</div>
+        <div class="composer-input" contenteditable="true" role="textbox" aria-multiline="true"></div>
+        <button class="composer-send" aria-label="Send">
+          <svg viewBox="0 0 20 20" fill="none" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+            <path d="M3 10h14M11 4l6 6-6 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="footer-hint">SPACE TO SPEAK · TYPE TO WRITE</div>
+  </div>
+
+  <div class="dashboard-backdrop">
+    <button class="dashboard-close" aria-label="Close dashboard">
+      <svg viewBox="0 0 20 20" fill="none" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+        <path d="M5 5l10 10M15 5L5 15"/>
+      </svg>
+    </button>
+    <div class="dashboard-panel" id="dashboard-body"></div>
+  </div>
+</div>
+
+<script src="js/tree.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

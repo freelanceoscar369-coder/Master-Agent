@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kalpavriksha — Approval Queue at Volume · Screen 04b</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cols:12; --bl:8px; --lh:24px; --gutter:24px; --margin:48px; --pad:96px; --maxw:1440px;
+  --void:#05070A; --deep:#080B10;
+  --panel:rgba(255,255,255,.028); --hair:rgba(150,190,220,.16); --hair-soft:rgba(150,190,220,.09);
+  --ink:#E9EFF5; --ink-2:#9FB0BF; --ink-3:#63727F;
+  --accent:#7FD3FF; --amber:#FFB454; --green:#63E6A8; --red:#FF6B6B;
+  --g-col:rgba(127,211,255,.055); --g-edge:rgba(127,211,255,.30);
+  --g-base:rgba(127,211,255,.22); --g-base-min:rgba(127,211,255,.07);
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--void);color:var(--ink);
+  font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:var(--lh);
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;}
+::selection{background:rgba(127,211,255,.28);}
+button{font-family:inherit;}
+
+.spread{position:relative;width:100%;}
+.wrap{position:relative;max-width:var(--maxw);margin:0 auto;padding:var(--pad) var(--margin);}
+.grid{display:grid;grid-template-columns:repeat(var(--cols),1fr);column-gap:var(--gutter);row-gap:var(--lh);}
+.band{grid-column:1 / -1;display:grid;grid-template-columns:subgrid;
+  column-gap:var(--gutter);row-gap:var(--lh);align-items:start;}
+@supports not (grid-template-columns:subgrid){.band{grid-template-columns:repeat(var(--cols),1fr);}}
+
+.guides{position:absolute;inset:0;pointer-events:none;z-index:60;opacity:0;transition:opacity .26s ease;}
+body.grid-on .guides{opacity:1;}
+.guides .cols{position:absolute;top:0;bottom:0;left:var(--margin);right:var(--margin);
+  display:grid;grid-template-columns:repeat(var(--cols),1fr);column-gap:var(--gutter);}
+.guides .col{background:var(--g-col);box-shadow:inset 1px 0 0 var(--g-edge),inset -1px 0 0 var(--g-edge);position:relative;}
+.guides .col span{position:absolute;top:32px;left:0;right:0;text-align:center;
+  font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:1;color:var(--accent);opacity:.8;}
+.guides .rows{position:absolute;left:var(--margin);right:var(--margin);top:var(--pad);bottom:0;
+  background-image:repeating-linear-gradient(to bottom,var(--g-base) 0 1px,transparent 1px var(--lh)),
+    repeating-linear-gradient(to bottom,var(--g-base-min) 0 1px,transparent 1px var(--bl));}
+.guides .mline{position:absolute;top:0;bottom:0;width:1px;background:var(--g-edge);}
+.guides .mline.l{left:var(--margin);} .guides .mline.r{right:var(--margin);}
+
+.mono{font-family:"IBM Plex Mono",monospace;}
+.kicker{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-3);}
+.kicker.live{color:var(--accent);} .kicker.warn{color:var(--amber);} .kicker.good{color:var(--green);}
+.h1b{font-size:44px;line-height:48px;font-weight:600;letter-spacing:-.025em;margin:0;}
+.h2b{font-size:27px;line-height:32px;font-weight:600;letter-spacing:-.018em;margin:0;}
+.h3b{font-size:19px;line-height:24px;font-weight:600;letter-spacing:-.01em;margin:0;}
+.numeral{font-size:68px;line-height:72px;font-weight:600;letter-spacing:-.04em;margin:0;font-variant-numeric:tabular-nums;}
+.lede{font-size:19px;line-height:32px;font-weight:300;color:var(--ink-2);margin:0;}
+p{margin:0 0 var(--lh) 0;} p:last-child{margin-bottom:0;}
+.soft{color:var(--ink-2);} .dim{color:var(--ink-3);}
+.rule{height:1px;background:var(--hair);grid-column:1 / -1;}
+.note{border-left:2px solid var(--accent);padding-left:15px;font-size:14px;line-height:24px;color:var(--ink-2);}
+.note b{color:var(--ink);font-weight:500;}
+.note.warn{border-left-color:var(--amber);}
+.panel{background:var(--panel);border:1px solid var(--hair-soft);position:relative;}
+.pad-a{padding:23px;} .pad-b{padding:31px;}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;}
+.sec-head .id{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;color:var(--ink-3);text-transform:uppercase;}
+.screen-tag{display:flex;align-items:center;gap:12px;}
+.screen-tag .num{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.2em;color:var(--accent);}
+.screen-tag .ln{flex:1;height:1px;background:var(--hair-soft);}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:16px;letter-spacing:.14em;
+  text-transform:uppercase;padding:0 8px;border:1px solid var(--hair);color:var(--ink-3);white-space:nowrap;}
+.tag.done{color:var(--green);border-color:rgba(99,230,168,.4);}
+.tag.wait{color:var(--amber);border-color:rgba(255,180,84,.45);}
+.tag.run{color:var(--accent);border-color:rgba(127,211,255,.45);}
+.btn{padding:11px 20px;border:1px solid var(--hair);background:transparent;color:var(--ink-2);
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  cursor:pointer;transition:all .25s;}
+.btn:hover{color:var(--ink);border-color:var(--ink-2);}
+.btn.primary{border-color:rgba(99,230,168,.5);color:var(--green);}
+.btn.primary:hover{background:rgba(99,230,168,.1);border-color:var(--green);}
+.btn.accent{border-color:rgba(127,211,255,.5);color:var(--accent);}
+.btn.accent:hover{background:rgba(127,211,255,.1);}
+.btn.ghost:hover{border-color:var(--red);color:var(--red);}
+.btn:disabled{opacity:.3;cursor:not-allowed;}
+.btn:disabled:hover{color:var(--ink-2);border-color:var(--hair);}
+.stat{border-left:2px solid var(--hair);padding-left:15px;}
+.stat .n{font-size:44px;line-height:48px;font-weight:600;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
+.stat .l{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:16px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);margin-top:8px;}
+.stat.good{border-left-color:var(--green);} .stat.good .n{color:var(--green);}
+.stat.warn{border-left-color:var(--amber);} .stat.warn .n{color:var(--amber);}
+.stat.live{border-left-color:var(--accent);} .stat.live .n{color:var(--accent);}
+.bar{height:2px;background:rgba(255,255,255,.08);position:relative;overflow:hidden;}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);display:block;}
+.bar.g i{background:var(--green);}
+.toggle{position:fixed;top:18px;right:18px;z-index:200;display:flex;align-items:center;gap:10px;
+  background:rgba(10,14,20,.9);color:var(--ink-2);border:1px solid var(--hair);cursor:pointer;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  padding:11px 14px;backdrop-filter:blur(10px);transition:all .25s;}
+.toggle:hover{color:var(--ink);border-color:var(--ink-3);}
+.toggle .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-3);}
+body.grid-on .toggle{border-color:var(--accent);color:var(--accent);}
+body.grid-on .toggle .dot{background:var(--accent);}
+
+/* ===================== QUEUE-SPECIFIC ===================== */
+
+/* tier header */
+.tier{display:flex;align-items:baseline;gap:16px;padding-bottom:15px;border-bottom:1px solid var(--hair);}
+.tier .cnt{font-family:"IBM Plex Mono",monospace;font-size:27px;line-height:32px;font-variant-numeric:tabular-nums;}
+.tier .nm{font-size:19px;line-height:24px;font-weight:600;letter-spacing:-.01em;}
+.tier .sub{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);margin-left:auto;}
+.tier.needs{border-bottom-color:rgba(255,180,84,.4);} .tier.needs .cnt{color:var(--amber);}
+.tier.sweep{border-bottom-color:rgba(127,211,255,.35);} .tier.sweep .cnt{color:var(--accent);}
+.tier.auto{border-bottom-color:rgba(99,230,168,.35);} .tier.auto .cnt{color:var(--green);}
+
+/* consequence-ranked row */
+.row{display:grid;grid-template-columns:24px 1fr auto;gap:16px;align-items:start;
+  padding:15px 0;border-bottom:1px solid var(--hair-soft);transition:opacity .5s,transform .5s;}
+.row .name{font-size:15px;line-height:24px;font-weight:500;}
+.row .why{font-size:13px;line-height:24px;color:var(--ink-3);}
+.row .right{text-align:right;}
+.row .amt{font-family:"IBM Plex Mono",monospace;font-size:14px;line-height:24px;font-variant-numeric:tabular-nums;}
+.row .when{font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:16px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);}
+.row.swept{opacity:.22;}
+.row.swept .name{text-decoration:line-through;}
+
+/* checkbox */
+.cb{width:16px;height:16px;border:1px solid var(--hair);background:transparent;cursor:pointer;
+  margin-top:8px;position:relative;transition:all .2s;flex:0 0 auto;}
+.cb:hover{border-color:var(--accent);}
+.cb.on{background:var(--accent);border-color:var(--accent);}
+.cb.on:after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;
+  border:solid var(--void);border-width:0 2px 2px 0;transform:rotate(45deg);}
+
+/* consequence score meter */
+.score{display:flex;gap:2px;align-items:center;margin-top:8px;}
+.score i{width:3px;height:8px;background:rgba(255,255,255,.12);display:block;}
+.score i.on{background:var(--amber);}
+.score.lo i.on{background:var(--ink-3);}
+.score.mid i.on{background:var(--accent);}
+
+/* sweep commit bar */
+.commit{position:sticky;bottom:0;background:rgba(8,11,16,.94);backdrop-filter:blur(14px);
+  border:1px solid var(--hair);padding:15px 23px;display:flex;align-items:center;gap:24px;
+  margin-top:24px;z-index:40;}
+.commit .sum{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);}
+.commit .sum b{color:var(--ink);font-weight:500;}
+.commit .exp{color:var(--amber);}
+.commit .acts{margin-left:auto;display:flex;gap:8px;}
+
+/* undo toast */
+.toast{position:fixed;left:50%;bottom:32px;transform:translate(-50%,80px);z-index:300;
+  background:rgba(8,11,16,.97);border:1px solid rgba(99,230,168,.4);padding:15px 23px;
+  display:flex;align-items:center;gap:24px;opacity:0;transition:all .4s cubic-bezier(.16,1,.3,1);
+  backdrop-filter:blur(14px);pointer-events:none;min-width:440px;}
+.toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto;}
+.toast .tx{font-size:14px;line-height:24px;}
+.toast .tx b{color:var(--green);font-weight:500;}
+.toast .cd{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;color:var(--ink-3);
+  margin-left:auto;white-space:nowrap;}
+.toast .ubar{position:absolute;left:0;bottom:0;height:2px;background:var(--green);}
+
+/* rule proposal — the hero moment */
+.propose{border:1px solid rgba(127,211,255,.35);background:rgba(127,211,255,.045);padding:31px;
+  position:relative;overflow:hidden;transition:all .5s;}
+.propose:before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent);}
+.propose.accepted{border-color:rgba(99,230,168,.4);background:rgba(99,230,168,.04);}
+.propose.accepted:before{background:var(--green);}
+.evidence{display:flex;gap:4px;margin-top:16px;align-items:flex-end;height:40px;}
+.evidence i{flex:1;background:rgba(99,230,168,.5);display:block;}
+.evidence i.no{background:rgba(255,107,107,.5);}
+.rule-form{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--hair-soft);
+  border:1px solid var(--hair-soft);margin-top:24px;}
+.rule-form div{background:var(--deep);padding:15px;}
+.rule-form .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);}
+.rule-form .v{font-size:14px;line-height:24px;color:var(--ink);margin-top:8px;}
+.rule-form .v.neg{color:var(--red);}
+.accepted-note{display:none;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--green);margin-top:24px;}
+.propose.accepted .accepted-note{display:block;}
+.propose.accepted .pacts{display:none;}
+
+/* rule library */
+.rrow{display:flex;align-items:center;gap:16px;padding:15px 0;border-bottom:1px solid var(--hair-soft);}
+.rrow .rtx{flex:1;font-size:14px;line-height:24px;}
+.rrow .rtx b{font-weight:500;}
+.rrow .rmeta{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);}
+.sw{width:34px;height:18px;border:1px solid var(--hair);position:relative;cursor:pointer;flex:0 0 auto;
+  transition:all .25s;}
+.sw:after{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;background:var(--ink-3);transition:all .25s;}
+.sw.on{border-color:var(--green);background:rgba(99,230,168,.12);}
+.sw.on:after{left:18px;background:var(--green);}
+
+/* autonomy ratio chart */
+.chart{display:flex;align-items:flex-end;gap:6px;height:120px;}
+.chart .c{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:1px;}
+.chart .c .a{background:rgba(99,230,168,.55);} .chart .c .h{background:rgba(255,180,84,.5);}
+.chart .lbl{font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.08em;
+  color:var(--ink-3);text-align:center;margin-top:8px;}
+
+/* kill switch */
+.kill{border:1px solid rgba(255,107,107,.3);background:rgba(255,107,107,.035);padding:23px;
+  display:flex;align-items:center;gap:24px;transition:all .4s;}
+.kill.paused{border-color:var(--red);background:rgba(255,107,107,.1);}
+.kill .kt{flex:1;}
+body.paused-mode .propose,body.paused-mode .commit{opacity:.35;pointer-events:none;}
+
+/* refusal list */
+.refuse{display:flex;gap:12px;align-items:flex-start;padding:8px 0;}
+.refuse .x{color:var(--red);font-family:"IBM Plex Mono",monospace;font-size:13px;line-height:24px;flex:0 0 auto;}
+.refuse .t{font-size:14px;line-height:24px;color:var(--ink-2);}
+.refuse .t b{color:var(--ink);font-weight:500;}
+
+@media (max-width:1080px){
+  :root{--margin:32px;--pad:64px;}
+  .h1b{font-size:34px;line-height:40px;}
+  .rule-form,.evidence{grid-template-columns:1fr;}
+  .toast{min-width:0;left:16px;right:16px;transform:translateY(80px);}
+  .toast.on{transform:none;}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition-duration:.01ms!important;}}
+</style>
+<style>
+.ha-img-placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;background:#f4f4f5;border:1px dashed #d4d4d8;border-radius:8px;color:#71717a;font-size:12px;font-family:system-ui,sans-serif;min-height:80px;padding:16px;box-sizing:border-box;animation:ha-img-pulse 1.5s ease-in-out infinite}
+.ha-img-placeholder.ha-failed{animation:none;opacity:.7}
+@keyframes ha-img-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@media(prefers-color-scheme:dark){.ha-img-placeholder{background:#27272a;border-color:#3f3f46;color:#a1a1aa}}
+</style>
+</head>
+<body>
+
+<button class="toggle" id="gridToggle" aria-pressed="false"><span class="dot"></span><span class="lbl">Show grid</span></button>
+
+<!-- ============ THE PROBLEM ============ -->
+<section class="spread">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div class="screen-tag" style="grid-column:1 / 13;">
+          <span class="num">SCREEN 04B</span><span class="ln"></span>
+          <span class="kicker warn">Approval Queue at Volume</span>
+        </div>
+      </div>
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <div class="kicker">Open decision 01 · resolved</div>
+          <h1 class="h1b" style="margin-top:16px;">At five a day it's a list. At twenty it's an inbox. Inboxes kill executive products.</h1>
+          <p class="lede" style="margin-top:24px;">The founder didn't hire an AI executive to get another queue. So the design goal here is inverted from every inbox ever built: <b style="color:var(--accent);">success is the queue shrinking</b>, and the metric on the wall is not throughput — it's the share of decisions Kalpavriksha stops needing to ask about.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note warn"><b>The failure mode, stated plainly.</b> A red badge with "23" on it turns an executive partner back into a to-do app. The founder starts triaging the AI instead of the business. Every decision below is defence against that one outcome.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 4;">
+          <div class="kicker">Principle 01</div>
+          <h3 class="h3b" style="margin-top:16px;">Rank by consequence, never by time</h3>
+          <p class="soft" style="font-size:14px;margin-top:16px;">A chronological queue makes the founder do the prioritisation the AI should have done. Kalpavriksha ranks by <span class="mono" style="color:var(--accent);">irreversibility × exposure × deadline</span> and says so. Time is metadata, not order.</p>
+        </div>
+        <div style="grid-column:5 / 8;">
+          <div class="kicker">Principle 02</div>
+          <h3 class="h3b" style="margin-top:16px;">Delegating judgment beats delegating tasks</h3>
+          <p class="soft" style="font-size:14px;margin-top:16px;">Batching is a bandage. The cure is a <b style="color:var(--ink);">standing rule</b> — the founder teaching the AI a decision boundary once, and never seeing that class of request again. Rules are the product.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <div class="kicker">Principle 03</div>
+          <h3 class="h3b" style="margin-top:16px;">Silence must have a stated default</h3>
+          <p class="soft" style="font-size:14px;margin-top:16px;">Every item declares what happens if the founder never responds. "If I don't hear from you by Thursday 18:00, I'll let it renew." Pre-committed defaults are what make a queue survivable — ignoring it becomes a decision, not a debt.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE TRIAGE MODEL ============ -->
+<section class="spread" style="background:var(--deep);">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <div class="kicker live">The triage model</div>
+          <h2 class="h1b" style="margin-top:16px;">Three tiers, and only one of them is a request.</h2>
+          <p class="lede" style="margin-top:16px;">Today: 25 decisions crossed Kalpavriksha's desk. Two reached Onkar's.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note"><b>Read the three numbers as a ratio, not a total.</b> 2 / 9 / 14 is a healthy day. 12 / 9 / 4 means the rules aren't working and the founder is the bottleneck again.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;">
+        <div class="stat warn" style="grid-column:1 / 4;"><div class="n">2</div><div class="l">Needs you · irreversible</div></div>
+        <div class="stat live" style="grid-column:4 / 7;"><div class="n">9</div><div class="l">Sweep · routine, reversible</div></div>
+        <div class="stat good" style="grid-column:7 / 10;"><div class="n">14</div><div class="l">Auto-handled by rule</div></div>
+        <div class="stat" style="grid-column:10 / 13;"><div class="n">64<span style="font-size:24px;color:var(--ink-3);">%</span></div><div class="l">Autonomy ratio · ↑ 9pts</div></div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <!-- TIER 1 -->
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="tier needs" style="margin-bottom:16px;">
+            <span class="cnt">02</span><span class="nm">Needs you</span>
+            <span class="sub">Irreversible · novel · high exposure</span>
+          </div>
+
+          <div class="row">
+            <div></div>
+            <div>
+              <div class="name">Datastack renewal — counter or let it run</div>
+              <div class="why">Irreversible after Friday 00:00. ₹4.1L/yr at stake. No precedent to learn from.</div>
+              <div class="score"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+            </div>
+            <div class="right">
+              <div class="amt" style="color:var(--amber);">₹18.4L</div>
+              <div class="when">Default: renews</div>
+              <div class="when" style="color:var(--amber);">4 days</div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div></div>
+            <div>
+              <div class="name">Offer letter — Staff Engineer, ₹92L</div>
+              <div class="why">Above the band you set. Reversible only before she signs.</div>
+              <div class="score"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+            </div>
+            <div class="right">
+              <div class="amt" style="color:var(--amber);">₹92L/yr</div>
+              <div class="when">Default: hold</div>
+              <div class="when">2 days</div>
+            </div>
+          </div>
+
+          <p class="note warn" style="margin-top:24px;"><b>Tier 1 never batches.</b> No checkboxes, no select-all, no bulk action. If something is irreversible it gets a full consequence card and an individual verdict — that friction is the feature.</p>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="panel pad-a">
+            <div class="kicker live">Ranking function</div>
+            <div class="mono" style="font-size:12px;line-height:24px;margin-top:16px;color:var(--ink-2);">
+              score =<br>
+              &nbsp;&nbsp;irreversibility <span class="dim">(0–3)</span><br>
+              &nbsp;&nbsp;× log(exposure)<br>
+              &nbsp;&nbsp;× deadline_proximity<br>
+              &nbsp;&nbsp;× novelty <span class="dim">(no precedent = 2×)</span>
+            </div>
+            <p class="soft" style="font-size:14px;margin-top:16px;">Shown to the founder on request. An AI that ranks your decisions must be able to defend the ranking — opaque prioritisation is the fastest way to lose trust in a queue.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;"><div class="rule"></div></div>
+
+      <!-- TIER 2 — SWEEP -->
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="tier sweep" style="margin-bottom:16px;">
+            <span class="cnt">09</span><span class="nm">Sweep</span>
+            <span class="sub">Routine · reversible · precedent exists</span>
+          </div>
+
+          <div id="sweepList">
+            <div class="row" data-amt="34000">
+              <button class="cb" aria-label="select"></button>
+              <div><div class="name">AWS reserved instance top-up</div>
+                <div class="why">4 prior approvals. Reversible for 7 days.</div>
+                <div class="score lo"><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></div></div>
+              <div class="right"><div class="amt">₹34,000</div><div class="when">Default: approve</div></div>
+            </div>
+            <div class="row" data-amt="18500">
+              <button class="cb" aria-label="select"></button>
+              <div><div class="name">Figma seats — 3 additional</div>
+                <div class="why">Matches headcount plan. Cancellable monthly.</div>
+                <div class="score lo"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div></div>
+              <div class="right"><div class="amt">₹18,500</div><div class="when">Default: approve</div></div>
+            </div>
+            <div class="row" data-amt="126000">
+              <button class="cb" aria-label="select"></button>
+              <div><div class="name">Contractor invoice — Q2 design sprint</div>
+                <div class="why">Matches the signed SOW to the rupee.</div>
+                <div class="score mid"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div></div>
+              <div class="right"><div class="amt">₹1,26,000</div><div class="when">Default: approve</div></div>
+            </div>
+            <div class="row" data-amt="7200">
+              <button class="cb" aria-label="select"></button>
+              <div><div class="name">Sentry plan upgrade</div>
+                <div class="why">Hit the error-volume ceiling twice this month.</div>
+                <div class="score lo"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div></div>
+              <div class="right"><div class="amt">₹7,200</div><div class="when">Default: approve</div></div>
+            </div>
+            <div class="row" data-amt="48000">
+              <button class="cb" aria-label="select"></button>
+              <div><div class="name">Conference booth deposit — SaaSBoomi</div>
+                <div class="why">In the marketing plan. Refundable to 30 Aug.</div>
+                <div class="score lo"><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></div></div>
+              <div class="right"><div class="amt">₹48,000</div><div class="when">Default: hold</div></div>
+            </div>
+          </div>
+
+          <div class="commit">
+            <div class="sum"><b id="selCount">0</b> selected · exposure <b class="exp" id="selAmt">₹0</b></div>
+            <div class="sum dim" id="undoNote">60s undo window</div>
+            <div class="acts">
+              <button class="btn" id="selAll">Select all</button>
+              <button class="btn primary" id="commitBtn" disabled>Approve selected</button>
+            </div>
+          </div>
+
+          <p class="note" style="margin-top:24px;"><b>Aggregate exposure is always visible before commit.</b> Approving nine things one at a time hides the total; approving them together must not. The running rupee figure is the single guardrail that makes batching safe.</p>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="kicker">Also available per item</div>
+          <div class="panel pad-a" style="margin-top:16px;margin-bottom:16px;">
+            <div class="h3b">Snooze</div>
+            <p class="soft" style="font-size:14px;margin-top:8px;">Defer with a re-surface time. "Bring this back Monday." The item leaves the queue entirely — no ghost, no badge.</p>
+          </div>
+          <div class="panel pad-a" style="margin-bottom:16px;">
+            <div class="h3b">Mute</div>
+            <p class="soft" style="font-size:14px;margin-top:8px;">Silence a whole class for a period. "Nothing about tooling spend until Q4." Kalpavriksha still logs what it did — muting hides the ask, never the receipt.</p>
+          </div>
+          <div class="panel pad-a">
+            <div class="h3b">Delegate</div>
+            <p class="soft" style="font-size:14px;margin-top:8px;">Route to a human. Invoices to the CFO, seats to the Head of Eng. <b style="color:var(--accent);">The most under-designed option in every approval product</b> — a founder at 20/day usually shouldn't be the approver at all.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ STANDING RULES ============ -->
+<section class="spread">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <div class="kicker good">Standing rules</div>
+          <h2 class="h1b" style="margin-top:16px;">The AI proposes the rule. The founder never writes one.</h2>
+          <p class="lede" style="margin-top:16px;">A settings page for approval rules is where rules go to die — nobody authors policy preemptively. So Kalpavriksha watches its own rejection history and asks for the boundary once it has earned the right to.</p>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note"><b>This is the emotional peak of the whole product.</b> Not the neural tree. The moment the AI says "you've said yes nine times out of nine — want me to stop asking?" is when the founder feels genuinely accompanied rather than assisted.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="propose" id="proposal">
+            <div class="kicker live">Rule proposed · from observed behaviour</div>
+            <h3 class="h2b" style="margin-top:16px;">You've approved 9 of 9 tooling renewals under ₹50,000. Want me to stop asking?</h3>
+            <p class="soft" style="margin-top:16px;">Over 41 days, median time-to-approve 4 minutes, zero rejections, zero reversals. I'd have saved you 36 interruptions.</p>
+
+            <div class="kicker" style="margin-top:24px;">Evidence · last 12 requests of this class</div>
+            <div class="evidence">
+              <i style="height:70%"></i><i style="height:100%"></i><i style="height:55%"></i><i style="height:80%"></i>
+              <i style="height:45%"></i><i style="height:90%"></i><i style="height:60%"></i><i style="height:75%"></i>
+              <i style="height:50%"></i><i class="no" style="height:30%"></i><i style="height:85%"></i><i style="height:65%"></i>
+            </div>
+            <div class="mono dim" style="font-size:10px;letter-spacing:.12em;margin-top:8px;">
+              GREEN = APPROVED &nbsp;·&nbsp; RED = REJECTED (₹64K — ABOVE THE PROPOSED CEILING)
+            </div>
+
+            <div class="rule-form">
+              <div><div class="k">Trigger</div><div class="v">Tooling renewal, existing vendor, ≤ ₹50,000</div></div>
+              <div><div class="k">Blast radius</div><div class="v">≤ ₹2L per quarter, then I ask again</div></div>
+              <div><div class="k">Never applies to</div><div class="v neg">New vendors · anything touching customer data · multi-year terms</div></div>
+              <div><div class="k">Trial</div><div class="v">30 days, then I show you what it did</div></div>
+            </div>
+
+            <div class="pacts" style="display:flex;gap:8px;margin-top:24px;flex-wrap:wrap;">
+              <button class="btn primary" id="acceptRule">Accept · 30-day trial</button>
+              <button class="btn accent">Adjust the ceiling</button>
+              <button class="btn ghost">Keep asking me</button>
+            </div>
+            <div class="accepted-note" id="acceptNote">✓ Rule active · trial ends 2 Sep · autonomy ratio 64% → 71%</div>
+          </div>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="kicker">Rule anatomy · non-negotiable</div>
+          <div class="mono" style="font-size:11px;line-height:24px;color:var(--ink-2);margin-top:16px;">
+            <div style="border-top:1px solid var(--hair-soft);padding-top:8px;">01 TRIGGER<br><span class="dim">the narrow, boring case</span></div>
+            <div style="border-top:1px solid var(--hair-soft);padding-top:8px;margin-top:8px;">02 BLAST RADIUS<br><span class="dim">a cumulative cap, not just per-item</span></div>
+            <div style="border-top:1px solid var(--hair-soft);padding-top:8px;margin-top:8px;">03 NEVER-CLAUSE<br><span class="dim">explicit exclusions, always shown</span></div>
+            <div style="border-top:1px solid var(--hair-soft);padding-top:8px;margin-top:8px;">04 TRIAL PERIOD<br><span class="dim">rules expire unless renewed</span></div>
+            <div style="border-top:1px solid var(--hair-soft);padding-top:8px;margin-top:8px;">05 RECEIPT<br><span class="dim">every firing is logged and reviewable</span></div>
+          </div>
+          <p class="soft" style="font-size:14px;margin-top:24px;">A per-item cap alone is how you lose ₹8L in forty ₹20K approvals. The cumulative blast radius is the difference between a rule and a hole.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 9;">
+          <div class="sec-head" style="margin-bottom:16px;">
+            <h3 class="h2b">Active rules</h3><span class="id">6 active · 1 in trial · reviewed quarterly</span>
+          </div>
+          <div class="rrow">
+            <div class="sw on"></div>
+            <div class="rtx">Approve <b>tooling renewals under ₹50K</b> from existing vendors</div>
+            <div class="rmeta" style="color:var(--accent);">Trial · 30d</div>
+          </div>
+          <div class="rrow">
+            <div class="sw on"></div>
+            <div class="rtx">Approve <b>contractor invoices matching a signed SOW</b></div>
+            <div class="rmeta">Fired 22×</div>
+          </div>
+          <div class="rrow">
+            <div class="sw on"></div>
+            <div class="rtx">Route <b>all invoices over ₹2L</b> to Priya (CFO), not to me</div>
+            <div class="rmeta">Fired 7×</div>
+          </div>
+          <div class="rrow">
+            <div class="sw on"></div>
+            <div class="rtx">Never act on anything touching <b>customer data</b> — always ask</div>
+            <div class="rmeta" style="color:var(--red);">Hard block</div>
+          </div>
+          <div class="rrow">
+            <div class="sw on"></div>
+            <div class="rtx">Hold <b>all spend</b> in the last 5 days of a quarter</div>
+            <div class="rmeta">Fired 3×</div>
+          </div>
+          <div class="rrow">
+            <div class="sw"></div>
+            <div class="rtx dim">Auto-schedule <b>candidate interviews</b> in open calendar slots</div>
+            <div class="rmeta">Paused by you</div>
+          </div>
+          <p class="note" style="margin-top:24px;"><b>Rules expire.</b> Every rule carries a review date and dies unless renewed. A permission granted in month one shouldn't still be running silently in year two — expiry is what keeps the founder's mental model of "what can it do?" accurate.</p>
+        </div>
+
+        <div style="grid-column:9 / 13;">
+          <div class="kicker good">The number that matters</div>
+          <h3 class="h3b" style="margin-top:16px;margin-bottom:16px;">Autonomy ratio</h3>
+          <div class="chart">
+            <div class="c"><div class="a" style="height:22px"></div><div class="h" style="height:74px"></div></div>
+            <div class="c"><div class="a" style="height:34px"></div><div class="h" style="height:62px"></div></div>
+            <div class="c"><div class="a" style="height:41px"></div><div class="h" style="height:55px"></div></div>
+            <div class="c"><div class="a" style="height:52px"></div><div class="h" style="height:44px"></div></div>
+            <div class="c"><div class="a" style="height:58px"></div><div class="h" style="height:38px"></div></div>
+            <div class="c"><div class="a" style="height:69px"></div><div class="h" style="height:27px"></div></div>
+            <div class="c"><div class="a" style="height:77px"></div><div class="h" style="height:19px"></div></div>
+          </div>
+          <div class="lbl mono" style="display:flex;justify-content:space-between;">
+            <span>WK 1</span><span>WK 7</span>
+          </div>
+          <p class="soft" style="font-size:14px;margin-top:16px;">Green: handled by rule. Amber: escalated to Onkar. <b style="color:var(--ink);">This line going up is the product working.</b> If it flattens, Kalpavriksha has stopped learning the founder's judgment — and that's a churn signal long before the founder can articulate it.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ SAFETY + REFUSALS ============ -->
+<section class="spread" style="background:var(--deep);">
+  <div class="wrap">
+    <div class="guides" aria-hidden="true"><div class="cols"></div><div class="rows"></div>
+      <div class="mline l"></div><div class="mline r"></div></div>
+    <div class="grid">
+
+      <div class="band">
+        <div style="grid-column:1 / 8;">
+          <div class="kicker warn">Trust anchors</div>
+          <h2 class="h1b" style="margin-top:16px;">Autonomy is only comfortable if it's instantly revocable.</h2>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <p class="note warn"><b>This answers open decision 04 too.</b> "AUTONOMY · LEVEL 3" on Mission Control becomes real here: level is derived from active rules, and the founder can collapse it to zero in one gesture.</p>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:24px;">
+        <div style="grid-column:1 / 9;">
+          <div class="kill" id="kill">
+            <div class="kt">
+              <div class="h3b" id="killTitle">Pause all autonomy</div>
+              <p class="soft" style="font-size:14px;margin-top:8px;" id="killBody">Every rule stops firing immediately. Nothing already committed is undone. Kalpavriksha keeps working and keeps queueing — it just stops deciding.</p>
+            </div>
+            <button class="btn ghost" id="killBtn">Pause</button>
+          </div>
+        </div>
+        <div style="grid-column:9 / 13;">
+          <div class="panel pad-a">
+            <div class="kicker">Undo windows</div>
+            <div class="mono" style="font-size:12px;line-height:24px;margin-top:16px;">
+              <div style="display:flex;justify-content:space-between;"><span class="dim">BATCH SWEEP</span><span>60s</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">SINGLE APPROVAL</span><span>30s</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">RULE FIRING</span><span style="color:var(--green);">24h</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">IRREVERSIBLE</span><span style="color:var(--red);">NONE</span></div>
+            </div>
+            <p class="soft" style="font-size:14px;margin-top:16px;">Rule firings get the longest window precisely because the founder wasn't in the room.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;"><div class="rule"></div></div>
+
+      <div class="band">
+        <div style="grid-column:1 / 7;">
+          <div class="kicker">Deliberately refused</div>
+          <h3 class="h2b" style="margin-top:16px;margin-bottom:16px;">What this queue will never have</h3>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>Unread badges and counts.</b> A number on a nav item is an obligation. Kalpavriksha reports "2 need you," never "23 unread."</div></div>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>Inbox-zero gamification.</b> No streaks, no confetti, no "all caught up!" The goal is fewer asks, not a cleared list.</div></div>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>Bulk-approve on tier 1.</b> Irreversible decisions never get a select-all, at any volume.</div></div>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>Silent rule creation.</b> The AI proposes; the founder grants. No rule ever activates from inferred consent.</div></div>
+          <div class="refuse"><span class="x">✕</span><div class="t"><b>A settings page called "Approval Rules."</b> Rules live where decisions live — proposed in context, reviewed in context.</div></div>
+        </div>
+
+        <div style="grid-column:8 / 13;">
+          <div class="kicker live">Where this lands in the product</div>
+          <h3 class="h2b" style="margin-top:16px;margin-bottom:16px;">Same screen, different density</h3>
+          <p class="soft" style="font-size:14px;">Screen 04 doesn't fork. Below roughly five open items the Approval Center renders as it does today — full consequence cards, no checkboxes, no tiers. Past that threshold it progressively densifies: tiers appear, the sweep list collapses to rows, the commit bar docks.</p>
+          <p class="soft" style="font-size:14px;">The founder never learns two interfaces, and the transition itself is information: <b style="color:var(--ink);">the day the tiers appear is the day the founder learns they're becoming the bottleneck.</b></p>
+          <div class="panel pad-a" style="margin-top:24px;">
+            <div class="kicker">Threshold behaviour</div>
+            <div class="mono" style="font-size:12px;line-height:24px;margin-top:16px;">
+              <div style="display:flex;justify-content:space-between;"><span class="dim">1–5 OPEN</span><span>CARDS</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">6–15 OPEN</span><span style="color:var(--accent);">TIERS + SWEEP</span></div>
+              <div style="display:flex;justify-content:space-between;"><span class="dim">16+ OPEN</span><span style="color:var(--amber);">+ RULE PROPOSALS SURFACE</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="band" style="margin-top:48px;">
+        <div style="grid-column:1 / 9;">
+          <div class="kicker">Screen 04b · design milestone 1b</div>
+          <p class="lede" style="margin-top:16px;">Sample data. Same 12-column grid, 8px baseline and design system as the v1 concept — press <b style="color:var(--accent);">G</b>.</p>
+        </div>
+        <div style="grid-column:10 / 13;">
+          <div class="mono" style="font-size:11px;line-height:24px;color:var(--ink-3);letter-spacing:.1em;">
+            KALPAVRIKSHA<br>APPROVAL QUEUE AT VOLUME<br>OPEN DECISION 01 · RESOLVED
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast">
+  <div class="tx"><b id="toastN">4 approvals committed</b> · <span id="toastAmt">₹1,85,700</span> released</div>
+  <div class="cd" id="toastCd">UNDO · 60s</div>
+  <button class="btn" id="undoBtn">Undo</button>
+  <div class="ubar" id="ubar" style="width:100%"></div>
+</div>
+
+<script>
+/* grid overlay */
+var btn=document.getElementById('gridToggle');
+function setGrid(on){document.body.classList.toggle('grid-on',on);
+  if(btn){btn.setAttribute('aria-pressed',on?'true':'false');
+    var l=btn.querySelector('.lbl'); if(l) l.textContent=on?'Hide grid':'Show grid';}}
+btn.addEventListener('click',function(){setGrid(!document.body.classList.contains('grid-on'));});
+document.addEventListener('keydown',function(e){
+  if((e.key==='g'||e.key==='G')&&!e.metaKey&&!e.ctrlKey&&!e.altKey){
+    setGrid(!document.body.classList.contains('grid-on'));}});
+document.querySelectorAll('.guides .cols').forEach(function(h){
+  var n=getComputedStyle(document.documentElement).getPropertyValue('--cols').trim()||'12';
+  for(var i=1;i<=parseInt(n,10);i++){var c=document.createElement('div');c.className='col';
+    var s=document.createElement('span');s.textContent=i;c.appendChild(s);h.appendChild(c);}});
+
+/* optical alignment */
+(function(){
+  var cvs=document.createElement('canvas'),ctx=cvs.getContext('2d');
+  var sel='.numeral, .h1b, .h2b';
+  function align(){
+    document.querySelectorAll(sel).forEach(function(el){
+      el.style.marginLeft='0px';
+      var cs=getComputedStyle(el),ch=(el.textContent||'').trim().charAt(0); if(!ch) return;
+      ctx.font=cs.fontStyle+' '+cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily;ctx.textAlign='left';
+      var abl=ctx.measureText(ch).actualBoundingBoxLeft;
+      if(isFinite(abl)) el.style.marginLeft=abl.toFixed(2)+'px';});
+  }
+  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(align);}
+  align();
+  var t;window.addEventListener('resize',function(){clearTimeout(t);t=setTimeout(align,120);});
+})();
+
+/* ---------- SWEEP SELECTION ---------- */
+var rows=[].slice.call(document.querySelectorAll('#sweepList .row'));
+var selCount=document.getElementById('selCount'), selAmt=document.getElementById('selAmt');
+var commitBtn=document.getElementById('commitBtn');
+
+function fmt(n){
+  var s=String(n), last3=s.slice(-3), rest=s.slice(0,-3);
+  if(rest) last3=','+last3;
+  return '₹'+rest.replace(/\B(?=(\d{2})+(?!\d))/g,',')+last3;
+}
+function refresh(){
+  var sel=rows.filter(function(r){return r.querySelector('.cb').classList.contains('on') && !r.classList.contains('swept');});
+  var total=sel.reduce(function(a,r){return a+parseInt(r.dataset.amt,10);},0);
+  selCount.textContent=sel.length;
+  selAmt.textContent=fmt(total);
+  commitBtn.disabled=sel.length===0;
+  return {sel:sel,total:total};
+}
+rows.forEach(function(r){
+  r.querySelector('.cb').addEventListener('click',function(){
+    if(r.classList.contains('swept')) return;
+    this.classList.toggle('on');refresh();
+  });
+});
+document.getElementById('selAll').addEventListener('click',function(){
+  var avail=rows.filter(function(r){return !r.classList.contains('swept');});
+  var allOn=avail.every(function(r){return r.querySelector('.cb').classList.contains('on');});
+  avail.forEach(function(r){r.querySelector('.cb').classList.toggle('on',!allOn);});
+  this.textContent=allOn?'Select all':'Clear';
+  refresh();
+});
+
+/* ---------- COMMIT + 60s UNDO ---------- */
+var toast=document.getElementById('toast'), ubar=document.getElementById('ubar'),
+    toastCd=document.getElementById('toastCd'), toastN=document.getElementById('toastN'),
+    toastAmt=document.getElementById('toastAmt');
+var undoTimer=null, lastBatch=[];
+
+function closeToast(){toast.classList.remove('on');clearInterval(undoTimer);}
+
+commitBtn.addEventListener('click',function(){
+  var s=refresh(); if(!s.sel.length) return;
+  lastBatch=s.sel.slice();
+  s.sel.forEach(function(r){r.classList.add('swept');r.querySelector('.cb').classList.remove('on');});
+  toastN.textContent=s.sel.length+(s.sel.length===1?' approval committed':' approvals committed');
+  toastAmt.textContent=fmt(s.total);
+  refresh();
+
+  toast.classList.add('on');
+  var left=60;ubar.style.transition='none';ubar.style.width='100%';
+  setTimeout(function(){ubar.style.transition='width 60s linear';ubar.style.width='0%';},30);
+  toastCd.textContent='UNDO · 60s';
+  clearInterval(undoTimer);
+  undoTimer=setInterval(function(){
+    left--;toastCd.textContent='UNDO · '+left+'s';
+    if(left<=0){closeToast();}
+  },1000);
+});
+document.getElementById('undoBtn').addEventListener('click',function(){
+  lastBatch.forEach(function(r){r.classList.remove('swept');});
+  lastBatch=[];refresh();closeToast();
+});
+
+/* ---------- RULE PROPOSAL ---------- */
+document.getElementById('acceptRule').addEventListener('click',function(){
+  document.getElementById('proposal').classList.add('accepted');
+});
+
+/* ---------- KILL SWITCH ---------- */
+var paused=false;
+var kill=document.getElementById('kill'), killBtn=document.getElementById('killBtn'),
+    killTitle=document.getElementById('killTitle'), killBody=document.getElementById('killBody');
+killBtn.addEventListener('click',function(){
+  paused=!paused;
+  kill.classList.toggle('paused',paused);
+  document.body.classList.toggle('paused-mode',paused);
+  killTitle.textContent=paused?'Autonomy paused':'Pause all autonomy';
+  killBody.textContent=paused
+    ? 'All 6 rules are dormant. Everything routes to you until you resume. Kalpavriksha is still working — it has queued 3 items since you paused.'
+    : 'Every rule stops firing immediately. Nothing already committed is undone. Kalpavriksha keeps working and keeps queueing — it just stops deciding.';
+  killBtn.textContent=paused?'Resume':'Pause';
+  killBtn.classList.toggle('primary',paused);
+  killBtn.classList.toggle('ghost',!paused);
+});
+
+/* ---------- RULE TOGGLES ---------- */
+document.querySelectorAll('.rrow .sw').forEach(function(s){
+  s.addEventListener('click',function(){s.classList.toggle('on');});
+});
+refresh();
+</script>
+<script>
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && window.parent !== window) {
+    window.parent.postMessage({ type: 'close-fullscreen' }, '*');
+  }
+});
+</script>
+<!-- broken-img-handler -->
+<script>
+(function(){
+  if(window.__brokenImgHandler)return;
+  window.__brokenImgHandler=true;
+  var MAX=5,DELAYS=[2000,4000,8000,16000,32000];
+  document.addEventListener('error',function(e){
+    var img=e.target;
+    if(!img||img.tagName!=='IMG')return;
+    var liveSrc=img.getAttribute('src');
+    var src=img.dataset.haOriginalSrc||liveSrc;
+    if(!src)return;
+    if(img.dataset.haOriginalSrc&&liveSrc&&liveSrc!==img.dataset.haOriginalSrc&&liveSrc.indexOf('_r=')<0){src=liveSrc;img.dataset.haOriginalSrc=src;img.dataset.haRetryCount='0'}
+    else if(!img.dataset.haOriginalSrc){img.dataset.haOriginalSrc=src}
+    var attempt=parseInt(img.dataset.haRetryCount||'0',10);
+    if(img.dataset.haPhId){var old=document.getElementById(img.dataset.haPhId);if(old)old.remove()}
+    var ph=document.createElement('div');
+    ph.className='ha-img-placeholder'+(attempt>=MAX?' ha-failed':'');
+    ph.id='ha-ph-'+Math.random().toString(36).slice(2,9);
+    var w=img.getAttribute('width');var h=img.getAttribute('height');
+    if(w)ph.style.width=w+(isNaN(Number(w))?'':'px');
+    else if(img.style.width)ph.style.width=img.style.width;
+    else if(img.width>1)ph.style.width=img.width+'px';
+    if(h)ph.style.height=h+(isNaN(Number(h))?'':'px');
+    else if(img.style.height)ph.style.height=img.style.height;
+    else if(img.height>1)ph.style.height=img.height+'px';
+    ph.textContent=attempt>=MAX?'Image unavailable':'Loading image\u2026';
+    img.dataset.haPhId=ph.id;
+    if(img.dataset.haOrigDisplay==null)img.dataset.haOrigDisplay=img.style.display||'';
+    img.style.display='none';
+    img.insertAdjacentElement('afterend',ph);
+    if(attempt<MAX){
+      img.dataset.haRetryCount=String(attempt+1);
+      setTimeout(function(){
+        if(!img.isConnected)return;
+        if(img.dataset.haOriginalSrc!==src)return;
+        if(img.complete&&img.naturalWidth>0)return;
+        var curSrc=img.getAttribute('src');
+        if(curSrc&&curSrc.indexOf(src)!==0)return;
+        var fresh=src+(src.indexOf('?')>=0?'&':'?')+'_r='+(attempt+1)+'_'+Date.now();
+        img.src=fresh;
+      },DELAYS[attempt]);
+    }
+  },true);
+  document.addEventListener('load',function(e){
+    var img=e.target;
+    if(!img||img.tagName!=='IMG')return;
+    if(img.dataset.haPhId){
+      var ph=document.getElementById(img.dataset.haPhId);
+      if(ph)ph.remove();
+      delete img.dataset.haPhId;
+      img.style.display=img.dataset.haOrigDisplay||'';
+      delete img.dataset.haOrigDisplay;
+      delete img.dataset.haOriginalSrc;
+      delete img.dataset.haRetryCount;
+    }
+  },true);
+})();
+</script>
+</body>
+</html>

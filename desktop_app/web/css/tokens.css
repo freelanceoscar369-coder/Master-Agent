@@ -1,0 +1,163 @@
+/* Product Veda v1.0 — Deliverable 10: Design Tokens.
+   Transcribed verbatim from
+   VEDRA_PROJECT/01_Assets/UI-UX/PRODUCT_VEDA_v1.0_extracted/veda/00_TOKENS.md
+   Authoritative. No value here was invented — every one traces to that
+   document. Imported before all else. */
+
+:root {
+  /* 10.1 Typography */
+  --font-display: 'Inter Tight', 'Inter', -apple-system, system-ui, sans-serif;
+  --font-text:    'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', ui-monospace, monospace;
+
+  --t-greeting-size: 40px;  --t-greeting-lh: 52px;  --t-greeting-weight: 300;
+  --t-speech-size: 28px;    --t-speech-lh: 40px;    --t-speech-weight: 300;
+  --t-display-size: 34px;   --t-display-lh: 44px;   --t-display-weight: 500;
+  --t-title-size: 22px;     --t-title-lh: 32px;     --t-title-weight: 500;
+  --t-subtitle-size: 17px;  --t-subtitle-lh: 28px;  --t-subtitle-weight: 400;
+  --t-body-size: 15px;      --t-body-lh: 24px;      --t-body-weight: 400;
+  --t-body-sm-size: 13px;   --t-body-sm-lh: 20px;
+  --t-mono-size: 12px;      --t-mono-lh: 20px;
+  --t-label-size: 11px;     --t-label-lh: 16px;     --t-label-track: 0.14em;
+  --t-label-weight: 500;
+  --t-numeral-size: 48px;   --t-numeral-lh: 56px;
+
+  /* 10.2 Colour — Founder Dark (default) */
+  --c-void:        #05070A;
+  --c-ground:      #080B10;
+  --c-raise-1:     rgba(255,255,255,0.028);
+  --c-raise-2:     rgba(255,255,255,0.05);
+  --c-raise-3:     rgba(255,255,255,0.075);
+  --c-hair:        rgba(150,190,220,0.16);
+  --c-hair-soft:   rgba(150,190,220,0.09);
+  --c-ink:         #E9EFF5;
+  --c-ink-2:       #9FB0BF;
+  --c-ink-3:       #63727F;
+  --c-ink-4:       #3E4A55;
+
+  --s-live:     #7FD3FF;
+  --s-attend:   #FFB454;
+  --s-settled:  #63E6A8;
+  --s-risk:     #FF6B6B;
+  --s-bloom:    #E8C57A;
+
+  --tree-filament:   rgba(127,211,255,0.10);
+  --tree-particle:   rgba(160,215,245,0.85);
+  --tree-core:       rgba(214,240,255,0.95);
+  --tree-bloom:      rgba(232,197,122,0.90);
+
+  /* 10.3 Spacing */
+  --sp-1: 4px;    --sp-2: 8px;    --sp-3: 12px;   --sp-4: 16px;
+  --sp-5: 24px;   --sp-6: 32px;   --sp-7: 48px;   --sp-8: 64px;
+  --sp-9: 96px;   --sp-10: 128px; --sp-11: 160px;
+
+  --frame-margin-desktop: 64px;
+  --frame-margin-laptop:  48px;
+  --frame-margin-tablet:  32px;
+  --frame-margin: var(--frame-margin-desktop);
+  --measure-prose: 68ch;
+  --measure-conversation: 720px;
+
+  /* 10.4 Corner radius */
+  --r-0: 0px;
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 14px;
+  --r-4: 20px;
+  --r-full: 999px;
+
+  /* 10.5 Animation durations and easing */
+  --d-1:  120ms;
+  --d-2:  180ms;
+  --d-3:  240ms;
+  --d-4:  320ms;
+  --d-5:  420ms;
+  --d-6:  600ms;
+  --d-7:  900ms;
+  --d-8:  1400ms;
+  --d-9:  2400ms;
+  --d-10: 4000ms;
+  --d-gate: 400ms;
+
+  --e-settle: cubic-bezier(0.16, 1, 0.30, 1);
+  --e-exit:   cubic-bezier(0.40, 0.00, 1, 1);
+  --e-linear: linear;
+  --e-breathe: cubic-bezier(0.45, 0, 0.55, 1);
+
+  /* 10.6 Elevation — dark */
+  --el-0: none;
+  --el-1: inset 0 1px 0 rgba(255,255,255,0.035);
+  --el-2: inset 0 1px 0 rgba(255,255,255,0.05);
+  --el-3: 0 0 0 1px var(--c-hair), inset 0 1px 0 rgba(255,255,255,0.06);
+
+  --z-field: 0; --z-content: 10; --z-live: 20; --z-transient: 30;
+
+  /* 10.7 Blur and glass */
+  --blur-transient: 14px;
+  --glass-dark:  rgba(8,11,16,0.88);
+  --glass-light: rgba(250,249,246,0.88);
+
+  --notif-glow-radius-t1:  0.06;
+  --notif-glow-radius-t2:  0.10;
+  --notif-glow-radius-t3:  0.16;
+  --notif-glow-opacity-t1: 0.38;
+  --notif-glow-opacity-t2: 0.55;
+  --notif-glow-opacity-t3: 0.70;
+}
+
+@media (max-width: 1439px), (max-height: 799px) {
+  :root { --frame-margin: var(--frame-margin-laptop); }
+}
+@media (max-width: 1179px) {
+  :root { --frame-margin: var(--frame-margin-tablet); }
+}
+
+/* Founder Light — 00_TOKENS §10.2 / 08_THEME_SYSTEM §8.4 */
+[data-theme="light"] {
+  --c-void:        #F4F2EE;
+  --c-ground:      #FAF9F6;
+  --c-raise-1:     rgba(20,26,32,0.026);
+  --c-raise-2:     rgba(20,26,32,0.048);
+  --c-raise-3:     rgba(20,26,32,0.07);
+  --c-hair:        rgba(40,56,70,0.16);
+  --c-hair-soft:   rgba(40,56,70,0.08);
+  --c-ink:         #14191E;
+  --c-ink-2:       #4A555F;
+  --c-ink-3:       #77828C;
+  --c-ink-4:       #A8B0B7;
+
+  --s-live:    #1C7FB8;
+  --s-attend:  #B87309;
+  --s-settled: #128A5A;
+  --s-risk:    #C4342F;
+  --s-bloom:   #A67C25;
+
+  --tree-filament: rgba(28,127,184,0.14);
+  --tree-particle: rgba(32,90,130,0.70);
+  --tree-core:     rgba(12,60,95,0.90);
+  --tree-bloom:    rgba(166,124,37,0.85);
+
+  --el-1: 0 1px 2px rgba(20,26,32,0.04);
+  --el-2: 0 2px 8px rgba(20,26,32,0.06);
+  --el-3: 0 8px 32px rgba(20,26,32,0.10);
+
+  /* 08_THEME_SYSTEM §8.7.1 — weight compensation */
+  --t-greeting-weight: 400;
+  --t-speech-weight:   400;
+  --t-body-weight:     500;
+  --t-subtitle-weight: 500;
+}
+
+/* 10.10 Motion accessibility — prefers-contrast: more */
+@media (prefers-contrast: more) {
+  :root {
+    --c-hair: rgba(150,190,220,0.30);
+    --c-hair-soft: rgba(150,190,220,0.30);
+    --c-ink: #FFFFFF;
+  }
+  [data-theme="light"] {
+    --c-hair: rgba(40,56,70,0.30);
+    --c-hair-soft: rgba(40,56,70,0.30);
+    --c-ink: #000000;
+  }
+}

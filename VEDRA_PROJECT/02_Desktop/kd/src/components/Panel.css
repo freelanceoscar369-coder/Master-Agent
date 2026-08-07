@@ -1,0 +1,45 @@
+/**
+ * Panel — the fundamental content surface.
+ * Depth: content plane. No shadows. Edge luminosity via hairline border.
+ */
+
+.k-panel {
+  background-color: var(--color-panel);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-0);
+  color: var(--color-ink);
+}
+
+/* Padding variants — multiples of 8px (+1px border = 24/32 visual) */
+.k-panel--pad-a {
+  padding: 23px; /* 24px visual (23px content + 1px border) */
+}
+
+.k-panel--pad-b {
+  padding: 31px; /* 32px visual (31px content + 1px border) */
+}
+
+.k-panel--pad-none {
+  padding: 0;
+}
+
+/* Tone variants — hairline takes signal colour; background shifts subtly */
+.k-panel--tone-live {
+  border-color: var(--signal-live);
+  background-color: rgba(127, 211, 255, 0.04);
+}
+
+.k-panel--tone-needs-you {
+  border-color: var(--signal-needs-you);
+  background-color: rgba(255, 180, 84, 0.04);
+}
+
+.k-panel--tone-done {
+  border-color: var(--signal-done);
+  background-color: rgba(99, 230, 168, 0.04);
+}
+
+.k-panel--tone-risk {
+  border-color: var(--signal-risk);
+  background-color: rgba(255, 107, 107, 0.04);
+}

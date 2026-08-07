@@ -1,0 +1,44 @@
+/**
+ * NotFound — calm 404 screen.
+ */
+
+.root {
+  padding: calc(var(--bl) * 8) var(--margin);
+  max-width: var(--maxw);
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  color: var(--color-ink-3);
+  margin-bottom: calc(var(--bl) * 2);
+  letter-spacing: 0.04em;
+}
+
+.label {
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  color: var(--color-ink-2);
+  margin-bottom: calc(var(--bl) * 4);
+}
+
+.home {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  color: var(--signal-live);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+
+.home:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.home:focus-visible {
+  outline: 2px solid var(--signal-live);
+  outline-offset: 2px;
+  border-radius: var(--radius-1);
+}

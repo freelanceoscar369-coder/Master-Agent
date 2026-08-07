@@ -1,0 +1,34 @@
+/**
+ * Skeleton — static loading placeholder.
+ * No shimmer, no animation, no pulsing — constitution forbids it.
+ * Just a static hairline block to hold space.
+ */
+
+.k-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.k-skeleton__line {
+  display: block;
+  width: 100%;
+  background-color: var(--color-hair-soft);
+  border-radius: var(--radius-0);
+}
+
+.k-skeleton__line:nth-child(2n) {
+  width: 80%;
+}
+
+.k-skeleton__line:nth-child(3n) {
+  width: 60%;
+}
+
+.k-skeleton--block {
+  display: block;
+  background-color: var(--color-hair-soft);
+  border-radius: var(--radius-0);
+  width: 100%;
+}

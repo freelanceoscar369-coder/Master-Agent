@@ -1,0 +1,38 @@
+/**
+ * Text — Body, Lede, Dim, Mono.
+ * Inter for prose/judgment. IBM Plex Mono for facts.
+ * Never mix in one thought — use separate elements.
+ */
+
+.k-body {
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  font-weight: 400;
+  color: var(--color-ink);
+}
+
+.k-lede {
+  font-family: var(--font-prose);
+  font-size: var(--fs-lede-size);
+  line-height: var(--fs-lede-lh);
+  font-weight: 400;
+  color: var(--color-ink);
+}
+
+.k-dim {
+  font-family: var(--font-prose);
+  font-size: var(--fs-body-size);
+  line-height: var(--fs-body-lh);
+  font-weight: 400;
+  color: var(--color-ink-3);
+}
+
+.k-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-size);
+  line-height: var(--fs-mono-lh);
+  font-weight: 400;
+  color: var(--color-ink-2);
+  font-variant-numeric: tabular-nums;
+}

@@ -51,9 +51,8 @@ from types import MappingProxyType
 
 from master_agent.foundation.principal import Principal
 
-#: Shared empty default. A frozen dataclass with a mutable default would be
-#: a shared mutable object across every context that omitted metadata.
-_NO_METADATA: Mapping[str, str] = MappingProxyType({})
+def _empty_metadata() -> MappingProxyType[str, str]:
+    return MappingProxyType({})
 
 
 @dataclass(frozen=True)
@@ -92,7 +91,7 @@ class ExecutionContext:
     #: decision. Constrained to `str -> str` and frozen on construction so
     #: it cannot become the place real state hides. If something here would
     #: change what the system does, it belongs in a named field or nowhere.
-    metadata: Mapping[str, str] = field(default=_NO_METADATA)
+    metadata: Mapping[str, str] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         for name in ("objective_id", "warrant_id", "correlation_id", "trace_id"):

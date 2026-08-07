@@ -1,0 +1,196 @@
+/* LedgerExplorer layout */
+
+.le-root {
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── list pane ────────────────────────────────────────────────────────────── */
+
+.le-list-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  height: 100%;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-hair);
+}
+
+.le-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── append-only notice ───────────────────────────────────────────────────── */
+
+.le-append-only-notice {
+  border-left: 3px solid var(--signal-done);
+  padding: 8px 12px;
+}
+
+.le-append-only-notice__text {
+  font-size: 0.8125rem;
+  color: var(--color-ink-3);
+}
+
+/* ── filters ──────────────────────────────────────────────────────────────── */
+
+.le-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.le-filters > * {
+  flex: 1 1 160px;
+  min-width: 140px;
+  max-width: 240px;
+}
+
+.le-filters__flagged {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-prose);
+  font-size: 0.875rem;
+  color: var(--color-ink);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  padding-bottom: 2px;
+}
+
+.le-filters__dates {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.le-filters__date-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-prose);
+  font-size: 0.8125rem;
+  color: var(--color-ink-3);
+}
+
+.le-filters__date-input {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--color-ink);
+  background: var(--color-panel);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-1);
+  padding: 6px 8px;
+}
+
+/* ── table cells ──────────────────────────────────────────────────────────── */
+
+.le-time-cell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.le-action-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.le-flagged-rule {
+  display: inline-block;
+  padding: 2px 6px;
+  border-left: 3px solid var(--signal-needs-you);
+  background: color-mix(in srgb, var(--signal-needs-you) 10%, transparent);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--signal-needs-you);
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.le-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.le-amount-empty {
+  color: var(--color-ink-3);
+}
+
+/* ── skeletons ────────────────────────────────────────────────────────────── */
+
+.le-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── load more ────────────────────────────────────────────────────────────── */
+
+.le-load-more {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 8px;
+}
+
+/* ── prose section ────────────────────────────────────────────────────────── */
+
+.le-prose-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-1);
+  background: var(--color-panel);
+}
+
+.le-prose-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.le-prose {
+  font-family: var(--font-prose);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+}
+
+/* ── detail pane ──────────────────────────────────────────────────────────── */
+
+.le-detail-pane {
+  padding: 24px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.le-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.le-detail__intent-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.le-detail__intent,
+.le-detail__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.le-detail__flagged {
+  border-left: 3px solid var(--signal-needs-you);
+}

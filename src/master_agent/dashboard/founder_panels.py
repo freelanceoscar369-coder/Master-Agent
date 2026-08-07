@@ -12,6 +12,8 @@ what happens then.
 """
 from __future__ import annotations
 
+import textwrap
+
 from master_agent.dashboard.charset import Charset, detect
 from master_agent.dashboard.founder import (
     NEEDS_ATTENTION,
@@ -52,6 +54,27 @@ def _readiness_glyph(status: str, charset: Charset) -> str:
         "Missing": charset.missing,
         "Unavailable": charset.warning,
     }.get(status, charset.unavailable)
+
+
+#: Indent and label width for the detail lines under an AI decision.
+FIELD_INDENT = "      "
+FIELD_LABEL = 10
+FIELD_WIDTH = WIDTH - len(FIELD_INDENT) - FIELD_LABEL
+
+
+def _field(label: str, text: str, width: int = FIELD_WIDTH) -> list[str]:
+    """A labelled field, wrapped rather than truncated.
+
+    Truncation was the first version, and a live run cut the Broker's
+    reason off at *"quality 0.72 clears the qual"* -- losing the number the
+    whole panel exists to show. A reason a founder cannot finish reading is
+    not an explanation.
+    """
+    body = textwrap.wrap(text, width=width) if text else []
+    if not body:
+        return [f"{FIELD_INDENT}{label:<{FIELD_LABEL}}--"]
+    head = f"{FIELD_INDENT}{label:<{FIELD_LABEL}}{body[0]}"
+    return [head] + [f"{FIELD_INDENT}{'':<{FIELD_LABEL}}{part}" for part in body[1:]]
 
 
 def _duration(seconds: float | None) -> str:
@@ -172,6 +195,227 @@ def render_machine(view: FounderView, charset: Charset | None = None) -> list[st
     return lines
 
 
+def _thinking_lines(ai, cs: Charset) -> list[str]:
+    """MB033's founder view, in the four lines the brief specifies.
+
+    Printed *above* the decision list, because "what is thinking, and what
+    is it costing me" is the question a founder has while it is happening;
+    the decision history is what they read afterwards.
+    """
+    thinking = ai.thinking
+    if thinking is None:
+        return []
+
+    glyph = cs.ok if thinking.succeeded else cs.warning
+    model = f" ({thinking.model})" if thinking.model else ""
+    lines = [
+        f"  {glyph} Thinking with  {thinking.provider}{model}"[:70],
+        f"      Cost           {thinking.cost}",
+        f"      Latency        {thinking.latency}",
+        f"      Prompt Cache   {thinking.cache}",
+        f"      Verified       {thinking.verified or 'not checked'}",
+    ]
+    # MB038. Shown only when there is one -- a call with no budget says
+    # nothing here rather than showing a zero.
+    if thinking.budget:
+        lines.append(f"      Budget         {thinking.budget}"[:74])
+        if thinking.bound_by:
+            lines.append(f"      Bound by       {thinking.bound_by}"[:74])
+    if thinking.timeout_reason:
+        # Which of the three deadlines ended it. "It timed out" was three
+        # different failures with three different fixes until MB038.
+        lines.append(f"  {cs.warning} Deadline       {thinking.timeout_reason}"[:74])
+    if thinking.lifecycle == "abandoned":
+        # The founder stopped waiting; the provider may not have stopped
+        # working. Worth saying, because the machine can still be busy.
+        lines.append(f"  {cs.warning} Abandoned      the provider may still be running")
+    if not thinking.succeeded and thinking.error:
+        lines.extend(_field("Failed", thinking.error))
+    return lines
+
+
+def _economy_lines(ai, cs: Charset) -> list[str]:
+    """The token economy, as counts. Every one of these can legitimately
+    be zero, so the basis is printed with them -- a row of zeroes with no
+    reason is indistinguishable from a broken counter."""
+    economy = ai.economy
+    if economy.total_executions == 0 and economy.failed_executions == 0:
+        return []
+
+    saved = f"{economy.money_saved:.4f}" if economy.money_saved else "nothing yet"
+    spent = (
+        f"  (spent {economy.total_spend:.4f})" if economy.total_spend else "  (free)"
+    )
+    cache = f"{economy.cache_hits} hit / {economy.cache_misses} miss"
+    avoided = (
+        f"{economy.avoided_cloud_executions} cloud call(s), saving {saved}"
+    )
+    # The header is not decoration. Without it these sit at the same
+    # indent as the last decision's fields and read as belonging to it --
+    # found by reading a live frame, which is also how MB032's two panel
+    # defects turned up.
+    lines = [
+        "  TOKEN ECONOMY",
+        f"      Ran locally    {economy.local_executions}",
+        f"      Ran in cloud   {economy.cloud_executions}{spent}",
+        f"      Cache          {cache}",
+        f"      Avoided        {avoided}",
+    ]
+    if economy.failed_executions:
+        lines.append(f"  {cs.warning} {economy.failed_executions} execution(s) failed")
+    lines.extend(_field("Basis", economy.basis))
+    return lines
+
+
+def render_intelligence(view: FounderView, charset: Charset | None = None) -> list[str]:
+    """MB032 Deliverable 9: which provider, why, what it cost, how good it
+    is claimed to be.
+
+    Always visible, like the Decisions panel and for the same reason: a
+    panel that disappears when there is nothing to show trains a founder to
+    stop looking for it -- and "nothing has been chosen yet" is exactly the
+    state they would want to notice.
+    """
+    cs = _cs(charset)
+    ai = view.intelligence
+    if not ai.available:
+        return ["AI DECISIONS", f"  {cs.unavailable} {ai.reason or 'no broker attached'}"]
+
+    ready = (
+        f"{ai.providers_available}/{ai.providers_total} provider(s) available"
+        if ai.providers_total is not None
+        else "provider estate unknown"
+    )
+    lines = [f"AI DECISIONS  (policy {ai.policy or 'unknown'}, {ready})"]
+    lines.extend(_thinking_lines(ai, cs))
+    if not ai.scanned:
+        lines.append(f"  {cs.unavailable} no machine scan yet, so local providers read as absent")
+    if ai.awaiting_approval:
+        lines.append(f"  {cs.pending} {ai.awaiting_approval} waiting on your approval")
+
+    if not ai.decisions:
+        lines.append(f"  {cs.unavailable} nothing has asked for AI yet")
+        return lines
+
+    for decision in ai.decisions:
+        if not decision.selected:
+            # A refusal is not a success with blanks in it. The first live
+            # run of this panel rendered one with a tick beside it and
+            # "Approval  not required" underneath, which reads as "we chose
+            # nothing and that was fine".
+            lines.append(f"  {cs.warning} no provider for {decision.capability}"[:70])
+            lines.extend(_field("Why", decision.why))
+            continue
+        # A chosen-but-unapproved provider has not run. Drawing it with the
+        # same tick as one that has is the same class of dishonesty as
+        # drawing a refusal that way -- found the same way, by reading a
+        # live frame.
+        glyph = cs.pending if decision.waiting else cs.ok
+        lines.append(f"  {glyph} {decision.provider}  ({decision.capability})"[:70])
+        lines.extend(_field("Why", decision.why))
+        lines.extend(_field("Cost", decision.cost))
+        lines.extend(_field("Quality", decision.quality))
+        lines.extend(_field("Approval", decision.approval))
+    lines.extend(_economy_lines(ai, cs))
+    for problem in ai.problems:
+        lines.append(f"  {cs.warning} recording problem: {problem}"[:70])
+    return lines
+
+
+def render_memory(view: FounderView, charset: Charset | None = None) -> list[str]:
+    """MB034's MEMORY section: five lines, no scrolling.
+
+    Always visible, for the reason the Decisions and AI panels are: a
+    section that vanishes when empty teaches a founder to stop looking for
+    it — and "you have not told me anything yet" is precisely the state
+    they would want to notice.
+    """
+    cs = _cs(charset)
+    memory = view.memory
+    if not memory.available:
+        return ["MEMORY", f"  {cs.unavailable} {memory.reason or 'not attached'}"]
+
+    lines = [
+        "MEMORY",
+        f"  Total knowledge  {memory.total}",
+        f"  Critical facts   {memory.critical}",
+    ]
+    if memory.recent:
+        lines.append("  Recent learnings")
+        for title in memory.recent:
+            lines.append(f"      {cs.sub_rule} {title}"[:74])
+    else:
+        lines.append(f"  Recent learnings {cs.unavailable} nothing remembered yet")
+    lines.append(f"  Top tags         {', '.join(memory.top_tags) or '--'}"[:74])
+    lines.append(f"  Last written     {memory.last_written or '--'}"[:74])
+    for problem in memory.problems:
+        lines.append(f"  {cs.warning} {problem}"[:74])
+    return lines
+
+
+#: How many step rows the founder page shows before summarising the rest.
+#: Five, because the page is allowed sixty lines and this panel also
+#: carries the objective, the progress bar, the current step, what it
+#: expects, and who planned it. Measured against a thirty-step plan.
+MAX_PLAN_ROWS = 5
+
+
+def render_plan(view: FounderView, charset: Charset | None = None) -> list[str]:
+    """MB037's CURRENT MISSION section.
+
+    Always visible, like every other founder panel, and for the same
+    reason: "nothing planned yet" is a state worth noticing.
+
+    It shows what was planned and what became of it. It never shows the
+    prompt, the reply, or a provider's reasoning -- the brief forbids
+    that, and `PlanView` has no field to hold it.
+    """
+    cs = _cs(charset)
+    plan = view.plan
+    if not plan.available:
+        return ["CURRENT MISSION", f"  {cs.unavailable} {plan.reason or 'nothing planned'}"]
+
+    lines = [
+        "CURRENT MISSION",
+        f"  Objective        {plan.objective}"[:74],
+        (
+            f"  Progress         {_bar(plan.progress, cs)} "
+            f"{plan.completed}/{plan.completed + plan.remaining} steps"
+        ),
+    ]
+    if plan.current_step:
+        lines.append(f"  Now              {plan.current_step} - {plan.current_capability}"[:74])
+        if plan.current_expectation:
+            lines.append(f"  Expecting        {plan.current_expectation}"[:74])
+    else:
+        lines.append(f"  Now              {cs.unavailable} nothing running")
+
+    # Capped: this page is allowed sixty lines, and a twenty-step plan
+    # would eat all of them. What is dropped is *said*, never silently
+    # truncated -- a list that quietly stops reads as a shorter plan.
+    for step in plan.steps[:MAX_PLAN_ROWS]:
+        glyph = cs.ok if step.state == "done" else cs.sub_rule
+        if step.state == "failed":
+            glyph = cs.warning
+        row = f"      {glyph} {step.step_id} - {step.state}"
+        if step.detail:
+            row += f" ({step.detail})"
+        lines.append(row[:74])
+    hidden = len(plan.steps) - MAX_PLAN_ROWS
+    if hidden > 0:
+        lines.append(f"      {cs.sub_rule} and {hidden} more step(s)")
+
+    if plan.failed:
+        lines.append(f"  {cs.warning} {plan.failed} step(s) failed")
+    if plan.unverified:
+        # MB035's distinction, surfaced: a step that ran and was not
+        # verified is not a step that succeeded.
+        lines.append(f"  {cs.warning} {plan.unverified} completed step(s) not verified")
+    if plan.planned_by:
+        lines.append(f"  Planned by       {plan.planned_by}"[:74])
+    return lines
+
+
 def render_self_development(
     view: FounderView, charset: Charset | None = None
 ) -> list[str]:
@@ -220,8 +464,13 @@ def render_founder_frame(
 
     Order is the answer to the three questions, in the order a founder
     asks them: *is it OK* (status), *does it need me* (decisions), *what
-    is it doing* (mission, work), *what does it have* (executives), *how
-    far along* (self development), *what next* (recommendations).
+    is it doing* (mission, work), *what does it have* (executives, machine,
+    intelligence), *how far along* (self development), *what next*
+    (recommendations).
+
+    AI decisions sit with the machine rather than near the top: which
+    provider was chosen is a question about what the system *has*, and a
+    founder only asks it once they already know whether anything is wrong.
 
     Decisions sit second, above the mission, because a system blocked on
     the founder is not doing anything else — and a founder scrolling past
@@ -232,10 +481,19 @@ def render_founder_frame(
     sections = [
         render_status(view, cs),
         render_decisions(view, cs),
-        render_mission(view, cs),
+        # MB037: one slot, best available answer. The plan panel and the
+        # MB029 mission panel answer the same founder question -- "what is
+        # it doing" -- and showing both would say it twice and push the
+        # frame past the sixty lines this page is allowed. When the
+        # Planner produced a plan the step-level answer is strictly
+        # better; when it did not (the launcher's own machine scan, say)
+        # the summary is all there is, and it still shows.
+        render_plan(view, cs) if view.plan.available else render_mission(view, cs),
         render_work(view, cs),
         render_readiness(view, cs),
         render_machine(view, cs),
+        render_intelligence(view, cs),
+        render_memory(view, cs),
         render_self_development(view, cs),
         render_recommendations(view, cs),
         render_next_step(view, cs),

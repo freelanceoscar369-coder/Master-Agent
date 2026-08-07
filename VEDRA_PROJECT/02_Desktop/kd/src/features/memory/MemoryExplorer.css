@@ -1,0 +1,214 @@
+/* MemoryExplorer layout */
+
+.me-root {
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── list pane ────────────────────────────────────────────────────────────── */
+
+.me-list-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  height: 100%;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-hair);
+}
+
+/* ── kind meta ────────────────────────────────────────────────────────────── */
+
+.me-kind-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--color-panel);
+  border-radius: var(--radius-1);
+  border-left: 3px solid var(--color-hair);
+}
+
+.me-kind-meta__desc {
+  font-size: 0.8125rem;
+  color: var(--color-ink-2);
+}
+
+.me-kind-meta__retention {
+  font-size: 0.75rem;
+  color: var(--color-ink-3);
+}
+
+/* ── filters ──────────────────────────────────────────────────────────────── */
+
+.me-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.me-filters > * {
+  flex: 1 1 200px;
+}
+
+/* ── freshness cell ───────────────────────────────────────────────────────── */
+
+.me-freshness {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.me-freshness--stale .k-mono {
+  color: var(--signal-needs-you);
+}
+
+.me-freshness__warning {
+  font-size: 0.75rem;
+  color: var(--signal-needs-you);
+  font-family: var(--font-prose);
+}
+
+/* ── table cells ──────────────────────────────────────────────────────────── */
+
+.me-subject {
+  font-family: var(--font-prose);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+/* ── skeletons ────────────────────────────────────────────────────────────── */
+
+.me-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── detail pane ──────────────────────────────────────────────────────────── */
+
+.me-detail-pane {
+  padding: 24px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.me-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.me-detail__content {
+  white-space: pre-wrap;
+  color: var(--color-ink);
+}
+
+.me-detail__stale-value {
+  color: var(--signal-needs-you);
+}
+
+/* ── provenance / evidence ────────────────────────────────────────────────── */
+
+.me-detail__provenance {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.me-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-1);
+}
+
+.me-evidence__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.me-evidence__id {
+  font-size: 0.75rem;
+  color: var(--color-ink-3);
+}
+
+.me-evidence__at {
+  font-size: 0.75rem;
+  color: var(--color-ink-3);
+}
+
+.me-evidence__label {
+  font-family: var(--font-prose);
+  font-size: 0.875rem;
+  color: var(--color-ink);
+}
+
+.me-evidence__source {
+  font-size: 0.8125rem;
+  margin: 0;
+}
+
+.me-evidence__uri {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--signal-live);
+  word-break: break-all;
+  text-decoration: underline;
+}
+
+/* ── supersedes / contradictions ──────────────────────────────────────────── */
+
+.me-detail__link-record {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-1);
+  background: var(--color-panel);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 240ms var(--ease-settle);
+}
+
+.me-detail__link-record:hover {
+  background: var(--color-panel-active);
+}
+
+.me-detail__link-subject {
+  font-family: var(--font-prose);
+  font-size: 0.875rem;
+  color: var(--color-ink);
+}
+
+.me-detail__orphan-id {
+  font-size: 0.75rem;
+  color: var(--color-ink-3);
+}
+
+.me-detail__contradictions {
+  border-left: 3px solid var(--signal-risk);
+}
+
+.me-detail__contradiction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── reduced motion ───────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .me-detail__link-record {
+    transition: none;
+  }
+}
