@@ -80,6 +80,44 @@ def _open_microphone_settings() -> None:
     os.startfile("ms-settings:privacy-microphone")  # noqa: S606
 
 
+def _default_input_device_name() -> str | None:
+    """C34.4 — the OS's actual, live current default microphone, read
+    directly through WASAPI (`IMMDeviceEnumerator.GetDefaultAudioEndpoint`,
+    via `pycaw`), not through `sounddevice`/PortAudio's own device-list
+    query. `Engineering/HEALTH_C34_3.md` §3 found — with a real Bluetooth
+    headset, a real OS-level device switch, and a controlled same-process-
+    vs-fresh-process comparison — that PortAudio caches its device table
+    at library initialization and never refreshes it for the life of the
+    process: `sounddevice.query_devices()` keeps reporting whichever
+    device was default when the app launched, even minutes after the
+    founder has switched to a different one in Windows. This function is
+    the fix for detection specifically (injected into `VoicePipeline` as
+    `input_device_resolver`) — `voice_pipeline.py` itself is unchanged
+    architecturally; it just gets told the truth instead of asking
+    PortAudio, which cannot tell it.
+
+    Returns `None` on any failure (no default device, COM error, `pycaw`
+    unavailable) so the caller can fall back to the pre-C34.4 behavior
+    rather than block."""
+    try:
+        from pycaw.pycaw import AudioUtilities
+        return AudioUtilities.CreateDevice(AudioUtilities.GetMicrophone()).FriendlyName
+    except Exception:  # noqa: BLE001 — an unreadable live device source must not block a working mic
+        return None
+
+
+def _default_output_device_name() -> str | None:
+    """Same as `_default_input_device_name`, for the OS's current default
+    speaker/headphones — the counterpart that makes TTS playback follow
+    Windows' actual default output instead of whatever PortAudio cached
+    at startup."""
+    try:
+        from pycaw.pycaw import AudioUtilities
+        return AudioUtilities.GetSpeakers().FriendlyName
+    except Exception:  # noqa: BLE001 — same reasoning as above
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kalpavriksha", description="Kalpavriksha Founder Edition")
     parser.add_argument("--founder-name", default=None)
@@ -96,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
         whisper_model=_whisper_model_path(),
         mic_permission_checker=_windows_microphone_allowed,
         open_settings=_open_microphone_settings,
+        input_device_resolver=_default_input_device_name,
+        output_device_resolver=_default_output_device_name,
     )
     return 0
 

@@ -84,20 +84,35 @@ class FakeSoundDevice:
         self.device_name = device_name
         self.streams: list[FakeStream] = []
         self.play_calls: list[tuple[int, int]] = []
+        self.play_device_calls: list[object] = []
+        self.input_device_calls: list[object] = []
         self.query_calls = 0
         self.fail_query = False
         self.fail_open = False
         self.stop_calls = 0
+        # C34.4 — the full PortAudio-style device table `query_devices()`
+        # (no args) and `query_devices(idx, kind=...)` read from. Default:
+        # one device, matching `device_name`, usable for either
+        # direction — enough for every pre-C34.4 test, which never
+        # injects a device resolver and so never reaches this table.
+        self.full_table: list[dict] = [
+            {"name": device_name, "max_input_channels": 2, "max_output_channels": 2},
+        ]
 
-    def query_devices(self, kind=None):
+    def query_devices(self, device=None, kind=None):
         self.query_calls += 1
         if self.fail_query:
             raise RuntimeError("no device")
-        return {"name": self.device_name}
+        if device is not None:
+            return self.full_table[device]
+        if kind is not None:
+            return {"name": self.device_name}
+        return self.full_table
 
     def InputStream(self, **kwargs):
         if self.fail_open:
             raise RuntimeError("device busy")
+        self.input_device_calls.append(kwargs.get("device"))
         stream = FakeStream(**kwargs)
         self.streams.append(stream)
         return stream
@@ -105,8 +120,9 @@ class FakeSoundDevice:
     def stop(self):
         self.stop_calls += 1
 
-    def play(self, audio, samplerate=None, blocking=None):
+    def play(self, audio, samplerate=None, blocking=None, device=None):
         self.play_calls.append((len(audio), samplerate))
+        self.play_device_calls.append(device)
 
 
 class FakeSegment:
@@ -161,7 +177,7 @@ class FakePermission:
 def build(
     *, device_name="Fake Mic", whisper_text="hello world", whisper_raises=False,
     piper_model_path="voice.onnx", piper_chunks=None, fail_query=False,
-    permission_granted=True,
+    permission_granted=True, input_device_resolver=None, output_device_resolver=None,
 ):
     states: list[str] = []
     amplitudes: list[float] = []
@@ -182,6 +198,8 @@ def build(
         piper_model_path=piper_model_path,
         piper_voice_factory=lambda path: voice_impl,
         mic_permission_checker=permission,
+        input_device_resolver=input_device_resolver,
+        output_device_resolver=output_device_resolver,
     )
     return pipeline, sd, whisper, voice_impl, states, amplitudes, transcripts
 
@@ -413,6 +431,133 @@ class TestDeviceWatch:
         sd.device_name = "New Bluetooth Headset"
         pipeline._open_stream()
         assert pipeline._current_device_name == "New Bluetooth Headset"
+
+
+# ══════════════════════ live device resolution (C34.4) ════════════════════
+#
+# HEALTH_C34_3.md §3 proved, against real hardware, that sd.query_devices()
+# never changes within a running process no matter how long a founder
+# waits — PortAudio caches its device table at initialization. These tests
+# simulate exactly that: FakeSoundDevice's query_devices(kind=...)
+# convenience path stays frozen at whatever device_name was set at
+# construction, the same way the real bug behaves, while an injected
+# resolver's return value can change freely — proving detection now
+# depends on the resolver, not on the frozen convenience query.
+
+
+class TestLiveDeviceResolution:
+    def test_resolver_naming_a_known_device_opens_it_by_explicit_index(self):
+        pipeline, sd, *_rest = build(device_name="Laptop Mic", input_device_resolver=lambda: "Bluetooth Headset")
+        sd.full_table = [
+            {"name": "Laptop Mic", "max_input_channels": 2, "max_output_channels": 0},
+            {"name": "Bluetooth Headset", "max_input_channels": 1, "max_output_channels": 0},
+        ]
+        pipeline._load_and_open()
+        assert sd.input_device_calls[-1] == 1  # index of "Bluetooth Headset" in full_table
+        assert pipeline._current_device_name == "Bluetooth Headset"
+
+    def test_resolver_naming_an_unknown_device_falls_back_to_default(self):
+        """PortAudio has never heard of a device no matter which live
+        source names it — opening by name it doesn't have is impossible,
+        not a bug to route around."""
+        pipeline, sd, *_rest = build(input_device_resolver=lambda: "Some Device PortAudio Never Enumerated")
+        pipeline._load_and_open()
+        assert sd.input_device_calls[-1] is None  # fell back to sd's own default resolution
+        assert pipeline._current_device_name == sd.device_name
+
+    def test_matches_a_portaudio_entry_truncated_relative_to_the_live_name(self):
+        """Real, observed behavior on the dev machine (HEALTH_C34_4.md):
+        pycaw's live FriendlyName is 'Microphone Array (2- Realtek(R)
+        Audio)'; PortAudio's own MME-host entry for the identical
+        hardware truncates it to 'Microphone Array (2- Realtek(R)' —
+        cut off mid-word, at a fixed buffer length. If that truncated
+        entry is the ONLY one in the table (unlike this dev machine,
+        which happens to also have an untruncated WASAPI entry further
+        down), exact-string matching would find nothing and silently
+        fall back to PortAudio's own stale default. The prefix match
+        must still find it."""
+        pipeline, sd, *_rest = build(
+            device_name="Microphone Array (2- Realtek(R)",
+            input_device_resolver=lambda: "Microphone Array (2- Realtek(R) Audio)",
+        )
+        sd.full_table = [
+            {"name": "Microphone Array (2- Realtek(R)", "max_input_channels": 4, "max_output_channels": 0},
+        ]
+        pipeline._load_and_open()
+        assert sd.input_device_calls[-1] == 0
+        assert pipeline._current_device_name == "Microphone Array (2- Realtek(R) Audio)"
+
+    def test_no_resolver_injected_preserves_pre_c34_4_behavior(self):
+        pipeline, sd, *_rest = build()  # no input_device_resolver at all
+        pipeline._load_and_open()
+        assert sd.input_device_calls[-1] is None
+        assert pipeline._current_device_name == sd.device_name
+
+    def test_a_raising_resolver_falls_back_rather_than_crashing(self):
+        def boom():
+            raise RuntimeError("COM error")
+
+        pipeline, sd, *_rest = build(input_device_resolver=boom)
+        pipeline._load_and_open()  # must not raise
+        assert sd.input_device_calls[-1] is None
+
+    def test_watch_loop_detects_a_change_the_frozen_query_would_miss(self, monkeypatch):
+        """The direct proof this exists to provide: sd.query_devices()
+        stays "Laptop Mic" (device_name is never mutated in this test,
+        exactly like the real PortAudio cache never updates), yet the
+        resolver alone is enough to trigger a reopen onto the new
+        device."""
+        current = {"name": "Laptop Mic"}
+        pipeline, sd, *_rest, states, _amp, _tx = build(
+            device_name="Laptop Mic", input_device_resolver=lambda: current["name"],
+        )
+        sd.full_table = [
+            {"name": "Laptop Mic", "max_input_channels": 2, "max_output_channels": 0},
+            {"name": "Bluetooth Headset", "max_input_channels": 1, "max_output_channels": 0},
+        ]
+        pipeline._load_and_open()
+        assert pipeline._current_device_name == "Laptop Mic"
+
+        current["name"] = "Bluetooth Headset"  # the live OS default changes; query_devices() would not reflect this
+        pipeline._running = True
+        calls = {"n": 0}
+
+        def fake_sleep(_seconds):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                pipeline._running = False
+
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        pipeline._device_watch_loop()
+
+        assert pipeline._current_device_name == "Bluetooth Headset"
+        assert states[-1] == STATE_ARMED
+
+    def test_output_resolver_used_for_speak(self):
+        pipeline, sd, _whisper, voice, *_rest = build(output_device_resolver=lambda: "Bluetooth Headphones")
+        sd.full_table = [
+            {"name": "Fake Mic", "max_input_channels": 2, "max_output_channels": 2},
+            {"name": "Bluetooth Headphones", "max_input_channels": 0, "max_output_channels": 2},
+        ]
+        pipeline._load_and_open()
+        pipeline.speak("Hello.")
+        time.sleep(0.2)
+        assert sd.play_device_calls == [1]
+        assert voice.requests == ["Hello."]
+
+    def test_output_resolver_unmatched_falls_back(self):
+        pipeline, sd, _whisper, voice, *_rest = build(output_device_resolver=lambda: "Unknown Device")
+        pipeline._load_and_open()
+        pipeline.speak("Hello.")
+        time.sleep(0.2)
+        assert sd.play_device_calls == [None]
+
+    def test_no_output_resolver_preserves_pre_c34_4_behavior(self):
+        pipeline, sd, _whisper, voice, *_rest = build()
+        pipeline._load_and_open()
+        pipeline.speak("Hello.")
+        time.sleep(0.2)
+        assert sd.play_device_calls == [None]
 
 
 # ══════════════════════════ mic permission (denied state) ═════════════════

@@ -237,6 +237,8 @@ def _push(window, function_name: str, *args: Any) -> None:
 def _build_voice(
     window, *, whisper_model: str, piper_model_path: str | None,
     mic_permission_checker: Callable[[], bool] | None = None,
+    input_device_resolver: Callable[[], str | None] | None = None,
+    output_device_resolver: Callable[[], str | None] | None = None,
 ) -> VoicePipeline:
     """One `VoicePipeline`, wired to push its three event kinds into the
     page. Construction never fails — a model that cannot load reports
@@ -249,6 +251,8 @@ def _build_voice(
         whisper_model=whisper_model,
         piper_model_path=piper_model_path,
         mic_permission_checker=mic_permission_checker,
+        input_device_resolver=input_device_resolver,
+        output_device_resolver=output_device_resolver,
     )
     return voice
 
@@ -262,6 +266,8 @@ def create_window(
     whisper_model: str = "base.en",
     mic_permission_checker: Callable[[], bool] | None = None,
     open_settings: Callable[[], None] | None = None,
+    input_device_resolver: Callable[[], str | None] | None = None,
+    output_device_resolver: Callable[[], str | None] | None = None,
 ) -> FounderEditionApp:
     """Boot Founder Edition, start the local voice pipeline, and open the
     one native window.
@@ -294,6 +300,8 @@ def create_window(
     voice = _build_voice(
         window, whisper_model=whisper_model, piper_model_path=voice_model_path,
         mic_permission_checker=mic_permission_checker,
+        input_device_resolver=input_device_resolver,
+        output_device_resolver=output_device_resolver,
     )
     api = DesktopShellApi(app, voice=voice, open_settings=open_settings)
     window.expose(api.get_founder_seed, api.greet, api.send_message,

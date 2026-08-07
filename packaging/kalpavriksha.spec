@@ -50,6 +50,14 @@ a = Analysis(
         'piper',
         'piper.voice',
         'onnxruntime',
+        # C34.4 — live default-device detection (kalpavriksha_desktop.py's
+        # _default_input_device_name/_default_output_device_name); COM-
+        # based imports PyInstaller's static analysis does not always
+        # follow on its own.
+        'pycaw',
+        'pycaw.pycaw',
+        'comtypes',
+        'comtypes.stream',
     ],
     hookspath=[],
     hooksconfig={},

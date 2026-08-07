@@ -176,6 +176,8 @@ class VoicePipeline:
         whisper_model_factory=None,
         piper_voice_factory=None,
         mic_permission_checker=None,
+        input_device_resolver=None,
+        output_device_resolver=None,
     ) -> None:
         self._on_state = on_state
         self._on_amplitude = on_amplitude
@@ -183,14 +185,23 @@ class VoicePipeline:
         self._whisper_model_name = whisper_model
         self._piper_model_path = piper_model_path
 
-        # Injected for testability — production callers omit all four
+        # Injected for testability — production callers omit all six
         # and get the real `sounddevice`/`faster_whisper`/`piper` modules
-        # plus `_windows_microphone_allowed`, imported/resolved lazily so
-        # this module stays importable without them.
+        # plus `_windows_microphone_allowed` and the C34.4 live-device
+        # resolvers, imported/resolved lazily so this module stays
+        # importable without them.
         self._sd = sounddevice_module
         self._whisper_factory = whisper_model_factory
         self._piper_factory = piper_voice_factory
         self._permission_checker = mic_permission_checker
+        # C34.4 — the OS's actual live default device, bypassing
+        # PortAudio's own cache (HEALTH_C34_3.md §3, HEALTH_C34_4.md).
+        # `None` (no resolver injected) preserves the pre-C34.4 behavior
+        # exactly: fall back to sounddevice's own (cache-prone) default
+        # resolution, which is still correct for the very first device
+        # the app opens on launch.
+        self._input_device_resolver = input_device_resolver
+        self._output_device_resolver = output_device_resolver
 
         self._stt_model = None
         self._tts_voice = None
@@ -314,6 +325,76 @@ class VoicePipeline:
         except Exception:  # noqa: BLE001 — an unreadable permission source must not block a working mic
             return True
 
+    def _live_device_name(self, resolver) -> str | None:
+        """C34.4 — the injected resolver's answer for "what does the OS
+        actually say is default right now", or `None` if no resolver was
+        injected or it failed. Never raises."""
+        if resolver is None:
+            return None
+        try:
+            return resolver()
+        except Exception:  # noqa: BLE001 — an unreadable live source must not block a working mic
+            return None
+
+    def _resolve_input_device(self, sd):
+        """Returns `(device_arg, device_name)` for opening the input
+        stream. When the injected live resolver names a device that
+        PortAudio's own (possibly stale, see the module docstring)
+        device table still happens to list, that device's explicit
+        index is returned — bypassing whichever device PortAudio itself
+        would have picked as "default". Falls back to `(None, None)`
+        (sounddevice's own default resolution, the pre-C34.4 behavior)
+        whenever the live name is unavailable or not found in the
+        table — a device PortAudio has never heard of cannot be opened
+        by name no matter which source named it."""
+        live_name = self._live_device_name(self._input_device_resolver)
+        if not live_name:
+            return None, None
+        try:
+            devices = sd.query_devices()
+        except Exception:  # noqa: BLE001 — fall back to default resolution
+            return None, None
+        for idx, d in enumerate(devices):
+            if self._names_match(live_name, d.get("name")) and d.get("max_input_channels", 0) > 0:
+                return idx, live_name
+        return None, None
+
+    def _resolve_output_device(self, sd):
+        """Same as `_resolve_input_device`, for playback — used fresh at
+        the start of every `speak()` call so each reply follows whatever
+        the OS's default output is at that moment."""
+        live_name = self._live_device_name(self._output_device_resolver)
+        if not live_name:
+            return None
+        try:
+            devices = sd.query_devices()
+        except Exception:  # noqa: BLE001 — fall back to default resolution
+            return None
+        for idx, d in enumerate(devices):
+            if self._names_match(live_name, d.get("name")) and d.get("max_output_channels", 0) > 0:
+                return idx
+        return None
+
+    @staticmethod
+    def _names_match(live_name: str, table_name: str | None) -> bool:
+        """A prefix match, not exact equality: PortAudio lists the same
+        physical device once per host API (WDM, WASAPI, MME, DirectSound
+        all show up separately in `sd.query_devices()`), and at least
+        the classic MME entry truncates long names to a fixed buffer —
+        confirmed on this dev machine, where WASAPI's entry for the
+        default microphone reads `"Microphone Array (2- Realtek(R)
+        Audio)"` (matching pycaw's live `FriendlyName` exactly) while the
+        MME entry for the identical hardware reads `"Microphone Array
+        (2- Realtek(R)"`, cut off mid-word. Exact equality would still
+        find the untruncated WASAPI entry further down the table on this
+        machine, but there is no guarantee every device has an
+        untruncated entry at all — a prefix match in either direction
+        catches a truncated table entry without needing one."""
+        if table_name is None:
+            return False
+        shorter, longer = sorted((live_name, table_name), key=len)
+        return longer.startswith(shorter)
+
     def _close_stream(self) -> None:
         if self._stream is None:
             return
@@ -368,10 +449,19 @@ class VoicePipeline:
         used to kill whichever one called it (silently, since both are
         daemon threads), which meant a busy/erroring device on open
         didn't just fail once — it permanently stopped all future
-        reconnect attempts for the rest of the session. C34.2."""
+        reconnect attempts for the rest of the session. C34.2.
+
+        C34.4: `device_arg` is an explicit PortAudio index when the live
+        WASAPI resolver named a device the (possibly stale) device table
+        still lists — bypassing whichever device `device=None` would
+        have resolved to by asking PortAudio's own cached notion of
+        "default". `device_info` still comes from `sd.query_devices()`
+        for its metadata even when an explicit index is used; the index
+        is what actually decides which physical device opens."""
         sd = self._resolve_sd()
+        device_arg, live_name = self._resolve_input_device(sd)
         try:
-            device_info = sd.query_devices(kind="input")
+            device_info = sd.query_devices(device_arg, kind="input") if device_arg is not None else sd.query_devices(kind="input")
         except Exception:  # noqa: BLE001 — no input device is an honest state
             self._on_state(STATE_UNAVAILABLE)
             return
@@ -380,6 +470,7 @@ class VoicePipeline:
 
         try:
             stream = sd.InputStream(
+                device=device_arg,
                 samplerate=SAMPLE_RATE, channels=1, dtype="float32",
                 blocksize=BLOCK_SIZE, callback=self._audio_callback,
             )
@@ -388,7 +479,7 @@ class VoicePipeline:
             self._on_state(STATE_ERROR)
             return
 
-        self._current_device_name = device_info.get("name")
+        self._current_device_name = live_name or device_info.get("name")
         self._stream = stream
         self._on_state(STATE_MUTED if self._muted else STATE_ARMED)
 
@@ -397,7 +488,15 @@ class VoicePipeline:
         permission every `DEVICE_POLL_INTERVAL_S` — the same cadence
         covers a headset swap and a founder granting/revoking access in
         Windows Settings while Kalpavriksha is running, so either kind of
-        change is picked up automatically, without a restart."""
+        change is picked up automatically, without a restart.
+
+        C34.4: the "did the device change" check itself prefers the live
+        WASAPI resolver over `sd.query_devices()` — the latter is what
+        `HEALTH_C34_3.md` §3 proved never changes within a running
+        process no matter how long a founder waits. Falls back to the
+        pre-C34.4 `sd.query_devices()` comparison when no resolver was
+        injected, so a machine without it (or a unit test) behaves
+        exactly as before."""
         sd = self._resolve_sd()
         while self._running:
             time.sleep(DEVICE_POLL_INTERVAL_S)
@@ -406,6 +505,11 @@ class VoicePipeline:
                 self._sync_stream_to_permission()
                 continue
             if currently_denied:
+                continue
+            live_name = self._live_device_name(self._input_device_resolver)
+            if live_name is not None:
+                if live_name != self._current_device_name:
+                    self._open_stream()
                 continue
             try:
                 device_info = sd.query_devices(kind="input")
@@ -505,6 +609,13 @@ class VoicePipeline:
 
     def _speak_sync(self, text: str) -> None:
         sd = self._resolve_sd()
+        # C34.4 — resolved once per reply, not once per chunk: the live
+        # default output rarely changes mid-utterance, and re-querying
+        # WASAPI on every chunk would add COM overhead to the playback
+        # loop for no real benefit. `None` (no resolver, or the named
+        # device isn't in PortAudio's table) means sd.play()'s own
+        # default resolution, exactly the pre-C34.4 behavior.
+        output_device = self._resolve_output_device(sd)
         self._speaking = True
         self._speech_interrupted = False
         self._on_state(STATE_SPEAKING)
@@ -515,7 +626,7 @@ class VoicePipeline:
                 audio = chunk.audio_float_array
                 rms = self._rms(audio)
                 self._on_amplitude(min(1.0, rms * 4.0))
-                sd.play(audio, samplerate=chunk.sample_rate, blocking=True)
+                sd.play(audio, samplerate=chunk.sample_rate, blocking=True, device=output_device)
         except Exception:  # noqa: BLE001, S110 — playback failure ends speech, not the app
             pass
         self._speaking = False
