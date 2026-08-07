@@ -60,8 +60,19 @@ const tree = new window.KalpavrikshaTree(canvas, {
 });
 
 // ------------------------------------------------------------- bloom/UI --
+// 02_ANIMATION_SYSTEM §2.2 — `bloomTransDuration` per state. The base
+// CSS rule (.bloom) declares --d-8 as the default; states that specify a
+// different token override it inline here rather than in the stylesheet,
+// since the duration is a per-state animation parameter, not a static
+// layout fact.
+const BLOOM_TRANS_DURATION = {
+  idle: 'var(--d-8)', listening: 'var(--d-8)', thinking: 'var(--d-8)',
+  speaking: 'var(--d-4)', waiting: 'var(--d-8)', celebration: 'var(--d-6)',
+};
 function applyBloom(state) {
   const p = { idle: 0.60, listening: 1.0, thinking: 0.85, speaking: 1.0, waiting: 0.70, celebration: 1.0 }[state] ?? 0.60;
+  const dur = BLOOM_TRANS_DURATION[state] || 'var(--d-8)';
+  els.bloom.style.transitionDuration = `${dur}, ${dur}`;
   els.bloom.style.opacity = String(p);
   const hueVar = { idle: '--s-live', listening: '--s-live', thinking: '--s-live', speaking: '--s-live', waiting: '--s-attend', celebration: '--s-bloom' }[state] ?? '--s-live';
   const alpha = { idle: 0.055, listening: 0.055, thinking: 0.065, speaking: 0.050, waiting: 0.045, celebration: 0.075 }[state] ?? 0.055;
@@ -112,6 +123,24 @@ function applyGreeting() {
 // onVoiceAmplitude / onTranscript, and asks the bridge to toggle mute.
 let micState = 'idle';
 
+function openMicrophoneSettings() {
+  Bridge.call('open_microphone_settings').catch(() => {});
+}
+
+// The clickable "here" inside the `denied` secondary line — built fresh
+// on every state entry (setMicState clears micSecondary's children each
+// time) rather than kept as a persistent element with a static listener.
+function micSettingsLink() {
+  const link = document.createElement('a');
+  link.href = '#';
+  link.textContent = 'here';
+  link.addEventListener('click', (event) => {
+    event.preventDefault();
+    openMicrophoneSettings();
+  });
+  return link;
+}
+
 // 'speaking' is a tree-only concept (02_ANIMATION_SYSTEM §2.2.4) — the
 // mic component's own state vocabulary (03_VOICE_EXPERIENCE §3.1) has
 // no "speaking" entry, because the founder's mic is not the one making
@@ -136,10 +165,19 @@ function setMicState(name) {
   els.micLabel.textContent = labels[name] || '';
   const secondary = {
     unavailable: 'No microphone found. Type to continue.',
-    denied: 'Microphone access was blocked. Enable it in your browser settings to speak with Somesh.',
     error: 'Voice hit a problem. Type to continue.',
   };
-  if (secondary[name]) {
+  if (name === 'denied') {
+    // 03_VOICE_EXPERIENCE §3.5 — the word "here" is a clickable deep-link
+    // into Windows' own microphone privacy settings, not plain text.
+    els.micSecondary.textContent = '';
+    els.micSecondary.append(
+      document.createTextNode('Microphone access was blocked. Click '),
+      micSettingsLink(),
+      document.createTextNode(' to open settings.'),
+    );
+    els.micSecondary.classList.add('is-visible');
+  } else if (secondary[name]) {
     els.micSecondary.textContent = secondary[name];
     els.micSecondary.classList.add('is-visible');
   } else {
@@ -212,7 +250,13 @@ window.onTranscript = function onTranscript(text) {
 };
 
 els.mic.addEventListener('click', () => {
-  if (micState === 'unavailable' || micState === 'denied' || micState === 'error') return;
+  // 03_VOICE_EXPERIENCE §3.5 — clicking the mic itself while `denied`
+  // opens settings too, same as the "here" link in the secondary copy.
+  if (micState === 'denied') {
+    openMicrophoneSettings();
+    return;
+  }
+  if (micState === 'unavailable' || micState === 'error') return;
   Bridge.call('toggle_mute').catch(() => {});
 });
 

@@ -275,13 +275,26 @@ class KalpavrikshaTree {
       }, 4400);
     }
 
+    // 2.2.4 "Exit to Thinking: ... Voice envelope is set to 0 immediately
+    // on exit; the speaking parameters decay via the transition." Reset
+    // happens after capturing transitionFrom below (so the elevated,
+    // envelope-driven values still decay smoothly) but the envelope
+    // itself must not linger — a fresh Speaking entry ramps from silence,
+    // not from whatever amplitude arrived last.
+    const leavingSpeaking = this.state === 'speaking' && name !== 'speaking';
+
     this.transitionFrom = { ...this.current };
     this.transitionStart = now;
     this.transitionDur = opts.duration != null ? opts.duration : this._durationFor(this.state, name);
     this.state = name;
+    if (leavingSpeaking) this.voiceEnvelope = 0;
     this.onBloomChange(name);
   }
 
+  // 2.3.1's full transition table — every cell not covered by the
+  // per-pair overrides below is --d-8 (1400ms), including "→ Waiting"
+  // and "→ Idle" from any state, per the table's own repetition of d-8
+  // across almost every row.
   _durationFor(from, to) {
     if (to === 'celebration') return 600;
     const table = {
@@ -291,6 +304,7 @@ class KalpavrikshaTree {
     if (from === 'speaking' && to === 'thinking') return 600;
     if (from === 'thinking' && to === 'speaking') return 420;
     if (from === 'listening' && to === 'speaking') return 600;
+    if (from === 'waiting' && to === 'speaking') return 600;
     return table[to] || 1400;
   }
 
@@ -421,9 +435,13 @@ class KalpavrikshaTree {
     if (!skipFilaments) {
       ctx.lineWidth = 0.6;
       ctx.strokeStyle = resolveColor('--tree-filament');
-      for (const [ai, bi] of this.filaments) {
+      for (let fi = 0; fi < this.filaments.length; fi++) {
+        // §2.4 degradation ladder — thin filaments in step with the
+        // particle count reduction below, same deterministic index
+        // pattern, so a dropped particle's filaments drop with it.
+        if (countFrac < 1 && (fi % Math.round(1 / countFrac)) !== 0) continue;
+        const [ai, bi] = this.filaments[fi];
         const A = this.particles[ai], B = this.particles[bi];
-        if (Math.random() > countFrac && countFrac < 1) { /* thin filaments with particles */ }
         const alphaA = this._particleAlpha(A, ts, isStatic, skipOsc);
         const alphaB = this._particleAlpha(B, ts, isStatic, skipOsc);
         if (A.entryProgress < 0.6 || B.entryProgress < 0.6) continue;

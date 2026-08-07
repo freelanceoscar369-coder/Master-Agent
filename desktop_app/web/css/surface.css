@@ -143,8 +143,8 @@ canvas#tree {
 .mic-secondary.is-visible { display: block; }
 .mic-secondary a { color: var(--s-live); cursor: pointer; text-decoration: none; }
 
-/* mic states — 03_VOICE_EXPERIENCE §3.1. `unavailable` is the state this
-   build ships with; the rest are wired for a future real voice channel. */
+/* mic states — 03_VOICE_EXPERIENCE §3.1, all nine driven by the real
+   local voice pipeline (C34.1). */
 .mic[data-state="idle"] { }
 .mic[data-state="idle"] svg { stroke: var(--c-ink-2); }
 
