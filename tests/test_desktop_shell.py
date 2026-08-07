@@ -173,6 +173,7 @@ class _RecordingVoice:
         self.spoken: list[str] = []
         self.muted_calls: list[bool] = []
         self.interrupt_calls = 0
+        self.abandon_calls = 0
 
     def speak(self, text: str) -> None:
         self.spoken.append(text)
@@ -182,6 +183,9 @@ class _RecordingVoice:
 
     def interrupt_speech(self) -> None:
         self.interrupt_calls += 1
+
+    def abandon_capture(self) -> None:
+        self.abandon_calls += 1
 
 
 class TestSendMessageSpeaksThroughVoice:
@@ -226,6 +230,17 @@ class TestInterruptSpeech:
 
     def test_without_a_voice_pipeline_does_nothing(self):
         api().interrupt_speech()  # must not raise
+
+
+class TestAbandonVoiceCapture:
+    def test_forwards_to_the_pipeline(self):
+        voice = _RecordingVoice()
+        instance = DesktopShellApi(app(), voice=voice)
+        instance.abandon_voice_capture()
+        assert voice.abandon_calls == 1
+
+    def test_without_a_voice_pipeline_does_nothing(self):
+        api().abandon_voice_capture()  # must not raise
 
 
 class TestOpenMicrophoneSettings:
@@ -342,7 +357,7 @@ class TestCreateWindow:
         assert starts == {"debug": True, "called": True}
         assert returned.identity.founder_name == "Onkar"
 
-    def test_exposes_exactly_the_seven_bridge_methods(self, monkeypatch):
+    def test_exposes_exactly_the_eight_bridge_methods(self, monkeypatch):
         from master_agent.founder_edition import desktop_shell as shell_module
 
         windows, _ = _install_fake_webview(monkeypatch)
@@ -350,7 +365,7 @@ class TestCreateWindow:
 
         assert set(windows[0].exposed) == {
             "get_founder_seed", "greet", "send_message", "get_dashboard", "toggle_mute",
-            "open_microphone_settings", "interrupt_speech",
+            "open_microphone_settings", "interrupt_speech", "abandon_voice_capture",
         }
 
     def test_voice_starts_only_after_the_window_is_shown(self, monkeypatch):

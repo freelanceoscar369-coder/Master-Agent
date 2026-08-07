@@ -69,9 +69,16 @@ const BLOOM_TRANS_DURATION = {
   idle: 'var(--d-8)', listening: 'var(--d-8)', thinking: 'var(--d-8)',
   speaking: 'var(--d-4)', waiting: 'var(--d-8)', celebration: 'var(--d-6)',
 };
+// 03_VOICE_EXPERIENCE §3.5 — "Tree while denied: tree holds whatever
+// state it was in. The bloom dims to 0.4 at --d-8 --e-settle." `denied`
+// is a mic state, not a tree state (tree.setState never receives it),
+// so the dim has to be layered on top of whatever the tree's own bloom
+// opacity currently is, independent of which tree state that happens
+// to be — set/cleared by setMicState below.
+let micDenied = false;
 function applyBloom(state) {
-  const p = { idle: 0.60, listening: 1.0, thinking: 0.85, speaking: 1.0, waiting: 0.70, celebration: 1.0 }[state] ?? 0.60;
-  const dur = BLOOM_TRANS_DURATION[state] || 'var(--d-8)';
+  const p = micDenied ? 0.4 : ({ idle: 0.60, listening: 1.0, thinking: 0.85, speaking: 1.0, waiting: 0.70, celebration: 1.0 }[state] ?? 0.60);
+  const dur = micDenied ? 'var(--d-8)' : (BLOOM_TRANS_DURATION[state] || 'var(--d-8)');
   els.bloom.style.transitionDuration = `${dur}, ${dur}`;
   els.bloom.style.opacity = String(p);
   const hueVar = { idle: '--s-live', listening: '--s-live', thinking: '--s-live', speaking: '--s-live', waiting: '--s-attend', celebration: '--s-bloom' }[state] ?? '--s-live';
@@ -180,6 +187,16 @@ function interruptSpeech(treeTarget) {
   runInterruptVisuals(treeTarget);
 }
 
+// §3.7 "Founder starts typing mid-utterance" — a distinct scenario from
+// interruptSpeech() above: the founder's own voice capture is discarded,
+// not Somesh's playback. Safe to call unconditionally at every typing
+// trigger — the backend's own abandon_capture() is a no-op unless the
+// mic is actually mid-utterance, so this never needs a micState check
+// here (mirroring interrupt_speech()'s own unconditional-safe design).
+function abandonVoiceCapture() {
+  Bridge.call('abandon_voice_capture').catch(() => {});
+}
+
 // 'speaking' is a tree-only concept (02_ANIMATION_SYSTEM §2.2.4) — the
 // mic component's own state vocabulary (03_VOICE_EXPERIENCE §3.1) has
 // no "speaking" entry, because the founder's mic is not the one making
@@ -253,10 +270,17 @@ function setMicState(name) {
   // Tree states (02_ANIMATION_SYSTEM §2.2) are a different, six-member
   // vocabulary from mic states (03_VOICE_EXPERIENCE §3.1) — 'armed' is a
   // mic state only. Armed maps to tree Idle: the tree enters Listening
-  // only once the founder is actually being heard.
+  // only once the founder is actually being heard. `unavailable` also
+  // maps to Idle explicitly — §3.5 "Tree while unavailable: tree holds
+  // idle" — rather than being left wherever the tree happened to be
+  // (e.g. still Listening if the device vanished mid-utterance).
   if (name === 'listening' || name === 'capturing-speech') tree.setState('listening');
   else if (name === 'processing') tree.setState('thinking');
-  else if (name === 'armed' || name === 'idle' || name === 'muted') tree.setState('idle');
+  else if (name === 'armed' || name === 'idle' || name === 'muted' || name === 'unavailable') tree.setState('idle');
+
+  const wasDenied = micDenied;
+  micDenied = name === 'denied';
+  if (micDenied !== wasDenied) applyBloom(tree.state); // apply/clear the §3.5 dim now, even if the tree's own state didn't change this call
 
   updateListeningBar(name);
   updateWaveformVisibility(name);
@@ -356,6 +380,7 @@ els.composer.addEventListener('click', () => expandComposer(true));
 els.composerInput.addEventListener('focus', () => {
   // §3.4 trigger 3 — "any printable keypress OR focus on composer".
   if (isSpeaking) interruptSpeech('listening');
+  abandonVoiceCapture(); // §3.7 — same trigger, the founder's own capture
   expandComposer(false);
 });
 els.composerInput.addEventListener('input', () => {
@@ -368,6 +393,7 @@ els.composerInput.addEventListener('keydown', (ev) => {
   // focused, so the 'focus' listener above didn't fire) and Escape both
   // land here.
   if (isSpeaking) interruptSpeech('listening');
+  abandonVoiceCapture(); // §3.7 — every keystroke here, including Enter
   if (ev.key === 'Enter' && !ev.shiftKey) {
     ev.preventDefault();
     const text = els.composerInput.textContent.trim();
@@ -402,13 +428,15 @@ document.addEventListener('keydown', (ev) => {
   if (els.dashboardBackdrop.classList.contains('is-open')) return;
   // §3.4 trigger 4 — Escape interrupts even without the composer
   // focused; the composer's own keydown handler covers it once focused.
-  if (ev.key === 'Escape' && isSpeaking) {
-    interruptSpeech('listening');
+  if (ev.key === 'Escape') {
+    if (isSpeaking) interruptSpeech('listening');
+    abandonVoiceCapture(); // §3.7
     return;
   }
   if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // §3.4 trigger 3 — typing from anywhere, before focus lands.
     if (isSpeaking) interruptSpeech('listening');
+    abandonVoiceCapture(); // §3.7
     markInteracted();
     expandComposer(true);
     // let the browser's own focus + keypress land the character naturally

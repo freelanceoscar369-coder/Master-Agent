@@ -606,6 +606,66 @@ class TestAudioCallback:
         assert pipeline._in_speech is False
 
 
+# ══════════════════════════ abandon (03_VOICE_EXPERIENCE §3.7) ════════════
+
+
+class TestAbandonCapture:
+    """§3.7 "Founder starts typing mid-utterance": the counterpart to
+    TestInterruptSpeech, for the founder's own in-flight voice rather
+    than Somesh's playback."""
+
+    def test_a_noop_when_nothing_is_being_captured(self):
+        pipeline, _sd, _whisper, _voice, states, _amp, _tx = build()
+        pipeline._load_and_open()
+        pipeline.abandon_capture()  # must not raise
+        assert states == [STATE_ARMED]  # no extra push for a no-op
+
+    def test_discards_the_buffer_without_transcribing(self):
+        pipeline, _sd, whisper, _voice, states, _amp, tx = build()
+        pipeline._load_and_open()
+        pipeline._audio_callback(loud_block(), 480, None, None)  # enters capturing-speech
+        assert pipeline._in_speech is True
+        assert states[-1] == STATE_CAPTURING
+
+        pipeline.abandon_capture()
+
+        assert pipeline._in_speech is False
+        assert pipeline._speech_buffer == []
+        assert states[-1] == STATE_ARMED
+        # give any (incorrect) background transcription thread a chance
+        # to run, then confirm none was ever started
+        time.sleep(0.1)
+        assert whisper.calls == 0
+        assert tx == []
+
+    def test_the_abandoned_utterance_never_surfaces_later(self):
+        """The real bug this exists to fix: without abandon_capture(),
+        an utterance the founder had already moved on from would still
+        finish via the normal silence/max-duration path and submit a
+        transcript as a stray, unwanted message."""
+        pipeline, _sd, whisper, _voice, _states, _amp, tx = build(whisper_text="ghost message")
+        pipeline._load_and_open()
+        pipeline._audio_callback(loud_block(), 480, None, None)
+        pipeline.abandon_capture()
+
+        # simulate time passing well past the silence hangover / max
+        # duration — if the old utterance were still tracked, the next
+        # callback would end and transcribe it
+        pipeline._audio_callback(quiet_block(), 480, None, None)
+        time.sleep(0.2)
+
+        assert tx == []
+        assert whisper.calls == 0
+
+    def test_reports_muted_if_the_founder_muted_mid_utterance(self):
+        pipeline, *_rest, states, _amp, _tx = build()
+        pipeline._load_and_open()
+        pipeline._audio_callback(loud_block(), 480, None, None)
+        pipeline._muted = True
+        pipeline.abandon_capture()
+        assert states[-1] == STATE_MUTED
+
+
 # ══════════════════════════ mute ═══════════════════════════════════════════
 
 

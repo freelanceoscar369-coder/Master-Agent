@@ -123,6 +123,8 @@ STATE_TRANSITIONS: tuple[tuple[str | None, str, str], ...] = (
     # listening / capture — _audio_callback, _end_utterance, _transcribe
     (STATE_ARMED, "VAD detects speech onset", STATE_CAPTURING),
     (STATE_CAPTURING, "utterance ends (silence hangover or max duration)", STATE_PROCESSING),
+    (STATE_CAPTURING, "founder starts typing, abandoning the utterance, not muted", STATE_ARMED),
+    (STATE_CAPTURING, "founder starts typing, abandoning the utterance, muted", STATE_MUTED),
     (STATE_PROCESSING, "transcription completes, not muted", STATE_ARMED),
     (STATE_PROCESSING, "transcription completes, muted meanwhile", STATE_MUTED),
     # founder-chosen mute — set_muted()
@@ -266,6 +268,28 @@ class VoicePipeline:
             sd.stop()
         except Exception:  # noqa: BLE001 — the loop's own flag check ends playback either way
             pass
+
+    def abandon_capture(self) -> None:
+        """`03_VOICE_EXPERIENCE §3.7` "Founder starts typing mid-utterance
+        (voice was `capturing-speech`)": *"Whatever was captured in the
+        utterance up to the keystroke is discarded by the runtime. The
+        UI does not show a partial transcript from an interrupted
+        utterance."* This is the counterpart to `interrupt_speech()` for
+        the founder's own in-flight voice rather than Somesh's — without
+        it, an utterance abandoned by typing would still finish on its
+        own (silence hangover or `MAX_UTTERANCE_S`) and surface as a
+        stray, unwanted message moments after the founder had already
+        moved on to text. A no-op when nothing is being captured, so
+        every caller can invoke it unconditionally, same as
+        `interrupt_speech()`."""
+        with self._lock:
+            if not self._in_speech:
+                return
+            self._in_speech = False
+            self._speech_buffer = []
+            self._silence_since = None
+            self._utterance_started_at = None
+        self._on_state(STATE_MUTED if self._muted else STATE_ARMED)
 
     # ---- model + stream setup --------------------------------------------
 

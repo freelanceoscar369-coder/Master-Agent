@@ -4,7 +4,7 @@
 PACKAGE."* This module is the wiring: it opens one native window (via
 `pywebview`, wrapping the OS's own WebView2/WebKit engine — already
 declared as an optional dependency, `pyproject.toml`'s `ui` extra) that
-hosts `desktop_app/web/index.html`, and exposes exactly seven methods to
+hosts `desktop_app/web/index.html`, and exposes exactly eight methods to
 that page's JavaScript. Every one of them is a thin call onto
 `FounderEditionApp` (C24/C30) and the pieces it already wires (C29 Identity,
 C31 Conversation Engine, C32 Communication Layer) — this module composes
@@ -112,7 +112,7 @@ def _founder_seed(founder_name: str) -> int:
 
 class DesktopShellApi:
     """The whole bridge surface `window.pywebview.api` exposes to the
-    page. Seven methods — nothing else is reachable from JavaScript.
+    page. Eight methods — nothing else is reachable from JavaScript.
     `voice` is optional: a machine where the local pipeline could not
     load still gets every other method, honestly, with voice absent."""
 
@@ -206,6 +206,16 @@ class DesktopShellApi:
         if self._voice is not None:
             self._voice.interrupt_speech()
 
+    def abandon_voice_capture(self) -> None:
+        """`03_VOICE_EXPERIENCE §3.7` — the founder started typing while
+        their own utterance was still being captured (`capturing-
+        speech`), not while Somesh was speaking; a distinct scenario
+        from `interrupt_speech()` above, with its own bridge method
+        because it discards the founder's own in-flight microphone
+        buffer rather than stopping Somesh's playback."""
+        if self._voice is not None:
+            self._voice.abandon_capture()
+
     def _presence_complete(self) -> bool:
         presence = self._app.runtime.presence()
         coverage = presence.get("coverage")
@@ -288,7 +298,7 @@ def create_window(
     api = DesktopShellApi(app, voice=voice, open_settings=open_settings)
     window.expose(api.get_founder_seed, api.greet, api.send_message,
                   api.get_dashboard, api.toggle_mute, api.open_microphone_settings,
-                  api.interrupt_speech)
+                  api.interrupt_speech, api.abandon_voice_capture)
 
     def _on_shown():
         voice.start()
