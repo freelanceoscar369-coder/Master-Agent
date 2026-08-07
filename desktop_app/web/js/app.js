@@ -587,10 +587,28 @@ async function runStartup() {
   const greetingPromise = fetchGreeting();
 
   if (reducedMotion) {
+    // 06_STARTUP_EXPERIENCE §6.9 — the complete reduced-motion sequence,
+    // not just the tree: wordmark and bloom still fade (--d-3, the one
+    // motion this mode keeps), but the mic, composer, chevron, footer
+    // hint, and greeting must reach opacity 1 too, or the founder is
+    // left looking at a tree with no way to speak or type.
     tree.renderStaticFrame();
+    els.wordmark.style.transitionDuration = 'var(--d-3)';
+    els.wordmark.classList.add('is-visible');
     els.fieldBase.classList.add('is-visible');
+    els.bloom.style.transitionDuration = 'var(--d-3), var(--d-3)';
     els.bloom.style.opacity = '0.60';
     await greetingPromise;
+    // t=640 — UI affordances and the greeting appear immediately, no
+    // entrance transition, unlike the animated cold start's fades.
+    [els.micWrap, els.composerWrap, els.chevron, els.footerHint, els.greeting, els.presence].forEach((el) => {
+      el.style.transitionDuration = '0ms';
+    });
+    applyGreeting();
+    els.micWrap.classList.add('is-visible');
+    els.composerWrap.classList.add('is-visible');
+    els.chevron.classList.add('is-visible');
+    els.footerHint.classList.add('is-visible');
     finishStartup();
     return;
   }
@@ -599,8 +617,16 @@ async function runStartup() {
   setTimeout(() => els.wordmark.classList.add('is-visible'), 0);
   setTimeout(() => els.fieldBase.classList.add('is-visible'), 400);
   setTimeout(() => tree.beginGrowth(performance.now()), 600);
-  setTimeout(() => { els.bloom.style.opacity = '0.25'; }, 1200);
-  setTimeout(() => { els.bloom.style.opacity = '0.60'; }, 2400);
+  setTimeout(() => {
+    // §6.4.1 t=1200 — this one entrance fade is --d-6, not the bloom
+    // element's own --d-8 default (which the t=2400 step below relies on).
+    els.bloom.style.transitionDuration = 'var(--d-6), var(--d-6)';
+    els.bloom.style.opacity = '0.25';
+  }, 1200);
+  setTimeout(() => {
+    els.bloom.style.transitionDuration = 'var(--d-8), var(--d-8)';
+    els.bloom.style.opacity = '0.60';
+  }, 2400);
   setTimeout(() => {
     els.micWrap.classList.add('is-visible');
     els.composerWrap.classList.add('is-visible');
@@ -614,7 +640,7 @@ async function runStartup() {
 
   setTimeout(finishStartup, 4200);
 
-  const fastForward = () => {
+  const fastForward = (ev) => {
     if (startupDone) return;
     document.removeEventListener('keydown', fastForwardKey);
     document.removeEventListener('click', fastForward);
@@ -625,8 +651,16 @@ async function runStartup() {
     els.bloom.style.transitionDuration = '240ms';
     els.bloom.style.opacity = '0.60';
     finishStartup();
+    // §6.7.3 point 7 — a printable key that triggered the fast-forward is
+    // captured as the composer's first character, same mechanism (focus
+    // now, let the browser's own default action land the keystroke) the
+    // post-Ready global handler already uses.
+    if (ev && ev.type === 'keydown' && ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      markInteracted();
+      expandComposer(true);
+    }
   };
-  const fastForwardKey = (ev) => { if (ev.key.length === 1 || ev.key === 'Enter') fastForward(); };
+  const fastForwardKey = (ev) => { if (ev.key.length === 1 || ev.key === 'Enter') fastForward(ev); };
   document.addEventListener('keydown', fastForwardKey, { once: true });
   document.addEventListener('click', fastForward, { once: true });
 }
