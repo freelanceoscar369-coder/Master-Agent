@@ -213,6 +213,24 @@ class TestToggleMute:
         assert voice.muted_calls == [True, False]
 
 
+class TestOpenMicrophoneSettings:
+    def test_calls_the_injected_settings_opener(self):
+        calls = []
+        instance = DesktopShellApi(app(), open_settings=lambda: calls.append(1))
+        instance.open_microphone_settings()
+        assert calls == [1]
+
+    def test_without_an_injected_opener_does_nothing(self):
+        api().open_microphone_settings()  # must not raise
+
+    def test_a_raising_opener_does_not_crash_the_bridge(self):
+        def boom():
+            raise OSError("no handler registered")
+
+        instance = DesktopShellApi(app(), open_settings=boom)
+        instance.open_microphone_settings()  # must not raise
+
+
 class TestGetDashboard:
     def test_returns_the_apps_own_live_dashboard(self):
         instance = api()
@@ -309,7 +327,7 @@ class TestCreateWindow:
         assert starts == {"debug": True, "called": True}
         assert returned.identity.founder_name == "Onkar"
 
-    def test_exposes_exactly_the_five_bridge_methods(self, monkeypatch):
+    def test_exposes_exactly_the_six_bridge_methods(self, monkeypatch):
         from master_agent.founder_edition import desktop_shell as shell_module
 
         windows, _ = _install_fake_webview(monkeypatch)
@@ -317,6 +335,7 @@ class TestCreateWindow:
 
         assert set(windows[0].exposed) == {
             "get_founder_seed", "greet", "send_message", "get_dashboard", "toggle_mute",
+            "open_microphone_settings",
         }
 
     def test_voice_starts_only_after_the_window_is_shown(self, monkeypatch):

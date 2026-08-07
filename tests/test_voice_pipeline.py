@@ -20,6 +20,7 @@ from master_agent.founder_edition.voice_pipeline import (
     MIN_UTTERANCE_S,
     STATE_ARMED,
     STATE_CAPTURING,
+    STATE_DENIED,
     STATE_ERROR,
     STATE_MUTED,
     STATE_PROCESSING,
@@ -103,9 +104,25 @@ class FakeVoice:
         yield from self.chunks
 
 
+class FakePermission:
+    """Injected in place of the production `mic_permission_checker`
+    (`kalpavriksha_desktop._windows_microphone_allowed`) — starts
+    granted, like a machine where the founder has never touched the
+    privacy toggle."""
+
+    def __init__(self, granted: bool = True) -> None:
+        self.granted = granted
+        self.calls = 0
+
+    def __call__(self) -> bool:
+        self.calls += 1
+        return self.granted
+
+
 def build(
     *, device_name="Fake Mic", whisper_text="hello world", whisper_raises=False,
     piper_model_path="voice.onnx", piper_chunks=None, fail_query=False,
+    permission_granted=True,
 ):
     states: list[str] = []
     amplitudes: list[float] = []
@@ -115,6 +132,7 @@ def build(
     sd.fail_query = fail_query
     whisper = FakeWhisperModel(text=whisper_text, raises=whisper_raises)
     voice_impl = FakeVoice(piper_chunks)
+    permission = FakePermission(permission_granted)
 
     pipeline = VoicePipeline(
         on_state=states.append,
@@ -124,6 +142,7 @@ def build(
         whisper_model_factory=lambda name: whisper,
         piper_model_path=piper_model_path,
         piper_voice_factory=lambda path: voice_impl,
+        mic_permission_checker=permission,
     )
     return pipeline, sd, whisper, voice_impl, states, amplitudes, transcripts
 
@@ -250,6 +269,107 @@ class TestDeviceWatch:
         sd.device_name = "New Bluetooth Headset"
         pipeline._open_stream()
         assert pipeline._current_device_name == "New Bluetooth Headset"
+
+
+# ══════════════════════════ mic permission (denied state) ═════════════════
+
+
+class TestMicPermission:
+    def test_reports_denied_instead_of_opening_a_stream(self):
+        pipeline, sd, *_rest, states, _amp, _tx = build(permission_granted=False)
+        pipeline._load_and_open()
+        assert states == [STATE_DENIED]
+        assert sd.streams == []
+
+    def test_granted_permission_opens_normally_as_before(self):
+        pipeline, sd, *_rest, states, _amp, _tx = build(permission_granted=True)
+        pipeline._load_and_open()
+        assert states == [STATE_ARMED]
+        assert sd.streams[-1].started is True
+
+    def test_watch_loop_recovers_automatically_once_permission_is_granted(self, monkeypatch):
+        pipeline, sd, *_rest, states, _amp, _tx = build(permission_granted=False)
+        pipeline._load_and_open()
+        assert states == [STATE_DENIED]
+
+        pipeline._permission_checker.granted = True
+        pipeline._running = True
+        calls = {"n": 0}
+
+        def fake_sleep(_seconds):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                pipeline._running = False
+
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        pipeline._device_watch_loop()
+
+        assert states[-1] == STATE_ARMED
+        assert sd.streams  # the stream was actually opened on recovery
+
+    def test_watch_loop_revokes_and_closes_the_stream_when_permission_is_lost(self, monkeypatch):
+        pipeline, sd, *_rest, states, _amp, _tx = build(permission_granted=True)
+        pipeline._load_and_open()
+        open_stream = sd.streams[-1]
+        assert states == [STATE_ARMED]
+
+        pipeline._permission_checker.granted = False
+        pipeline._running = True
+        calls = {"n": 0}
+
+        def fake_sleep(_seconds):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                pipeline._running = False
+
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        pipeline._device_watch_loop()
+
+        assert states[-1] == STATE_DENIED
+        assert open_stream.closed is True
+
+    def test_watch_loop_does_not_poll_the_device_while_still_denied(self, monkeypatch):
+        pipeline, sd, *_rest, states, _amp, _tx = build(permission_granted=False)
+        pipeline._load_and_open()
+        query_calls_before = sd.query_calls
+
+        pipeline._running = True
+        calls = {"n": 0}
+
+        def fake_sleep(_seconds):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                pipeline._running = False
+
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        pipeline._device_watch_loop()
+
+        assert sd.query_calls == query_calls_before
+
+    def test_an_unreadable_permission_source_fails_open_not_closed(self):
+        def boom():
+            raise OSError("registry unavailable")
+
+        states = []
+        pipeline = VoicePipeline(
+            on_state=states.append, on_amplitude=lambda a: None,
+            on_transcript=lambda t: None,
+            sounddevice_module=FakeSoundDevice(),
+            whisper_model_factory=lambda name: FakeWhisperModel(),
+            mic_permission_checker=boom,
+        )
+        pipeline._load_and_open()
+        assert states == [STATE_ARMED]
+
+    def test_fails_open_when_no_checker_is_injected(self):
+        """This module cannot read OS permission state itself (it is
+        guarded against importing `os`/`winreg` — see the `STATE_DENIED`
+        comment); an absent checker must mean "assume granted", not
+        "assume denied"."""
+        pipeline = VoicePipeline(
+            on_state=lambda s: None, on_amplitude=lambda a: None, on_transcript=lambda t: None,
+        )
+        assert pipeline._resolve_permission_checker()() is True
 
 
 # ══════════════════════════ VAD / capture / transcription ═════════════════

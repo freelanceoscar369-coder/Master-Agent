@@ -39,6 +39,47 @@ def _whisper_model_path() -> str:
     return path if os.path.isdir(path) else "base.en"
 
 
+def _windows_microphone_allowed() -> bool:
+    """Windows' own microphone privacy consent, read from the registry
+    consent store `CapabilityAccessManager` keeps for every capability.
+    Two toggles gate an unpackaged desktop app like this one: the master
+    *"Microphone access"* switch, and the *"Let desktop apps access your
+    microphone"* switch under its `NonPackaged` subkey. An unpackaged
+    win32 exe never gets a per-app entry of its own there — Windows only
+    logs usage timestamps under it (`LastUsedTimeStart`/`Stop`), not a
+    decision — so both blanket toggles are what actually gate this
+    process. Denied only if either explicitly reads `"Deny"`; a missing
+    key (older Windows, or a key Windows has not created yet) is treated
+    as allowed — this checker's job is to catch a real block, not to
+    invent one from an absence it cannot interpret.
+
+    This function — not `master_agent.founder_edition.voice_pipeline`,
+    which is guarded against importing `os`/`winreg` directly — is where
+    it lives; it is injected into `create_window()` as
+    `mic_permission_checker`."""
+    import winreg
+
+    base = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"
+    for subpath in (base, base + r"\NonPackaged"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subpath) as key:
+                value, _ = winreg.QueryValueEx(key, "Value")
+        except OSError:
+            continue  # key absent — cannot determine, does not mean denied
+        if value == "Deny":
+            return False
+    return True
+
+
+def _open_microphone_settings() -> None:
+    """`ms-settings:privacy-microphone` is the Windows Settings deep-link
+    for the toggles `_windows_microphone_allowed` reads; `os.startfile`
+    is the standard way an unpackaged Windows exe invokes a URI-scheme
+    handler. Injected into `create_window()` as `open_settings` for the
+    same reason as the permission checker above."""
+    os.startfile("ms-settings:privacy-microphone")  # noqa: S606
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kalpavriksha", description="Kalpavriksha Founder Edition")
     parser.add_argument("--founder-name", default=None)
@@ -53,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
         founder_name=founder_name, web_dir=_bundled_dir("web"), debug=args.debug,
         voice_model_path=_voice_model_path(),
         whisper_model=_whisper_model_path(),
+        mic_permission_checker=_windows_microphone_allowed,
+        open_settings=_open_microphone_settings,
     )
     return 0
 

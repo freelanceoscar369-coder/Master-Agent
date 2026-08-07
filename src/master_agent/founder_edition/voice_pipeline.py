@@ -72,13 +72,19 @@ DEVICE_POLL_INTERVAL_S = 1.5
 #: audio callback's own ~33Hz so `evaluate_js` stays cheap.
 AMPLITUDE_PUSH_INTERVAL_S = 1 / 20
 
-#: The mic states this module can report. A strict subset of
-#: `03_VOICE_EXPERIENCE §3.1`'s nine — the ones a local pipeline can
-#: actually distinguish without a permission-prompt concept of its own.
+#: The mic states this module can report — all nine of
+#: `03_VOICE_EXPERIENCE §3.1`, including `denied`. This module never reads
+#: the OS permission itself — `master_agent.founder_edition` is guarded
+#: against importing `os`/`winreg` directly (see
+#: `test_founder_edition_boot.py::TestNothingExecutesOrCallsAI`); the real
+#: check (`kalpavriksha_desktop._windows_microphone_allowed`) is injected
+#: through `mic_permission_checker`, the same seam `sounddevice_module`
+#: and the model factories already use.
 STATE_ARMED = "armed"
 STATE_CAPTURING = "capturing-speech"
 STATE_PROCESSING = "processing"
 STATE_MUTED = "muted"
+STATE_DENIED = "denied"
 STATE_UNAVAILABLE = "unavailable"
 STATE_ERROR = "error"
 STATE_SPEAKING = "speaking"
@@ -107,6 +113,7 @@ class VoicePipeline:
         sounddevice_module=None,
         whisper_model_factory=None,
         piper_voice_factory=None,
+        mic_permission_checker=None,
     ) -> None:
         self._on_state = on_state
         self._on_amplitude = on_amplitude
@@ -114,17 +121,20 @@ class VoicePipeline:
         self._whisper_model_name = whisper_model
         self._piper_model_path = piper_model_path
 
-        # Injected for testability — production callers omit all three
-        # and get the real `sounddevice`/`faster_whisper`/`piper` modules,
-        # imported lazily so this module stays importable without them.
+        # Injected for testability — production callers omit all four
+        # and get the real `sounddevice`/`faster_whisper`/`piper` modules
+        # plus `_windows_microphone_allowed`, imported/resolved lazily so
+        # this module stays importable without them.
         self._sd = sounddevice_module
         self._whisper_factory = whisper_model_factory
         self._piper_factory = piper_voice_factory
+        self._permission_checker = mic_permission_checker
 
         self._stt_model = None
         self._tts_voice = None
         self._stream = None
         self._current_device_name: str | None = None
+        self._permission_denied = False
 
         self._running = False
         self._muted = False
@@ -143,13 +153,7 @@ class VoicePipeline:
 
     def stop(self) -> None:
         self._running = False
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:  # noqa: BLE001, S110 — shutdown must not raise
-                pass
-            self._stream = None
+        self._close_stream()
 
     # ---- founder-facing controls ----------------------------------------
 
@@ -175,6 +179,31 @@ class VoicePipeline:
         import sounddevice as sd
         return sd
 
+    def _resolve_permission_checker(self):
+        if self._permission_checker is not None:
+            return self._permission_checker
+        # No checker injected — this module cannot read OS permission
+        # state itself (see the STATE_DENIED comment above), so an absent
+        # checker means "unknown", which fails open exactly like an
+        # injected checker that raises, just below.
+        return lambda: True
+
+    def _permission_granted(self) -> bool:
+        try:
+            return bool(self._resolve_permission_checker()())
+        except Exception:  # noqa: BLE001 — an unreadable permission source must not block a working mic
+            return True
+
+    def _close_stream(self) -> None:
+        if self._stream is None:
+            return
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:  # noqa: BLE001, S110 — the stream is being discarded anyway
+            pass
+        self._stream = None
+
     def _load_and_open(self) -> None:
         try:
             if self._whisper_factory is not None:
@@ -195,8 +224,22 @@ class VoicePipeline:
             self._on_state(STATE_ERROR)
             return
 
-        self._open_stream()
+        self._sync_stream_to_permission()
         threading.Thread(target=self._device_watch_loop, daemon=True).start()
+
+    def _sync_stream_to_permission(self) -> None:
+        """Opens the input stream if the OS grants microphone access,
+        otherwise closes it and reports `denied` — the one state
+        `_open_stream()` alone cannot produce, since PortAudio surfaces a
+        mic blocked by OS privacy settings and a genuinely absent one as
+        the same kind of failure."""
+        if self._permission_granted():
+            self._permission_denied = False
+            self._open_stream()
+        else:
+            self._permission_denied = True
+            self._close_stream()
+            self._on_state(STATE_DENIED)
 
     def _open_stream(self) -> None:
         sd = self._resolve_sd()
@@ -206,12 +249,7 @@ class VoicePipeline:
             self._on_state(STATE_UNAVAILABLE)
             return
 
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:  # noqa: BLE001, S110 — the old stream is being discarded anyway
-                pass
+        self._close_stream()
 
         self._current_device_name = device_info.get("name")
         self._stream = sd.InputStream(
@@ -222,9 +260,20 @@ class VoicePipeline:
         self._on_state(STATE_MUTED if self._muted else STATE_ARMED)
 
     def _device_watch_loop(self) -> None:
+        """Polls both the default input device and the OS microphone
+        permission every `DEVICE_POLL_INTERVAL_S` — the same cadence
+        covers a headset swap and a founder granting/revoking access in
+        Windows Settings while Kalpavriksha is running, so either kind of
+        change is picked up automatically, without a restart."""
         sd = self._resolve_sd()
         while self._running:
             time.sleep(DEVICE_POLL_INTERVAL_S)
+            currently_denied = not self._permission_granted()
+            if currently_denied != self._permission_denied:
+                self._sync_stream_to_permission()
+                continue
+            if currently_denied:
+                continue
             try:
                 device_info = sd.query_devices(kind="input")
             except Exception:  # noqa: BLE001, S112 — a transient query failure just waits for the next poll

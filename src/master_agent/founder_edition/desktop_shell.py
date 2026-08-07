@@ -4,7 +4,7 @@
 PACKAGE."* This module is the wiring: it opens one native window (via
 `pywebview`, wrapping the OS's own WebView2/WebKit engine — already
 declared as an optional dependency, `pyproject.toml`'s `ui` extra) that
-hosts `desktop_app/web/index.html`, and exposes exactly five methods to
+hosts `desktop_app/web/index.html`, and exposes exactly six methods to
 that page's JavaScript. Every one of them is a thin call onto
 `FounderEditionApp` (C24/C30) and the pieces it already wires (C29 Identity,
 C31 Conversation Engine, C32 Communication Layer) — this module composes
@@ -64,6 +64,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -111,14 +112,18 @@ def _founder_seed(founder_name: str) -> int:
 
 class DesktopShellApi:
     """The whole bridge surface `window.pywebview.api` exposes to the
-    page. Five methods — nothing else is reachable from JavaScript.
+    page. Six methods — nothing else is reachable from JavaScript.
     `voice` is optional: a machine where the local pipeline could not
     load still gets every other method, honestly, with voice absent."""
 
-    def __init__(self, app: FounderEditionApp, voice: VoicePipeline | None = None) -> None:
+    def __init__(
+        self, app: FounderEditionApp, voice: VoicePipeline | None = None,
+        open_settings: Callable[[], None] | None = None,
+    ) -> None:
         self._app = app
         self._voice = voice
         self._muted = False
+        self._open_settings = open_settings
 
     def get_founder_seed(self) -> int:
         identity = self._app.identity
@@ -176,6 +181,21 @@ class DesktopShellApi:
         self._voice.set_muted(self._muted)
         return {"muted": self._muted}
 
+    def open_microphone_settings(self) -> None:
+        """`03_VOICE_EXPERIENCE §3.5`'s `denied` recovery path: a click on
+        the mic (or the "here" word in its secondary copy) opens the
+        Windows Settings page that actually controls this. This module
+        does not touch the OS itself — `master_agent.founder_edition` is
+        guarded against importing `os` directly — so `open_settings` is
+        injected by `kalpavriksha_desktop.py`, the one place outside this
+        guarded package permitted to call `os.startfile`."""
+        if self._open_settings is None:
+            return
+        with contextlib.suppress(Exception):
+            # opening Settings must not crash the app on a machine where
+            # the URI scheme is missing (non-Windows dev run, older build)
+            self._open_settings()
+
     def _presence_complete(self) -> bool:
         presence = self._app.runtime.presence()
         coverage = presence.get("coverage")
@@ -196,6 +216,7 @@ def _push(window, function_name: str, *args: Any) -> None:
 
 def _build_voice(
     window, *, whisper_model: str, piper_model_path: str | None,
+    mic_permission_checker: Callable[[], bool] | None = None,
 ) -> VoicePipeline:
     """One `VoicePipeline`, wired to push its three event kinds into the
     page. Construction never fails — a model that cannot load reports
@@ -207,6 +228,7 @@ def _build_voice(
         on_transcript=lambda text: _push(window, "onTranscript", text),
         whisper_model=whisper_model,
         piper_model_path=piper_model_path,
+        mic_permission_checker=mic_permission_checker,
     )
     return voice
 
@@ -218,6 +240,8 @@ def create_window(
     debug: bool = False,
     voice_model_path: str | None = None,
     whisper_model: str = "base.en",
+    mic_permission_checker: Callable[[], bool] | None = None,
+    open_settings: Callable[[], None] | None = None,
 ) -> FounderEditionApp:
     """Boot Founder Edition, start the local voice pipeline, and open the
     one native window.
@@ -247,10 +271,13 @@ def create_window(
         background_color="#05070A",
     )
 
-    voice = _build_voice(window, whisper_model=whisper_model, piper_model_path=voice_model_path)
-    api = DesktopShellApi(app, voice=voice)
+    voice = _build_voice(
+        window, whisper_model=whisper_model, piper_model_path=voice_model_path,
+        mic_permission_checker=mic_permission_checker,
+    )
+    api = DesktopShellApi(app, voice=voice, open_settings=open_settings)
     window.expose(api.get_founder_seed, api.greet, api.send_message,
-                  api.get_dashboard, api.toggle_mute)
+                  api.get_dashboard, api.toggle_mute, api.open_microphone_settings)
 
     def _on_shown():
         voice.start()
