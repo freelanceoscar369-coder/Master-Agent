@@ -28,6 +28,17 @@ def _voice_model_path() -> str | None:
     return path if os.path.isfile(path) else None
 
 
+def _whisper_model_path() -> str:
+    """The bundled faster-whisper model directory, if present, else the
+    bare model-size string — which makes faster-whisper fall back to
+    downloading it from Hugging Face on first run. The bundled directory
+    is always present in a shipped build (see `packaging/kalpavriksha.spec`);
+    the fallback only matters for a source checkout that hasn't run the
+    download step yet."""
+    path = os.path.join(_bundled_dir("voice_models"), "whisper-base.en")
+    return path if os.path.isdir(path) else "base.en"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kalpavriksha", description="Kalpavriksha Founder Edition")
     parser.add_argument("--founder-name", default=None)
@@ -41,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     create_window(
         founder_name=founder_name, web_dir=_bundled_dir("web"), debug=args.debug,
         voice_model_path=_voice_model_path(),
+        whisper_model=_whisper_model_path(),
     )
     return 0
 

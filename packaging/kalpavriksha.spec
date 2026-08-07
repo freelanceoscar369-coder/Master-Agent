@@ -19,6 +19,10 @@ a = Analysis(
         (os.path.join(ROOT, 'desktop_app', 'web'), 'web'),
         (os.path.join(ROOT, 'desktop_app', 'voice_models'), 'voice_models'),
     ],
+    # `voice_models/` now also holds `whisper-base.en/` (the bundled
+    # faster-whisper CTranslate2 model — see kalpavriksha_desktop.py's
+    # `_whisper_model_path()`), collected by the single `voice_models` datas
+    # entry above since it copies the whole directory tree.
     hiddenimports=[
         'webview',
         'webview.platforms.edgechromium',
