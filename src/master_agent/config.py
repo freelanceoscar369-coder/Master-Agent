@@ -97,11 +97,16 @@ class GeminiConfig:
     provider).
 
     `model` is **configuration, never a choice made here** — the same
-    discipline `OllamaConfig.model` already states. `gemini-2.5-flash` is
-    the default because it is the stable (non-preview) flash-tier model
-    confirmed available via a real `models.list` call against this
-    project's own API key as of this writing; a founder on a different
-    tier changes this one line.
+    discipline `OllamaConfig.model` already states. `gemini-3.6-flash` is
+    the default (migrated from `gemini-2.5-flash`, both confirmed
+    available via a real `models.list` call against this project's own
+    API key); a founder on a different tier changes this one line.
+
+    Migration note: Gemini 3.x does not accept caller-set
+    temperature/top_p/top_k/frequency_penalty/presence_penalty —
+    `GeminiProvider` strips these before sending rather than letting them
+    surface as a confusing per-call API error (see
+    `providers/gemini.py::_UNSUPPORTED_SAMPLING_PARAMS`).
 
     `api_key` is never a literal default — it is populated by
     `load_config()` from the `GEMINI_API_KEY` environment variable, the
@@ -120,7 +125,7 @@ class GeminiConfig:
 
     enabled: bool = True
     api_key: str = ""
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3.6-flash"
     base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     timeout_seconds: float = 60.0
 

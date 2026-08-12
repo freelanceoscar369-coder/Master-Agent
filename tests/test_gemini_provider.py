@@ -160,6 +160,49 @@ def test_the_api_key_travels_in_the_url_never_in_the_body():
     assert "super-secret" not in json.dumps(payload)
 
 
+# ---- Gemini 3.x sampling-parameter compatibility (migration from 2.5) -----
+
+
+def test_temperature_top_p_top_k_are_stripped_before_sending():
+    """Gemini 3.x ignores custom values for these silently; sending them
+    anyway would be misleading about what the call actually did."""
+    transport = FakeTransport(_ok())
+    provider = GeminiProvider(api_key="k", transport=transport)
+
+    provider.complete("hi", options={"temperature": 0.7, "top_p": 0.9, "top_k": 40})
+
+    _, payload, _ = transport.posts[0]
+    assert "generationConfig" not in payload
+
+
+def test_frequency_and_presence_penalty_are_stripped_before_sending():
+    """Gemini 3.x errors outright on these two rather than ignoring them —
+    stripped here so a caller's request is never rejected for a
+    constraint it had no way to know about."""
+    transport = FakeTransport(_ok())
+    provider = GeminiProvider(api_key="k", transport=transport)
+
+    provider.complete(
+        "hi", options={"frequency_penalty": 0.5, "presence_penalty": 0.5}
+    )
+
+    _, payload, _ = transport.posts[0]
+    assert "generationConfig" not in payload
+
+
+def test_a_supported_option_still_reaches_generation_config():
+    """Stripping is narrow: this provider still executes, it does not
+    decide what a caller may ask for beyond the one documented, verified
+    exception."""
+    transport = FakeTransport(_ok())
+    provider = GeminiProvider(api_key="k", transport=transport)
+
+    provider.complete("hi", options={"maxOutputTokens": 256})
+
+    _, payload, _ = transport.posts[0]
+    assert payload["generationConfig"] == {"maxOutputTokens": 256}
+
+
 def test_generate_returns_plain_text_on_success():
     transport = FakeTransport(_ok(text="ok"))
     provider = GeminiProvider(api_key="k", transport=transport)

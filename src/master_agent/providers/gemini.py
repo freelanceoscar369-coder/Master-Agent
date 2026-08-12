@@ -63,7 +63,9 @@ DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 #: Founder decision: free-tier-eligible model via a Google AI Studio API
 #: key. Configuration, never a choice made here — see `config.py`'s
 #: `GeminiConfig.model` docstring for how a founder changes it.
-DEFAULT_MODEL = "gemini-2.5-flash"
+#: `gemini-2.5-flash` -> `gemini-3.6-flash`: model migration, verified
+#: live against `models.list` and a real request before the switch.
+DEFAULT_MODEL = "gemini-3.6-flash"
 
 NO_API_KEY = "no GEMINI_API_KEY configured"
 
@@ -170,7 +172,7 @@ class GeminiProvider(ModelProvider):
         payload = {
             "contents": [{"parts": [{"text": self._compose(prompt, context)}]}],
         }
-        merged_options = dict(options or {})
+        merged_options = _drop_unsupported_sampling_params(dict(options or {}))
         if merged_options:
             payload["generationConfig"] = merged_options
 
@@ -303,6 +305,37 @@ class GeminiProvider(ModelProvider):
 
     def _elapsed_ms(self, started: float) -> float:
         return max(0.0, (self._clock() - started) * 1000.0)
+
+
+#: Gemini 3.x models do not accept caller-set sampling parameters:
+#: temperature/top_p/top_k are silently ignored if sent, and
+#: frequency_penalty/presence_penalty cause a request error (Google's own
+#: migration guidance, verified 2026-08-12 against the live API docs
+#: while migrating this provider's default model from gemini-2.5-flash to
+#: gemini-3.6-flash). Nothing in the current wiring sets any of these —
+#: `PromptExecutor.run()` never passes `options` — but `generate()`'s
+#: frozen `**opts` contract forwards whatever a future caller supplies,
+#: so they are dropped here rather than left to surface as a confusing
+#: per-call API error for a constraint the caller had no way to know
+#: about. Every other option is passed through unexamined, unchanged:
+#: this provider still executes, it does not decide.
+_UNSUPPORTED_SAMPLING_PARAMS = frozenset(
+    {
+        "temperature",
+        "top_p",
+        "topP",
+        "top_k",
+        "topK",
+        "frequency_penalty",
+        "frequencyPenalty",
+        "presence_penalty",
+        "presencePenalty",
+    }
+)
+
+
+def _drop_unsupported_sampling_params(options: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in options.items() if k not in _UNSUPPORTED_SAMPLING_PARAMS}
 
 
 def _timeout_for(budget: Any, default: float) -> float:
