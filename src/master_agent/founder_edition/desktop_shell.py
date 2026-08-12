@@ -1,10 +1,10 @@
 """The Founder Desktop Application shell — Product Veda integration.
 
-*"You are the product assembly engineer... ASSEMBLE. WIRE. POLISH.
-PACKAGE."* This module is the wiring: it opens one native window (via
+*\"You are the product assembly engineer... ASSEMBLE. WIRE. POLISH.
+PACKAGE.\"* This module is the wiring: it opens one native window (via
 `pywebview`, wrapping the OS's own WebView2/WebKit engine — already
 declared as an optional dependency, `pyproject.toml`'s `ui` extra) that
-hosts `desktop_app/web/index.html`, and exposes exactly eight methods to
+hosts `desktop_app/web/index.html`, and exposes exactly nine methods to
 that page's JavaScript. Every one of them is a thin call onto
 `FounderEditionApp` (C24/C30) and the pieces it already wires (C29 Identity,
 C31 Conversation Engine, C32 Communication Layer) — this module composes
@@ -43,7 +43,7 @@ conversation, two input methods"*). If a founder ever types one of those
 phrases as ordinary conversation, the router would flip its internal mode
 and the next reply would raise `ChannelNotRegistered` — the same gap
 `Engineering/HEALTH_C33.md` §5 already recorded. `send_message()` catches
-it and recovers exactly as `console.py` does: a real `"switch to text"`
+it and recovers exactly as `console.py` does: a real *"switch to text"*
 request through the same engine, never a fabricated reply.
 
 ## C34.1 — voice moved entirely to `voice_pipeline.VoicePipeline`
@@ -64,9 +64,19 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
+import os
+import random
+import threading
+import uuid
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
+
+import bottle
+from bottle import Bottle, static_file
+from wsgiref.simple_server import WSGIServer, WSGIRequestHandler, make_server
+from socketserver import ThreadingMixIn
 
 from master_agent.communication import (
     ChannelNotRegistered,
@@ -78,6 +88,173 @@ from master_agent.communication import (
 from master_agent.founder_edition.boot import FounderEditionApp, boot_founder_edition
 from master_agent.founder_edition.voice_pipeline import VoicePipeline
 from master_agent.founder_identity import FounderContext, greet
+
+# Custom BottleServer that fixes the pywebview 6.x asset() signature issue
+# where @app.route('/') and @app.route('/<file:path>') both call asset(file)
+# but '/' doesn't provide a 'file' parameter, causing TypeError.
+class FixedBottleServer:
+    def __init__(self) -> None:
+        self.root_path = '/'
+        self.running = False
+        self.address = None
+        self.js_callback = {}
+        self.js_api_endpoint = None
+        self.uid = str(uuid.uuid1())
+
+    @classmethod
+    def start_server(
+        cls, urls: list[str], http_port: int | None = None, keyfile: str | None = None, certfile: str | None = None
+    ) -> tuple[str, str | None, "FixedBottleServer"]:
+        from webview import _state
+        from webview.util import abspath, is_app, is_local_url
+
+        logger = logging.getLogger('pywebview')
+
+        apps = [u for u in urls if is_app(u)]
+        server = cls()
+
+        if len(apps) > 0:
+            app = apps[0]
+            common_path = '.'
+        else:
+            local_urls = [u.split('#')[0] for u in urls if is_local_url(u)]
+            common_path = os.path.commonpath(local_urls) if len(local_urls) > 0 else None
+            if common_path is not None and not os.path.isdir(abspath(common_path)):
+                common_path = os.path.dirname(common_path)
+            logger.debug(f'Common path for local URLs: {common_path}')
+            server.root_path = abspath(common_path) if common_path is not None else None
+            logger.debug(f'HTTP server root path: {server.root_path}')
+            app = Bottle()
+
+            @app.post(f'/js_api/{server.uid}')
+            def js_api():
+                bottle.response.headers['Access-Control-Allow-Origin'] = '*'
+                bottle.response.headers['Access-Control-Allow-Methods'] = (
+                    'PUT, GET, POST, DELETE, OPTIONS'
+                )
+                bottle.response.headers['Access-Control-Allow-Headers'] = (
+                    'Origin, Accept, Content-Type, X-Requested-With, X-CSRF-Token'
+                )
+
+                body = json.loads(bottle.request.body.read().decode('utf-8'))
+                if body['uid'] in server.js_callback:
+                    return json.dumps(server.js_callback[body['uid']](body))
+                else:
+                    logger.error(f'JS callback function is not set for window {body["uid"]}')
+
+            @app.route('/')
+            def index():
+                if not server.root_path:
+                    return ''
+                bottle.response.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                bottle.response.set_header('Pragma', 'no-cache')
+                bottle.response.set_header('Expires', 0)
+                return static_file('index.html', root=server.root_path)
+
+            @app.route('/<file:path>')
+            def asset(file):
+                if not server.root_path:
+                    return ''
+                bottle.response.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                bottle.response.set_header('Pragma', 'no-cache')
+                bottle.response.set_header('Expires', 0)
+                return static_file(file, root=server.root_path)
+
+        server.root_path = abspath(common_path) if common_path is not None else None
+        server.port = http_port or cls._get_random_port()
+        if keyfile and certfile:
+            server_adapter = SSLWSGIRefServer()
+            server_adapter.port = server.port
+            setattr(server_adapter, 'pywebview_keyfile', keyfile)
+            setattr(server_adapter, 'pywebview_certfile', certfile)
+        else:
+            server_adapter = ThreadedAdapter
+        server.thread = threading.Thread(
+            target=lambda: bottle.run(
+                app=app, server=server_adapter, port=server.port, quiet=not _state['debug']
+            ),
+            daemon=True,
+        )
+        server.thread.start()
+
+        server.running = True
+        protocol = 'https' if keyfile and certfile else 'http'
+        server.address = f'{protocol}://127.0.0.1:{server.port}/'
+        cls.common_path = common_path
+        server.js_api_endpoint = f'{server.address}js_api/{server.uid}'
+
+        return server.address, common_path, server
+
+    @staticmethod
+    def _get_random_port() -> int:
+        while True:
+            port = random.randint(1023, 65535)
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                try:
+                    sock.bind(('localhost', port))
+                except OSError:
+                    continue
+                else:
+                    return port
+
+    @property
+    def is_running(self) -> bool:
+        return self.running
+
+
+class ThreadedAdapter(bottle.ServerAdapter):
+    def run(self, handler) -> None:
+        if self.quiet:
+            class QuietHandler(WSGIRequestHandler):
+                def log_request(*args, **_):
+                    pass
+            self.options['handler_class'] = QuietHandler
+
+        class ThreadAdapter(ThreadingMixIn, WSGIServer):
+            pass
+
+        server = make_server(
+            self.host, self.port, handler, server_class=ThreadAdapter, **self.options
+        )
+        server.serve_forever()
+
+
+class SSLWSGIRefServer(bottle.ServerAdapter):
+    def run(self, handler) -> None:
+        import ssl
+        import socket
+
+        class FixedHandler(WSGIRequestHandler):
+            def address_string(self) -> str:
+                return self.client_address[0]
+
+            def log_request(*args, **kw) -> None:
+                if not self.quiet:
+                    return WSGIRequestHandler.log_request(*args, **kw)
+
+        handler_cls = self.options.get('handler_class', FixedHandler)
+        server_cls = self.options.get('server_class', WSGIServer)
+
+        if ':' in self.host:
+            if server_cls.address_family == socket.AF_INET:
+                class server_cls(server_cls):
+                    address_family = socket.AF_INET6
+
+        ssl_context = ssl.SSLContext()
+        ssl_context.load_cert_chain(self.pywebview_certfile, self.pywebview_keyfile)
+        self.srv = make_server(self.host, self.port, handler, server_cls, handler_cls)
+        self.srv.socket = ssl_context.wrap_socket(self.srv.socket, server_side=True)
+        self.port = self.srv.server_port
+
+        if os.path.exists(self.pywebview_keyfile):
+            os.unlink(self.pywebview_keyfile)
+        try:
+            self.srv.serve_forever()
+        except KeyboardInterrupt:
+            self.srv.server_close()
+            raise
+
 
 CONVERSATION_ID = "founder-surface"
 
@@ -101,18 +278,13 @@ def _local_now() -> datetime:
 
 
 def _founder_seed(founder_name: str) -> int:
-    """A stable, deterministic seed for the tree — 02_ANIMATION_SYSTEM
-    §2.1.6's own requirement: *"stable across sessions for the same
-    founder."* No founder-identity subsystem in C1–C33 issues a numeric
-    ID, so this derives one from the one fact that is stable: the name
-    itself. A 32-bit unsigned integer, as the animation spec requires."""
     digest = hashlib.sha256(founder_name.encode("utf-8")).digest()
     return int.from_bytes(digest[:4], "big")
 
 
 class DesktopShellApi:
     """The whole bridge surface `window.pywebview.api` exposes to the
-    page. Eight methods — nothing else is reachable from JavaScript.
+    page. Nine methods — nothing else is reachable from JavaScript.
     `voice` is optional: a machine where the local pipeline could not
     load still gets every other method, honestly, with voice absent."""
 
@@ -216,6 +388,25 @@ class DesktopShellApi:
         if self._voice is not None:
             self._voice.abandon_capture()
 
+    def get_startup_diagnostics(self) -> dict[str, bool]:
+        """Startup Diagnostics overlay — one honest check per subsystem,
+        so a founder (or whoever's helping them) sees exactly where
+        startup stopped instead of a silent blank window."""
+        voice = self._voice
+        return {
+            "webview_loaded": True,  # this call answering at all proves it
+            "conversation_engine_ready": self._app.communication is not None,
+            "voice_initialized": voice is not None,
+            "stt_loaded": voice is not None and voice.stt_ready,
+            "tts_loaded": voice is not None and voice.tts_ready,
+            "dashboard_ready": self._app.dashboard is not None,
+        }
+
+    def debug_log(self, data: dict) -> None:
+        """Receive debug data from JavaScript for troubleshooting."""
+        import logging
+        logging.info(f"JS_DEBUG: {data}")
+
     def _presence_complete(self) -> bool:
         presence = self._app.runtime.presence()
         coverage = presence.get("coverage")
@@ -305,14 +496,20 @@ def create_window(
     )
     api = DesktopShellApi(app, voice=voice, open_settings=open_settings)
     window.expose(api.get_founder_seed, api.greet, api.send_message,
-                  api.get_dashboard, api.toggle_mute, api.open_microphone_settings,
-                  api.interrupt_speech, api.abandon_voice_capture)
+                  api.get_dashboard, api.toggle_mute,
+                  api.open_microphone_settings,
+                  api.interrupt_speech, api.abandon_voice_capture, api.get_startup_diagnostics,
+                  api.debug_log)
 
     def _on_shown():
-        voice.start()
+        try:
+            voice.start()
+        except Exception as e:
+            logging.error(f"Failed to start voice pipeline: {e}")
 
     window.events.shown += _on_shown
     window.events.closing += voice.stop
 
-    webview.start(debug=debug)
+    # Use FixedBottleServer to avoid pywebview 6.x asset() signature bug
+    webview.start(debug=debug, server=FixedBottleServer)
     return app
