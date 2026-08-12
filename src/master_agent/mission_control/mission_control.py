@@ -22,6 +22,7 @@ from master_agent.mission_control.approvals import (
 )
 from master_agent.mission_control.audit import AuditStream
 from master_agent.mission_control.capabilities import CapabilityDescriptor, CapabilityRegistry
+from master_agent.mission_control.completion import CompletionQueue, PendingCompletion
 from master_agent.mission_control.dispatcher import TaskDispatcher, UnknownObjective
 from master_agent.mission_control.events import (
     MISSION_CONTROL_SOURCE,
@@ -60,6 +61,14 @@ class MissionControl:
         self.approvals = ApprovalQueue()
         self.self_development = SelfDevelopmentQueue()
         self.knowledge = KnowledgeAcquisitionQueue()
+        # Task 2.5: a verified objective is not yet a founder-facing
+        # completed one (see completion.py). Every objective that finishes
+        # its tasks without failure gets a completion question opened
+        # automatically -- a subscriber on the same bus everything else
+        # here already reports through, not a special case in the
+        # dispatcher that published OBJECTIVE_COMPLETED.
+        self.completions = CompletionQueue()
+        self.bus.subscribe(self._open_completion_question, EventType.OBJECTIVE_COMPLETED)
         self._current_objective_id: str | None = None
 
     # ---- Executives and Capabilities --------------------------------
@@ -409,6 +418,44 @@ class MissionControl:
         )
         return approval
 
+    # ---- Founder completion (Task 2.5) -------------------------------
+
+    def _open_completion_question(self, event: Event) -> None:
+        """Subscriber body for `OBJECTIVE_COMPLETED` — see completion.py's
+        module docstring for why this is a separate question from the
+        approvals above, asked automatically rather than by request."""
+        objective_id = event.objective_id
+        if objective_id is None:
+            return
+        try:
+            description = self.dispatcher.objective(objective_id).description
+        except UnknownObjective:
+            description = ""
+        completion, is_new = self.completions.request(
+            PendingCompletion(objective_id=objective_id, objective=description)
+        )
+        if is_new:
+            self._publish(
+                EventType.FOUNDER_COMPLETION_REQUESTED,
+                objective_id=objective_id,
+                payload=completion.as_dict(),
+            )
+
+    def confirm_completion(
+        self, completion_id: str, founder: str = "founder", note: str = ""
+    ) -> PendingCompletion:
+        """The one action a founder (via Hyper Agent, later) takes to turn
+        a verified objective into a founder-facing completed one. Nothing
+        here re-runs, re-verifies, or grants anything — the work already
+        finished; this only answers "is that acceptable to close out"."""
+        completion = self.completions.confirm(completion_id, founder, note)
+        self._publish(
+            EventType.FOUNDER_COMPLETION_CONFIRMED,
+            objective_id=completion.objective_id,
+            payload={**completion.as_dict(), "decided_by": founder},
+        )
+        return completion
+
     def founder_state(self, objective_id: str | None = None) -> FounderState:
         """One honest snapshot — see founder_state.py. Returns an empty but
         well-formed snapshot when nothing is in flight, rather than None,
@@ -438,6 +485,7 @@ class MissionControl:
             1 for task in objective.tasks if task.state not in
             {TaskState.COMPLETED, TaskState.FAILED}
         )
+        pending_completion = self.completions.find_open(objective.objective_id)
 
         return FounderState(
             current_objective=objective.description,
@@ -452,6 +500,8 @@ class MissionControl:
             eta_seconds=estimate_eta_seconds(durations, remaining),
             waiting_approval=self._waiting_approval(),
             learning_progress=self._learning_progress(),
+            requires_founder_completion=pending_completion is not None,
+            completion_id=pending_completion.completion_id if pending_completion else None,
         )
 
     def _last_result(self, objective: Objective) -> Any:

@@ -159,6 +159,22 @@ class Action(ABC):
         documentation as much as contract; validate() is what's actually
         enforced."""
 
+    def optional_parameters(self) -> list[dict[str, Any]] | None:
+        """Optional arguments this action accepts beyond
+        `required_parameters()`, each as a plain
+        `{"name", "type", "description", "default"}` dict — or `None` (the
+        default every existing Action inherits) when nobody has published
+        them yet.
+
+        Returning a list here — even an empty one — is an Action's opt-in
+        declaration that it has stated *every* optional argument it takes;
+        `capabilities/extraction.py` reads that opt-in to decide whether a
+        contract's `inputs` schema may honestly claim `closed=True`. Not
+        abstract, and not importing `capabilities.contract.FieldSpec`:
+        `executor/` has no dependency on `capabilities/` today and this
+        stays a plain, self-contained shape so that remains true."""
+        return None
+
     @abstractmethod
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         """Return validation error messages; empty list means valid."""

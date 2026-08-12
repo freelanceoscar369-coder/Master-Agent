@@ -79,6 +79,26 @@ class EventType(str, Enum):
     TASK_RETRY_SCHEDULED = "task_retry_scheduled"
     TASK_ESCALATED = "task_escalated"
 
+    # --- Mission Service (Task 2.5). The two phases that happen before an
+    # Objective — and therefore any Task — exists: parsing what the founder
+    # meant, then turning it into a plan. Neither has a Task/Objective id
+    # to attach evidence to yet, so they are events like everything else
+    # observable, rather than a state this package would otherwise have no
+    # honest way to report.
+    MISSION_UNDERSTANDING_STARTED = "mission_understanding_started"
+    MISSION_PLANNING_STARTED = "mission_planning_started"
+
+    # --- Founder completion (Task 2.5, MB028.1's own shape reused for a
+    # different question). Not a capability-risk approval — Rule 5 is not
+    # in play here, nothing executes because of it — this is "is the
+    # already-verified result of this objective acceptable to close out."
+    # REQUESTED opens the question the moment every task finishes without
+    # failure; CONFIRMED is the founder's own answer, and the only thing
+    # allowed to turn a verified objective into a founder-facing completed
+    # one. See `mission_control/completion.py`.
+    FOUNDER_COMPLETION_REQUESTED = "founder_completion_requested"
+    FOUNDER_COMPLETION_CONFIRMED = "founder_completion_confirmed"
+
 
 MISSION_CONTROL_SOURCE = "mission_control"
 

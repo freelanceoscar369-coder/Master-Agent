@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from master_agent.memory.memory_models import FAILURE_LIBRARY, HIGH, MISSION
+from master_agent.mission_control.events import EventType
 from master_agent.missions.history import PlanHistory
 from master_agent.missions.translation import PlanIncomplete, objective_from_plan
 from master_agent.planner.plan import (
@@ -135,6 +136,12 @@ class MissionService:
         self._counter += 1
         task_id = f"plan-{self._counter}"
 
+        # Task 2.5: the two phases that happen before an Objective (and
+        # therefore any Task) exists to attach evidence to. Published
+        # through the same bus everything downstream already reports
+        # through, not a second observability path.
+        self._publish_phase(EventType.MISSION_UNDERSTANDING_STARTED, task_id, objective_id, text)
+
         # Parse raw input through Intent Layer
         intent_result = self.intent_layer.parse(text)
         if intent_result.needs_clarification:
@@ -174,6 +181,7 @@ class MissionService:
                 ),
             )
 
+        self._publish_phase(EventType.MISSION_PLANNING_STARTED, task_id, objective_id, text)
         outcome = self.planner.plan(
             intent, task_id=task_id, objective_id=objective_id
         )
@@ -247,6 +255,30 @@ class MissionService:
             record=record,
             provider_id=outcome.provider_id,
             entry_id=outcome.entry_id,
+        )
+
+    # ---- Task 2.5 phase reporting ------------------------------------
+
+    def _publish_phase(
+        self, event_type: Any, task_id: str, objective_id: str | None, objective_text: str
+    ) -> None:
+        """Report a phase that has no Task/Objective yet to attach evidence
+        to. `mission_control` is the same collaborator every other write in
+        this class already has; a caller that hands in one without a `bus`
+        (a test double, typically) is not reporting phases, honestly."""
+        bus = getattr(self.mission_control, "bus", None)
+        if bus is None:
+            return
+        from master_agent.mission_control.events import Event
+
+        bus.publish(
+            Event(
+                event_type=event_type,
+                source="mission_service",
+                task_id=task_id,
+                objective_id=objective_id,
+                payload={"objective": objective_text},
+            )
         )
 
     # ---- the lesson nobody else can record -------------------------------

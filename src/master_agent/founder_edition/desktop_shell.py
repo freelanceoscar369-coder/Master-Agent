@@ -291,11 +291,30 @@ class DesktopShellApi:
     def __init__(
         self, app: FounderEditionApp, voice: VoicePipeline | None = None,
         open_settings: Callable[[], None] | None = None,
+        submit_objective: Callable[[str], dict[str, Any]] | None = None,
+        get_execution_status: Callable[[], dict[str, Any]] | None = None,
+        confirm_completion: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self._app = app
         self._voice = voice
         self._muted = False
         self._open_settings = open_settings
+        # Injected the same way `open_settings` already is: this package
+        # is architecture-guarded against importing the Planner/Mission
+        # Control/Broker/Runtime it takes to actually run an objective
+        # (`tests/test_founder_edition_boot.py::TestNothingExecutesOrCallsAI`),
+        # so `kalpavriksha_desktop.py` — the one place outside the guard —
+        # builds that pipeline and hands this module only a plain
+        # callable. `None` on a machine with no reasoning provider
+        # configured; conversation still works, an objective just falls
+        # through to the existing "I don't understand" reply below.
+        self._submit_objective = submit_objective
+        # Task 2.5 — the Hyper Agent status/completion contract. Same
+        # injection shape as `submit_objective`, for the same architectural
+        # reason: this module states no opinion about execution state, it
+        # only relays the one callable the composition root handed it.
+        self._get_execution_status = get_execution_status
+        self._confirm_completion = confirm_completion
 
     def get_founder_seed(self) -> int:
         identity = self._app.identity
@@ -335,6 +354,12 @@ class DesktopShellApi:
             self._app.communication.handle(recovery)
             return {"reply": None}
         if routed is None:
+            # ConversationEngine's own "I don't recognise this" signal —
+            # not a new classifier, the existing one. An objective the
+            # founder typed but the answer layer has nothing to say about
+            # is exactly what the Planner pipeline exists for.
+            if self._submit_objective is not None:
+                return self._submit_objective(text)
             return {"reply": None}
         if self._voice is not None:
             self._voice.speak(routed.response.spoken)
@@ -342,6 +367,27 @@ class DesktopShellApi:
 
     def get_dashboard(self) -> dict[str, Any]:
         return self._app.dashboard()
+
+    def get_execution_status(self) -> dict[str, Any]:
+        """Task 2.5 §8 — the current objective's live status, as a plain
+        semantic contract (status/step/timing/attempt/completion — no
+        color, animation, or visual metaphor; those are Hyper Agent's
+        decisions, made from these fields). `{}` on a machine with no
+        reasoning provider configured, or before any objective has run —
+        an honest "nothing to report" rather than a fabricated idle state.
+        """
+        if self._get_execution_status is None:
+            return {}
+        return self._get_execution_status()
+
+    def confirm_completion(self, completion_id: str) -> dict[str, Any]:
+        """Task 2.5 §D — the one action that turns a verified objective
+        into a founder-facing completed one. Relays to Mission Control's
+        own `confirm_completion`; this module decides nothing about
+        whether the answer is allowed, only that the founder gave one."""
+        if self._confirm_completion is None:
+            return {}
+        return self._confirm_completion(completion_id)
 
     def toggle_mute(self) -> dict[str, Any]:
         """Founder-chosen silence — `03_VOICE_EXPERIENCE §3.5`'s `muted`
@@ -459,6 +505,9 @@ def create_window(
     open_settings: Callable[[], None] | None = None,
     input_device_resolver: Callable[[], str | None] | None = None,
     output_device_resolver: Callable[[], str | None] | None = None,
+    submit_objective: Callable[[str], dict[str, Any]] | None = None,
+    get_execution_status: Callable[[], dict[str, Any]] | None = None,
+    confirm_completion: Callable[[str], dict[str, Any]] | None = None,
 ) -> FounderEditionApp:
     """Boot Founder Edition, start the local voice pipeline, and open the
     one native window.
@@ -494,12 +543,17 @@ def create_window(
         input_device_resolver=input_device_resolver,
         output_device_resolver=output_device_resolver,
     )
-    api = DesktopShellApi(app, voice=voice, open_settings=open_settings)
+    api = DesktopShellApi(
+        app, voice=voice, open_settings=open_settings,
+        submit_objective=submit_objective,
+        get_execution_status=get_execution_status,
+        confirm_completion=confirm_completion,
+    )
     window.expose(api.get_founder_seed, api.greet, api.send_message,
                   api.get_dashboard, api.toggle_mute,
                   api.open_microphone_settings,
                   api.interrupt_speech, api.abandon_voice_capture, api.get_startup_diagnostics,
-                  api.debug_log)
+                  api.debug_log, api.get_execution_status, api.confirm_completion)
 
     def _on_shown():
         try:

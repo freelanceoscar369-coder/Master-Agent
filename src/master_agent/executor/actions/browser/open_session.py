@@ -31,6 +31,22 @@ class OpenBrowserSessionAction(Action):
     def required_parameters(self) -> list[str]:
         return ["session_id"]
 
+    def optional_parameters(self) -> list[dict[str, Any]] | None:
+        return [
+            {
+                "name": "headless",
+                "type": "boolean",
+                "description": (
+                    "Whether the browser window is invisible (true, the "
+                    "default) or visible so the founder can watch this "
+                    "session (false). Set false when the objective asks to "
+                    "be shown the browser, or otherwise implies the "
+                    "founder wants to see it happen."
+                ),
+                "default": True,
+            }
+        ]
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []
         session_id = (parameters.get("session_id") or "").strip()

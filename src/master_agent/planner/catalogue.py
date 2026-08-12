@@ -36,6 +36,13 @@ class CapabilityOption:
     #: field that closes MB036 Finding 4: the Planner used to learn an
     #: argument's name by reading English, and got it wrong.
     required_args: tuple[str, ...] = ()
+    #: Arguments the call *may* carry, published only when the capability's
+    #: contract declared them by name (see `capabilities/index.py`'s
+    #: `IndexEntry.optional_args`) -- e.g. `headless` on
+    #: `Browser.OpenBrowserSession`. Without this the Planner could not
+    #: legitimately choose a founder-visible browser: an argument it does
+    #: not know exists is not one it can write into a payload.
+    optional_args: tuple[str, ...] = ()
     #: False when optional arguments exist that nobody has published, so
     #: the list above is a floor rather than the whole story.
     args_complete: bool = False
@@ -74,6 +81,7 @@ def catalogue_from_index(index: Any) -> tuple[CapabilityOption, ...]:
             description=entry.summary,
             risk_tier=entry.risk_tier,
             required_args=tuple(entry.required_args),
+            optional_args=tuple(entry.optional_args),
             args_complete=entry.args_complete,
         )
         for entry in sorted(index.entries, key=lambda e: e.canonical_id)
@@ -117,11 +125,17 @@ def signature(option: CapabilityOption) -> str:
     are different facts.
     """
     if not option.required_args:
-        return "args: none declared" if not option.args_complete else "args: none"
-    args = ", ".join(option.required_args)
-    if option.args_complete:
-        return f"args: {args}"
-    return f"args: {args} (others may exist)"
+        base = "args: none declared" if not option.args_complete else "args: none"
+    else:
+        args = ", ".join(option.required_args)
+        base = f"args: {args}" if option.args_complete else f"args: {args} (others may exist)"
+    if option.optional_args:
+        # A separate labelled field, the same reason `args:` is labelled
+        # rather than parenthesised: a model reading `optional: headless`
+        # must not mistake it for a required argument it now has to fill
+        # in on every call.
+        base += f" | optional: {', '.join(option.optional_args)}"
+    return base
 
 
 def names(options: tuple[CapabilityOption, ...] | list[CapabilityOption]) -> tuple[str, ...]:

@@ -78,17 +78,43 @@ def contract_from_action(
         required = ()
         inputs = Schema.unknown()
     else:
-        inputs = Schema(
-            fields=tuple(
-                FieldSpec(name=name, type=UNKNOWN, required=True) for name in required
-            ),
-            # The required names are genuinely known...
-            known=True,
-            # ...but optional arguments exist and are not published, so
-            # this list is not exhaustive and an unlisted key is not an
-            # error. `location` on `CreateFolder` is exactly this case.
-            closed=False,
+        required_fields = tuple(
+            FieldSpec(name=name, type=UNKNOWN, required=True) for name in required
         )
+        try:
+            optional = action.optional_parameters()
+        except Exception:  # noqa: BLE001 - same reflection-is-best-effort reasoning
+            optional = None
+
+        if optional is None:
+            inputs = Schema(
+                fields=required_fields,
+                # The required names are genuinely known...
+                known=True,
+                # ...but optional arguments exist and are not published, so
+                # this list is not exhaustive and an unlisted key is not an
+                # error. `location` on `CreateFolder` is exactly this case.
+                closed=False,
+            )
+        else:
+            # This Action opted in (`Action.optional_parameters()`) and
+            # named every optional argument it takes -- required *and*
+            # optional are now both genuinely known, so the schema can
+            # honestly claim closed=True instead of the usual "others may
+            # exist" hedge.
+            optional_fields = tuple(
+                FieldSpec(
+                    name=str(item["name"]),
+                    type=str(item.get("type", UNKNOWN)),
+                    required=False,
+                    description=_text(item.get("description", "")),
+                    default=item.get("default"),
+                )
+                for item in optional
+            )
+            inputs = Schema(
+                fields=required_fields + optional_fields, known=True, closed=True
+            )
 
     return CapabilityContract(
         canonical_id=canonical_id,

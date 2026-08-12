@@ -44,6 +44,12 @@ class IndexEntry:
     #: MB036 Finding 4: without it the Planner was guessing names out of
     #: an English sentence.
     required_args: tuple[str, ...] = ()
+    #: Optional arguments the capability accepts, published the same way as
+    #: `required_args` and only ever non-empty when `args_complete` is also
+    #: True (an Action that has not opted into declaring its optional args
+    #: cannot honestly name them). `headless` on `Browser.OpenBrowserSession`
+    #: is the first entry to populate this.
+    optional_args: tuple[str, ...] = ()
     #: False when optional arguments exist that nobody has published, so a
     #: caller knows the list above is a floor rather than the whole story.
     args_complete: bool = False
@@ -66,6 +72,7 @@ class IndexEntry:
             "summary": self.summary,
             "risk_tier": self.risk_tier,
             "required_args": list(self.required_args),
+            "optional_args": list(self.optional_args),
             "args_complete": self.args_complete,
             "approval_required": self.approval_required,
             "side_effect": self.side_effect,
@@ -74,16 +81,27 @@ class IndexEntry:
 
 def entry_for(contract: CapabilityContract) -> IndexEntry:
     """Project a full contract down to its index line."""
+    complete = contract.inputs.known and contract.inputs.closed
     return IndexEntry(
         canonical_id=contract.canonical_id,
         domain=contract.domain,
         summary=contract.summary,
         risk_tier=contract.permissions.risk_tier,
         required_args=contract.inputs.required_names if contract.inputs.known else (),
+        # Only surfaced once the schema is genuinely complete (see
+        # `optional_args`'s own docstring) -- an open schema's "optional"
+        # arguments are exactly the ones nobody has published, so listing
+        # any of them here would be the same fabrication `args_complete`
+        # already exists to prevent.
+        optional_args=(
+            tuple(name for name in contract.inputs.field_names if name not in contract.inputs.required_names)
+            if complete
+            else ()
+        ),
         # A schema is only "complete" when it is both known *and* closed:
         # known-but-open means the required names are published and the
         # optional ones are not.
-        args_complete=contract.inputs.known and contract.inputs.closed,
+        args_complete=complete,
         approval_required=contract.permissions.approval_required,
         side_effect=contract.side_effect,
     )

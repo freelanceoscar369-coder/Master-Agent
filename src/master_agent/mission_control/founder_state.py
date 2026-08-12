@@ -44,6 +44,12 @@ class FounderState:
     eta_seconds: float | None = None
     waiting_approval: list[dict[str, Any]] = field(default_factory=list)
     learning_progress: dict[str, Any] = field(default_factory=dict)
+    # Task 2.5: an objective whose tasks all finished without failure is
+    # *verified*, not yet founder-completed (mission_control/completion.py).
+    # True only between that moment and the founder's own confirmation —
+    # `completion_id` is the one thing a caller needs to answer it.
+    requires_founder_completion: bool = False
+    completion_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +65,8 @@ class FounderState:
             "eta_seconds": self.eta_seconds,
             "waiting_approval": [dict(item) for item in self.waiting_approval],
             "learning_progress": dict(self.learning_progress),
+            "requires_founder_completion": self.requires_founder_completion,
+            "completion_id": self.completion_id,
         }
 
 
