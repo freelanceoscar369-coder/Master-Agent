@@ -35,7 +35,13 @@ from master_agent.ai_infrastructure.execution import (
     PromptOutcome,
 )
 from master_agent.ai_infrastructure.ledger import CACHE_HIT
-from master_agent.config import BrokerConfig, MasterAgentConfig, OllamaConfig, PromptCacheConfig
+from master_agent.config import (
+    BrokerConfig,
+    GeminiConfig,
+    MasterAgentConfig,
+    OllamaConfig,
+    PromptCacheConfig,
+)
 from master_agent.dashboard.charset import ASCII
 from master_agent.dashboard.founder import as_dict as founder_as_dict
 from master_agent.dashboard.founder import build_founder_view
@@ -973,7 +979,12 @@ def test_the_configured_address_is_what_the_provider_will_reach(tmp_path):
 
 
 def test_a_disabled_provider_is_simply_not_registered(tmp_path):
-    config = MasterAgentConfig(ollama=OllamaConfig(enabled=False))
+    """Every provider is independently switchable — Build 2 added Gemini
+    beside Ollama, and disabling one must never register the other by
+    accident, so an empty registry now requires disabling both."""
+    config = MasterAgentConfig(
+        ollama=OllamaConfig(enabled=False), gemini=GeminiConfig(enabled=False)
+    )
     system = quiet_system(tmp_path / "state", config=config)
 
     assert system.providers.all_plugins() == []

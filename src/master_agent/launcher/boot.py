@@ -67,6 +67,7 @@ from master_agent.plugins.base import Plugin
 from master_agent.plugins.filesystem_plugin import FilesystemPlugin
 from master_agent.plugins.model_router import ModelRouter
 from master_agent.plugins.registry import PluginRegistry
+from master_agent.providers.gemini import GeminiProvider
 from master_agent.providers.ollama import OllamaProvider
 from master_agent.runtime.approval import FounderApprovalGate, PermissionSystemGate
 from master_agent.runtime.config import RuntimeConfig
@@ -304,7 +305,10 @@ def build_system(
     permissions = PermissionSystem()
     executor = LocalExecutor(permissions)
     registry = PluginRegistry()
-    default_plugins = [FilesystemPlugin(executor), DesktopPlugin(executor), AiInfrastructurePlugin(executor)]
+    from master_agent.environment.browser_session import BrowserSessionManager
+    from master_agent.plugins.browser_plugin import BrowserPlugin
+    sessions = BrowserSessionManager()
+    default_plugins = [FilesystemPlugin(executor), DesktopPlugin(executor), AiInfrastructurePlugin(executor), BrowserPlugin(executor, sessions)]
     for plugin in plugins if plugins is not None else default_plugins:
         registry.register(plugin)
     report.add(
@@ -475,6 +479,7 @@ def build_system(
     #     provider that probed at boot would have decided otherwise.
     providers = PluginRegistry()
     provider_detail = "no provider is enabled; nothing can execute a prompt"
+    provider_details: list[str] = []
     if config.ollama.enabled:
         providers.register(
             OllamaProvider(
@@ -483,9 +488,27 @@ def build_system(
                 timeout_seconds=config.ollama.timeout_seconds,
             )
         )
+        provider_details.append(f"model '{config.ollama.model}' at {config.ollama.base_url}")
+    # Founder decision: provider search closed, Gemini API selected as the
+    # first genuinely programmatic reasoning provider. Registered whether
+    # or not a key is configured — the same "construct regardless,
+    # reachability is a question for the moment of use" posture the
+    # Ollama registration above already takes. A missing key is reported
+    # honestly by GeminiProvider.availability()/complete(), never assumed.
+    if config.gemini.enabled:
+        providers.register(
+            GeminiProvider(
+                api_key=config.gemini.api_key,
+                model=config.gemini.model,
+                base_url=config.gemini.base_url,
+                timeout_seconds=config.gemini.timeout_seconds,
+            )
+        )
+        provider_details.append(f"model '{config.gemini.model}' at {config.gemini.base_url}")
+    if providers.all_plugins():
         provider_detail = (
             f"{len(providers.all_plugins())} provider(s) executable; "
-            f"model '{config.ollama.model}' at {config.ollama.base_url}"
+            + "; ".join(provider_details)
         )
 
     # 8b. The Brain's door to reasoning, with the Broker behind it. Given

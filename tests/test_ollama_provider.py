@@ -1082,9 +1082,16 @@ def test_every_module_says_which_brief_it_serves():
         head = " ".join(path.read_text(encoding="utf-8")[:600].split())
         # MB038 added `budget.py` here. A newer brief is a valid answer to
         # "which brief does this serve"; the convention is that the answer
-        # exists, not that it is always 033.
+        # exists, not that it is always 033. `gemini.py` (Build 2, Founder
+        # decision: provider search closed) is not a numbered Mission
+        # Brief, so it states its own identity instead.
         assert any(
-            marker in head for marker in ("Mission Brief 033", "Mission Brief 038")
+            marker in head
+            for marker in (
+                "Mission Brief 033",
+                "Mission Brief 038",
+                "Gemini API Provider",
+            )
         ), path.name
 
 

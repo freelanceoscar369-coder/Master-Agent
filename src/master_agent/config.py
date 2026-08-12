@@ -44,11 +44,18 @@ class BrokerConfig:
     `enabled_cloud_providers` is empty by default, so a provider that needs
     credentials is reported unavailable until the founder says otherwise.
     Absence of a key is a fact, not a reason to try anyway.
+
+    Founder decision (provider search closed): `"gemini.api"` is enabled
+    by default. This says only "the founder has decided Gemini may be
+    selected" — `GeminiConfig.api_key` being empty still reports it
+    unavailable (`ai_infrastructure/profiles.py`'s `NO_CREDENTIALS`
+    rule), so enabling it here does not silently start attempting calls
+    on a machine with no key configured.
     """
 
     policy: str = "balanced"
     strong_reasoning_min_quality: float = 0.8
-    enabled_cloud_providers: tuple[str, ...] = ()
+    enabled_cloud_providers: tuple[str, ...] = ("gemini.api",)
 
 
 @dataclass
@@ -81,6 +88,41 @@ class OllamaConfig:
     # adapter no longer retries anything: retry belongs to the layer that
     # owns the failure's meaning, and that is the Runtime (MB024), which
     # keeps its own `max_attempts` in `runtime/config.py`.
+
+
+@dataclass
+class GeminiConfig:
+    """How to reach the Gemini API (Founder decision: provider search
+    closed, Gemini selected as the first genuinely programmatic reasoning
+    provider).
+
+    `model` is **configuration, never a choice made here** — the same
+    discipline `OllamaConfig.model` already states. `gemini-2.5-flash` is
+    the default because it is the stable (non-preview) flash-tier model
+    confirmed available via a real `models.list` call against this
+    project's own API key as of this writing; a founder on a different
+    tier changes this one line.
+
+    `api_key` is never a literal default — it is populated by
+    `load_config()` from the `GEMINI_API_KEY` environment variable, the
+    one place this module reads the environment, so no secret is ever
+    written into this file or committed to the repository. Empty means
+    "not configured," and `GeminiProvider.availability()` reports that
+    honestly rather than attempting a doomed call.
+
+    `enabled` mirrors `OllamaConfig.enabled`: separate from "is a key
+    configured" — this answers "should Kalpavriksha route prompts through
+    Gemini at all." Both must be true, and the founder must also add
+    `"gemini.api"` to `BrokerConfig.enabled_cloud_providers` before the
+    Broker will consider it — absence from that list is a fact, not an
+    oversight to work around.
+    """
+
+    enabled: bool = True
+    api_key: str = ""
+    model: str = "gemini-2.5-flash"
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    timeout_seconds: float = 60.0
 
 
 @dataclass
@@ -133,11 +175,21 @@ class MasterAgentConfig:
     model_router: ModelRouterConfig = field(default_factory=ModelRouterConfig)
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    gemini: GeminiConfig = field(default_factory=GeminiConfig)
     prompt_cache: PromptCacheConfig = field(default_factory=PromptCacheConfig)
     require_approval_above: str = "read_only"  # risk tiers gated by the Permission System
 
 
 def load_config() -> MasterAgentConfig:
-    """Load config. Founder Edition: defaults only. Extend to read a TOML/env
-    override file once there's more than one person configuring this."""
-    return MasterAgentConfig()
+    """Load config. Founder Edition: defaults only, except one read: the
+    `GEMINI_API_KEY` environment variable, populated into
+    `GeminiConfig.api_key`. This is the one place this module reads the
+    environment (see the module docstring) — a secret must never be a
+    dataclass literal or land in the repository. Extend to read a
+    TOML/env override file once there's more than one person configuring
+    this."""
+    import os
+
+    config = MasterAgentConfig()
+    config.gemini.api_key = os.environ.get("GEMINI_API_KEY", "")
+    return config

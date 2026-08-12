@@ -247,6 +247,27 @@ PROVIDER_CATALOG: tuple[ProviderSpec, ...] = (
         notes="metered API; every call spends money",
     ),
     ProviderSpec(
+        provider_id="gemini.api",
+        label="Gemini API",
+        capabilities=frozenset({REASONING, PLANNING, CODING}),
+        locality=CLOUD,
+        privacy=THIRD_PARTY,
+        declared_quality=0.88,
+        # Founder decision: selected specifically for its free API tier.
+        # Zero *marginal* cost describes that tier, the same way
+        # claude-desktop's 0.0 describes an existing subscription rather
+        # than a claim that every possible usage is free.
+        cost_per_call=0.0,
+        latency_ms=2000.0,
+        max_context_tokens=1_000_000,
+        needs_credentials=True,
+        basis=DECLARED,
+        notes=(
+            "REST API; requires GEMINI_API_KEY; free tier as of this "
+            "writing — see GeminiConfig for the model default"
+        ),
+    ),
+    ProviderSpec(
         provider_id="openrouter.api",
         label="OpenRouter",
         capabilities=frozenset({REASONING, CODING}),

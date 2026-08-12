@@ -1,0 +1,356 @@
+"""Gemini API Provider — Kalpavriksha's first cloud reasoning execution
+path (Founder decision: provider search closed, Gemini API selected).
+
+Mirrors `providers/ollama.py`'s shape exactly: **it executes, it never
+decides.** No ranking, no fallback, no retry beyond what the transport
+itself reports — the same MB033 split applies here as it does to Ollama:
+the Broker decides, the provider executes and never silently substitutes
+a different provider or a different answer.
+
+## Transport
+
+Plain REST over the existing `Transport` protocol
+(`providers/transport.py`), the same `UrllibTransport` Ollama already
+uses. No SDK dependency added: the surface needed — one POST, JSON in,
+JSON out — does not earn one, the same judgment `transport.py`'s own
+docstring already made for Ollama.
+
+## Credential
+
+`api_key` is handed in at construction, never read from this module. A
+missing key is reported as `UNAVAILABLE` — the same outcome Ollama uses
+for "nothing is listening" — because from Gemini's perspective an
+unauthenticated caller cannot be reached any more than a stopped daemon
+can. No call is attempted with an empty key.
+"""
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from master_agent.plugins.base import (
+    CapabilityManifest,
+    ModelProvider,
+    PluginManifest,
+    RiskTier,
+)
+from master_agent.providers.response import (
+    MALFORMED,
+    REJECTED,
+    SUCCEEDED,
+    TIMED_OUT,
+    UNAVAILABLE,
+    Availability,
+    ProviderResponse,
+    ProviderResult,
+    failure,
+)
+from master_agent.providers.transport import (
+    DEFAULT_TIMEOUT_SECONDS,
+    Transport,
+    TransportTimeout,
+    TransportUnavailable,
+    UrllibTransport,
+)
+
+#: Must equal the `provider_id` the AI Infrastructure catalogue uses for
+#: this provider. Not imported from there, the same reason `ollama.py`
+#: does not: this package sits below the wiring layer.
+GEMINI_PROVIDER_ID = "gemini.api"
+
+GEMINI_VERSION = "1.0.0"
+DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+#: Founder decision: free-tier-eligible model via a Google AI Studio API
+#: key. Configuration, never a choice made here — see `config.py`'s
+#: `GeminiConfig.model` docstring for how a founder changes it.
+DEFAULT_MODEL = "gemini-2.5-flash"
+
+NO_API_KEY = "no GEMINI_API_KEY configured"
+
+
+class GeminiProvider(ModelProvider):
+    """A `ModelProvider` backed by the Gemini REST API.
+
+    `model` and `api_key` are configuration, never a choice made here —
+    the same discipline `OllamaProvider.model` already states.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = DEFAULT_MODEL,
+        base_url: str = DEFAULT_BASE_URL,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        transport: Transport | None = None,
+        clock: Any = None,
+        provider_id: str = GEMINI_PROVIDER_ID,
+    ) -> None:
+        self._api_key = api_key or ""
+        self._model = model
+        self._base_url = base_url.rstrip("/")
+        self._timeout = timeout_seconds
+        self._transport: Transport = transport or UrllibTransport()
+        self._clock = clock or time.monotonic
+        self._provider_id = provider_id
+
+    # ---- identity -------------------------------------------------------
+
+    @property
+    def provider_id(self) -> str:
+        return self._provider_id
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @property
+    def manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name=self._provider_id,
+            version=GEMINI_VERSION,
+            capabilities=[
+                CapabilityManifest(
+                    name=self.CAPABILITY_NAME,
+                    description=f"Generate text with Gemini ({self._model}).",
+                    risk_tier=RiskTier.READ_ONLY,
+                )
+            ],
+        )
+
+    # ---- availability ---------------------------------------------------
+
+    def availability(self) -> Availability:
+        """Whether a call could be attempted right now. A missing key is
+        reported here rather than only at call time, the same way
+        `OllamaProvider.availability()` reports a stopped daemon."""
+        if not self._api_key:
+            return Availability(self._provider_id, False, detail=NO_API_KEY)
+        return Availability(
+            self._provider_id, True, models=(self._model,), detail="configured"
+        )
+
+    # ---- execution ------------------------------------------------------
+
+    def complete(
+        self,
+        prompt: str,
+        context: dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
+        budget: Any = None,
+        cancellation: Any = None,
+    ) -> ProviderResult:
+        """Run one prompt. Returns an answer or a reason — never both, and
+        never an exception for an operational failure.
+
+        Non-streaming only (`generateContent`, not `streamGenerateContent`):
+        the smallest correct implementation for a synchronous
+        prompt-in/text-out reasoning call. A budget's total deadline is
+        honoured as the request timeout when one is supplied; the finer
+        TTFT/ITL split Ollama's streaming path measures does not apply to
+        a non-streaming call.
+        """
+        started = self._clock()
+        if not self._api_key:
+            return failure(
+                self._provider_id,
+                UNAVAILABLE,
+                NO_API_KEY,
+                latency_ms=self._elapsed_ms(started),
+            )
+
+        timeout = _timeout_for(budget, self._timeout)
+        url = (
+            f"{self._base_url}/models/{self._model}:generateContent"
+            f"?key={self._api_key}"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": self._compose(prompt, context)}]}],
+        }
+        merged_options = dict(options or {})
+        if merged_options:
+            payload["generationConfig"] = merged_options
+
+        try:
+            response = self._transport.post_json(url, payload, timeout)
+        except TransportTimeout as exc:
+            return failure(
+                self._provider_id,
+                TIMED_OUT,
+                str(exc),
+                latency_ms=self._elapsed_ms(started),
+                timeout_seconds=timeout,
+                url=self._base_url,
+            )
+        except TransportUnavailable as exc:
+            return failure(
+                self._provider_id,
+                UNAVAILABLE,
+                f"{exc} (could not reach {self._base_url})",
+                latency_ms=self._elapsed_ms(started),
+                url=self._base_url,
+            )
+        return self._read(response, started)
+
+    # ---- the ModelProvider contract -------------------------------------
+
+    def generate(
+        self, prompt: str, context: dict[str, Any] | None = None, **opts: Any
+    ) -> str:
+        """The frozen `ModelProvider` contract: a string, or nothing.
+
+        Raises on failure, the same discipline `OllamaProvider.generate()`
+        already applies and for the same reason: a caller that cannot
+        tell an answer from an apology will store the apology as an
+        answer.
+        """
+        result = self.complete(prompt, context, options=opts or None)
+        if not result.ok:
+            from master_agent.providers.ollama import ProviderExecutionFailed
+
+            raise ProviderExecutionFailed(result)
+        return result.text
+
+    # ---- internals -------------------------------------------------------
+
+    def _read(self, response: Any, started: float) -> ProviderResult:
+        latency = self._elapsed_ms(started)
+
+        if not response.ok:
+            return failure(
+                self._provider_id,
+                self._outcome_for_status(response.status),
+                self._rejection(response),
+                latency_ms=latency,
+                status=response.status,
+                model=self._model,
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            return failure(
+                self._provider_id,
+                MALFORMED,
+                f"Gemini answered with something that is not JSON: {exc}",
+                latency_ms=latency,
+                body=response.body[:200],
+            )
+
+        text = _extract_text(payload)
+        if text is None:
+            return failure(
+                self._provider_id,
+                MALFORMED,
+                "Gemini answered JSON with no readable candidate text",
+                latency_ms=latency,
+                body=response.body[:200],
+            )
+
+        usage = payload.get("usageMetadata") or {}
+        candidates = payload.get("candidates") or [{}]
+        finish_reason = str((candidates[0] or {}).get("finishReason", ""))
+
+        return ProviderResult(
+            provider_id=self._provider_id,
+            outcome=SUCCEEDED,
+            response=ProviderResponse(
+                text=text,
+                model=self._model,
+                latency_ms=latency,
+                prompt_tokens=_count(usage.get("promptTokenCount")),
+                completion_tokens=_count(usage.get("candidatesTokenCount")),
+                finish_reason=finish_reason,
+            ),
+            latency_ms=latency,
+        )
+
+    def _outcome_for_status(self, status: int) -> str:
+        """429 is quota/rate-limit exhaustion (Founder's free-tier
+        constraint, §8 of the build brief) — reported as `REJECTED`
+        exactly like Ollama reports "model not found": the provider *is*
+        reachable, and the reason is in the body, never invented here."""
+        return REJECTED
+
+    def _rejection(self, response: Any) -> str:
+        """A refusal a founder can act on. Gemini's error body carries
+        `error.message`; dropping it in favour of "HTTP 429" would throw
+        away the only useful half — the same principle
+        `OllamaProvider._rejection()` already applies."""
+        detail = ""
+        try:
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                error = parsed.get("error")
+                if isinstance(error, dict) and error.get("message"):
+                    detail = str(error["message"])
+        except ValueError:
+            detail = (response.body or "").strip()[:200]
+        return f"HTTP {response.status}{f': {detail}' if detail else ''}"
+
+    def _compose(self, prompt: str, context: dict[str, Any] | None) -> str:
+        """Context is appended as plain labelled lines — the same,
+        deliberately un-templated composition `OllamaProvider._compose()`
+        uses. Templating is a decision about how to get a better answer,
+        and this class does not make those."""
+        if not context:
+            return prompt
+        lines = [f"{key}: {value}" for key, value in sorted(context.items())]
+        return f"{prompt}\n\n" + "\n".join(lines)
+
+    def _elapsed_ms(self, started: float) -> float:
+        return max(0.0, (self._clock() - started) * 1000.0)
+
+
+def _timeout_for(budget: Any, default: float) -> float:
+    """A budget's total deadline, in seconds, or the provider's own
+    default when no budget was supplied or it carries nothing usable.
+    Deliberately tolerant of shape: this provider does not depend on the
+    exact `CallBudget` fields Ollama's streaming path enforces, since it
+    never streams."""
+    if budget is None:
+        return default
+    total_ms = getattr(budget, "total_deadline_ms", None)
+    if isinstance(total_ms, (int, float)) and total_ms > 0:
+        return total_ms / 1000.0
+    return default
+
+
+def _extract_text(payload: Any) -> str | None:
+    """The first candidate's concatenated text, or `None` when the shape
+    is not what was promised. `None` is a distinct outcome from `""`: an
+    empty string is a real (if useless) answer, and this function must
+    never confuse the two."""
+    if not isinstance(payload, dict):
+        return None
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    first = candidates[0]
+    if not isinstance(first, dict):
+        return None
+    content = first.get("content")
+    if not isinstance(content, dict):
+        return None
+    parts = content.get("parts")
+    if not isinstance(parts, list):
+        return None
+    texts = [
+        str(part["text"])
+        for part in parts
+        if isinstance(part, dict) and isinstance(part.get("text"), str)
+    ]
+    if not texts:
+        return None
+    return "".join(texts)
+
+
+def _count(value: Any) -> int | None:
+    """A token count, or None. Never 0 for "unreported" — the same rule
+    `ollama.py::_count()` already states."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
