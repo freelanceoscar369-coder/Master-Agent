@@ -151,26 +151,43 @@ window's own pre-existing state, never a state this call caused.
 
 ## Regression validation
 
+**Per Engineering Rule 001** ("a milestone is GREEN only when verified in
+a clean checkout of its own tag — the working directory is never
+evidence"), the numbers below are from `git worktree add <tmp>
+milestone-desktop-intelligence-observe` + `pytest`, not from the working
+directory.
+
 Mission-relevant suite (`test_desktop_uia`, `test_desktop_intelligence`
 [new, 30 tests], `test_app_knowledge_profile`,
 `test_app_knowledge_acquisition`, `test_desktop_execution`,
 `test_desktop_operator`, `test_reasoning_session_manager`,
 `test_desktop_app_provider`, `test_kalpavriksha_desktop_mission_bridge`,
-`test_desktop_perception`):
+`test_desktop_perception`, `test_desktop_operations`), clean checkout:
 
 ```
-490 passed in 64.7s
+593 passed, 5 failed in 56.5s
 ```
 
-`test_desktop_operations.py` (2 failures — `notepad` now has a real
-`RECOVERY_PLANS`/`profile()` entry a stale test still asserts should not
-exist) was checked against the identical pre-mission tree via `git
-stash`: **both failures reproduce byte-for-byte identically with and
-without this mission's changes** — pre-existing catalog/test drift,
-unrelated to Desktop Intelligence, left untouched per this project's own
-execution-first protocol (don't reopen unrelated debugging).
+All 5 failures are pre-existing, **confirmed identical at the parent tag**
+(`milestone-reasoning-layer`, `72fcb37`, checked the same way, in its own
+clean worktree) — none introduced by this mission, none touching any file
+this mission changed:
 
-Full-suite run: three test modules (`test_communication.py`,
+- `test_kalpavriksha_desktop_mission_bridge.py` × 3 — `kalpavriksha_desktop.py`
+  constructs `BrowserSessionManager(default_headless=..., default_channel=...)`,
+  but the *committed* `BrowserSessionManager.__init__()` does not accept
+  those keywords. This was masked in the working directory (where these 3
+  tests pass) by an *uncommitted* modification to
+  `src/master_agent/environment/browser_session.py` — exactly the class of
+  false-green Rule 001 exists to catch. Pre-existing at the parent tag,
+  unrelated to Desktop Intelligence; not fixed here (out of this mission's
+  scope, and not this mission's file to fix).
+- `test_desktop_operations.py` × 2 — `notepad` now has a real
+  `RECOVERY_PLANS`/`profile()` entry a stale test still asserts should not
+  exist. Confirmed identical at the parent tag.
+
+Full-suite run (working directory, informational only — not the Rule-001
+evidence above): three test modules (`test_communication.py`,
 `test_conversation_engine.py`, `test_desktop_shell.py`) fail to *collect*
 on a circular import inside the working tree's own uncommitted Founder
 Edition changes (`founder_runtime`/`founder_edition`/`communication`/
