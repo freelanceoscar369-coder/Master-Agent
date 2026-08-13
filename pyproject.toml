@@ -19,6 +19,13 @@ dependencies = [
     # already in packaging/kalpavriksha.spec's hiddenimports; declared
     # directly here now that the Desktop Executive itself depends on it.
     "comtypes>=1.4; sys_platform == 'win32'",
+    # Desktop Intelligence: the first-class screenshot/evidence capability
+    # (desktop/intelligence/screenshot.py) — was already an installed
+    # transitive dependency (matplotlib/reportlab/streamlit) on this
+    # machine; declared directly here now that the Desktop Executive
+    # itself depends on it, the same reasoning `comtypes` above already
+    # documents for its own promotion from transitive to direct.
+    "Pillow>=10.0",
 ]
 
 [project.scripts]

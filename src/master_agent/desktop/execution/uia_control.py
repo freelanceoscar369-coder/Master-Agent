@@ -77,6 +77,34 @@ _IS_OFFSCREEN_PROPERTY_ID = 30022
 _INVOKE_PATTERN_ID = 10000
 _VALUE_PATTERN_ID = 10002
 _TEXT_PATTERN_ID = 10014
+#: `snapshot_elements()`'s own two bonus, best-effort facts — verified
+#: against the real, installed `UIAutomationCore.dll` type library the same
+#: way every constant above already was (never guessed): a "current
+#: selected tab" is only ever knowable when an element both supports
+#: `SelectionItemPattern` at all *and* reports itself selected.
+_IS_SELECTION_ITEM_PATTERN_AVAILABLE_PROPERTY_ID = 30036
+_SELECTION_ITEM_IS_SELECTED_PROPERTY_ID = 30079
+#: `WindowPattern.IsModal` — the one generic, evidence-based signal this
+#: module has for "this nested Window-typed element is a dialog, not just
+#: another window" (Desktop Intelligence's own DIALOG classification).
+_WINDOW_IS_MODAL_PROPERTY_ID = 30077
+
+#: Real UIA ControlType IDs (from the same generated type library as every
+#: property/pattern ID above) that Desktop Intelligence's semantic
+#: classification layer (`desktop/intelligence/classification.py`) matches
+#: directly — public (no leading underscore) because that higher layer
+#: imports them rather than re-declaring its own copy of Windows' own
+#: numbering.
+CONTROL_TYPE_BUTTON = 50000
+CONTROL_TYPE_COMBO_BOX = 50003
+CONTROL_TYPE_EDIT = 50004
+CONTROL_TYPE_MENU = 50009
+CONTROL_TYPE_MENU_BAR = 50010
+CONTROL_TYPE_MENU_ITEM = 50011
+CONTROL_TYPE_TAB = 50018
+CONTROL_TYPE_TAB_ITEM = 50019
+CONTROL_TYPE_SPLIT_BUTTON = 50031
+CONTROL_TYPE_WINDOW = 50032
 
 #: A composer/input box is a small, focusable, text-bearing region docked
 #: in roughly the bottom half of its window — real evidence from Claude
@@ -209,6 +237,45 @@ class UiaElementInfo:
     center_x: int
     center_y: int
     height: int
+
+
+@dataclass(frozen=True)
+class UiaElementSnapshot:
+    """One UIA element's full, read-only observable state — the batch
+    counterpart to `UiaElementInfo`/`describe()`: every descendant in a
+    window, not just one caller-resolved target. `desktop/intelligence/`'s
+    observation layer is this type's only consumer; nothing here carries
+    or exposes any way to act on the element it describes.
+
+    `is_selected`/`is_modal` are `None`, not `False`, when the underlying
+    pattern/property could not be read at all — the same "silence is not
+    evidence of absence" discipline `Observation`/`Fact` already hold
+    elsewhere in this codebase, extended to a plain dataclass field here
+    since this type carries no separate confidence wrapper of its own
+    (that is `ElementObservation`'s job, one layer up)."""
+
+    name: str
+    automation_id: str
+    control_type: int
+    is_enabled: bool
+    is_focusable: bool
+    is_offscreen: bool
+    is_selected: bool | None
+    is_modal: bool | None
+    has_value_pattern: bool
+    has_text_pattern: bool
+    bounds: tuple[int, int, int, int]
+    text: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name, "automation_id": self.automation_id,
+            "control_type": self.control_type, "is_enabled": self.is_enabled,
+            "is_focusable": self.is_focusable, "is_offscreen": self.is_offscreen,
+            "is_selected": self.is_selected, "is_modal": self.is_modal,
+            "has_value_pattern": self.has_value_pattern, "has_text_pattern": self.has_text_pattern,
+            "bounds": list(self.bounds), "text": self.text,
+        }
 
 
 class UiaAutomationBridge:
@@ -653,6 +720,92 @@ class UiaAutomationBridge:
         if info is None:
             raise UiaTargetNotFound("element could not be described (unreadable properties)")
         return info
+
+    def window_bounds(self, window_handle: int) -> tuple[int, int, int, int]:
+        """Read-only: this window's own top-level bounding rectangle
+        (left, top, right, bottom) — the same `CurrentBoundingRectangle`
+        every geometry heuristic in this module already reads from the
+        window root (`find_composer()`, `find_main_content()`,
+        `find_new_content()`), reused here so Desktop Intelligence's
+        evidence capture has one source of window geometry truth rather
+        than a second, Win32-based measurement of the same thing."""
+        root = self._root(window_handle)
+        rect = root.CurrentBoundingRectangle
+        return (rect.left, rect.top, rect.right, rect.bottom)
+
+    def snapshot_elements(self, window_handle: int) -> tuple[UiaElementSnapshot, ...]:
+        """Read-only: every descendant element in this window, resolved
+        to enough identity for Desktop Intelligence's observation layer
+        to reason about the whole visible surface at once — the batch
+        counterpart to `find()`/`describe()`'s single-target resolution.
+        Composes the exact same `_root()`/`_descendants()` primitives
+        every other method in this class already uses; adds no new
+        traversal mechanism of its own.
+
+        Deliberately unfiltered by height or offscreen state, unlike
+        `find_composer()`/`_text_region_candidates()` — this method's own
+        job is to report what is there, including hidden/offscreen
+        elements (`is_offscreen`, carried per-element), not to pre-judge
+        which of them a caller will find useful. Never clicks, types,
+        focuses, or otherwise acts on anything it finds.
+
+        An element that raises while being read is skipped, not fatal to
+        the whole snapshot — the same "a single unreadable element is
+        skipped" discipline `_info()` already holds for one-element
+        resolution, extended here so one bad element cannot blank out
+        every other element in the window."""
+        root = self._root(window_handle)
+        results: list[UiaElementSnapshot] = []
+        for element in self._descendants(root):
+            snapshot = self._snapshot_one(element)
+            if snapshot is not None:
+                results.append(snapshot)
+        return tuple(results)
+
+    def _snapshot_one(self, element) -> UiaElementSnapshot | None:
+        try:
+            rect = element.CurrentBoundingRectangle
+            has_value = bool(element.GetCurrentPropertyValue(_IS_VALUE_PATTERN_AVAILABLE_PROPERTY_ID))
+            has_text = bool(element.GetCurrentPropertyValue(_IS_TEXT_PATTERN_AVAILABLE_PROPERTY_ID))
+            is_offscreen = bool(element.GetCurrentPropertyValue(_IS_OFFSCREEN_PROPERTY_ID))
+
+            is_selected: bool | None = None
+            try:
+                selectable = bool(
+                    element.GetCurrentPropertyValue(_IS_SELECTION_ITEM_PATTERN_AVAILABLE_PROPERTY_ID)
+                )
+                if selectable:
+                    is_selected = bool(
+                        element.GetCurrentPropertyValue(_SELECTION_ITEM_IS_SELECTED_PROPERTY_ID)
+                    )
+            except Exception:  # noqa: BLE001 — selection state is a bonus fact, never required
+                is_selected = None
+
+            is_modal: bool | None = None
+            if element.CurrentControlType == CONTROL_TYPE_WINDOW:
+                try:
+                    is_modal = bool(element.GetCurrentPropertyValue(_WINDOW_IS_MODAL_PROPERTY_ID))
+                except Exception:  # noqa: BLE001 — same bonus-fact posture as is_selected
+                    is_modal = None
+
+            text: str | None = None
+            if has_text or has_value:
+                try:
+                    text = self.read_text(element)
+                except (UiaUnavailable, UiaTargetNotFound):
+                    text = None
+
+            return UiaElementSnapshot(
+                name=element.CurrentName or "", automation_id=element.CurrentAutomationId or "",
+                control_type=element.CurrentControlType,
+                is_enabled=bool(element.GetCurrentPropertyValue(_IS_ENABLED_PROPERTY_ID)),
+                is_focusable=bool(element.CurrentIsKeyboardFocusable),
+                is_offscreen=is_offscreen, is_selected=is_selected, is_modal=is_modal,
+                has_value_pattern=has_value, has_text_pattern=has_text,
+                bounds=(rect.left, rect.top, rect.right, rect.bottom), text=text,
+            )
+        except Exception:  # noqa: BLE001 — a single unreadable element is skipped, not fatal
+            return None
 
     # ---- action ------------------------------------------------------
 

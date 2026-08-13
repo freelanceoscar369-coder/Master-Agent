@@ -40,7 +40,15 @@ a = Analysis(
         'master_agent.desktop.execution',
         'master_agent.desktop.perception',
         'master_agent.desktop.operations',
+        'master_agent.desktop.intelligence',
         'master_agent.desktop_operator',
+        # Desktop Intelligence's screenshot capability (desktop/intelligence/
+        # screenshot.py) imports PIL.ImageGrab lazily, inside a method, not
+        # at module scope -- PyInstaller's static analysis does not follow
+        # that the same way it already misses pycaw's own COM-based imports
+        # above.
+        'PIL',
+        'PIL.ImageGrab',
         'master_agent.environment_intelligence',
         'master_agent.vigilance',
         'master_agent.memory',

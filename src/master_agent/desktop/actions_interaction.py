@@ -24,9 +24,12 @@ ask for: act, then observe again, then compare against what was expected
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 from typing import Any
 
+from master_agent.app_knowledge.profile import KnowledgeType
 from master_agent.desktop.actions import DesktopContext, _DesktopAction
+from master_agent.desktop.execution.backends import WindowInfo
 from master_agent.desktop.execution.executor import DesktopExecutor
 from master_agent.desktop.execution.process import ProcessExecutive
 from master_agent.desktop.execution.text_control import (
@@ -52,6 +55,8 @@ from master_agent.desktop.perception.win32_probe import (
     ResponsivenessUnavailable,
     Win32ResponsivenessBackend,
 )
+from master_agent.desktop.intelligence.app_knowledge_bridge import resolve_app_knowledge
+from master_agent.desktop.intelligence.evidence import capture_evidence
 from master_agent.executor.action import ExecutionResult
 from master_agent.plugins.base import PermissionCategory, RiskTier
 
@@ -363,6 +368,72 @@ class FindTargetAction(_VerifiedInteractionAction):
                 "x": info.center_x, "y": info.center_y,
             },
         )
+
+
+class ObserveDesktopAction(_VerifiedInteractionAction):
+    """Desktop Intelligence, Part F: `desktop.observe` — the OBSERVE
+    primitive registered onto the same read-only boundary `FindTargetAction`/
+    `ReadWindowTextAction` already occupy. Resolves the window the exact
+    same way `FindTargetAction` does (`_resolve_window()` — process
+    attribution, responsiveness, integrity; never focuses or brings it
+    forward), then composes `desktop.intelligence.evidence.capture_evidence()`
+    — the one new read-only primitive this mission adds — rather than a
+    second observation mechanism. Never types, clicks, submits, or renames
+    anything; a Planner step reads `DesktopObservation.as_dict()` and
+    plans its *next* action from it, exactly the "Observe -> Understand"
+    boundary this mission is scoped to, nothing past it.
+    """
+
+    name = "desktop_observe"
+    description = (
+        "Observe a named application's confirmed window read-only: visible elements, their "
+        "semantic roles where determinable, focus, and actionable controls. Never acts on anything."
+    )
+    risk_tier = RiskTier.READ_ONLY
+    permission_category = PermissionCategory.SYSTEM
+    expected_result = "A structured DesktopObservation is returned; nothing on screen changes."
+
+    def required_parameters(self) -> list[str]:
+        return ["application"]
+
+    def optional_parameters(self) -> list[dict[str, Any]] | None:
+        return [
+            {
+                "name": "capture_screenshot",
+                "type": "boolean",
+                "description": "Also capture and associate a screenshot of the window as evidence.",
+                "default": False,
+            }
+        ]
+
+    def validate(self, parameters: dict[str, Any]) -> list[str]:
+        return self._require_known_application(parameters)
+
+    def run(self, parameters: dict[str, Any]) -> ExecutionResult:
+        application = parameters["application"]
+        resolved = self._resolve_window(application)
+        if not resolved.success:
+            return resolved
+        window = WindowInfo(**resolved.output["window"])
+
+        screenshot_backend = None
+        if bool(parameters.get("capture_screenshot", False)):
+            from master_agent.desktop.intelligence.screenshot import Win32ScreenshotBackend
+
+            try:
+                screenshot_backend = Win32ScreenshotBackend()
+            except Exception:  # noqa: BLE001 — screenshots are corroborating evidence, never required
+                screenshot_backend = None
+
+        observation = capture_evidence(
+            uia=_uia_bridge, window=window, application=application,
+            application_confidence=KnowledgeType.OBSERVED,
+            application_reason=f"window {window.handle} resolved for {application!r} via _resolve_window()",
+            app_knowledge=resolve_app_knowledge(application),
+            screenshot_backend=screenshot_backend,
+            now=datetime.now(UTC),
+        )
+        return ExecutionResult(success=True, output=observation.as_dict())
 
 
 class ClickControlAction(_VerifiedInteractionAction):
@@ -745,6 +816,7 @@ DESKTOP_INTERACTION_ACTION_CLASSES: tuple[type[_DesktopAction], ...] = (
     VerifiedFocusWindowAction,
     VerifiedBringToFrontAction,
     FindTargetAction,
+    ObserveDesktopAction,
     ClickControlAction,
     TypeIntoWindowAction,
     ReadWindowTextAction,
