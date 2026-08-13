@@ -17,7 +17,13 @@ class ClipboardExecutive:
     __slots__ = ("_backend",)
 
     def __init__(self, backend: ClipboardBackend | None = None) -> None:
-        self._backend = backend or NullClipboardBackend()
+        if backend is None:
+            try:
+                from .win32_backends import Win32ClipboardBackend
+                backend = Win32ClipboardBackend()
+            except (ImportError, BackendUnavailable):
+                backend = NullClipboardBackend()
+        self._backend = backend
 
     def read(self) -> ExecutionResult:
         try:

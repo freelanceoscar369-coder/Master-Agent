@@ -30,9 +30,9 @@ or *which* application to use — `DesktopExecutiveV2.recommend()` (C25)
 already answers the third question and this class does not repeat that
 logic. It executes exactly what it is told, per the brief's own
 philosophy: *"It should execute exactly what Kalpavriksha requests.
-Nothing more. Nothing less."* Kalpavriksha — the orchestrator that decides
-— does not exist yet in this repository; this is the substrate a future
-brief wires it to.
+Nothing more. Nothing less."* Kalpavriksha — the orchestrator that
+decides — does not exist yet in this repository; this is the substrate a
+future brief wires it to.
 """
 from __future__ import annotations
 
@@ -51,7 +51,8 @@ from master_agent.executor.action import ExecutionResult
 class DesktopExecutor:
     """Composes every C26 component over one `DesktopContext` and one
     `DesktopExecutiveV2`, so a caller never has to wire six objects
-    together to ask for one operation."""
+    together to ask for one operation.
+    """
 
     def __init__(
         self,
@@ -84,17 +85,14 @@ class DesktopExecutor:
         """The one check every named-application method runs first.
         Returns the profile, or an `ExecutionResult` refusal a caller
         returns verbatim — never raises, matching every other failure in
-        this package."""
+        this package.
+        """
         profile = self._executive.profile(application)
         if profile is None:
             return ExecutionResult(
                 success=False,
                 errors=[
-                    (
-                        f"{application!r} has no Desktop Executive operation "
-                        "profile; an application the Desktop Executive does "
-                        "not know cannot be operated through this door"
-                    )
+                    f"{application!r} has no Desktop Executive operation profile; an application the Desktop Executive does not know cannot be operated through this door"
                 ],
             )
         return profile
@@ -111,11 +109,7 @@ class DesktopExecutor:
             return ExecutionResult(
                 success=False,
                 errors=[
-                    (
-                        f"{application!r}'s operation profile names no "
-                        "automation surface (automation_strategy: "
-                        f"{outcome.automation_strategy.value})"
-                    )
+                    f"{application!r}'s operation profile names no automation surface (automation_strategy: {outcome.automation_strategy.value})"
                 ],
             )
         return outcome
@@ -127,6 +121,41 @@ class DesktopExecutor:
         outcome = self._profile_or_refusal(application)
         if isinstance(outcome, ExecutionResult):
             return outcome
+        # `outcome` (the profile) already ties 1:1 to
+        # `catalog.ApplicationSpec.key` (`operations/types.py`'s own
+        # docstring on `ApplicationOperationProfile`) — `outcome.key` is
+        # the resolved catalog key without this module needing its own
+        # import of `desktop.catalog` (Architecture Rules: no second
+        # catalog scanner/resolver — `_profile_or_refusal` already did
+        # this resolution).
+        #
+        # Universal Windows Environment Discovery (Section 7): launch
+        # resolution comes from the normalized inventory record's own
+        # `launch_target`, already ranked by evidence strength in
+        # `inventory.py::_resolve_one` (Start Menu/AppUserModel > MSIX >
+        # a verified catalog path). `inventory()` is cache-first, so
+        # `deep=True` (its default) only pays the multi-source scan's
+        # real cost once per process lifetime, not on every launch — the
+        # same reasoning `read_versions=False` already applies to the
+        # per-app version probe specifically.
+        inventory = self._context.inventory(read_versions=False)
+        installed_app = inventory.get(outcome.key) or inventory.get(application)
+        launch_target = installed_app.launch_target if installed_app else None
+        if launch_target and launch_target.lower().startswith("shell:appsfolder"):
+            # The one case the existing, frozen `LaunchApplicationAction`
+            # (`desktop/actions.py`) cannot express on its own: it starts
+            # `[installed_app.path]` as a single command, and
+            # `explorer.exe shell:AppsFolder\<id>` is two arguments.
+            # Every other case (a verified exe path, or a raw path Start
+            # Menu itself reported for a legacy shortcut) already *is*
+            # `installed_app.path`, so the fallback below already
+            # launches it correctly without this method repeating that
+            # logic.
+            result = self._context.probe.start(["explorer.exe", launch_target])
+            if result.ok:
+                return ExecutionResult(success=True, output=f"Launched {application}")
+            return ExecutionResult(success=False, errors=[result.error])
+        # Fall back to the existing profile-based launch
         return self.process.launch(application)
 
     def focus(self, application: str) -> ExecutionResult:
@@ -138,7 +167,7 @@ class DesktopExecutor:
         outcome = self._profile_or_refusal(application)
         if isinstance(outcome, ExecutionResult):
             return outcome
-        running = self._context.refresh(read_versions=False).running(application)
+        running = self._context.refresh(read_versions=False, deep=False).running(application)
         if not running:
             return ExecutionResult(success=False, errors=[f"{application} is not running"])
         pids = frozenset(p.pid for p in running)

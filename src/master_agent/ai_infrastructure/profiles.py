@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from master_agent.ai_infrastructure.catalog import PROVIDER_CATALOG, ProviderSpec
+from master_agent.ai_infrastructure.catalog import PROVIDER_CATALOG, ProviderSpec, is_coding_agent
 from master_agent.broker.profiles import ProviderProfile
 
 #: Why a provider is not available, in a sentence a founder can act on —
@@ -43,6 +43,11 @@ NOT_INSTALLED = "not installed on this machine"
 NOT_HEALTHY = "installed but not answering"
 NO_CREDENTIALS = "no credentials configured; enable it to make it selectable"
 INSTALLED = "installed"
+AUTONOMOUS_REASONING_UNSAFE = "AUTONOMOUS_REASONING_UNSAFE"
+CODING_AGENT_NOT_A_REASONING_PROVIDER = (
+    "CODING_AGENT_NOT_A_REASONING_PROVIDER: this identity is a coding tool, "
+    "never a reasoning provider, regardless of installation state"
+)
 
 
 class ProviderSource:
@@ -156,6 +161,12 @@ def availability(
     different facts and a founder deciding whether to install something
     needs the second one.
     """
+    if is_coding_agent(spec):
+        return False, CODING_AGENT_NOT_A_REASONING_PROVIDER
+
+    if spec.autonomous_reasoning_unsafe_reason is not None:
+        return False, f"{AUTONOMOUS_REASONING_UNSAFE}: {spec.autonomous_reasoning_unsafe_reason}"
+
     if spec.needs_credentials and spec.provider_id not in enabled:
         return False, NO_CREDENTIALS
 

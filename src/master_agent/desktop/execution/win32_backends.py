@@ -13,7 +13,7 @@ here requires it.
 
 | Backend | Win32 API |
 |---|---|
-| Window | `EnumWindows`, `GetForegroundWindow`, `SetForegroundWindow`, `ShowWindow`, `PostMessageW(WM_CLOSE)`, `GetWindowThreadProcessId` |
+| Window | `EnumWindows`, `GetForegroundWindow`, `SetForegroundWindow`, `AttachThreadInput`, `GetCurrentThreadId`, `ShowWindow`, `PostMessageW(WM_CLOSE)`, `GetWindowThreadProcessId` |
 | Keyboard | `SendInput` with `KEYBDINPUT` — `KEYEVENTF_UNICODE` for `type_text` (full Unicode, not layout-dependent), virtual-key codes for `press`/`hotkey` |
 | Mouse | `SetCursorPos`, `SendInput` with `MOUSEINPUT` for button state and the wheel |
 | Clipboard | `OpenClipboard`/`EmptyClipboard`/`SetClipboardData`/`GetClipboardData`/`CloseClipboard` against `CF_UNICODETEXT`, with `GlobalAlloc`/`GlobalLock` for the buffer |
@@ -139,6 +139,48 @@ _BUTTON_UP = {
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 
+# ctypes' default calling convention marshals a WinDLL function's return
+# value as a 32-bit `c_int` unless `restype` says otherwise. Every one of
+# these four returns/accepts a real 64-bit pointer on x64 Windows (a
+# `HANDLE`/`HGLOBAL`/`LPVOID`) — without this, the pointer silently
+# truncates to 32 bits, and the next call that dereferences it (`GlobalLock`,
+# `wstring_at`) reads garbage memory. Found live, this session: the very
+# first real exercise of this backend against the actual system clipboard
+# crashed with an access-violation `OSError` from a truncated pointer —
+# exactly the risk this file's own module docstring already flagged as
+# unverified live.
+kernel32.GlobalAlloc.restype = ctypes.c_void_p
+kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+kernel32.GlobalLock.restype = ctypes.c_void_p
+kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalSize.restype = ctypes.c_size_t
+kernel32.GlobalSize.argtypes = [ctypes.c_void_p]
+user32.GetClipboardData.restype = ctypes.c_void_p
+user32.GetClipboardData.argtypes = [wintypes.UINT]
+user32.SetClipboardData.restype = ctypes.c_void_p
+user32.SetClipboardData.argtypes = [wintypes.UINT, ctypes.c_void_p]
+user32.RegisterClipboardFormatW.restype = wintypes.UINT
+user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
+
+#: The standard, documented Windows opt-out password managers already use
+#: (1Password, Bitwarden, Windows' own Credential Manager UI) to keep a
+#: clipboard write out of Clipboard History (Win+V) and Cloud Clipboard
+#: sync: register this format name and place *any* data — even zero bytes
+#: — under it alongside the real `CF_UNICODETEXT` payload in the same
+#: `SetClipboardData` sequence. Windows' own clipboard-history listener
+#: checks for this format's presence and skips recording the clipboard
+#: contents when it's there. Found live, this session: a real reasoning
+#: prompt written to the shared clipboard was captured by something
+#: outside this process — surviving even an immediate `EmptyClipboard()`
+#: right after the paste, which rules out a listener that reads the
+#: *live* clipboard at some later moment and points at a write-time
+#: capture instead. Clipboard History is exactly that: a write-time
+#: listener, present by default on Windows 11, and the single most likely
+#: real-world source of this exact risk on any founder's own machine —
+#: not specific to any development tooling.
+CFSTR_EXCLUDE_FROM_MONITOR = "ExcludeClipboardContentFromMonitorProcessing"
+
 
 # ---- SendInput structures --------------------------------------------------
 # The documented layout (winuser.h). Defined once, used by both the
@@ -236,7 +278,44 @@ class Win32WindowBackend:
         return None
 
     def bring_to_front(self, handle: int) -> bool:
-        return bool(user32.SetForegroundWindow(handle))
+        """A bare `SetForegroundWindow` is refused by Windows' own
+        anti-focus-stealing lock whenever the calling process is not
+        itself the current foreground process — confirmed live: it
+        succeeds immediately after this process's own `execute()` just
+        launched `handle`'s process (the OS grants the launching process a
+        one-time allowance), then fails silently on a later, independent
+        call once focus has moved elsewhere. `AttachThreadInput` is
+        Microsoft's own documented workaround for exactly this
+        (`SetForegroundWindow`'s MSDN Remarks): briefly sharing input
+        state with whichever thread currently holds the foreground lets
+        this thread's `SetForegroundWindow` call succeed as that thread's
+        own call would, then the threads are detached again immediately —
+        never left attached.
+        """
+        foreground = user32.GetForegroundWindow()
+        current_thread = kernel32.GetCurrentThreadId()
+        foreground_pid = wintypes.DWORD(0)
+        foreground_thread = (
+            user32.GetWindowThreadProcessId(foreground, ctypes.byref(foreground_pid))
+            if foreground else 0
+        )
+
+        attached = False
+        if foreground_thread and foreground_thread != current_thread:
+            attached = bool(
+                user32.AttachThreadInput(current_thread, foreground_thread, 1)
+            )
+
+        try:
+            # A minimized window ignores SetForegroundWindow outright;
+            # restore it first so the call has a normal, visible window.
+            if user32.IsIconic(handle):
+                user32.ShowWindow(handle, SW_RESTORE)
+            result = bool(user32.SetForegroundWindow(handle))
+        finally:
+            if attached:
+                user32.AttachThreadInput(current_thread, foreground_thread, 0)
+        return result
 
     def minimize(self, handle: int) -> bool:
         return bool(user32.ShowWindow(handle, SW_MINIMIZE))
@@ -314,7 +393,15 @@ class Win32ClipboardBackend:
             if not locked:
                 return None
             try:
-                return ctypes.wstring_at(locked)
+                # Bounded by the allocation's own reported size rather than
+                # trusting a null terminator inside memory this process
+                # didn't allocate — the real, live-found crash this guards
+                # against (see the restype comment above).
+                byte_size = kernel32.GlobalSize(handle)
+                max_chars = max(byte_size // ctypes.sizeof(ctypes.c_wchar) - 1, 0)
+                return ctypes.wstring_at(locked, max_chars)
+            except OSError as exc:
+                raise BackendUnavailable(f"could not read clipboard memory: {exc}") from exc
             finally:
                 kernel32.GlobalUnlock(handle)
         finally:
@@ -335,6 +422,17 @@ class Win32ClipboardBackend:
         try:
             user32.EmptyClipboard()
             user32.SetClipboardData(CF_UNICODETEXT, handle)
+            # Opt this write out of Clipboard History / Cloud Clipboard —
+            # see the format constant's own docstring above. Only the
+            # format's *presence* is checked, not its content, but
+            # `GlobalAlloc(..., 0)` returns NULL on this platform (a real,
+            # live-found bug: the marker silently never got set, and this
+            # exclusion path was a no-op the one time it mattered) — a
+            # 1-byte allocation is the smallest one that actually succeeds.
+            exclude_format = user32.RegisterClipboardFormatW(CFSTR_EXCLUDE_FROM_MONITOR)
+            marker = kernel32.GlobalAlloc(GMEM_MOVEABLE, 1)
+            if marker:
+                user32.SetClipboardData(exclude_format, marker)
         finally:
             user32.CloseClipboard()
 

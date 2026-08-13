@@ -53,6 +53,39 @@ REASONING = "reasoning"
 PLANNING = "reasoning.planning"
 CODING = "coding"
 
+# ---- role separation (Kalpavriksha-owned reasoning sessions) -------------
+#
+# The absolute distinction between "a tool that can build Kalpavriksha" and
+# "something Kalpavriksha may reason with autonomously". Represented as
+# data — a spec's own `role`, plus a closed identity set checked
+# independently of any single spec's own declaration — not merely as a
+# comment, so a future spec added with the wrong role, or copy-pasted from
+# an existing one, is still caught structurally rather than by convention.
+REASONING_ROLE = "reasoning"
+CODING_AGENT_ROLE = "coding_agent"
+
+#: Known coding-agent-only application/provider identities. Generic across
+#: vendors on purpose — this mission's own requirement names several
+#: ("Claude Code, Codex, Cursor agents, Kimi coding agents, or any future
+#: coding agent"), and a real, live-found incident this session showed
+#: exactly why: a desktop application's discoverability is not evidence it
+#: is safe to reason with. Checked against `provider_id` and
+#: `inventory_key` both, case-insensitively, substring-matched — so
+#: `"claude-code"`, `"claude_code"`, and a future `"claude-code-cli"` all
+#: match without needing a new entry each time.
+KNOWN_CODING_AGENT_IDENTITIES = frozenset({
+    "claude-code", "claude_code",
+    "codex", "openai-codex",
+    "cursor",
+    "github-copilot", "copilot-chat",
+    "windsurf",
+    "cline",
+    "aider",
+    "kimi-code", "kimi-cli", "kimi-webbridge",
+    "continue-dev",
+    "amazon-q-developer", "amazon-q",
+})
+
 
 @dataclass(frozen=True)
 class ProviderSpec:
@@ -126,6 +159,40 @@ class ProviderSpec:
     #:
     #: `None` means not measured, and adds nothing.
     model_load_ms: float | None = None
+    #: None (the default) means eligible for the autonomous desktop
+    #: reasoning tier, subject to `DesktopAppReasoningProvider`'s own
+    #: generic, runtime session-isolation check. A non-None string is a
+    #: static, declarative exclusion — the provider is never even
+    #: ranked/launched for autonomous use, regardless of what the runtime
+    #: check would find. Reserved for a case where live evidence already
+    #: shows the runtime check cannot be trusted to catch the risk before
+    #: causing it — see `claude-desktop`'s own entry below.
+    autonomous_reasoning_unsafe_reason: str | None = None
+    #: `REASONING_ROLE` (the default) or `CODING_AGENT_ROLE`. A coding-agent
+    #: spec is never constructed as a provider (`build_desktop_providers()`)
+    #: and never ranked (`profiles.py::availability()`) — checked alongside
+    #: `is_coding_agent()`'s own identity-set match, so a spec need not get
+    #: this exactly right for the exclusion to hold.
+    role: str = REASONING_ROLE
+
+
+def is_coding_agent(spec: ProviderSpec) -> bool:
+    """True when `spec` names a coding-agent-only tool — never eligible to
+    become a Kalpavriksha reasoning provider, regardless of whether it is
+    installed, launchable, or discoverable. Two independent checks, either
+    one sufficient: the spec's own declared `role`, and a closed identity
+    set matched against `provider_id`/`inventory_key` — so a spec that
+    forgets to declare `role=CODING_AGENT_ROLE` is still caught, and a
+    coding tool that was never added to the identity set is still caught
+    if its own spec declares the role correctly."""
+    if spec.role == CODING_AGENT_ROLE:
+        return True
+    identity_fields = (spec.provider_id, spec.inventory_key or "")
+    return any(
+        known in field.lower()
+        for field in identity_fields
+        for known in KNOWN_CODING_AGENT_IDENTITIES
+    )
 
 
 DECLARED = (
@@ -152,6 +219,72 @@ PROVIDER_CATALOG: tuple[ProviderSpec, ...] = (
         latency_ms=3000.0,
         max_context_tokens=200_000,
         inventory_key="claude_desktop",
+        basis=DECLARED,
+        notes="installed desktop application; runs on an existing subscription",
+        # Live evidence, this session: Claude Desktop can host active
+        # Claude Code / project sessions as tabs within the same window
+        # the generic launch/focus/composer-discovery path resolves to.
+        # The generic runtime isolation check (main-content-region
+        # emptiness, in `DesktopAppReasoningProvider`) is the right
+        # architecture for this risk class in general, but it cannot be
+        # safely re-verified live against this specific application
+        # without repeating the exact incident it exists to prevent —
+        # typing an autonomous prompt into whichever session happens to
+        # be focused, which was, in the one live trial run, this
+        # project's own active development session. Excluded here at the
+        # declarative/selection layer rather than left to the runtime
+        # check alone: "never open or interact with an unsafe desktop
+        # application merely because it is installed" is stronger than
+        # "open it, then refuse to type." Revisit only once a way to
+        # positively confirm isolation for this specific application has
+        # been established without a live trial that itself carries the
+        # risk.
+        autonomous_reasoning_unsafe_reason=(
+            "Claude Desktop can host active Claude Code / project sessions; "
+            "the currently focused session cannot be safely verified as an "
+            "isolated reasoning surface without risking interference with "
+            "the founder's own active work (confirmed live)."
+        ),
+    ),
+    ProviderSpec(
+        provider_id="chatgpt-desktop",
+        label="ChatGPT Desktop",
+        capabilities=frozenset({REASONING, PLANNING, CODING}),
+        locality=DESKTOP,
+        privacy=THIRD_PARTY,
+        declared_quality=0.90,
+        cost_per_call=0.0,
+        latency_ms=3000.0,
+        max_context_tokens=128_000,
+        inventory_key="chatgpt_desktop",
+        basis=DECLARED,
+        notes="installed desktop application; runs on an existing subscription",
+    ),
+    ProviderSpec(
+        provider_id="perplexity-desktop",
+        label="Perplexity Desktop",
+        capabilities=frozenset({REASONING}),
+        locality=DESKTOP,
+        privacy=THIRD_PARTY,
+        declared_quality=0.85,
+        cost_per_call=0.0,
+        latency_ms=3000.0,
+        max_context_tokens=32_000,
+        inventory_key="perplexity_desktop",
+        basis=DECLARED,
+        notes="installed desktop application; runs on an existing subscription",
+    ),
+    ProviderSpec(
+        provider_id="kimi-desktop",
+        label="Kimi Desktop",
+        capabilities=frozenset({REASONING}),
+        locality=DESKTOP,
+        privacy=THIRD_PARTY,
+        declared_quality=0.80,
+        cost_per_call=0.0,
+        latency_ms=3000.0,
+        max_context_tokens=32_000,
+        inventory_key="kimi_desktop",
         basis=DECLARED,
         notes="installed desktop application; runs on an existing subscription",
     ),
@@ -282,6 +415,24 @@ PROVIDER_CATALOG: tuple[ProviderSpec, ...] = (
         notes="metered aggregator; every call spends money",
     ),
 )
+
+# `browser.free-ai` is deliberately NOT a `PROVIDER_CATALOG` entry. Every
+# other spec here is gated — either `inventory_key` (installed-app
+# scanning) or `needs_credentials` (founder-configured) — so a real,
+# tested invariant holds everywhere this catalogue is read: nothing is
+# "available" before a scan has run or a founder has configured
+# something (`tests/test_broker_wiring.py::
+# test_no_provider_is_available_before_the_machine_has_been_scanned`).
+# `browser.free-ai` needs neither gate (no install to scan for, no API
+# key to configure) — added to the shared, global catalogue it would be
+# unconditionally "available" in *every* composition root that reads
+# `PROVIDER_CATALOG`, including ones (`launcher/boot.py`) that never
+# register an actual `BrowserFreeAiReasoningProvider` at all, breaking
+# that invariant for no benefit. Its spec lives with its implementation
+# in `providers/browser_free_ai.py`, and only the Founder Edition
+# composition root that actually registers the provider passes
+# `PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)` to its own `ProviderSource`
+# — this catalogue itself stays exactly what it already was.
 
 BY_PROVIDER_ID = {spec.provider_id: spec for spec in PROVIDER_CATALOG}
 

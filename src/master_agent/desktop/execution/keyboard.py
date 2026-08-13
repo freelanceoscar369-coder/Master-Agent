@@ -25,7 +25,13 @@ class KeyboardController:
         backend: KeyboardBackend | None = None,
         clipboard: ClipboardExecutive | None = None,
     ) -> None:
-        self._backend = backend or NullKeyboardBackend()
+        if backend is None:
+            try:
+                from .win32_backends import Win32KeyboardBackend
+                backend = Win32KeyboardBackend()
+            except (ImportError, BackendUnavailable):
+                backend = NullKeyboardBackend()
+        self._backend = backend
         self._clipboard = clipboard or ClipboardExecutive()
 
     def type(self, text: str) -> ExecutionResult:

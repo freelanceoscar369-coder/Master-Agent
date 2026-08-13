@@ -36,6 +36,37 @@ from master_agent.plugins.base import (
 DESKTOP_EXECUTIVE_ID = "desktop"
 DESKTOP_VERSION = "1.0.0"
 
+#: Desktop Executive Foundation 1.0. `desktop/actions.py` itself is
+#: unmodified (its own module docstring says so) — these three names were
+#: deliberate refusals there ("window focus needs desktop interaction,
+#: which MB030 deliberately excludes... a later Desktop Interaction brief
+#: owns this"). This is that brief's registration point: the verified
+#: implementations in `actions_interaction.py` are registered under the
+#: same capability names instead, so the Planner's catalogue shape is
+#: unchanged and only what runs underneath it becomes real.
+_SUPERSEDED_BY_INTERACTION_LAYER = frozenset(
+    {"launch_application", "focus_window", "bring_to_front"}
+)
+
+
+def _default_action_classes() -> tuple[type[Action], ...]:
+    # Imported here, not at module level: `actions_interaction` pulls in
+    # `execution/executor.py` → `operations` → `environment_intelligence`,
+    # and `environment_intelligence.derive` itself imports
+    # `desktop.catalog` — a module-level import here would make importing
+    # *any* `master_agent.desktop.*` submodule (via this package's own
+    # `__init__.py`) execute that whole chain, circularly, before
+    # `environment_intelligence` finishes initializing. Deferred to call
+    # time (`DesktopPlugin.__init__`, well after both packages are fully
+    # loaded), this import is safe.
+    from master_agent.desktop.actions_interaction import DESKTOP_INTERACTION_ACTION_CLASSES
+
+    base = tuple(
+        cls for cls in DESKTOP_ACTION_CLASSES
+        if cls.name not in _SUPERSEDED_BY_INTERACTION_LAYER
+    )
+    return base + DESKTOP_INTERACTION_ACTION_CLASSES
+
 
 class DesktopPlugin(Plugin):
     """Exposes every Desktop action as a same-named capability.
@@ -49,12 +80,13 @@ class DesktopPlugin(Plugin):
         self,
         executor: LocalExecutor,
         probe: SystemProbe | None = None,
+        action_classes: tuple[type[Action], ...] | None = None,
     ) -> None:
         self._executor = executor
         self._context = DesktopContext(probe or RealSystemProbe())
         self._actions: dict[str, Action] = {}
 
-        for action_cls in DESKTOP_ACTION_CLASSES:
+        for action_cls in (action_classes or _default_action_classes()):
             self._register(action_cls(self._context))
 
     def _register(self, action: Action) -> None:

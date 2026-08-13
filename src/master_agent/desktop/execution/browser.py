@@ -189,7 +189,7 @@ class BrowserExecutive:
                     )
                 ],
             )
-        inventory = self._context.refresh(read_versions=False)
+        inventory = self._context.refresh(read_versions=False, deep=False)
         running = inventory.running(application)
         if not running:
             return ExecutionResult(success=False, errors=[f"{application} is not running"])

@@ -20,7 +20,13 @@ class MouseController:
     __slots__ = ("_backend",)
 
     def __init__(self, backend: MouseBackend | None = None) -> None:
-        self._backend = backend or NullMouseBackend()
+        if backend is None:
+            try:
+                from .win32_backends import Win32MouseBackend
+                backend = Win32MouseBackend()
+            except (ImportError, BackendUnavailable):
+                backend = NullMouseBackend()
+        self._backend = backend
 
     def move(self, x: int, y: int) -> ExecutionResult:
         try:

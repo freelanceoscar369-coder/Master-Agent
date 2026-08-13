@@ -9,6 +9,7 @@ terminal, no console window, no developer tooling.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 
@@ -180,19 +181,28 @@ def _build_mission_pipeline():
     from master_agent.executor.executor import LocalExecutor
     from master_agent.plugins.registry import PluginRegistry
     from master_agent.plugins.browser_plugin import BrowserPlugin
+    from master_agent.desktop.plugin import DesktopPlugin
     from master_agent.environment.browser_session import BrowserSessionManager
     from master_agent.mission_control.mission_control import MissionControl
     from master_agent.mission_control.adapters import discover_executives
     from master_agent.runtime.engine import RuntimeEngine
     from master_agent.runtime.gateway import PluginGateway
     from master_agent.runtime.approval import PermissionSystemGate
+    from master_agent.ai_infrastructure.catalog import CLOUD, DESKTOP, PROVIDER_CATALOG
     from master_agent.ai_infrastructure.profiles import ProviderSource
     from master_agent.ai_infrastructure.service import AiCapabilityService
     from master_agent.ai_infrastructure.execution import PromptExecutor
     from master_agent.ai_infrastructure.ledger import DecisionLedger
+    from master_agent.ai_infrastructure.tiered_runner import TieredPromptRunner
     from master_agent.broker.broker import CapabilityBroker
     from master_agent.broker.policy import get_policy
     from master_agent.providers.gemini import GeminiProvider
+    from master_agent.providers.desktop_app import build_desktop_providers
+    from master_agent.providers.browser_free_ai import (
+        BrowserFreeAiReasoningProvider,
+        BROWSER_FREE_AI_SPEC,
+        PROVIDER_ID as BROWSER_FREE_AI_ID,
+    )
     from master_agent.brain import IntentLayer, Reporter
     from master_agent.planner.planner import Planner
     from master_agent.missions.service import MissionService
@@ -203,41 +213,88 @@ def _build_mission_pipeline():
     permissions = PermissionSystem()
     executor = LocalExecutor(permissions)
     registry = PluginRegistry()
-    browser_plugin = BrowserPlugin(executor, BrowserSessionManager())
+    # Founder-visible defaults. Everywhere else in this codebase a browser
+    # session is a headless mechanism for getting an answer; here a founder
+    # is sitting in front of the machine, and "open Chrome" means the
+    # Chrome they can see. `channel="chrome"` is Playwright's own
+    # first-class way to drive the *installed* Google Chrome rather than
+    # the bundled build (`environment/browser_session.py::_launch`), so
+    # this is still exactly one session — one that Playwright continues to
+    # observe and verify through the same Browser Worker as before.
+    #
+    # Defaults, not overrides: an explicit `headless`/`channel` in a plan
+    # still wins, so the Planner can ask for an invisible session when an
+    # objective genuinely does not want a window.
+    browser_plugin = BrowserPlugin(
+        executor,
+        BrowserSessionManager(default_headless=False, default_channel="chrome"),
+    )
     registry.register(browser_plugin)
+
+    # Desktop Executive Foundation 1.0: the Desktop Executive
+    # (`desktop/plugin.py`) has existed as real, working code since MB030,
+    # but was never registered here — every capability it exposes
+    # (`launch_application`, `type_text`, `read_text`, ...) was reachable
+    # only by importing `DesktopPlugin` directly in a script, never by a
+    # founder's objective going through the Planner. This is that
+    # registration, mirroring `BrowserPlugin`'s own composition exactly —
+    # same registry, same discovery, same permission/gateway wiring — so
+    # the Desktop Executive becomes a second real Executive, not a second
+    # architecture.
+    desktop_plugin = DesktopPlugin(executor)
+    registry.register(desktop_plugin)
 
     mission_control = MissionControl()
     discover_executives(mission_control, registry)
 
-    # Rule 5 stays exactly as strict: this pre-grants only the Browser
-    # Executive's own reversible actions (REVERSIBLE_WRITE, never
-    # IRREVERSIBLE — an ALWAYS_FOR_CAPABILITY grant cannot satisfy that
-    # tier regardless of what's granted here, per PermissionSystem.check()).
-    # Not a new approval UI (Section 13 forbids building one) — the same
-    # "the calling context already authorised this" relay
-    # `DesktopPlugin.invoke()` already performs per-call, done once here
-    # for the one Executive this composition root wires, because Browser
-    # automation on reversible actions is what Gate 2 already proved safe
-    # and founder-approved. A capability this system later adds at
-    # IRREVERSIBLE tier is untouched by this loop and still requires a
-    # real decision.
-    for descriptor in mission_control.capabilities.for_executive(browser_plugin.manifest.name):
-        permissions.grant(
-            browser_plugin.manifest.name, descriptor.capability,
-            GrantScope.ALWAYS_FOR_CAPABILITY,
-        )
+    # Rule 5 stays exactly as strict: this pre-grants only each Executive's
+    # own reversible actions (REVERSIBLE_WRITE, never IRREVERSIBLE — an
+    # ALWAYS_FOR_CAPABILITY grant cannot satisfy that tier regardless of
+    # what's granted here, per PermissionSystem.check()). Not a new
+    # approval UI (Section 13 forbids building one) — the same "the
+    # calling context already authorised this" relay `DesktopPlugin
+    # .invoke()` already performs per-call, done once here for every
+    # Executive this composition root wires, because reversible automation
+    # is what Gate 2 already proved safe and founder-approved. A capability
+    # at IRREVERSIBLE tier (e.g. Desktop's `close_window`) is untouched by
+    # this loop and still requires a real decision.
+    for plugin in (browser_plugin, desktop_plugin):
+        for descriptor in mission_control.capabilities.for_executive(plugin.manifest.name):
+            permissions.grant(
+                plugin.manifest.name, descriptor.capability,
+                GrantScope.ALWAYS_FOR_CAPABILITY,
+            )
 
     runtime = RuntimeEngine(
         mission_control,
         approval_gate=PermissionSystemGate(permissions, registry),
     )
     runtime.register_gateway(browser_plugin.manifest.name, PluginGateway(browser_plugin))
+    runtime.register_gateway(desktop_plugin.manifest.name, PluginGateway(desktop_plugin))
 
     # No Ollama: matches every prior Gemini mission this build carries.
     # `enabled_cloud_providers` names Gemini only; no plugin for any
     # other cloud provider is ever registered below.
+    #
+    # Corrected Fallback Ladder (Gemini API -> installed desktop AI ->
+    # Browser free AI): `inventory_provider` now reads
+    # `desktop_plugin._context.cached` — the exact "same zero-argument
+    # callable the Dashboard is given" shape `ai_infrastructure/
+    # profiles.py`'s own docstring already asks for. `.cached` (not
+    # `.inventory()`) is deliberate: it never triggers a scan on its own,
+    # so building `providers_source` here costs nothing and launches
+    # nothing — the deep scan a desktop-tier decision actually needs is
+    # triggered lazily, only by `TieredPromptRunner`, only once Gemini
+    # has already failed (see `tiered_runner.py`'s own docstring).
     providers_source = ProviderSource(
-        inventory_provider=None, enabled_cloud_providers=("gemini.api",),
+        inventory_provider=lambda: desktop_plugin._context.cached,
+        # `PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)`, not the bare
+        # catalogue: `BROWSER_FREE_AI_SPEC` is deliberately excluded from
+        # the shared, global `PROVIDER_CATALOG` (see that module's own
+        # note) so it only ever exists for a composition root that
+        # actually registers the provider — this one.
+        specs=PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,),
+        enabled_cloud_providers=("gemini.api",),
     )
     ledger = DecisionLedger(store=None)  # in-memory; this process is the record
     broker = CapabilityBroker(policy=get_policy("prefer_free"), sink=ledger.record)
@@ -246,8 +303,36 @@ def _build_mission_pipeline():
     )
     provider_registry = PluginRegistry()
     provider_registry.register(GeminiProvider(api_key=api_key))
+    # Tier 2 — one provider per `locality == DESKTOP` entry already
+    # declared in `PROVIDER_CATALOG` (Claude/ChatGPT/Perplexity/Kimi
+    # today; a fifth application is a catalogue entry, never a new
+    # branch here). Construction is free of any launch/scan — see
+    # `providers/desktop_app.py`'s own module docstring.
+    for desktop_provider in build_desktop_providers(desktop_plugin._context):
+        provider_registry.register(desktop_provider)
+    # Tier 3 — the final, last-resort fallback.
+    provider_registry.register(BrowserFreeAiReasoningProvider())
     prompt_executor = PromptExecutor(
         service=intelligence, providers=provider_registry, ledger=ledger,
+    )
+    tiered_runner = TieredPromptRunner(
+        prompt_executor,
+        gemini_provider_ids=frozenset({"gemini.api"}),
+        desktop_provider_ids=frozenset(
+            spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
+        ),
+        browser_provider_ids=frozenset({BROWSER_FREE_AI_ID}),
+        desktop_context=desktop_plugin._context,
+        # The Broker sees every spec in `providers_source`'s own `specs`
+        # tuple (`PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)` — Ollama,
+        # LM Studio, OpenAI, OpenRouter included), not just the three
+        # tiers above. Without this, any of those could win a tier's
+        # scoped Broker call by ranking (Ollama notably — this codebase's
+        # own repeated "never enable/query Ollama" constraint) purely
+        # because nothing had told this ladder they existed to exclude.
+        all_known_provider_ids=frozenset(
+            spec.provider_id for spec in PROVIDER_CATALOG
+        ) | {BROWSER_FREE_AI_ID},
     )
     # MB039's richer index, not the plain CapabilityRegistry — the same
     # exact pattern `build_system()` uses, and for the same reason: the
@@ -256,15 +341,21 @@ def _build_mission_pipeline():
     # `Browser.OpenBrowserSession` needs a `session_id` — proven live
     # against the real API, not assumed.
     contracts = []
-    for actions in (getattr(browser_plugin, "_actions", None),):
+    for plugin in (browser_plugin, desktop_plugin):
+        actions = getattr(plugin, "_actions", None)
         if isinstance(actions, dict):
             contracts.extend(
-                contracts_from_actions(actions, browser_plugin.manifest.name, qualified_name)
+                contracts_from_actions(actions, plugin.manifest.name, qualified_name)
             )
     capability_index = build_index(
         contracts, loader={c.canonical_id: c for c in contracts}.get
     )
-    planner = Planner(runner=prompt_executor, catalogue=capability_index)
+    # `runner=tiered_runner`, not the bare `prompt_executor` — Planner's
+    # own code needs no change to gain the fallback ladder: both objects
+    # expose the identical `run(prompt, request, **kwargs)` surface
+    # (`tiered_runner.py`'s own docstring cites the exact interface this
+    # session's own research confirmed `Planner` requires).
+    planner = Planner(runner=tiered_runner, catalogue=capability_index)
     mission_service = MissionService(
         planner=planner, mission_control=mission_control,
         intent_layer=IntentLayer(), reporter=Reporter(),
@@ -296,9 +387,21 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     already decide.
     """
     import time as _time
-    from master_agent.missions.execution_status import FAILED
+    from master_agent.missions.execution_status import COMPLETED, FAILED
 
     status.begin(text, timeout_seconds=timeout_seconds)
+
+    # A capability question is not an objective. Asked before anything is
+    # planned, because the Planner's only possible answer to "what can you
+    # do" is a refusal — its catalogue describes actions, not itself.
+    # The question is recognised by the existing Intent Layer
+    # (`IntentLayer.is_capability_question`), and answered from the live
+    # capability registry, never a hardcoded list.
+    intent_layer = getattr(mission_service, "intent_layer", None)
+    if intent_layer is not None and intent_layer.is_capability_question(text):
+        status.status = COMPLETED
+        status.message = _describe_capabilities(mission_control)
+        return {"reply": status.message}
 
     outcome = mission_service.start(text)
     if not outcome.accepted:
@@ -311,7 +414,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # function reports onto `status` directly rather than through the
         # bus, because there is no Task 2.5 event that would ever say it.
         status.status = FAILED
-        status.message = f"I couldn't plan that: {reason}"
+        # `reason` is the developer-facing diagnostic and stays intact on
+        # `status.errors` (and in the Planner's own refusal object, and in
+        # whatever Memory already recorded). Only the sentence the founder
+        # reads is rewritten — a founder should never be shown "HTTP 503"
+        # or a provider's internal prose.
+        logging.warning("objective refused: %s", reason)
+        status.message = _founder_refusal_sentence(reason)
         status.errors.append(reason)
         return {"reply": status.message}
 
@@ -326,7 +435,12 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
 
     state = mission_control.founder_state(objective_id)
     if state.errors:
-        status.message = "The task didn't complete: " + "; ".join(state.errors)
+        # Same hygiene as the refusal branch above: the founder gets a
+        # sentence, the full executive/Playwright/gateway diagnostic stays
+        # in the log and on `status.errors` where a developer will look.
+        joined = "; ".join(state.errors)
+        logging.warning("objective failed: %s", joined)
+        status.message = _founder_failure_sentence(joined)
         return {"reply": status.message}
     if state.progress >= 1.0:
         status.result = state.result
@@ -334,6 +448,113 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         return {"reply": status.message}
     status.message = "That's taking longer than expected; still working on it."
     return {"reply": status.message}
+
+
+#: Founder-facing sentences for the refusal kinds a founder can actually
+#: act on. Matched against the *developer* diagnostic, which stays intact
+#: everywhere else — this is presentation, not a second classification of
+#: what went wrong (the Planner/Broker already decided that).
+_BUSY_MARKERS = (
+    "http 503", "http 429", "http 500", "http 502", "http 504",
+    "high demand", "overloaded", "rate limit", "quota", "resource exhausted",
+    "unavailable", "temporarily",
+)
+_OFFLINE_MARKERS = (
+    "could not reach", "connection", "getaddrinfo", "network is unreachable",
+    "name or service not known", "no route to host",
+)
+_TIMEOUT_MARKERS = ("no answer within", "timed out", "timeout")
+_NO_KEY_MARKERS = ("no gemini_api_key", "api key not valid", "http 401", "http 403")
+
+
+def _founder_refusal_sentence(reason: str) -> str:
+    """One clean sentence for the founder, from the developer diagnostic.
+
+    Never returns the raw text: a founder reading "HTTP 503: This model is
+    currently experiencing high demand" learns nothing they can act on and
+    everything about our plumbing. The full `reason` is logged and kept on
+    `ExecutionStatus.errors` for whoever is debugging.
+    """
+    lowered = (reason or "").lower()
+    if any(marker in lowered for marker in _NO_KEY_MARKERS):
+        return (
+            "I can't reach my reasoning service — its access key looks "
+            "missing or invalid."
+        )
+    if any(marker in lowered for marker in _TIMEOUT_MARKERS):
+        return "My reasoning service took too long to answer. Please try again."
+    if any(marker in lowered for marker in _BUSY_MARKERS):
+        return (
+            "My reasoning service is temporarily busy. Please try again in "
+            "a moment."
+        )
+    if any(marker in lowered for marker in _OFFLINE_MARKERS):
+        return "I can't reach my reasoning service right now — please check the connection."
+    if "nothing is registered" in lowered:
+        return "I don't have any capabilities wired up to do that yet."
+    if "cannot achieve this objective" in lowered or "not executable" in lowered:
+        return "I can't do that with what I'm currently able to do."
+    # Anything unrecognised: still never the raw text.
+    return "I couldn't plan that just now. Please try again."
+
+
+def _describe_capabilities(mission_control) -> str:
+    """What this machine can actually do right now, read from the live
+    capability registry Mission Control holds.
+
+    Never a hardcoded list: if an Executive is registered or removed, this
+    sentence changes with it, because it is generated from the same
+    descriptors the Planner itself plans against. Grouped by executive and
+    worded plainly — a founder asking "what can you do" wants the shape of
+    the answer, not nine qualified capability ids.
+    """
+    try:
+        descriptors = list(mission_control.capabilities.all())
+    except Exception:  # noqa: BLE001 — an unreadable registry is an honest absence
+        descriptors = []
+
+    if not descriptors:
+        return (
+            "Right now I can hold a conversation, but I don't have any "
+            "action capabilities wired up yet."
+        )
+
+    by_executive: dict[str, list[str]] = {}
+    for descriptor in descriptors:
+        # `capability` is the Executive's own local verb ("open_browser_
+        # session"); rendered as words rather than the qualified id, for
+        # the same reason `runtime/approval.py::_human_reason` does it —
+        # a founder should not have to read snake_case.
+        readable = str(descriptor.capability).replace("_", " ").strip()
+        by_executive.setdefault(str(descriptor.executive_id), []).append(readable)
+
+    parts = []
+    for executive in sorted(by_executive):
+        verbs = sorted(set(by_executive[executive]))
+        parts.append(f"{executive}: {', '.join(verbs)}")
+
+    return (
+        "Right now I can talk with you, and I can act through these: "
+        + "; ".join(parts)
+        + ". Tell me what you'd like done and I'll plan it out."
+    )
+
+
+def _founder_failure_sentence(errors: str) -> str:
+    """The execution-side counterpart to `_founder_refusal_sentence` — a
+    task that was planned, ran, and did not finish. Same rule: the founder
+    reads a sentence, never a stack trace, a Playwright call log, or a
+    filesystem path."""
+    lowered = (errors or "").lower()
+    if "executable doesn't exist" in lowered or "playwright install" in lowered:
+        return "I couldn't start the browser on this machine."
+    if "approval" in lowered:
+        return "I stopped because that needs your approval first."
+    if any(marker in lowered for marker in _TIMEOUT_MARKERS):
+        return "That took too long to finish, so I stopped."
+    if any(marker in lowered for marker in _BUSY_MARKERS):
+        return "A service I needed was temporarily busy, so that didn't finish."
+    return "That didn't complete. I've kept the details for review."
 
 
 def _describe_result(result) -> str:
@@ -349,7 +570,6 @@ def _describe_result(result) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import logging
     logging.basicConfig(level=logging.WARNING, format='[%(levelname)s] %(name)s: %(message)s')
     parser = argparse.ArgumentParser(prog='kalpavriksha', description='Kalpavriksha Founder Edition')
     parser.add_argument("--founder-name", default=None)

@@ -26,7 +26,7 @@ import os
 from typing import Any
 
 from master_agent.desktop import catalog
-from master_agent.desktop.inventory import MachineInventory, discover, observations
+from master_agent.desktop.inventory import MachineInventory, discover, observations, refresh_processes_only
 from master_agent.desktop.probe import NullSystemProbe, SystemProbe
 from master_agent.executor.action import Action, ExecutionResult
 from master_agent.plugins.base import PermissionCategory, RiskTier
@@ -58,14 +58,50 @@ class DesktopContext:
     def __init__(self, probe: SystemProbe | None = None) -> None:
         self.probe: SystemProbe = probe or NullSystemProbe()
         self._inventory: MachineInventory | None = None
+        #: Whether `self._inventory` was populated by a deep scan.
+        #: `refresh(deep=False)` overwrites `self._inventory` with a
+        #: cheap, process-only snapshot (deliberately — that is its whole
+        #: point), which would otherwise silently downgrade a previously
+        #: deep-scanned cache: launch Chrome (deep scan, cached) -> focus
+        #: Chrome (`refresh(deep=False)`, cache now shallow) -> launch
+        #: Claude next would see the *stale shallow* cache and miss its
+        #: Start Menu match, since `inventory()`'s only prior staleness
+        #: signal was "is there a cache at all", not "is it deep enough
+        #: for what I'm asking". Tracking this explicitly is what lets
+        #: `inventory(deep=True)` notice and re-scan instead.
+        self._inventory_is_deep = False
 
-    def refresh(self, read_versions: bool = True) -> MachineInventory:
-        self._inventory = discover(self.probe, read_versions=read_versions)
+    def refresh(self, read_versions: bool = True, deep: bool = True) -> MachineInventory:
+        """`deep=True` (default) is Universal Windows Environment
+        Discovery's DEEP PATH — `Get-StartApps`/`Get-AppxPackage`/the
+        registry uninstall keys, several real seconds of subprocess cost.
+        `deep=False` is the FAST PATH: running-process attribution plus
+        each catalog spec's own PATH/known-path check — nothing a
+        per-action refresh (confirming a window still exists, say)
+        should ever pay for. Every caller that calls `refresh()`
+        specifically because it wants *current* process state, not a
+        fresh full machine scan, must pass `deep=False` explicitly.
+
+        When a deep scan is already cached, `deep=False` reuses its
+        Start Menu/MSIX/registry-derived records and only re-reads the
+        process list (`inventory.refresh_processes_only`) instead of
+        discarding them — live evidence this mattered: without it, every
+        verified interaction action's own fast "is the window still
+        there" refresh silently downgraded the shared cache, so
+        launching Chrome then Notepad back-to-back each independently
+        re-paid the full ~25s deep-scan cost instead of the second call
+        being instant.
+        """
+        if not deep and self._inventory is not None and self._inventory_is_deep:
+            self._inventory = refresh_processes_only(self.probe, self._inventory)
+            return self._inventory
+        self._inventory = discover(self.probe, read_versions=read_versions, deep=deep)
+        self._inventory_is_deep = deep
         return self._inventory
 
-    def inventory(self, read_versions: bool = True) -> MachineInventory:
-        if self._inventory is None:
-            return self.refresh(read_versions=read_versions)
+    def inventory(self, read_versions: bool = True, deep: bool = True) -> MachineInventory:
+        if self._inventory is None or (deep and not self._inventory_is_deep):
+            return self.refresh(read_versions=read_versions, deep=deep)
         return self._inventory
 
     @property
@@ -192,7 +228,7 @@ class ListRunningProcessesAction(_DesktopAction):
         return []
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
-        inventory = self._context.refresh(read_versions=False)
+        inventory = self._context.refresh(read_versions=False, deep=False)
         owned_only = bool(parameters.get("owned_only"))
         processes = [
             p for p in inventory.processes if not owned_only or p.owner is not None
@@ -220,7 +256,7 @@ class IsRunningAction(_DesktopAction):
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
         spec = self._spec(parameters["application"])
-        inventory = self._context.refresh(read_versions=False)
+        inventory = self._context.refresh(read_versions=False, deep=False)
         running = inventory.running(spec.key)
         return ExecutionResult(
             success=True,
@@ -315,7 +351,7 @@ class BringToFrontAction(_DesktopAction):
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
         spec = self._spec(parameters["application"])
-        inventory = self._context.refresh(read_versions=False)
+        inventory = self._context.refresh(read_versions=False, deep=False)
         running = inventory.running(spec.key)
         if not running:
             return ExecutionResult(
@@ -362,7 +398,7 @@ class CloseApplicationAction(_DesktopAction):
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
         spec = self._spec(parameters["application"])
-        inventory = self._context.refresh(read_versions=False)
+        inventory = self._context.refresh(read_versions=False, deep=False)
         running = inventory.running(spec.key)
         if not running:
             return ExecutionResult(

@@ -2171,5 +2171,8 @@ def test_every_public_module_documents_which_deliverable_it_serves():
                 # a newer brief is a valid answer, not an exception.
                 "Mission Brief 038",
                 "MB038",
+                # Added `tiered_runner.py` — the Corrected Fallback Ladder
+                # (Reasoning Fallback Ladder brief), same convention.
+                "Reasoning Fallback Ladder brief",
             )
         ), path.name

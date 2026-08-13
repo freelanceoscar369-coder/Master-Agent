@@ -97,6 +97,15 @@ class FakeProbe:
     def processes(self):
         return list(self._running)
 
+    def get_store_apps(self):
+        return []
+
+    def get_uninstall_apps(self):
+        return []
+
+    def get_start_apps(self):
+        return []
+
 
 class ScriptedBackend:
     """Implements `WindowBackend` + `MouseBackend` + `KeyboardBackend` +

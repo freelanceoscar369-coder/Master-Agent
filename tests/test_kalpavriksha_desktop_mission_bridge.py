@@ -50,12 +50,20 @@ def test_browser_capabilities_are_discovered(monkeypatch):
 def test_no_ollama_provider_is_ever_registered(monkeypatch):
     """Founder RAM constraint, repeated across every Gemini mission this
     session — proven here at the one new assembly point that could have
-    silently reintroduced it."""
+    silently reintroduced it.
+
+    `planner._runner` is a `TieredPromptRunner` (Corrected Fallback
+    Ladder) wrapping the real `PromptExecutor` as `._executor` — the same
+    `PluginRegistry` this test always checked, reached through the one
+    new, sanctioned layer between `Planner` and it."""
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-test")
     mission_service, _, _, _ = kd._build_mission_pipeline()
-    provider_ids = {p.provider_id for p in mission_service.planner._runner._providers.all_plugins()}
+    provider_ids = {p.provider_id for p in mission_service.planner._runner._executor._providers.all_plugins()}
     assert "ollama.local" not in provider_ids
-    assert provider_ids == {"gemini.api"}
+    assert provider_ids == {
+        "gemini.api", "claude-desktop", "chatgpt-desktop",
+        "perplexity-desktop", "kimi-desktop", "browser.free-ai",
+    }
 
 
 # ---- _submit_objective() --------------------------------------------------
@@ -131,11 +139,17 @@ def test_a_refused_plan_never_touches_the_runtime():
     runtime = _FakeRuntime()
     mission_control = _FakeMissionControl([_FakeObjective()], _FakeFounderState())
 
+    status = ExecutionStatus()
     result = kd._submit_objective(
-        mission_service, runtime, mission_control, ExecutionStatus(), "do something"
+        mission_service, runtime, mission_control, status, "do something"
     )
 
-    assert "no eligible provider" in result["reply"]
+    # The founder gets a clean sentence, never the provider's own words —
+    # the developer diagnostic stays on `status.errors`. See
+    # `test_launch_rescue_provider_hygiene.py` for the full hygiene rules.
+    assert "no eligible provider" not in result["reply"]
+    assert result["reply"]
+    assert any("no eligible provider" in err for err in status.errors)
     assert runtime.run_once_calls == 0
 
 
@@ -167,7 +181,10 @@ def test_a_failed_objective_reports_the_errors():
         mission_service, runtime, mission_control, ExecutionStatus(), "open chrome"
     )
 
-    assert "selector not found" in result["reply"]
+    # Same hygiene rule as the refusal path: the founder is told the task
+    # did not complete, not handed the executive's raw error string.
+    assert "selector not found" not in result["reply"]
+    assert "didn't complete" in result["reply"] or "review" in result["reply"]
 
 
 def test_a_browser_observation_result_gets_a_readable_sentence():

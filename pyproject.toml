@@ -11,6 +11,14 @@ dependencies = [
     "httpx>=0.27",
     "openai>=1.30",
     "sqlmodel>=0.0.21",
+    # Universal Autonomous Desktop Executive: the Windows UI Automation
+    # bridge (desktop/execution/uia_control.py) — pure-Python COM
+    # marshaling to the same IUIAutomation interface a screen reader
+    # uses, not a competing automation framework. Was already an
+    # installed transitive dependency of `pycaw` (the voice extra) and
+    # already in packaging/kalpavriksha.spec's hiddenimports; declared
+    # directly here now that the Desktop Executive itself depends on it.
+    "comtypes>=1.4; sys_platform == 'win32'",
 ]
 
 [project.scripts]

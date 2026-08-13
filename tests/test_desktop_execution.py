@@ -47,6 +47,9 @@ from master_agent.desktop.execution import (
     DesktopExecutor,
     KeyboardController,
     MouseController,
+    NullClipboardBackend,
+    NullKeyboardBackend,
+    NullMouseBackend,
     ProcessExecutive,
     WindowManager,
 )
@@ -214,6 +217,15 @@ class FakeProbe:
 
     def processes(self):
         return list(self._running)
+
+    def get_store_apps(self):
+        return []
+
+    def get_uninstall_apps(self):
+        return []
+
+    def get_start_apps(self):
+        return []
 
 
 def machine(**kwargs) -> FakeProbe:
@@ -410,7 +422,12 @@ class TestKeyboardOperations:
         assert not result.success
 
     def test_the_null_backend_reports_unavailable_honestly(self):
-        controller = KeyboardController()
+        """Passing `NullKeyboardBackend()` explicitly, rather than relying
+        on an omitted `backend`, since the constructor's real default is
+        now the live Win32 backend on this platform (that is the point of
+        this component) — this test's job is the Null backend's own
+        honesty, not which backend is chosen when none is given."""
+        controller = KeyboardController(NullKeyboardBackend())
         assert not controller.type("hello").success
         assert "no keyboard backend" in controller.type("hello").errors[0]
         assert not controller.press("enter").success
@@ -468,7 +485,9 @@ class TestMouseOperations:
         assert set(sig.parameters) == {"self", "x", "y", "button"}
 
     def test_the_null_backend_reports_unavailable_honestly(self):
-        controller = MouseController()
+        """Passing `NullMouseBackend()` explicitly — see the identical
+        note on `TestKeyboardOperations`'s version of this test."""
+        controller = MouseController(NullMouseBackend())
         assert not controller.move(1, 1).success
         assert not controller.click(1, 1).success
         assert not controller.double_click(1, 1).success
@@ -510,7 +529,15 @@ class TestClipboard:
         assert not hasattr(backend, "history")
 
     def test_the_null_backend_read_is_honestly_empty(self):
-        executive = ClipboardExecutive()
+        """Passing `NullClipboardBackend()` explicitly, rather than relying
+        on an omitted `backend`, since the constructor's real default is
+        now the live Win32 backend on this platform — matching
+        `KeyboardController`'s own established default (a real reasoning
+        prompt must be able to reach the clipboard via `paste()` without
+        every caller wiring a backend by hand). This test's job is the
+        Null backend's own honesty, not which backend is chosen when none
+        is given."""
+        executive = ClipboardExecutive(NullClipboardBackend())
         result = executive.read()
         assert result.success
         assert result.output["text"] is None

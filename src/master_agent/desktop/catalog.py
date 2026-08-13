@@ -42,7 +42,16 @@ class ApplicationSpec:
     executables: tuple[str, ...] = ()
     windows_paths: tuple[str, ...] = ()
     posix_paths: tuple[str, ...] = ()
-    version_args: tuple[str, ...] = ("--version",)
+    #: Arguments that make the executable print a version and exit.
+    #: `None` — not `()` — is the honest way to say *no such argument
+    #: exists*: a GUI-only binary like `notepad.exe` has no version flag
+    #: at all, and any argument (including none) makes it open a real,
+    #: visible, blocking window rather than answer and exit. `()` still
+    #: means "just run it with no extra arguments," which is exactly that
+    #: same trap for a GUI-only executable — `None` is what actually
+    #: tells `inventory.discover()` to skip the probe (Desktop Executive
+    #: Foundation 1.0).
+    version_args: tuple[str, ...] | None = ("--version",)
     process_names: tuple[str, ...] = ()
     #: Recommended means "the founder probably wants this", used only to
     #: populate MB030 Deliverable 4's "Missing Recommended Applications"
@@ -114,6 +123,18 @@ CATALOG: tuple[ApplicationSpec, ...] = (
         ),
         process_names=("devenv.exe",),
     ),
+    ApplicationSpec(
+        key="notepad",
+        label="Notepad",
+        category=SYSTEM,
+        executables=("notepad",),
+        windows_paths=(r"%WINDIR%\system32\notepad.exe",),
+        # `None`, not `()`: notepad.exe has no version flag, and any
+        # argument opens a real, visible, blocking window — see
+        # `ApplicationSpec.version_args`'s own docstring.
+        version_args=None,
+        process_names=("notepad.exe", "notepad"),
+    ),
     # ---- browsers ----
     ApplicationSpec(
         key="chrome",
@@ -155,6 +176,34 @@ CATALOG: tuple[ApplicationSpec, ...] = (
         windows_paths=(r"%LOCALAPPDATA%\AnthropicClaude\claude.exe",),
         posix_paths=("/Applications/Claude.app",),
         process_names=("claude.exe", "Claude"),
+    ),
+    ApplicationSpec(
+        key="chatgpt_desktop",
+        label="ChatGPT",
+        category=AI,
+        windows_paths=(
+            r"%LOCALAPPDATA%\Programs\ChatGPT\ChatGPT.exe",
+            r"%LOCALAPPDATA%\Programs\ChatGPT\ChatGPT",
+        ),
+        posix_paths=("/Applications/ChatGPT.app",),
+        process_names=("ChatGPT.exe", "ChatGPT"),
+    ),
+    ApplicationSpec(
+        key="perplexity_desktop",
+        label="Perplexity",
+        category=AI,
+        # No `windows_paths`: Perplexity is an MSIX/Start-Menu install with
+        # no fixed path (confirmed live, Universal Windows Environment
+        # Discovery) — a bare key/label entry only, so it can be referenced
+        # by name; `discover()`'s own Start Menu/MSIX sources resolve the
+        # real launch target, exactly like every other app in this file.
+        process_names=("Perplexity.exe", "Perplexity"),
+    ),
+    ApplicationSpec(
+        key="kimi_desktop",
+        label="Kimi",
+        category=AI,
+        process_names=("Kimi.exe", "Kimi"),
     ),
     ApplicationSpec(
         key="ollama",
@@ -228,9 +277,9 @@ CATALOG: tuple[ApplicationSpec, ...] = (
 
 BY_KEY = {spec.key: spec for spec in CATALOG}
 
-#: What the Machine Readiness panel shows, in order (Deliverable 9).
-#: Filesystem, Browser, and Desktop are Executives rather than installed
-#: software and are added by the Dashboard from the live registry.
+#: What the Dashboard's Machine Readiness panel checks — a fixed,
+#: intentionally small set of everyday developer tools, not "every
+#: catalog entry" (`dashboard/sources.py` reads this directly).
 READINESS_KEYS: tuple[str, ...] = (
     "python",
     "git",

@@ -93,6 +93,15 @@ class InstalledProbe:
     def processes(self):
         return []
 
+    def get_store_apps(self):
+        return []
+
+    def get_uninstall_apps(self):
+        return []
+
+    def get_start_apps(self):
+        return []
+
 
 def system_with(state_dir, *executables: str, **kwargs):
     """A launcher-built system whose machine has `executables` installed."""

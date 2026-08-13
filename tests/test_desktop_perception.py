@@ -32,6 +32,7 @@ import pytest
 
 from master_agent.desktop.actions import DesktopContext
 from master_agent.desktop.execution.backends import WindowInfo
+from master_agent.desktop.execution.backends import NullClipboardBackend
 from master_agent.desktop.execution.clipboard import ClipboardExecutive
 from master_agent.desktop.execution.process import ProcessExecutive
 from master_agent.desktop.execution.window import WindowManager
@@ -365,7 +366,16 @@ class TestClipboardObserver:
         assert "secret" not in rendered
 
     def test_the_null_default_is_honestly_empty(self):
-        status = ClipboardObserver().observe(T0)
+        """Passing `NullClipboardBackend()` explicitly, rather than relying
+        on an omitted `backend`, since `ClipboardExecutive`'s own real
+        default is now the live Win32 backend on this platform (matching
+        `KeyboardController`'s established convention — a real reasoning
+        prompt must be able to reach the clipboard via `paste()` without
+        every caller wiring a backend by hand). This test's job is the
+        Null backend's own honesty, not which backend `ClipboardObserver`
+        gets when none is given."""
+        clipboard = ClipboardExecutive(NullClipboardBackend())
+        status = ClipboardObserver(clipboard).observe(T0)
         assert status.has_content.value is False
 
 
