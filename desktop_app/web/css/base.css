@@ -48,7 +48,10 @@ body {
 }
 
 /* 10.9 — cursor rules */
-input, textarea, [contenteditable] { cursor: text; user-select: text; }
+input, textarea, [contenteditable],
+.conversation, .conversation *, .founder-message, .founder-message *,
+.somesh-message, .somesh-message * { cursor: default; user-select: text; }
+.conversation a, .conversation a * { cursor: pointer; }
 button, [role="button"], .clickable { cursor: pointer; }
 button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
 

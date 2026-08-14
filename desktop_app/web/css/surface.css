@@ -1,17 +1,37 @@
 /* Founder Surface — Product Veda Deliverable 1.
-   Source: veda/01_FOUNDER_SURFACE.md. Reference layout 1440x900. */
+  Source: veda/01_FOUNDER_SURFACE.md. Reference layout 1440x900. */
 
-#app { position: fixed; inset: 0; overflow: hidden; background: var(--c-void); }
+#app { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(120% 90% at 50% 42%, #0A1018 0%, #05070A 62%); }
+/* #app overflow:hidden must not eat wheel events — let children scroll */
+#app * { touch-action: auto; }
+
+/* Startup Diagnostics overlay — not a Product Veda element; a founder-
+   requested safety net so a broken startup shows exactly which step
+   failed instead of a silently dead window. Small, corner-anchored,
+   never competes with the tree. */
+.startup-diagnostics {
+  position: absolute; top: var(--sp-4); right: var(--sp-4);
+  z-index: var(--z-transient);
+  font: var(--t-mono-size)/var(--t-mono-lh) var(--font-mono);
+  color: var(--c-ink-2); background: var(--c-raise-1); border: 1px solid var(--c-hair-soft);
+  border-radius: var(--r-2); padding: var(--sp-3) var(--sp-4);
+  display: none; opacity: 0; transition: opacity var(--d-3) ease;
+  pointer-events: none; max-width: 320px;
+}
+.startup-diagnostics.is-visible { display: block; opacity: 1; }
+.startup-diagnostics .diag-row { white-space: nowrap; }
+.startup-diagnostics .diag-ok { color: var(--s-live); }
+.startup-diagnostics .diag-fail { color: var(--s-risk); }
 
 /* 1.2 — tree canvas, full-bleed, never a bounded box */
-canvas#tree {
+canvas#treeCanvas {
   position: absolute; inset: 0;
-  z-index: var(--z-field);
+  z-index: 3; /* above field-base (1) and bloom (2), below veil (5) */
   width: 100%; height: 100%;
   display: block;
 }
 
-/* 1.3 — ambient lighting, layer A (base field) */
+/* 1.3 — ambient lighting, layer A (base field) — BEHIND the tree */
 .field-base {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background: radial-gradient(ellipse 120% 90% at 50% 62%, #0A1018 0%, var(--c-void) 66%);
@@ -21,7 +41,7 @@ canvas#tree {
 [data-theme="light"] .field-base { background: var(--c-void); }
 .field-base.is-visible { opacity: 1; }
 
-/* 1.3 — layer B, canopy bloom */
+/* 1.3 — layer B, canopy bloom — BEHIND the tree */
 .bloom {
   position: absolute; left: 50%; top: 34%; z-index: 2;
   width: 56%; aspect-ratio: 1; transform: translate(-50%, -50%);
@@ -32,15 +52,13 @@ canvas#tree {
 }
 [data-theme="light"] .bloom { opacity: 0 !important; pointer-events: none; }
 
-/* 1.2 — the veil: text is never rendered directly over undimmed particles */
+/* 1.3 — the veil: text is never rendered directly over undimmed particles — ABOVE the tree */
 .veil {
   position: absolute; inset: 0; z-index: 5; pointer-events: none;
-  background: radial-gradient(ellipse 70% 40% at 50% 78%,
-    rgba(5,7,10,0.82) 0%, rgba(5,7,10,0.55) 45%, rgba(5,7,10,0.00) 100%);
+  background: radial-gradient(60% 45% at 50% 46%, transparent 0%, rgba(5,7,10,0.55) 100%);
 }
 [data-theme="light"] .veil {
-  background: radial-gradient(ellipse 70% 40% at 50% 78%,
-    rgba(244,242,238,0.88) 0%, rgba(244,242,238,0.60) 45%, rgba(244,242,238,0.00) 100%);
+  background: radial-gradient(60% 45% at 50% 46%, transparent 0%, rgba(244,242,238,0.55) 100%);
 }
 
 /* 1.7 — persistent chrome: wordmark + dashboard chevron */
@@ -143,8 +161,36 @@ canvas#tree {
 .mic-secondary.is-visible { display: block; }
 .mic-secondary a { color: var(--s-live); cursor: pointer; text-decoration: none; }
 
-/* mic states — 03_VOICE_EXPERIENCE §3.1, all nine driven by the real
-   local voice pipeline (C34.1). */
+/* Mode switch — three session-level operating-mode buttons */
+.mode-switch {
+  display: flex; gap: var(--sp-2);
+  margin-bottom: var(--sp-5);
+  opacity: 0; transform: translateY(12px);
+  transition: opacity var(--d-5) var(--e-settle), transform var(--d-5) var(--e-settle);
+}
+.mode-switch.is-visible { opacity: 1; transform: translateY(0); }
+
+.mode-btn {
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--c-hair-soft);
+  border-radius: var(--r-2);
+  background: var(--c-raise-1);
+  color: var(--c-ink-3);
+  font: var(--t-label-size)/var(--t-label-lh) var(--font-mono);
+  font-weight: var(--t-label-weight);
+  letter-spacing: var(--t-label-track);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color var(--d-2) var(--e-settle), color var(--d-2) var(--e-settle), background var(--d-2) var(--e-settle);
+}
+.mode-btn:hover { color: var(--c-ink-2); border-color: var(--c-hair); }
+.mode-btn.is-active {
+  color: var(--s-live);
+  border-color: color-mix(in srgb, var(--s-live) 50%, transparent);
+  background: rgba(127,211,255,0.06);
+}
+
+/* 1.5 — microphone, the primary affordance */
 .mic[data-state="idle"] { }
 .mic[data-state="idle"] svg { stroke: var(--c-ink-2); }
 

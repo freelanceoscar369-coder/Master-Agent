@@ -276,12 +276,18 @@ function applyGreeting() {
     els.greeting.textContent = greetingText;
     els.greeting.classList.add('is-visible');
   }
+  // No presence line is a valid, healthy state -- `greet()` returns
+  // presence: None whenever no domain is registered, which is the normal
+  // case today. Rendering an em-dash placeholder for it put a stray glyph
+  // in the middle of an otherwise calm surface and read as a broken
+  // element rather than as silence. VEDA's own rule is that silence is a
+  // state the product is allowed to be in, so absence renders nothing.
   if (presenceText) {
     els.presence.textContent = presenceText;
     els.presence.classList.add('is-visible');
   } else {
-    els.presence.textContent = '—';
-    els.presence.classList.add('is-visible');
+    els.presence.textContent = '';
+    els.presence.classList.remove('is-visible');
   }
 }
 

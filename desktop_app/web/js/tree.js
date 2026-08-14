@@ -125,11 +125,45 @@ function TreeField(canvas, opts) {
     }
   }
 
+  // Last CSS-pixel box actually applied, so a ResizeObserver notification
+  // that reports no real change becomes a no-op instead of another write.
+  var lastCssW = -1, lastCssH = -1;
+
   function resize() {
     var r = canvas.getBoundingClientRect();
-    W = r.width; H = r.height;
-    canvas.width = W * dpr; canvas.height = H * dpr;
+
+    // Two guards, both load-bearing -- see the ResizeObserver below.
+    //
+    // 1. CLAMP TO THE VIEWPORT. This canvas is a full-bleed background
+    //    layer; it can never legitimately be larger than the window.
+    //    Assigning canvas.width/height sets the element's *intrinsic*
+    //    size, so a canvas that has lost its CSS box (position/inset/
+    //    width/height) sizes itself from those attributes -- and every
+    //    observer tick would then multiply it by `dpr` again, growing it
+    //    without bound until it exhausts memory. Clamping makes that
+    //    runaway arithmetically impossible and, as a bonus, keeps the
+    //    tree correct and full-window even if its CSS ever goes missing
+    //    again rather than silently rendering into a giant offscreen
+    //    buffer.
+    // 2. FALL BACK WHEN THE BOX IS ZERO. The first call happens in this
+    //    constructor, which can run before the canvas has ever been laid
+    //    out; `|| window.innerWidth` paints correctly on that first frame
+    //    instead of waiting for a later notification.
+    var w = Math.max(1, Math.min(Math.round(r.width) || window.innerWidth, window.innerWidth));
+    var h = Math.max(1, Math.min(Math.round(r.height) || window.innerHeight, window.innerHeight));
+
+    // 3. NO-OP ON AN UNCHANGED BOX. Without this the observer re-enters on
+    //    every notification it triggers itself, which is what produces the
+    //    "ResizeObserver loop completed with undelivered notifications"
+    //    warning even when the size has settled.
+    if (w === lastCssW && h === lastCssH) return false;
+
+    lastCssW = w; lastCssH = h;
+    W = w; H = h;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return true;
   }
 
   // Resolves a colour token (hex #rrggbb, as most --s-* tokens are, or
@@ -270,19 +304,24 @@ function TreeField(canvas, opts) {
   // once immediately with whatever size is available, and fires again
   // the moment layout actually settles -- self-healing the race instead
   // of depending on an unrelated window-level event to happen to occur.
-  if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(function () {
-      resize();
-      // See the reduced-motion note below: no rAF loop exists there to
-      // repaint after assigning canvas.width/height clears the bitmap.
-      if (reduced) frame(performance.now(), true);
-    }).observe(canvas);
-  } else {
-    window.addEventListener('resize', function() {
-      resize();
-      if (reduced) frame(performance.now(), true);
-    });
+  //
+  // SAFETY: observing an element while writing to its size is a feedback
+  // loop by construction. resize() above is the guard -- it clamps to the
+  // viewport and returns false when nothing actually changed, so the
+  // observer settles after one pass instead of driving the canvas
+  // upward on every notification. Repaint only when resize() reports a
+  // real change (reduced motion has no rAF loop to repaint for it, and
+  // assigning canvas.width/height always clears the bitmap).
+  function onBoxChange() {
+    if (resize() && reduced) frame(performance.now(), true);
   }
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(onBoxChange).observe(canvas);
+  }
+  // Kept alongside the observer, not as an either/or: the observer catches
+  // the layout race, this catches a window resize that leaves the canvas's
+  // own box unchanged but changes the viewport the clamp above reads from.
+  window.addEventListener('resize', onBoxChange);
   if (reduced) { t0 = performance.now() - 3000; ctx && frame(performance.now(), true); }
   else requestAnimationFrame(frame);
 
