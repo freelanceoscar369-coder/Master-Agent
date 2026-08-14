@@ -36,23 +36,34 @@
 // colours, not a fifth, so failed's bloom uses it too for consistency
 // with what the founder already reads in the Work Region for the same
 // state. `recovering` keeps `--s-live`, matching the reconciliation.
+// COLOUR -- added this mission, reconciled against kv-ui-core's own
+// corrected reference (kv-probe-approval-html.html): the tree's body
+// (filaments + particles), not only its bloom halo, now tints per state.
+// This is what still communicates "human required" once the bloom-gate
+// fix below correctly zeroes bloom at `minimum` -- amber has nowhere
+// else to appear. Neutral/working states share the tree's own default
+// particle token; only the three semantic states (approval-equivalent,
+// completed, failed) get a distinct body colour. `recovering` is
+// deliberately NOT tinted --s-risk: "retrying is the system alive and
+// working, not something wrong" (kv-ui-core's own stated reasoning) --
+// its distinctiveness is pulseDir DOWN + looser drift, not colour.
 var STATE_PARAMS = {
-  idle:       { breatheAmp: 0.006, breathePeriod: 6400, bloomOpacity: 0.60, bloomToken: '--s-live',   driftMul: 1.0, seekStiffness: 0.020, pulseDir: 1,  pulsePeriod: 8000, pulseCrest: 1.08 },
-  listening:  { breatheAmp: 0.010, breathePeriod: 4200, bloomOpacity: 1.00, bloomToken: '--s-live',   driftMul: 0.55, seekStiffness: 0.045, pulseDir: -1, pulsePeriod: 4800, pulseCrest: 1.20 },
-  thinking:   { breatheAmp: 0.008, breathePeriod: 5200, bloomOpacity: 0.85, bloomToken: '--s-live',   driftMul: 1.4, seekStiffness: 0.014, pulseDir: 1,  pulsePeriod: 3600, pulseCrest: 1.35 },
-  executing:  { breatheAmp: 0.008, breathePeriod: 5200, bloomOpacity: 0.80, bloomToken: '--s-live',   driftMul: 1.1, seekStiffness: 0.020, pulseDir: 1,  pulsePeriod: 3000, pulseCrest: 1.22 },
-  speaking:   { breatheAmp: 0.006, breathePeriod: 3200, bloomOpacity: 1.00, bloomToken: '--s-live',   driftMul: 0.8, seekStiffness: 0.032, pulseDir: 1,  pulsePeriod: 2800, pulseCrest: 1.15 },
-  waiting:    { breatheAmp: 0.007, breathePeriod: 5800, bloomOpacity: 0.70, bloomToken: '--s-attend', driftMul: 0.9, seekStiffness: 0.025, pulseDir: 1,  pulsePeriod: 7200, pulseCrest: 1.12 },
-  completed:  { breatheAmp: 0.008, breathePeriod: 5200, bloomOpacity: 0.85, bloomToken: '--s-settled', driftMul: 1.0, seekStiffness: 0.018, pulseDir: 1, pulsePeriod: 4000, pulseCrest: 1.20 },
-  recovering: { breatheAmp: 0.007, breathePeriod: 6000, bloomOpacity: 0.55, bloomToken: '--s-live',   driftMul: 1.25, seekStiffness: 0.011, pulseDir: -1, pulsePeriod: 4400, pulseCrest: 1.10 },
-  failed:     { breatheAmp: 0.007, breathePeriod: 6000, bloomOpacity: 0.55, bloomToken: '--s-risk',   driftMul: 1.25, seekStiffness: 0.011, pulseDir: -1, pulsePeriod: 4400, pulseCrest: 1.10 },
+  idle:       { breatheAmp: 0.006, breathePeriod: 6400, bloomOpacity: 0.60, bloomToken: '--s-live',   driftMul: 1.0, seekStiffness: 0.020, pulseDir: 1,  pulsePeriod: 8000, pulseCrest: 1.08, colour: '--tree-particle' },
+  listening:  { breatheAmp: 0.010, breathePeriod: 4200, bloomOpacity: 1.00, bloomToken: '--s-live',   driftMul: 0.55, seekStiffness: 0.045, pulseDir: -1, pulsePeriod: 4800, pulseCrest: 1.20, colour: '--tree-particle' },
+  thinking:   { breatheAmp: 0.008, breathePeriod: 5200, bloomOpacity: 0.85, bloomToken: '--s-live',   driftMul: 1.4, seekStiffness: 0.014, pulseDir: 1,  pulsePeriod: 3600, pulseCrest: 1.35, colour: '--tree-particle' },
+  executing:  { breatheAmp: 0.008, breathePeriod: 5200, bloomOpacity: 0.80, bloomToken: '--s-live',   driftMul: 1.1, seekStiffness: 0.020, pulseDir: 1,  pulsePeriod: 3000, pulseCrest: 1.22, colour: '--tree-particle' },
+  speaking:   { breatheAmp: 0.006, breathePeriod: 3200, bloomOpacity: 1.00, bloomToken: '--s-live',   driftMul: 0.8, seekStiffness: 0.032, pulseDir: 1,  pulsePeriod: 2800, pulseCrest: 1.15, colour: '--tree-particle' },
+  waiting:    { breatheAmp: 0.007, breathePeriod: 5800, bloomOpacity: 0.70, bloomToken: '--s-attend', driftMul: 0.9, seekStiffness: 0.025, pulseDir: 1,  pulsePeriod: 7200, pulseCrest: 1.12, colour: '--s-attend' },
+  completed:  { breatheAmp: 0.008, breathePeriod: 5200, bloomOpacity: 0.85, bloomToken: '--s-settled', driftMul: 1.0, seekStiffness: 0.018, pulseDir: 1, pulsePeriod: 4000, pulseCrest: 1.20, colour: '--s-settled' },
+  recovering: { breatheAmp: 0.007, breathePeriod: 6000, bloomOpacity: 0.55, bloomToken: '--s-live',   driftMul: 1.25, seekStiffness: 0.011, pulseDir: -1, pulsePeriod: 4400, pulseCrest: 1.10, colour: '--tree-particle' },
+  failed:     { breatheAmp: 0.007, breathePeriod: 6000, bloomOpacity: 0.55, bloomToken: '--s-risk',   driftMul: 1.25, seekStiffness: 0.011, pulseDir: -1, pulsePeriod: 4400, pulseCrest: 1.10, colour: '--s-risk' },
 };
 // Celebration -- NOT a status-driven state; a bounded ~2.2s overlay fired
 // exactly once per completion_id by app.js's own confirm_completion
 // handler (Decision Gate Item 5). completed's own steady parameters
 // above are what shows the rest of the time ("Otherwise Completed is a
 // settled return with no bloom burst" -- H2's own footnote).
-var CELEBRATION_PARAMS = { breatheAmp: 0.018, breathePeriod: 2800, bloomOpacity: 1.00, bloomToken: '--s-bloom', driftMul: 2.2, seekStiffness: 0.008, pulseDir: 1, pulsePeriod: 2200, pulseCrest: 1.55 };
+var CELEBRATION_PARAMS = { breatheAmp: 0.018, breathePeriod: 2800, bloomOpacity: 1.00, bloomToken: '--s-bloom', driftMul: 2.2, seekStiffness: 0.008, pulseDir: 1, pulsePeriod: 2200, pulseCrest: 1.55, colour: '--s-bloom' };
 
 function stateParams(name) {
   return STATE_PARAMS[name] || STATE_PARAMS.idle;
@@ -121,6 +132,26 @@ function TreeField(canvas, opts) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  // Resolves a colour token (hex #rrggbb, as most --s-* tokens are, or
+  // rgba(...), as --tree-particle is) to [R,G,B]. Read fresh every call,
+  // never cached -- the token's own value can change with theme, and this
+  // mirrors kv-ui-core's own rgb() helper exactly (kv-probe-approval-html.html).
+  var colourCache = {};
+  function resolveColour(token) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+    if (colourCache[v]) return colourCache[v];
+    var out;
+    if (v.indexOf('rgba') === 0 || v.indexOf('rgb') === 0) {
+      var m = v.match(/[\d.]+/g);
+      out = [Number(m[0]), Number(m[1]), Number(m[2])];
+    } else {
+      var h = v.replace('#', '');
+      out = [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    }
+    colourCache[v] = out;
+    return out;
+  }
+
   function frame(now, staticEndpoint) {
     var el = (now - t0) / 1000;
     assembled = staticEndpoint ? 1 : Math.min(1, el / 2.4);
@@ -153,6 +184,13 @@ function TreeField(canvas, opts) {
     var envelope = breathe * pulse;
     var drift = staticEndpoint ? 0 : params.driftMul;
 
+    // Per-state body colour -- the tree's own filaments and particles,
+    // not only its bloom halo, tint by state (see STATE_PARAMS' own
+    // `colour` field comment). Resolved once per frame, not per edge/
+    // particle, since it never changes mid-frame.
+    var col = resolveColour(params.colour || '--tree-particle');
+    var R = col[0], G = col[1], B = col[2];
+
     /* branch filaments -- legible skeleton, not a particle cloud.
      * Depth-alpha gradient runs trunk -> canopy (higher e.d is closer to
      * the trunk; increasing, not decreasing, is the anatomically correct
@@ -162,7 +200,7 @@ function TreeField(canvas, opts) {
     for (var i = 0; i < edges.length; i++) {
       var e = edges[i];
       var o = (0.08 + e.d * 0.030) * ease;
-      ctx.strokeStyle = 'rgba(180,225,255,' + o.toFixed(3) + ')';
+      ctx.strokeStyle = 'rgba(' + R + ',' + G + ',' + B + ',' + o.toFixed(3) + ')';
       ctx.lineWidth = Math.max(0.8, e.w * 0.8);
       ctx.beginPath();
       ctx.moveTo(cx + (e.x1 - 0.5) * W * envelope, cy + (e.y1 - 0.52) * H * envelope);
@@ -199,10 +237,14 @@ function TreeField(canvas, opts) {
       var size = p.s * (1 + glow * 1.5) * 1.25;
 
       if (glow > 0.02) {
-        ctx.fillStyle = 'rgba(210,242,255,' + (alpha * glow * 0.95).toFixed(3) + ')';
+        var hR = Math.min(255, R + 45), hG = Math.min(255, G + 40), hB = Math.min(255, B + 40);
+        ctx.fillStyle = 'rgba(' + hR + ',' + hG + ',' + hB + ',' + (alpha * glow * 0.95).toFixed(3) + ')';
         ctx.beginPath(); ctx.arc(sx, sy, size * 2.2, 0, 6.283); ctx.fill();
       }
-      ctx.fillStyle = 'rgba(' + (glow > 0.3 ? '230,248,255' : '150,215,250') + ',' + alpha.toFixed(3) + ')';
+      var bR = glow > 0.3 ? Math.min(255, R + 20) : R;
+      var bG = glow > 0.3 ? Math.min(255, G + 20) : G;
+      var bB = glow > 0.3 ? Math.min(255, B + 20) : B;
+      ctx.fillStyle = 'rgba(' + bR + ',' + bG + ',' + bB + ',' + alpha.toFixed(3) + ')';
       ctx.beginPath(); ctx.arc(sx, sy, size, 0, 6.283); ctx.fill();
     }
     // H5 -- every state declares a static endpoint; reduced motion must
@@ -215,15 +257,32 @@ function TreeField(canvas, opts) {
 
   var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches;
   buildTree(); seed(); resize();
-  window.addEventListener('resize', function() {
-    resize();
-    // Assigning canvas.width/height (inside resize()) always clears the
-    // bitmap. With no rAF loop running, reduced motion has nothing left
-    // to repaint it on the next tick the way full motion does -- without
-    // this, any resize after the initial paint leaves the canvas blank
-    // and the tree simply disappears.
-    if (reduced) frame(performance.now(), true);
-  });
+  // A real, reproducible race, not just a reduced-motion concern: this
+  // constructor's own first resize() call above can run before the
+  // canvas has ever been laid out (e.g. a slow first layout pass, fonts
+  // still loading, an ancestor flex/grid box not yet resolved), getting
+  // a 0x0 bounding rect -- canvas.width/height then stay 0 and NOTHING
+  // ever draws, because in full motion the rAF loop keeps calling frame()
+  // but frame() never calls resize() itself, and a plain 'resize' window
+  // listener only fires on an actual window resize, which may never
+  // happen if the embedding window's size never changes after launch.
+  // ResizeObserver watches the canvas element's own box directly, fires
+  // once immediately with whatever size is available, and fires again
+  // the moment layout actually settles -- self-healing the race instead
+  // of depending on an unrelated window-level event to happen to occur.
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(function () {
+      resize();
+      // See the reduced-motion note below: no rAF loop exists there to
+      // repaint after assigning canvas.width/height clears the bitmap.
+      if (reduced) frame(performance.now(), true);
+    }).observe(canvas);
+  } else {
+    window.addEventListener('resize', function() {
+      resize();
+      if (reduced) frame(performance.now(), true);
+    });
+  }
   if (reduced) { t0 = performance.now() - 3000; ctx && frame(performance.now(), true); }
   else requestAnimationFrame(frame);
 

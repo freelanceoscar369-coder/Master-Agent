@@ -100,33 +100,42 @@ const tree = new window.KalpavrikshaTree(canvas, {
 // the one place that turns those numbers into the actual .bloom element,
 // since bloom is a DOM div, not part of the canvas.
 //
-// RULING -- Priority 2 Item 1, "Waiting/Attention bloom conflict"
-// (documented per the mission's own instruction not to silently pick
-// one): VEDA's per-state table gives Waiting bloomOpacity 0.70; prominence.js
-// (unedited, per the hard rule) gates --tree-bloom-opacity to 0 at BOTH
-// `reduced` and `minimum`. Applying that gate literally would mean
-// Waiting's 0.70 -- and Error/Recovery's 0.55 -- can never actually be
-// seen, since both states are only ever reached at `minimum` prominence.
-// Read for INTENT rather than applied as a blind override: prominence's
-// zero exists for one stated reason -- "bloom is a light source competing
-// with text... the single largest contributor to the reported 'tree over
-// work' feeling" -- which is the Work Region's text, present at `reduced`
-// (a live work sentence). At `minimum`, H3 gives the state's own bloom a
-// DIFFERENT, deliberate job: "local warmth... a human is required there."
-// So: prominence's bloom-to-zero is authoritative at `reduced` (unchanged,
-// already-shipped, no regression); at `minimum` the state's own
-// bloomOpacity governs instead of being forced to 0. `ambient` never
-// disagrees between the two axes (idle's 0.60 already equals prominence's
-// own 0.6). prominence.js itself is never edited -- this ruling lives
-// entirely in how the renderer/wiring layer (here) combines the two
-// numbers, which is exactly the judgment call the handoff leaves to the
-// implementer.
+// RULING -- CORRECTED this mission. The previous port (see git history)
+// resolved the Waiting/Attention bloom conflict by letting each state's
+// own bloomOpacity govern at `minimum`, reasoning that prominence's
+// zero-bloom rule was meant for `reduced` (where it competes with Work
+// Region text) and didn't apply at `minimum`. kv-ui-core's own newest
+// reference (kv-probe-approval-html.html, "Corrected reference" images,
+// 14 Aug) settles this explicitly and differently: bloom is zero at BOTH
+// `reduced` and `minimum` -- "This harness obeys kv-ui-core (bloom 0) and
+// carries the attend signal in PARTICLE COLOUR, because kv-ui-core is
+// validated behaviour and must not be forked." That reference is now the
+// newer, more authoritative source (it ships the exact composition
+// formula, not just a stated intent), so this mission reverses the prior
+// ruling rather than layering a second, conflicting one on top.
 //
-// RULING -- Priority 2 Item 2, "Error/Recovery colour": diverges from the
-// reconciliation's own single-token recommendation (`--s-live` for both
-// recovering and failed) on ONE point -- see tree.js's own STATE_PARAMS
-// comment for the full reasoning (consistency with the Work Region's own
-// already-shipped tone-to-colour mapping in workState.js/work-region.css).
+// THE COMPOSITION RULE (copied verbatim from kv-ui-core):
+//     effectiveBloom = stateBloomOpacity x (--tree-bloom-opacity / 0.6)
+// 0.6 is prominence's own ambient baseline, so the gate is exactly 1 at
+// ambient and exactly 0 at both reduced and minimum (prominence.js sets
+// --tree-bloom-opacity to 0.6/0/0 respectively -- unedited, still the
+// single source of truth). Read live from the CSS var every call, never
+// cached, matching kv-ui-core's own "never cached -- prominence can
+// change any frame" rule. Since bloom can no longer carry the
+// human-required signal at `minimum`, tree.js's own STATE_PARAMS now
+// carries a `colour` field that tints the tree's filaments and particles
+// (not just the bloom halo) -- amber for Waiting/Attention, settled-green
+// for Completed, risk-red for Failed -- which is what actually
+// communicates "human required" once bloom is gone.
+//
+// RULING -- "Error/Recovery colour": no fifth colour. `failed` uses the
+// existing `--s-risk` token (also now its particle colour, not just
+// bloom) -- consistent with the Work Region's own already-shipped
+// tone-to-colour mapping in workState.js/work-region.css. `recovering`
+// stays on `--s-live`/neutral particle colour: retrying is the system
+// alive and working, not something wrong (kv-ui-core's own stated
+// reasoning). Amber (`--s-attend`) is reserved exclusively for the
+// human-required state.
 const BLOOM_TRANS_DURATION = {
   idle: 'var(--d-8)', listening: 'var(--d-8)', thinking: 'var(--d-8)',
   executing: 'var(--d-8)', speaking: 'var(--d-4)', waiting: 'var(--d-8)',
@@ -148,17 +157,28 @@ const BLOOM_GLOW_ALPHA = {
 // opacity currently is, independent of which tree state that happens
 // to be — set/cleared by setMicState below.
 let micDenied = false;
-// Tracks the CURRENT prominence level (not just a derived 0/1 multiplier)
-// so applyBloom() can apply the ruling above precisely: force 0 only at
-// `reduced`; let the state's own bloomOpacity govern at `ambient`/`minimum`.
-let currentProminenceLevel = 'ambient';
 let lastBloomState = 'idle';
 function applyBloom(state) {
   lastBloomState = state;
   const stateParams = state === 'celebration'
     ? (window.KALPAVRIKSHA_TREE_CELEBRATION_PARAMS || { bloomOpacity: 1.0, bloomToken: '--s-bloom' })
     : ((window.KALPAVRIKSHA_TREE_STATE_PARAMS || {})[state] || { bloomOpacity: 0.60, bloomToken: '--s-live' });
-  const bloomGate = currentProminenceLevel === 'reduced' ? 0 : 1;
+  // kv-ui-core's own composition formula, read live -- never cached, since
+  // prominence can change any frame. 0.6 is prominence's ambient baseline:
+  // gate is 1 at ambient, 0 at reduced and minimum (prominence.js sets
+  // --tree-bloom-opacity to 0.6/0/0 there, unedited).
+  //
+  // Celebration bypasses the gate entirely (always 1). It is not an
+  // ambient per-state signal subject to "bloom competes with text" --
+  // it is a bounded, explicit burst the founder just triggered by
+  // clicking Mark complete, which happens while prominence is still
+  // `minimum` (the mission was `waiting` a moment before). Gating it
+  // to the same rule as ambient states would silently suppress the one
+  // moment it exists to mark, right when the founder is looking at it.
+  const promBloomVar = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--tree-bloom-opacity')
+  ) || 0;
+  const bloomGate = state === 'celebration' ? 1 : promBloomVar / 0.6;
   const p = micDenied ? 0.4 : (stateParams.bloomOpacity * bloomGate);
   const dur = micDenied ? 'var(--d-8)' : (BLOOM_TRANS_DURATION[state] || 'var(--d-8)');
   els.bloom.style.transitionDuration = `${dur}, ${dur}`;
@@ -1085,9 +1105,8 @@ function applyProminence(level) {
   root.setAttribute('data-receding', receding ? 'true' : 'false');
   Object.keys(vars).forEach((key) => root.style.setProperty(key, vars[key]));
   tree.setBreatheAmplitude(parseFloat(vars['--tree-breathe-amp']));
-  // See applyBloom()'s own documented ruling: bloom is forced to 0 only
-  // at `reduced`; at `minimum` the current state's own bloomOpacity governs.
-  currentProminenceLevel = level;
+  // applyBloom() reads --tree-bloom-opacity (just set above) live -- no
+  // separate level-tracking variable needed.
   applyBloom(lastBloomState);
   prevProminenceLevel = level;
 }
