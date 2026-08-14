@@ -69,6 +69,10 @@ SILENCE_HANGOVER_S = 0.8
 #: An utterance shorter than this is treated as noise, not speech —
 #: never sent to Whisper, never surfaced as "you said nothing".
 MIN_UTTERANCE_S = 0.3
+#: How long after Somesh stops speaking the microphone keeps ignoring
+#: input, so the tail of the room's own reverb is not captured as the
+#: founder. Short enough that answering immediately still works.
+ECHO_GUARD_TAIL_S = 0.35
 #: A transcript shorter than this many characters (after stripping)
 #: is treated as noise — never surfaced as speech.
 MIN_VALID_TRANSCRIPT_LENGTH = 2
@@ -288,6 +292,7 @@ class VoicePipeline:
         self._last_amplitude_push = 0.0
         self._lock = threading.Lock()
         self._transcription_in_flight = False
+        self._echo_guard_until = 0.0
         self._utterance_id = 0
         self._transcript_sent_for_id = 0
         # The one caller that can legitimately call speak() before Piper
@@ -655,6 +660,32 @@ class VoicePipeline:
     def __audio_callback(self, indata, _frames, _time_info, _status) -> None:
         if self._muted:
             return
+
+        # HALF-DUPLEX WHILE SPEAKING. Without acoustic echo cancellation
+        # this microphone cannot tell Somesh's own speaker output from the
+        # founder, and on a laptop with no headset it always hears it. The
+        # VAD below then read that echo as "the founder is speaking over
+        # Somesh": it fired the barge-in interrupt (stamping "— interrupted"
+        # into the conversation), captured the playback as an utterance,
+        # transcribed it, and submitted it as a founder message -- which
+        # produced a reply, which was spoken, which was heard again. That
+        # feedback loop is what filled the surface with duplicated
+        # messages and made the voice experience feel broken.
+        #
+        # Ignoring input while playing is the standard fix short of real
+        # AEC, and it costs nothing this product needs: interrupting
+        # Somesh is still one click on the microphone
+        # (03_VOICE_EXPERIENCE §3.4 trigger 1, already wired in app.js).
+        # Only VAD-triggered barge-in -- the trigger that cannot be made
+        # reliable without AEC -- is what stops here.
+        if self._speaking:
+            self._echo_guard_until = time.monotonic() + ECHO_GUARD_TAIL_S
+            return
+        # The room keeps ringing briefly after playback stops; without this
+        # tail the last word of Somesh's own sentence is still captured.
+        if time.monotonic() < self._echo_guard_until:
+            return
+
         chunk_raw = np.asarray(indata)[:, 0].astype("float32", copy=True)
         # Apply gain for low-sensitivity devices (Bluetooth headsets etc.)
         # The VAD threshold assumes normalised float32 [-1,1] but some

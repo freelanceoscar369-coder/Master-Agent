@@ -997,9 +997,23 @@ class TestInterruptSpeech:
         time.sleep(0.2)
         assert states[-1] == STATE_ARMED
 
-    def test_founder_speech_onset_interrupts_active_speech(self):
-        """03_VOICE_EXPERIENCE §3.4 trigger 2 — the VAD, not a bridge
-        call, detects the founder speaking over Somesh."""
+    def test_microphone_input_is_ignored_while_somesh_is_speaking(self):
+        """The half-duplex guard, replacing VAD barge-in
+        (03_VOICE_EXPERIENCE §3.4 trigger 2).
+
+        Trigger 2 asked the VAD to detect the founder speaking over
+        Somesh. On real hardware without acoustic echo cancellation that
+        is not decidable: the microphone hears Somesh's own speaker
+        output and cannot distinguish it from the founder. Observed in
+        the packaged build, it interrupted Somesh mid-sentence, stamped
+        "— interrupted" into the conversation, transcribed the playback,
+        and submitted it as a founder message — which produced a reply,
+        which was spoken, which was heard again.
+
+        So input is ignored entirely while speaking. Interrupting Somesh
+        remains available through trigger 1, the microphone click, which
+        is unambiguous because the founder performed it.
+        """
         pipeline, sd, *_rest = build()
         pipeline._load_and_open()
         pipeline._speaking = True
@@ -1007,8 +1021,39 @@ class TestInterruptSpeech:
         pipeline._audio_callback(loud_block(), 480, None, None)
         time.sleep(0.2)
 
-        assert pipeline._speech_interrupted is True
-        assert sd.stop_calls == 1
+        # Not interrupted, and — the part that actually broke the
+        # product — not captured as an utterance either.
+        assert pipeline._speech_interrupted is False
+        assert sd.stop_calls == 0
+        assert pipeline._in_speech is False
+        assert pipeline._speech_buffer == []
+
+    def test_the_echo_tail_is_still_ignored_just_after_speech_ends(self):
+        """The room keeps ringing after playback stops; without a tail
+        the last word of Somesh's own sentence is captured as founder
+        speech."""
+        pipeline, sd, *_rest = build()
+        pipeline._load_and_open()
+        pipeline._speaking = True
+        pipeline._audio_callback(loud_block(), 480, None, None)  # arms the guard
+        pipeline._speaking = False
+
+        pipeline._audio_callback(loud_block(), 480, None, None)
+
+        assert pipeline._in_speech is False
+
+    def test_the_founder_is_heard_again_once_the_echo_tail_expires(self):
+        """The guard must not leave the microphone permanently deaf."""
+        pipeline, sd, *_rest = build()
+        pipeline._load_and_open()
+        pipeline._speaking = True
+        pipeline._audio_callback(loud_block(), 480, None, None)
+        pipeline._speaking = False
+        pipeline._echo_guard_until = 0.0  # as if the tail had elapsed
+
+        pipeline._audio_callback(loud_block(), 480, None, None)
+
+        assert pipeline._in_speech is True
 
     def test_no_interrupt_fires_when_somesh_is_not_speaking(self):
         pipeline, sd, *_rest = build()

@@ -560,9 +560,14 @@ def create_window(
         founder_name=founder_name, text_output=BridgeTextOutput(),
     )
 
+    # `?debug=1` is how the page learns it was started with --debug. The
+    # startup-diagnostics panel is development instrumentation and stays
+    # hidden on a healthy founder launch; this is the switch that brings
+    # it back for whoever is debugging a dead startup, alongside its own
+    # rule of appearing unasked whenever a check actually fails.
     window = webview.create_window(
         "Kalpavriksha",
-        url=f"{web_dir}/index.html",
+        url=f"{web_dir}/index.html" + ("?debug=1" if debug else ""),
         width=1440, height=900,
         min_size=(1180, 760),
         background_color="#05070A",

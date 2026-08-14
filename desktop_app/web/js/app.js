@@ -1029,14 +1029,27 @@ const DIAG_LABELS = {
   dashboard_ready: 'Dashboard',
 };
 function renderStartupDiagnostics(checks) {
-  const rows = Object.keys(DIAG_LABELS).map((key) => {
+  const keys = Object.keys(DIAG_LABELS);
+  const rows = keys.map((key) => {
     const ok = !!checks[key];
     const mark = ok ? '✓' : '✗';
     const cls = ok ? 'diag-ok' : 'diag-fail';
     return `<div class="diag-row"><span class="${cls}">${mark}</span> ${DIAG_LABELS[key]}</div>`;
   });
   els.startupDiagnostics.innerHTML = rows.join('');
-  els.startupDiagnostics.classList.add('is-visible');
+
+  // This panel is development instrumentation, not a Product Veda
+  // element, and it was sitting in the founder's field of view on every
+  // healthy launch -- six ticks reporting that nothing is wrong, which
+  // is exactly the "manufacture a reason to look at me" pattern VEDA
+  // forbids. It exists for one purpose, stated in this section's own
+  // comment: when startup goes dead, say which step stopped. So it
+  // appears only when a step actually failed, or when the app was
+  // started with --debug (desktop_shell passes that through as
+  // ?debug=1). A healthy founder surface shows nothing.
+  const anyFailed = keys.some((key) => !checks[key]);
+  const debugRequested = /(?:\?|&)debug=1\b/.test(window.location.search);
+  els.startupDiagnostics.classList.toggle('is-visible', anyFailed || debugRequested);
 }
 async function showStartupDiagnostics() {
   const diag = await Bridge.call('get_startup_diagnostics').catch(() => null);
