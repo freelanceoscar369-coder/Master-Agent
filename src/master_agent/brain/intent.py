@@ -149,9 +149,23 @@ class IntentLayer:
         )
 
     def clarify(self, original: str, answer: str) -> IntentResult:
-        """Process a clarification answer and re-parse."""
-        # Re-parse with the answer appended for context
-        combined = f"{original} — {answer}"
+        """Process a clarification answer and re-parse.
+
+        The separator used to be an em-dash, which the parsers then read
+        as part of the value: answering "Research" to "create a folder
+        called" produced a folder literally named "— Research". A plain
+        space keeps the rejoined sentence in the same shape the parsers
+        already expect.
+
+        KNOWN LIMITATION, stated rather than papered over: this rejoins
+        two strings and re-parses. It therefore only resolves cleanly when
+        `original` ends where the missing value belongs. A general fix
+        would fill `ClarificationQuestion.key` directly instead of
+        re-parsing prose -- the field exists for that -- but nothing in
+        production calls this method yet, so the resolution loop is not
+        wired end-to-end and that change belongs with whoever wires it.
+        """
+        combined = f"{original} {answer}".strip()
         return self.parse(combined)
 
 
@@ -165,15 +179,54 @@ class BaseIntentParser:
 
 
 class CreateFolderIntent(BaseIntentParser):
-    """Parse 'create a folder called X [on Y]'."""
+    r"""Parse 'create a folder called X [on/in Y]'.
+
+    TWO PATTERNS, TRIED IN ORDER, rather than one pattern with an optional
+    trailing group. The single-pattern form was
+    `...called\s+([^"'.]+)(?:\s+(?:on|in)\s+...)?$`, whose name group is
+    greedy and matches spaces, so the engine preferred letting the name
+    consume the whole tail and skipping the optional location entirely:
+
+        "create a folder called Research on my Desktop"
+            -> name = "Research on my Desktop"
+        "create a folder called Research in Documents"
+            -> name = "Research in Documents", location silently "Desktop"
+
+    The second case is the serious one: an explicit founder location was
+    discarded and replaced by a default, so the folder would have been
+    created somewhere the founder did not ask for.
+
+    Anchoring the location clause in its own pattern removes the
+    ambiguity: either the input ends with an "on/in <place>" clause and
+    the name is what precedes it, or it does not and the whole tail is the
+    name. Nothing is guessed either way.
+    """
+
+    #: The name runs to the end of the input. Used only after the
+    #: with-location pattern has already failed.
+    _NAME_ONLY = (
+        r"create\s+(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder\s+"
+        r"(?:called|named)\s+[\"']?(?P<name>[^\"'.]+?)[\"']?\.?\s*$"
+    )
+    #: The location clause is anchored to the end, so the name group can no
+    #: longer swallow it. `name` is lazy; `location` takes the last
+    #: on/in clause.
+    _NAME_AND_LOCATION = (
+        r"create\s+(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder\s+"
+        r"(?:called|named)\s+[\"']?(?P<name>[^\"'.]+?)[\"']?"
+        r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)\.?\s*$"
+    )
 
     def parse(self, text: str) -> IntentResult:
         import re
-        match = re.search(
-            r"create\s+(?:a\s+)?folder\s+(?:called|named)\s+[\"']?([^\"'.]+)[\"']?(?:\s+(?:on|in)\s+(?:my\s+|the\s+)?([\w\s]+?))?\.?\s*$",
-            text,
-            re.IGNORECASE,
-        )
+
+        location: str | None = None
+        match = re.search(self._NAME_AND_LOCATION, text, re.IGNORECASE)
+        if match:
+            location = match.group("location").strip()
+        else:
+            match = re.search(self._NAME_ONLY, text, re.IGNORECASE)
+
         if not match:
             return IntentResult(
                 clarification=ClarificationQuestion(
@@ -184,8 +237,7 @@ class CreateFolderIntent(BaseIntentParser):
                 raw_input=text,
             )
 
-        name = match.group(1).strip()
-        location = (match.group(2) or "Desktop").strip()
+        name = match.group("name").strip()
 
         if not name:
             return IntentResult(
@@ -197,12 +249,28 @@ class CreateFolderIntent(BaseIntentParser):
                 raw_input=text,
             )
 
+        # No location is NOT the same as location "Desktop". The Intent
+        # Layer used to write `location = match.group(2) or "Desktop"`,
+        # which is product policy living in the Brain -- and it is policy
+        # the action already owns: `CreateFolderAction` publishes
+        # `location` as optional with its own default, and its `run()`
+        # falls back to that default when the argument is absent. So an
+        # unstated location is simply left unstated here, and the action
+        # contract applies its own default downstream. Nothing is invented,
+        # and the default lives in exactly one place.
+        context: dict[str, Any] = {"folder_name": name}
+        constraints: list[str] = []
+        if location is not None:
+            context["location"] = location
+            constraints.append(f"Location: {location}")
+
+        where = f" at {location}" if location is not None else ""
         return IntentResult(
             intent=Intent(
                 goal=f"Create folder '{name}'",
-                constraints=[f"Location: {location}"],
-                context={"folder_name": name, "location": location},
-                success_criteria=[f"Folder '{name}' exists at {location}"],
+                constraints=constraints,
+                context=context,
+                success_criteria=[f"Folder '{name}' exists{where}"],
             ),
             raw_input=text,
         )
