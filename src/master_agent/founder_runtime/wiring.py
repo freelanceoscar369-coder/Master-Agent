@@ -197,7 +197,7 @@ class FounderRuntime:
     has been scanned, and it has to be able to say so.
     """
 
-    __slots__ = ("_conversation", "_coverage", "_intelligence", "_registry")
+    __slots__ = ("_conversation", "_coverage", "_intelligence", "_registry", "_desktop")
 
     def __init__(
         self,
@@ -206,6 +206,7 @@ class FounderRuntime:
         coverage: Coverage | None = None,
         registry: DomainRegistry | None = None,
         conversation: ConversationMemory | None = None,
+        desktop: DesktopLayer | None = None,
     ) -> None:
         if intelligence is not None and not isinstance(
             intelligence, EnvironmentIntelligence
@@ -227,11 +228,30 @@ class FounderRuntime:
             raise TypeError(
                 "conversation must be a ConversationMemory, or be omitted"
             )
+        if desktop is not None:
+            # Imported here, not at module scope, and this placement is
+            # load-bearing rather than stylistic. `master_agent
+            # .founder_edition`'s package __init__ imports `boot`, which
+            # imports `master_agent.communication`, which reaches
+            # conversation_engine -> founder_runtime -> back to this
+            # module. At module scope that closes a genuine import cycle:
+            # importing `master_agent.communication` first (as the test
+            # suite does) fails with "cannot import name
+            # CommunicationEngine from partially initialized module" and
+            # takes collection of the whole suite down with it. By the
+            # time any caller has a DesktopLayer instance to pass here,
+            # founder_edition is fully imported, so a local import is
+            # both safe and cheap (sys.modules hit).
+            from master_agent.founder_edition.desktop_layer import DesktopLayer
+
+            if not isinstance(desktop, DesktopLayer):
+                raise TypeError("desktop must be a DesktopLayer, or be omitted")
 
         self._intelligence = intelligence
         self._coverage = coverage
         self._registry = registry
         self._conversation = conversation
+        self._desktop = desktop
 
     # ---- what is wired ---------------------------------------------------
 
@@ -268,6 +288,15 @@ class FounderRuntime:
                     "the session's turn history is available"
                     if self._conversation is not None
                     else _NO_CONVERSATION
+                ),
+            ),
+            Source(
+                name="desktop",
+                present=self._desktop is not None,
+                reason=(
+                    "desktop layer wired with executor and observer"
+                    if self._desktop is not None
+                    else "desktop layer not constructed"
                 ),
             ),
             Source(
