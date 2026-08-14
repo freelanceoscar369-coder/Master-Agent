@@ -240,19 +240,25 @@ in this repository (no `package.json`); the live browser validation in
 coverage.
 
 **Python side**: zero `.py` files touched by this mission. Ran the
-mission-relevant suite in a clean worktree at HEAD (`47bda47`) with
-`PYTHONPATH` pointed at the worktree's own `src/` (Engineering Rule
-001) — **96 failed, 396 passed**, spanning `test_desktop_executive.py`,
-`test_founder_edition_assembly.py`, `test_founder_edition_boot.py`.
-Sampled failures are real and pre-existing, not this mission's doing:
-an architecture guard fails because `desktop_shell.py` imports `socket`;
-a capability-count assertion expects 12 but the registry now has 19;
+mission-relevant suite (`test_desktop_shell.py`,
+`test_desktop_executive.py`, `test_founder_edition_assembly.py`,
+`test_founder_edition_boot.py`, `test_voice_pipeline.py`,
+`test_task_2_5_execution_contract.py`) in a clean worktree at the prior
+HEAD (`47bda47`) with `PYTHONPATH` pointed at the worktree's own `src/`
+(Engineering Rule 001) — **96 failed, 396 passed**. Sampled failures
+are real and pre-existing, not this mission's doing: an architecture
+guard fails because `desktop_shell.py` imports `socket`; a
+capability-count assertion expects 12 but the registry now has 19;
 `FounderEditionApp.boot()` reports `ready is False` in this
-environment. This is unrelated to the UI work above (confirmed: the
-worktree excludes all uncommitted changes by construction, and this
-mission never touched a `.py` file) but is a genuine, currently-broken
-backend regression at the last committed tag, worth flagging rather
-than silently absorbing into "not my problem." Per Founder Edition
+environment. Re-ran the **full** `tests/` suite in a second clean
+worktree at this mission's own tag (`milestone-veda-ui-reconciliation`)
+with the same `PYTHONPATH` isolation: **203 failed, 6525 passed, 1
+skipped**, including failures in `test_ollama_provider.py`,
+`test_provider_execution.py`, and `test_verified_execution.py` that
+weren't in the sampled subset — confirming the regression is broader
+than the six files first checked, but still not attributable to this
+mission (the worktree excludes all uncommitted changes by construction,
+and this mission never touched a `.py` file). Per Founder Edition
 Finalization Mode (backend frozen post-C34.1), this mission does not
 attempt to fix it — recorded as an unresolved finding below and in
 project memory for Founder/Hermes triage.
