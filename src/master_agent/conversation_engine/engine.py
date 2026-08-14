@@ -42,8 +42,10 @@ already reports present.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
+from master_agent.conversation_engine.composer import ResponseComposer
 from master_agent.conversation_engine.context import DesktopStatus
 from master_agent.conversation_engine.pipeline import ConversationTurn, ResponsePipeline
 from master_agent.founder_identity import FounderIdentity, FounderSession
@@ -65,12 +67,19 @@ class ConversationEngine:
         identity: FounderIdentity,
         session: FounderSession,
         conversation: ConversationMemory,
+        capability_domains: Callable[[], Sequence[str]] | None = None,
     ) -> None:
+        # `capability_domains` is carried, not consulted, here -- it
+        # belongs to the composer, which is the only thing that turns it
+        # into a sentence. Passed through so the composition root can
+        # supply the live executive registry without this engine (or the
+        # pipeline) ever reaching into the Operator side itself.
         self._pipeline = ResponsePipeline(
             runtime=runtime,
             identity=identity,
             session=session,
             conversation=conversation,
+            composer=ResponseComposer(capability_domains=capability_domains),
         )
 
     def reply(

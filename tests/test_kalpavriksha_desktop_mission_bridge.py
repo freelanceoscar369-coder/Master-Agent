@@ -283,48 +283,151 @@ _INTERNAL_VOCABULARY = (
 )
 
 
-class TestCapabilityAnswerNeverLeaksOperatorVocabulary:
-    def test_no_execution_primitive_reaches_the_founder(self):
-        from kalpavriksha_desktop import _describe_capabilities
+class TestCapabilityDomainsAreFounderSafe:
+    """The composition root's half of the Brain/Operator boundary.
 
-        reply = _describe_capabilities(_mission_control_with(
+    `_describe_capabilities` used to render every capability *verb* in
+    the registry as the founder's answer. It is now
+    `_capability_domains`, which returns founder-level DOMAINS and hands
+    them to the Conversation Engine to compose -- the composition root no
+    longer produces founder-facing prose at all.
+    """
+
+    def test_it_returns_domains_not_execution_verbs(self):
+        from kalpavriksha_desktop import _capability_domains
+
+        domains = _capability_domains(_mission_control_with(
             ("browser", "click"), ("browser", "open_browser_session"),
             ("browser", "navigate"), ("browser", "type_text"),
             ("desktop", "launch_application"), ("desktop", "focus_window"),
             ("desktop", "execute_command"), ("desktop", "is_installed"),
         ))
-        lowered = reply.lower()
-        leaked = [v for v in _INTERNAL_VOCABULARY if v in lowered]
+        joined = " ".join(domains).lower()
+        leaked = [v for v in _INTERNAL_VOCABULARY if v in joined]
         assert leaked == [], f"operator vocabulary reached the founder: {leaked}"
+        assert any("browser" in d for d in domains)
+        assert any("desktop" in d for d in domains)
 
-    def test_it_still_describes_what_is_actually_registered(self):
-        """Honest, not merely quiet: the answer must reflect the live
-        registry rather than becoming a fixed marketing sentence."""
-        from kalpavriksha_desktop import _describe_capabilities
+    def test_it_tracks_the_live_registry(self):
+        from kalpavriksha_desktop import _capability_domains
 
-        browser_only = _describe_capabilities(_mission_control_with(("browser", "click")))
-        both = _describe_capabilities(
+        one = _capability_domains(_mission_control_with(("browser", "click")))
+        two = _capability_domains(
             _mission_control_with(("browser", "click"), ("desktop", "focus_window"))
         )
-        assert "browser" in browser_only.lower()
-        assert "desktop" not in browser_only.lower()
-        assert "desktop" in both.lower()
+        assert len(one) == 1
+        assert len(two) == 2
 
-    def test_an_unknown_executive_is_counted_not_described(self):
-        """Adding an executive without a founder-facing description must
-        degrade honestly rather than invent one for it."""
-        from kalpavriksha_desktop import _describe_capabilities
+    def test_an_unknown_executive_is_omitted_not_invented(self):
+        from kalpavriksha_desktop import _capability_domains
 
-        reply = _describe_capabilities(
+        domains = _capability_domains(
             _mission_control_with(("browser", "click"), ("quantum", "entangle"))
         )
-        assert "quantum" not in reply.lower()
-        assert "entangle" not in reply.lower()
-        assert "other area" in reply.lower()
+        joined = " ".join(domains).lower()
+        assert "quantum" not in joined
+        assert "entangle" not in joined
+        assert len(domains) == 1
 
-    def test_an_empty_registry_admits_it_cannot_act(self):
-        from kalpavriksha_desktop import _describe_capabilities
+    def test_an_empty_registry_yields_no_domains(self):
+        from kalpavriksha_desktop import _capability_domains
 
-        reply = _describe_capabilities(_mission_control_with())
-        assert "conversation" in reply.lower()
-        assert "act" in reply.lower()
+        assert _capability_domains(_mission_control_with()) == []
+
+    def test_an_unreadable_registry_yields_no_domains(self):
+        from kalpavriksha_desktop import _capability_domains
+
+        class _Boom:
+            @property
+            def capabilities(self):
+                raise RuntimeError("registry unavailable")
+
+        assert _capability_domains(_Boom()) == []
+
+
+class TestCompositionRootNoLongerRoutesConversation:
+    """The capability shortcut is gone from the composition root.
+
+    It was a phrase list consulted before the Conversation Engine, which
+    put the routing decision in the wrong layer and matched by contiguous
+    substring. Intent now belongs to the Brain.
+    """
+
+    def test_the_composition_root_holds_no_capability_phrase_list(self):
+        import kalpavriksha_desktop as root
+
+        assert not hasattr(root, "_describe_capabilities"), (
+            "the composition root must not compose founder-facing capability prose"
+        )
+
+    def test_the_capability_shortcut_is_not_in_the_objective_path(self):
+        import inspect
+
+        from kalpavriksha_desktop import _submit_objective
+
+        source = inspect.getsource(_submit_objective)
+        assert "is_capability_question" not in source, (
+            "capability routing belongs to the Conversation Engine, not here"
+        )
+
+
+class TestClarificationReachesTheFounder:
+    """Defect C: a clarification question was destroyed before it was asked.
+
+    The Intent Layer produces a real `ClarificationQuestion` for an
+    ambiguous objective, and MissionService carries it out as
+    `PlanRefusal(code="CLARIFICATION_REQUIRED", detail=<the question>)`.
+    The composition root then flattened every refusal through
+    `_founder_refusal_sentence()`, which has no branch for that code, so
+    the founder was told "I couldn't plan that just now. Please try
+    again." — ending the exchange instead of continuing it.
+    """
+
+    class _Refusal:
+        code = "CLARIFICATION_REQUIRED"
+        reason = "clarification required"
+        detail = "What should the project be called?"
+
+    class _Outcome:
+        accepted = False
+        refusal = None
+        reasons = ()
+
+    def _submit(self, outcome):
+        """Drive `_submit_objective` with a stubbed mission service."""
+        from master_agent.missions.execution_status import ExecutionStatus
+        from kalpavriksha_desktop import _submit_objective
+
+        class _MS:
+            intent_layer = None
+
+            def start(self, text):
+                return outcome
+
+        status = ExecutionStatus()
+        return _submit_objective(_MS(), None, _mission_control_with(), status, "create folder")
+
+    def test_the_actual_question_is_asked_verbatim(self):
+        outcome = self._Outcome()
+        outcome.refusal = self._Refusal()
+        reply = self._submit(outcome)["reply"]
+        assert reply == "What should the project be called?"
+
+    def test_it_is_not_flattened_into_the_generic_refusal(self):
+        outcome = self._Outcome()
+        outcome.refusal = self._Refusal()
+        reply = self._submit(outcome)["reply"]
+        assert reply != "I couldn't plan that just now. Please try again."
+        assert "couldn't plan" not in reply
+
+    def test_an_ordinary_refusal_is_still_explained_as_a_refusal(self):
+        """Clarification must not swallow genuine refusals."""
+        class _Plain:
+            code = "NOT_EXECUTABLE"
+            reason = "the available capabilities cannot achieve this objective"
+            detail = None
+
+        outcome = self._Outcome()
+        outcome.refusal = _Plain()
+        reply = self._submit(outcome)["reply"]
+        assert reply == "I can't do that with what I'm currently able to do."

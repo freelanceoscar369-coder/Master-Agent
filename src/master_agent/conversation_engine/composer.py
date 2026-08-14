@@ -53,6 +53,8 @@ never synthesised here.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+
 from master_agent.conversation_engine.context import ConversationContext
 from master_agent.founder_identity import (
     FounderContext,
@@ -101,7 +103,57 @@ def _checked(text: str) -> str:
 class ResponseComposer:
     """Stateless. Every method is a pure function of what it is handed —
     no clock, no I/O, no randomness. Two calls with the same context
-    produce the same sentence."""
+    produce the same sentence.
+
+    `capability_domains` is the one injected collaborator: a
+    zero-argument callable returning the founder-level domains this
+    system can currently act in ("your browser", "your desktop"). It is
+    *injected* rather than read here because the registry that knows the
+    answer belongs to the Operator side, and this composer must never
+    reach into it — the Brain is told which domains exist, never which
+    verbs implement them. Omitted, the composer answers honestly that it
+    can talk but not act.
+    """
+
+    # Deliberately no __slots__: `TestExposedInternalsIsStructural`
+    # monkeypatches a translation helper to prove the leak detector is
+    # structural rather than incidental, and __slots__ would make that
+    # test impossible to write.
+
+    def __init__(
+        self, *, capability_domains: Callable[[], Sequence[str]] | None = None,
+    ) -> None:
+        self._capability_domains = capability_domains
+
+    def capabilities(self, context: ConversationContext) -> str:
+        """*"What can you do right now?"* — and every natural variation
+        of it (see `intent._CAPABILITY_MARKERS`).
+
+        Domain-level language only. The founder learns what Kalpavriksha
+        can act on, never the execution primitives that implement it:
+        no `browser.click`, no `focus_window`, no `execute_command`.
+        """
+        domains = []
+        if self._capability_domains is not None:
+            try:
+                domains = [d for d in self._capability_domains() if d]
+            except Exception:  # noqa: BLE001 — an unreadable registry is an honest absence
+                domains = []
+
+        if not domains:
+            return _checked(
+                "Right now I can talk with you, but I don't have a way to "
+                "act on this machine yet."
+            )
+        if len(domains) == 1:
+            reach = domains[0]
+        else:
+            reach = ", ".join(domains[:-1]) + " and " + domains[-1]
+        return _checked(
+            f"I can work with {reach}. Beyond single actions I can plan and "
+            "carry out multi-step work — tell me what you want done and I'll "
+            "work out the steps."
+        )
 
     # ---- greeting and continuation delegate to C29, verbatim ----------
 

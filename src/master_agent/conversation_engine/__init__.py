@@ -30,6 +30,7 @@ from master_agent.conversation_engine.intent import Intent, IntentClassifier
 from master_agent.conversation_engine.pipeline import (
     SOMESH,
     ConversationTurn,
+    Disposition,
     ResponsePipeline,
 )
 
@@ -40,6 +41,7 @@ __all__ = [
     "ConversationContext",
     "ConversationEngine",
     "ConversationTurn",
+    "Disposition",
     "DesktopStatus",
     "ExposedInternals",
     "Intent",

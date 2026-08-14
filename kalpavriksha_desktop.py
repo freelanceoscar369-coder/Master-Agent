@@ -391,19 +391,31 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
 
     status.begin(text, timeout_seconds=timeout_seconds)
 
-    # A capability question is not an objective. Asked before anything is
-    # planned, because the Planner's only possible answer to "what can you
-    # do" is a refusal — its catalogue describes actions, not itself.
-    # The question is recognised by the existing Intent Layer
-    # (`IntentLayer.is_capability_question`), and answered from the live
-    # capability registry, never a hardcoded list.
-    intent_layer = getattr(mission_service, "intent_layer", None)
-    if intent_layer is not None and intent_layer.is_capability_question(text):
-        status.status = COMPLETED
-        status.message = _describe_capabilities(mission_control)
-        return {"reply": status.message}
+    # NOTE: the capability-question shortcut that used to sit here is
+    # gone. It was a phrase list consulted by this composition root
+    # *before* the Conversation Engine was ever asked, which put the
+    # routing decision in the wrong layer and matched by contiguous
+    # substring -- so "what are your capabilities" was recognised while
+    # "what are your *current* capabilities" fell through to the Planner,
+    # which cannot plan a question and refused it. Capability inquiries
+    # are now `Intent.CAPABILITY_QUERY` in the Conversation Engine's own
+    # taxonomy and never reach this function at all.
 
     outcome = mission_service.start(text)
+    # Clarification is not refusal. The Intent Layer produces a real
+    # question for an ambiguous objective and MissionService carries it
+    # here as `CLARIFICATION_REQUIRED` with the question in `detail`;
+    # flattening that through `_founder_refusal_sentence()` threw the
+    # question away and told the founder "I couldn't plan that just now",
+    # which ends the exchange instead of continuing it. Asked, verbatim,
+    # so the founder can answer and the request can proceed.
+    refusal = outcome.refusal
+    if refusal is not None and getattr(refusal, "code", None) == "CLARIFICATION_REQUIRED":
+        question = getattr(refusal, "detail", None)
+        if question:
+            status.status = COMPLETED
+            status.message = question
+            return {"reply": question}
     if not outcome.accepted:
         reason = (
             outcome.refusal.reason if outcome.refusal is not None
@@ -505,93 +517,45 @@ def _founder_refusal_sentence(reason: str) -> str:
 #: while the *values* deliberately name no execution primitive. Adding an
 #: executive without adding it here degrades honestly — see
 #: `_describe_capabilities`'s handling of unknown executives.
+#: Noun phrases, not sentences: the composer says "I can work with
+#: {domains}", so each value has to slot into that grammatically.
 _EXECUTIVE_DOMAINS: dict[str, str] = {
-    "browser": "work in your browser — open pages, read what is there, and act on them",
-    "desktop": "work across your desktop — open your applications, read what is on screen, and operate them",
+    "browser": "your browser — opening pages, reading what is there, and acting on them",
+    "desktop": "your desktop — opening your applications, reading what is on screen, and operating them",
 }
 
 
-def _describe_capabilities(mission_control) -> str:
-    """What this machine can actually do right now, read from the live
-    capability registry Mission Control holds.
+def _capability_domains(mission_control) -> list[str]:
+    """The founder-level DOMAINS this machine can act in, read from the
+    live capability registry Mission Control holds.
 
-    Never a hardcoded list: if an Executive is registered or removed, this
-    sentence changes with it, because it is read from the same registry the
-    Planner itself plans against.
+    This is the Brain/Operator translation boundary. It returns domains
+    rather than a finished sentence on purpose: composing the founder's
+    words belongs to the Conversation Engine
+    (`ResponseComposer.capabilities`), while knowing which executives are
+    registered belongs to Mission Control. This function is the only one
+    that sees both, and it is *injected* into the engine as
+    `capability_domains`, so the Brain never reaches into the Operator
+    side itself.
 
-    WHAT CHANGED, AND WHY. This function used to render every capability
-    *verb* in that registry — "browser.click, close browser session,
-    navigate, press key, scroll, type text, execute command, find target,
-    focus window, is installed, launch application, ..." — as the founder's
-    answer to "what can you do right now?". That is the Operator's own
-    execution vocabulary reaching the Founder Surface unmediated, which the
-    Brain/Operator separation exists to prevent: the executor may return
-    structured results internally, but a higher layer decides what the
-    founder is told. A founder should never have to read the name of an
-    action primitive to learn what Kalpavriksha is for.
+    It replaces `_describe_capabilities`, which rendered every capability
+    *verb* in the registry -- "browser.click, navigate, press key, type
+    text, execute command, find target, focus window, launch
+    application, ..." -- directly into the founder's answer. That was the
+    Operator's execution vocabulary reaching the Founder Surface
+    unmediated, which the Brain/Operator separation exists to prevent.
 
-    So the registry is now read for *which executives are actually
-    registered* — real, live, still not hardcoded — and each is stated as
-    the domain it gives Kalpavriksha, in founder language. An executive
-    with no known domain is counted honestly rather than described, because
-    inventing a description for it would be worse than admitting it exists.
+    Still not hardcoded: registering or removing an executive changes the
+    result, because the registry is read at call time. An executive with
+    no founder-facing description is omitted rather than described --
+    inventing words for it would be worse than leaving it out.
     """
     try:
         descriptors = list(mission_control.capabilities.all())
     except Exception:  # noqa: BLE001 — an unreadable registry is an honest absence
-        descriptors = []
-
-    if not descriptors:
-        return (
-            "Right now I can hold a conversation, but I don't have any "
-            "way to act on this machine yet."
-        )
-
+        return []
     executives = sorted({str(d.executive_id) for d in descriptors})
-    known = [_EXECUTIVE_DOMAINS[e] for e in executives if e in _EXECUTIVE_DOMAINS]
-    unknown = [e for e in executives if e not in _EXECUTIVE_DOMAINS]
-
-    if known:
-        if len(known) == 1:
-            reach = known[0]
-        else:
-            reach = ", ".join(known[:-1]) + ", and " + known[-1]
-        sentence = f"I can {reach}."
-    else:
-        # Every registered executive is one this build has no founder-facing
-        # description for. Say that plainly instead of naming its verbs.
-        sentence = "I can act on this machine, though I can't describe how in your terms yet."
-        unknown = []
-
-    if unknown:
-        others = "one other area" if len(unknown) == 1 else f"{len(unknown)} other areas"
-        sentence += f" I also reach {others} I don't have a plain description for yet."
-
-    return (
-        sentence
-        + " Beyond single actions I can plan and carry out multi-step work —"
-        " tell me what you want done and I'll work out the steps."
-    )
-
-    by_executive: dict[str, list[str]] = {}
-    for descriptor in descriptors:
-        # `capability` is the Executive's own local verb ("open_browser_
-        # session"); rendered as words rather than the qualified id, for
-        # the same reason `runtime/approval.py::_human_reason` does it —
-        # a founder should not have to read snake_case.
-        readable = str(descriptor.capability).replace("_", " ").strip()
-        by_executive.setdefault(str(descriptor.executive_id), []).append(readable)
-
-    parts = []
-    for executive in sorted(by_executive):
-        verbs = sorted(set(by_executive[executive]))
-        parts.append(f"{executive}: {', '.join(verbs)}")
-
-    return (
-        "Right now I can talk with you, and I can act through these: "
-        + "; ".join(parts)
-        + ". Tell me what you'd like done and I'll plan it out."
-    )
+    return [_EXECUTIVE_DOMAINS[e] for e in executives if e in _EXECUTIVE_DOMAINS]
 
 
 def _founder_failure_sentence(errors: str) -> str:
@@ -637,6 +601,7 @@ def main(argv: list[str] | None = None) -> int:
     submit_objective = None
     get_execution_status = None
     confirm_completion = None
+    capability_domains = None
     if pipeline is not None:
         mission_service, runtime, mission_control, status = pipeline
         submit_objective = lambda text: _submit_objective(  # noqa: E731
@@ -653,6 +618,13 @@ def main(argv: list[str] | None = None) -> int:
         confirm_completion = lambda completion_id: (  # noqa: E731
             mission_control.confirm_completion(completion_id).as_dict()
         )
+        # The Brain's window onto what this machine can actually act on.
+        # It hands over founder-level DOMAINS derived from the same live
+        # registry the Planner plans against -- never the Operator's own
+        # capability verbs, which is the leak `_capability_domains`
+        # used to be. Read at call time, so registering or removing an
+        # executive changes the answer with no restart.
+        capability_domains = lambda: _capability_domains(mission_control)  # noqa: E731
 
     founder_name = args.founder_name or os.environ.get("KALPAVRIKSHA_FOUNDER_NAME") or DEFAULT_FOUNDER_NAME
     create_window(
@@ -666,6 +638,7 @@ def main(argv: list[str] | None = None) -> int:
         submit_objective=submit_objective,
         get_execution_status=get_execution_status,
         confirm_completion=confirm_completion,
+        capability_domains=capability_domains,
     )
     return 0
 

@@ -88,6 +88,7 @@ way C23's own suite does, over this package specifically.
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 from typing import Any
 from master_agent.communication import CommunicationEngine, TextOutput, VoiceOutput
 from master_agent.conversation_engine import ConversationEngine
@@ -431,6 +432,7 @@ def boot_founder_edition(
     founder_name: str = DEFAULT_FOUNDER_NAME,
     voice_output: VoiceOutput | None = None,
     text_output: TextOutput | None = None,
+    capability_domains: Callable[[], Sequence[str]] | None = None,
 ) -> FounderEditionApp:
     """Run every step and return what they built.
     `probe` and `clock` are the same injection seam `desktop/` and
@@ -634,9 +636,14 @@ def boot_founder_edition(
                 "founder identity did not complete; there is no founder for "
                 "the conversation engine to answer on behalf of"
             )
+        # `capability_domains` is how the Brain learns which domains it
+        # can act in without ever reading the Operator's capability
+        # registry itself. The composition root supplies it (it owns
+        # Mission Control); absent, the composer answers honestly that it
+        # cannot act rather than inventing a capability.
         conv_engine = ConversationEngine(
             runtime=runtime, identity=identity, session=session,
-            conversation=conversation,
+            conversation=conversation, capability_domains=capability_domains,
         )
         steps.append(
             BootStep(

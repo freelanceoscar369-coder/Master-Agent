@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 
 from master_agent.conversation_engine.composer import ResponseComposer
 from master_agent.conversation_engine.context import (
@@ -50,15 +51,42 @@ from master_agent.memory.conversation import ConversationMemory
 SOMESH = "somesh"
 
 
+class Disposition(str, Enum):
+    """What this engine is claiming about a turn — stated explicitly
+    rather than inferred from `reply is None`.
+
+    A single nullable field was carrying two different meanings: "I have
+    nothing to say" and "this belongs to another layer". They need
+    opposite handling, so the caller could not tell them apart without
+    guessing, and one of them was silently wrong: a founder asking to
+    *create a folder* was answered "I don't build things myself — that
+    needs to go through planning, not through me" and the turn ended
+    there, because any non-None reply is treated as final. The planner,
+    permission system, executor and desktop executive were all
+    constructed and all unreachable for exactly the requests they exist
+    to serve.
+    """
+
+    #: This engine is the right layer and has answered.
+    HANDLED = "handled"
+    #: A real objective. Belongs to the mission pipeline; this engine
+    #: must not answer it, and must not refuse it either.
+    ESCALATE = "escalate"
+    #: Genuinely nothing to be done — not a routing decision.
+    UNAVAILABLE = "unavailable"
+
+
 @dataclass(frozen=True)
 class ConversationTurn:
-    """What one call to `ResponsePipeline.handle()` produced. `reply` is
-    `None` exactly when `intent` is `Intent.UNKNOWN` — never in any other
-    case, and a test asserts the correspondence directly."""
+    """What one call to `ResponsePipeline.handle()` produced.
+
+    `reply` is `None` exactly when `disposition` is not `HANDLED`. Read
+    `disposition`, not `reply`, to decide what happens next."""
 
     intent: Intent
     reply: str | None
     context: ConversationContext
+    disposition: Disposition = Disposition.HANDLED
 
 
 class ResponsePipeline:
@@ -132,26 +160,44 @@ class ResponsePipeline:
         )
 
         self._conversation.record("user", text)
-        reply = self._compose(intent, context)
+        reply, disposition = self._compose(intent, context)
         if reply is not None:
             self._conversation.record(SOMESH, reply)
 
-        return ConversationTurn(intent=intent, reply=reply, context=context)
+        return ConversationTurn(
+            intent=intent, reply=reply, context=context, disposition=disposition,
+        )
 
-    def _compose(self, intent: Intent, context: ConversationContext) -> str | None:
-        """One branch per recognised intent. `Intent.UNKNOWN` is the only
-        one that returns `None` — nothing here fabricates a reply to
-        speech it did not recognise."""
+    def _compose(
+        self, intent: Intent, context: ConversationContext,
+    ) -> tuple[str | None, Disposition]:
+        """One branch per recognised intent, each stating explicitly
+        whether this engine is answering or handing the turn on."""
         if intent is Intent.GREETING:
-            return self._composer.greeting(self._identity, context)
+            return self._composer.greeting(self._identity, context), Disposition.HANDLED
         if intent is Intent.CONTINUATION:
-            return self._composer.continuation(self._session)
+            return self._composer.continuation(self._session), Disposition.HANDLED
         if intent is Intent.STATUS_QUERY:
-            return self._composer.status(context)
+            return self._composer.status(context), Disposition.HANDLED
         if intent is Intent.ACTIVITY_QUERY:
-            return self._composer.activity(context)
+            return self._composer.activity(context), Disposition.HANDLED
         if intent is Intent.PRIORITY_QUERY:
-            return self._composer.priority(context)
+            return self._composer.priority(context), Disposition.HANDLED
+        if intent is Intent.CAPABILITY_QUERY:
+            # Answered here, by the Brain, from the live registry it is
+            # handed -- not by the composition root reading the Operator's
+            # own verb list.
+            return self._composer.capabilities(context), Disposition.HANDLED
         if intent is Intent.BUILD_REQUEST:
-            return self._composer.build_request(context)
-        return None
+            # ESCALATE, not a refusal. `build_request()`'s wording ("I
+            # don't build things myself -- that needs to go through
+            # planning, not through me") was written when this engine had
+            # no door to planning; it now has one, and answering here
+            # would close the only path to the planner, permission
+            # system, executor and executives.
+            return None, Disposition.ESCALATE
+        # An utterance this engine does not recognise may still be a real
+        # objective. Escalating is what lets the planner see it; this
+        # engine states that it is not answering rather than staying
+        # ambiguously silent.
+        return None, Disposition.ESCALATE

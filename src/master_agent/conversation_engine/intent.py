@@ -32,6 +32,7 @@ class Intent(str, Enum):
     STATUS_QUERY = "status_query"
     ACTIVITY_QUERY = "activity_query"
     PRIORITY_QUERY = "priority_query"
+    CAPABILITY_QUERY = "capability_query"
     BUILD_REQUEST = "build_request"
     UNKNOWN = "unknown"
 
@@ -86,6 +87,54 @@ _BUILD_OPENERS: tuple[str, ...] = (
 )
 
 
+#: "What can you do?" — recognised HERE, in the Brain's own taxonomy,
+#: because this is the layer that answers the founder.
+#:
+#: It previously lived as a list of exact phrases in `brain/intent.py`,
+#: consulted by the desktop composition root *before* the Conversation
+#: Engine was ever asked. Two problems followed: the routing decision sat
+#: in the composition root rather than in the Brain, and the match was
+#: contiguous-substring, so "what are your capabilities" was recognised
+#: while "what are your *current* capabilities" was not — one inserted
+#: word dropped the founder into the Planner, which cannot plan a
+#: question and answered "I can't do that with what I'm currently able
+#: to do."
+#:
+#: A longer phrase list does not fix that, it only moves the cliff edge
+#: ("what can you *actually* do" breaks identically). Recognition is
+#: therefore STRUCTURAL, over word tokens, so inserted adverbs,
+#: qualifiers and trailing clauses are all irrelevant:
+#:
+#:   * the stem `capabilit` anywhere (capability / capabilities), or
+#:   * an interrogative ABOUT THE ASSISTANT — a "what" question naming
+#:     the assistant (you/your) together with an ability word.
+#:
+#: Naming the assistant is what keeps this narrow: "What happened to my
+#: previous task?" is a "what" question with no "you", and stays out.
+_CAPABILITY_STEM = "capabilit"
+_ASSISTANT_WORDS = frozenset({"you", "your", "youre"})
+_ABILITY_WORDS = frozenset({
+    "do", "does", "capable", "able", "help", "handle", "use", "offer", "support",
+})
+_STRIP = ".,!?;:'\"()"
+
+
+def _words(lowered: str) -> set[str]:
+    """Word tokens with punctuation stripped, so "do?" matches "do"."""
+    return {word.strip(_STRIP) for word in lowered.split()}
+
+
+def _is_capability_inquiry(lowered: str) -> bool:
+    if _CAPABILITY_STEM in lowered:
+        return True
+    tokens = _words(lowered)
+    if "what" not in tokens:
+        return False
+    if not tokens & _ASSISTANT_WORDS:
+        return False
+    return bool(tokens & _ABILITY_WORDS)
+
+
 class IntentClassifier:
     """Stateless. `classify()` is a pure function of the text it is given
     — no memory, no context, no model, and the same input always returns
@@ -112,6 +161,11 @@ class IntentClassifier:
             return Intent.ACTIVITY_QUERY
         if any(phrase in lowered for phrase in _PRIORITY_PHRASES):
             return Intent.PRIORITY_QUERY
+        # Before BUILD_REQUEST on purpose: "what can you do and how do we
+        # add more capabilities" asks ABOUT capability, it does not
+        # instruct anything to be built.
+        if _is_capability_inquiry(lowered):
+            return Intent.CAPABILITY_QUERY
         if any(lowered.startswith(opener) for opener in _BUILD_OPENERS):
             return Intent.BUILD_REQUEST
 

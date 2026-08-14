@@ -539,6 +539,7 @@ def create_window(
     submit_objective: Callable[[str], dict[str, Any]] | None = None,
     get_execution_status: Callable[[], dict[str, Any]] | None = None,
     confirm_completion: Callable[[str], dict[str, Any]] | None = None,
+    capability_domains: Callable[[], Any] | None = None,
 ) -> FounderEditionApp:
     """Boot Founder Edition, start the local voice pipeline, and open the
     one native window.
@@ -558,6 +559,7 @@ def create_window(
 
     app = boot_founder_edition(
         founder_name=founder_name, text_output=BridgeTextOutput(),
+        capability_domains=capability_domains,
     )
 
     # `?debug=1` is how the page learns it was started with --debug. The

@@ -27,6 +27,7 @@ import pytest
 
 from master_agent.conversation_engine import (
     FORBIDDEN_INTERNAL_TERMS,
+    Disposition,
     SOMESH,
     ContextAssembler,
     ConversationContext,
@@ -533,13 +534,27 @@ class TestResponsePipeline:
         pipeline = ResponsePipeline(
             runtime=runtime, identity=ident, session=session, conversation=conversation
         )
+        # Intents this engine OWNS: it answers, and says so.
         for text in (
             "Good morning Somesh", "Continue", "How's the system?",
-            "What are you doing?", "What should I work on?", "Build a trading bot",
+            "What are you doing?", "What should I work on?",
+            "What can you do right now?",
         ):
             turn = pipeline.handle(text, moment=T0)
             assert isinstance(turn, ConversationTurn)
+            assert turn.disposition is Disposition.HANDLED
             assert turn.reply is not None
+
+        # "Build a trading bot" is NOT one of them. It used to be
+        # answered here with "I don't build things myself — that needs to
+        # go through planning, not through me", which ended the turn and
+        # left the planner, permission system and executors unreachable
+        # for every executable objective. The engine now states that the
+        # request belongs to another layer instead of refusing it.
+        turn = pipeline.handle("Build a trading bot", moment=T0)
+        assert isinstance(turn, ConversationTurn)
+        assert turn.disposition is Disposition.ESCALATE
+        assert turn.reply is None
 
     def test_context_reflects_the_moment_passed_in(self):
         runtime, ident, session, conversation = rig()
@@ -793,3 +808,150 @@ class TestDoesNotDuplicateC29OrC23:
                     defined.add(node.name)
         for owned_elsewhere in ("FounderRuntime", "FounderIdentity", "FounderSession"):
             assert owned_elsewhere not in defined
+
+
+# ══════════ the routing contracts this architecture depends on ══════════
+# Three defects, all found in the packaged application, all invisible to
+# the suite as it stood:
+#
+#  1. Capability questions were recognised by a contiguous-substring
+#     phrase list in the desktop composition root, consulted BEFORE this
+#     engine. "what are your capabilities" matched; "what are your
+#     *current* capabilities" did not, and fell through to the Planner,
+#     which cannot plan a question and answered "I can't do that with
+#     what I'm currently able to do."
+#  2. An executable objective was answered here with a refusal, which
+#     ended the turn and left planner/permission/executor unreachable.
+#  3. The Operator's execution verbs were rendered straight into the
+#     founder's answer.
+#
+# These tests fail if any of the three returns.
+class TestCapabilityIntentIsSemantic:
+    """Not a phrase list: ordinary variation must not change the route."""
+
+    RECOGNISED = (
+        "What can you do?",
+        "What can you do right now?",
+        "What are your capabilities?",
+        "What are your current capabilities?",
+        "What can you currently do?",
+        "What are you capable of?",
+        "What can you help me with?",
+        "What can you actually do on this computer?",
+        "What capabilities do you have?",
+        "How can I extend your capabilities?",
+        "I want to know what are your current capabilities and how can we "
+        "add more capabilities to you.",
+    )
+
+    #: Must keep their own routes -- a capability detector that swallows
+    #: these has become a catch-all.
+    NOT_RECOGNISED = (
+        "Create a folder called Demo on my Desktop.",
+        "Open Chrome.",
+        "Help me organise this.",
+        "What happened to my previous task?",
+        "Why did that mission fail?",
+        "Good morning.",
+    )
+
+    def test_natural_variations_are_all_capability_queries(self):
+        classifier = IntentClassifier()
+        for text in self.RECOGNISED:
+            assert classifier.classify(text) is Intent.CAPABILITY_QUERY, text
+
+    def test_the_exact_phrasing_that_failed_in_production(self):
+        """The founder's own words, verbatim, from the failing screenshot."""
+        classifier = IntentClassifier()
+        text = (
+            "I want to know what are your current capabilities and how can "
+            "we add more capabilities to you."
+        )
+        assert classifier.classify(text) is Intent.CAPABILITY_QUERY
+
+    def test_unrelated_requests_keep_their_own_route(self):
+        classifier = IntentClassifier()
+        for text in self.NOT_RECOGNISED:
+            assert classifier.classify(text) is not Intent.CAPABILITY_QUERY, text
+
+
+class TestDispositionSemantics:
+    """`reply is None` must never again carry two opposite meanings."""
+
+    def test_conversation_is_handled_here(self):
+        runtime, ident, session, conversation = rig()
+        pipeline = ResponsePipeline(
+            runtime=runtime, identity=ident, session=session, conversation=conversation
+        )
+        turn = pipeline.handle("Good morning Somesh", moment=T0)
+        assert turn.disposition is Disposition.HANDLED
+        assert turn.reply is not None
+
+    def test_an_executable_objective_escalates_and_is_not_refused(self):
+        runtime, ident, session, conversation = rig()
+        pipeline = ResponsePipeline(
+            runtime=runtime, identity=ident, session=session, conversation=conversation
+        )
+        turn = pipeline.handle("Create a folder called Demo on my Desktop.", moment=T0)
+        assert turn.intent is Intent.BUILD_REQUEST
+        assert turn.disposition is Disposition.ESCALATE
+        assert turn.reply is None, "answering here closes the path to the planner"
+
+    def test_an_unrecognised_utterance_escalates_rather_than_going_silent(self):
+        runtime, ident, session, conversation = rig()
+        pipeline = ResponsePipeline(
+            runtime=runtime, identity=ident, session=session, conversation=conversation
+        )
+        turn = pipeline.handle("Open Chrome.", moment=T0)
+        assert turn.disposition is Disposition.ESCALATE
+
+
+class TestCapabilityAnswerIsFounderSafe:
+    """Domain language in, execution vocabulary never out."""
+
+    #: The Operator's own verbs. None may reach the founder.
+    OPERATOR_VOCABULARY = (
+        "click", "scroll", "type text", "type_text", "press key", "press_key",
+        "execute command", "execute_command", "find target", "find_target",
+        "focus window", "focus_window", "launch application",
+        "launch_application", "is installed", "is_installed", "navigate",
+        "open_browser_session", "browser.",
+    )
+
+    def test_it_reports_the_domains_it_is_given(self):
+        composer = ResponseComposer(
+            capability_domains=lambda: ["your browser — opening pages",
+                                        "your desktop — opening your applications"]
+        )
+        reply = composer.capabilities(None)
+        assert "your browser" in reply
+        assert "your desktop" in reply
+
+    def test_it_tracks_a_changing_registry(self):
+        """Not a fixed sentence: fewer executives, a different answer."""
+        one = ResponseComposer(capability_domains=lambda: ["your browser"]).capabilities(None)
+        two = ResponseComposer(
+            capability_domains=lambda: ["your browser", "your desktop"]
+        ).capabilities(None)
+        assert "your desktop" not in one
+        assert "your desktop" in two
+
+    def test_no_operator_vocabulary_ever_reaches_the_founder(self):
+        composer = ResponseComposer(
+            capability_domains=lambda: ["your browser — opening pages, reading "
+                                        "what is there, and acting on them"]
+        )
+        lowered = composer.capabilities(None).lower()
+        leaked = [v for v in self.OPERATOR_VOCABULARY if v in lowered]
+        assert leaked == [], f"operator vocabulary reached the founder: {leaked}"
+
+    def test_an_empty_registry_is_admitted_not_papered_over(self):
+        reply = ResponseComposer(capability_domains=lambda: []).capabilities(None)
+        assert "don't have a way to act" in reply
+
+    def test_an_unreadable_registry_degrades_honestly(self):
+        def boom():
+            raise RuntimeError("registry unavailable")
+
+        reply = ResponseComposer(capability_domains=boom).capabilities(None)
+        assert "don't have a way to act" in reply
