@@ -178,17 +178,37 @@ Console was checked after every state transition: zero errors throughout.
 
 ## 9 · Regression
 
-`tests/test_desktop_intelligence.py`, `test_desktop_uia.py`,
-`test_task_2_5_execution_contract.py`, `test_founder_edition_boot.py`,
-`test_founder_edition_assembly.py`, `test_voice_pipeline.py`: **300
-passed, 5 failed.** All 5 failures reproduce identically with this
-mission's changes stashed out (`git stash`) — pre-existing
-`test_founder_edition_boot.py`/`test_founder_edition_assembly.py`
-drift unrelated to this mission (never touched a Python file this
-mission; the failures are about desktop-executive step ordering in the
-boot report, nothing to do with the frontend). No backend, runtime,
-reasoning-layer, or Desktop Intelligence file was read or written this
-mission.
+**Per Engineering Rule 001**, numbers below are from
+`git worktree add <tmp> milestone-founder-edition-ui-integration` +
+`pytest`, not the working directory.
+
+`tests/test_task_2_5_execution_contract.py`,
+`test_founder_edition_boot.py`, `test_founder_edition_assembly.py`,
+`test_desktop_intelligence.py`, `test_desktop_uia.py`,
+`test_voice_pipeline.py`, `test_reasoning_session_manager.py`, clean
+checkout:
+
+```
+280 passed, 47 failed in 56.0s
+```
+
+Working-directory runs of the same files showed only 5 failures — the
+other 42 are masked there by *other, unrelated* uncommitted
+Founder-Edition/runtime Python fixes this mission never touched
+(`founder_runtime/wiring.py`, `providers/gemini.py`,
+`founder_edition/voice_pipeline.py`, etc. — all already modified,
+uncommitted, before this mission started). **Confirmed pre-existing,
+not introduced by this commit**: the identical 47 failures reproduce at
+the parent tag (`milestone-desktop-intelligence-observe`), checked the
+same way, in its own clean worktree, before any UI-integration change
+existed. This mission never read or wrote a backend/runtime/reasoning-
+layer/Desktop-Intelligence Python file — every failure above is about
+`founder_edition`/`founder_runtime` composition, orthogonal to the
+frontend this mission actually changed.
+
+`test_desktop_intelligence.py` (30/30) and `test_desktop_uia.py` both
+pass cleanly in the same clean checkout, confirming the prior Desktop
+Intelligence milestone's own work is undisturbed.
 
 ## 10 · Commit scope — a real judgment call, recorded
 
