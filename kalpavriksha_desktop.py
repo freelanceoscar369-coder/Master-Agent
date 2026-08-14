@@ -498,15 +498,43 @@ def _founder_refusal_sentence(reason: str) -> str:
     return "I couldn't plan that just now. Please try again."
 
 
+#: Founder-level domains, keyed by the executive that provides them. This
+#: is the translation layer between the Operator's registry and what the
+#: founder is actually told: the *keys* are checked against live
+#: registrations (so this never claims a capability that is not wired),
+#: while the *values* deliberately name no execution primitive. Adding an
+#: executive without adding it here degrades honestly — see
+#: `_describe_capabilities`'s handling of unknown executives.
+_EXECUTIVE_DOMAINS: dict[str, str] = {
+    "browser": "work in your browser — open pages, read what is there, and act on them",
+    "desktop": "work across your desktop — open your applications, read what is on screen, and operate them",
+}
+
+
 def _describe_capabilities(mission_control) -> str:
     """What this machine can actually do right now, read from the live
     capability registry Mission Control holds.
 
     Never a hardcoded list: if an Executive is registered or removed, this
-    sentence changes with it, because it is generated from the same
-    descriptors the Planner itself plans against. Grouped by executive and
-    worded plainly — a founder asking "what can you do" wants the shape of
-    the answer, not nine qualified capability ids.
+    sentence changes with it, because it is read from the same registry the
+    Planner itself plans against.
+
+    WHAT CHANGED, AND WHY. This function used to render every capability
+    *verb* in that registry — "browser.click, close browser session,
+    navigate, press key, scroll, type text, execute command, find target,
+    focus window, is installed, launch application, ..." — as the founder's
+    answer to "what can you do right now?". That is the Operator's own
+    execution vocabulary reaching the Founder Surface unmediated, which the
+    Brain/Operator separation exists to prevent: the executor may return
+    structured results internally, but a higher layer decides what the
+    founder is told. A founder should never have to read the name of an
+    action primitive to learn what Kalpavriksha is for.
+
+    So the registry is now read for *which executives are actually
+    registered* — real, live, still not hardcoded — and each is stated as
+    the domain it gives Kalpavriksha, in founder language. An executive
+    with no known domain is counted honestly rather than described, because
+    inventing a description for it would be worse than admitting it exists.
     """
     try:
         descriptors = list(mission_control.capabilities.all())
@@ -516,8 +544,34 @@ def _describe_capabilities(mission_control) -> str:
     if not descriptors:
         return (
             "Right now I can hold a conversation, but I don't have any "
-            "action capabilities wired up yet."
+            "way to act on this machine yet."
         )
+
+    executives = sorted({str(d.executive_id) for d in descriptors})
+    known = [_EXECUTIVE_DOMAINS[e] for e in executives if e in _EXECUTIVE_DOMAINS]
+    unknown = [e for e in executives if e not in _EXECUTIVE_DOMAINS]
+
+    if known:
+        if len(known) == 1:
+            reach = known[0]
+        else:
+            reach = ", ".join(known[:-1]) + ", and " + known[-1]
+        sentence = f"I can {reach}."
+    else:
+        # Every registered executive is one this build has no founder-facing
+        # description for. Say that plainly instead of naming its verbs.
+        sentence = "I can act on this machine, though I can't describe how in your terms yet."
+        unknown = []
+
+    if unknown:
+        others = "one other area" if len(unknown) == 1 else f"{len(unknown)} other areas"
+        sentence += f" I also reach {others} I don't have a plain description for yet."
+
+    return (
+        sentence
+        + " Beyond single actions I can plan and carry out multi-step work —"
+        " tell me what you want done and I'll work out the steps."
+    )
 
     by_executive: dict[str, list[str]] = {}
     for descriptor in descriptors:

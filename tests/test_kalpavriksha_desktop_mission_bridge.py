@@ -240,3 +240,91 @@ def test_a_timeout_reports_honestly_rather_than_a_fabricated_success():
     )
 
     assert "longer than expected" in result["reply"]
+
+
+# ═════════ the Brain/Operator boundary at the Founder Surface ════════════
+# This is the boundary the shipped app actually crossed. Asked "what can
+# you do right now?", it answered with the Operator's own execution
+# vocabulary — "browser.click, close browser session, navigate, press key,
+# scroll, type text, execute command, find target, focus window, is
+# installed, launch application" — because `_describe_capabilities` walked
+# the capability registry and rendered every verb. The executor had become
+# the conversational personality.
+#
+# Nothing caught it: this module is the composition root, and no test
+# asserted anything about what a founder is *told*, only about what gets
+# executed. That is the gap these tests close.
+class _Descriptor:
+    def __init__(self, executive_id: str, capability: str) -> None:
+        self.executive_id = executive_id
+        self.capability = capability
+
+
+def _mission_control_with(*pairs):
+    class _Caps:
+        def all(self):
+            return [_Descriptor(e, c) for e, c in pairs]
+
+    class _MC:
+        capabilities = _Caps()
+
+    return _MC()
+
+
+#: Verbatim fragments of the Operator's own vocabulary. None may ever
+#: appear in a sentence shown to the founder.
+_INTERNAL_VOCABULARY = (
+    "browser.click", "click", "open_browser_session", "close_browser_session",
+    "navigate", "press_key", "press key", "scroll", "type_text", "type text",
+    "execute_command", "execute command", "find_target", "find target",
+    "focus_window", "focus window", "is_installed", "is installed",
+    "is_running", "is running", "launch_application", "launch application",
+    "get_version", "get version", "observe_browser", "list_running_processes",
+)
+
+
+class TestCapabilityAnswerNeverLeaksOperatorVocabulary:
+    def test_no_execution_primitive_reaches_the_founder(self):
+        from kalpavriksha_desktop import _describe_capabilities
+
+        reply = _describe_capabilities(_mission_control_with(
+            ("browser", "click"), ("browser", "open_browser_session"),
+            ("browser", "navigate"), ("browser", "type_text"),
+            ("desktop", "launch_application"), ("desktop", "focus_window"),
+            ("desktop", "execute_command"), ("desktop", "is_installed"),
+        ))
+        lowered = reply.lower()
+        leaked = [v for v in _INTERNAL_VOCABULARY if v in lowered]
+        assert leaked == [], f"operator vocabulary reached the founder: {leaked}"
+
+    def test_it_still_describes_what_is_actually_registered(self):
+        """Honest, not merely quiet: the answer must reflect the live
+        registry rather than becoming a fixed marketing sentence."""
+        from kalpavriksha_desktop import _describe_capabilities
+
+        browser_only = _describe_capabilities(_mission_control_with(("browser", "click")))
+        both = _describe_capabilities(
+            _mission_control_with(("browser", "click"), ("desktop", "focus_window"))
+        )
+        assert "browser" in browser_only.lower()
+        assert "desktop" not in browser_only.lower()
+        assert "desktop" in both.lower()
+
+    def test_an_unknown_executive_is_counted_not_described(self):
+        """Adding an executive without a founder-facing description must
+        degrade honestly rather than invent one for it."""
+        from kalpavriksha_desktop import _describe_capabilities
+
+        reply = _describe_capabilities(
+            _mission_control_with(("browser", "click"), ("quantum", "entangle"))
+        )
+        assert "quantum" not in reply.lower()
+        assert "entangle" not in reply.lower()
+        assert "other area" in reply.lower()
+
+    def test_an_empty_registry_admits_it_cannot_act(self):
+        from kalpavriksha_desktop import _describe_capabilities
+
+        reply = _describe_capabilities(_mission_control_with())
+        assert "conversation" in reply.lower()
+        assert "act" in reply.lower()
