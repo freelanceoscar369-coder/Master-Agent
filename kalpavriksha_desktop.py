@@ -388,11 +388,16 @@ def _build_mission_pipeline():
     status = ExecutionStatus()
     mission_control.bus.subscribe(status.record, event_type=None)
 
-    return mission_service, runtime, mission_control, status
+    # `tiered_runner` is returned as well as given to the Planner: it is
+    # the Brain's one door to reasoning (VISION_V2 §3.3), and planning is
+    # only one of the things the Brain reasons about. Returning the same
+    # instance is what keeps `brain/advisory.py` from needing a provider
+    # path of its own -- one ladder, one Broker, one decision trail.
+    return mission_service, runtime, mission_control, status, tiered_runner
 
 
 def _submit_objective(mission_service, runtime, mission_control, status, text: str,
-                       timeout_seconds: float = 45.0) -> dict:
+                       timeout_seconds: float = 45.0, reasoning_runner=None) -> dict:
     """One founder objective, run to a terminal state, and a plain reply
     dict — `desktop_shell.py` never sees a `MissionOutcome`/`FounderState`,
     only a dict shaped exactly like `send_message()`'s own return value.
@@ -406,6 +411,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     """
     import time as _time
     from master_agent.missions.execution_status import AWAITING_APPROVAL, COMPLETED, FAILED
+    from master_agent.planner import NO_STEPS
 
     status.begin(text, timeout_seconds=timeout_seconds)
 
@@ -434,6 +440,35 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             status.status = COMPLETED
             status.message = question
             return {"reply": question}
+
+    # Not executable is not not-understood. `NO_STEPS` is the Planner's
+    # own verdict, under `prompting.py` rule 6, that a provider looked at
+    # the whole capability catalogue and honestly reported that nothing
+    # in it achieves this goal -- "learn trading", "buy a house for me".
+    # The goal was parsed, resolved and planned against; the only thing
+    # missing is a single machine action that completes it.
+    #
+    # Flattening that into `_founder_refusal_sentence()` said "I can't do
+    # that with what I'm currently able to do", which tells the founder
+    # their instruction was rejected. It was not. It goes to the Brain's
+    # reasoning door instead -- the same `TieredPromptRunner` the Planner
+    # was just given, asked for the same `"reasoning"` capability.
+    #
+    # This root still decides nothing: which goals are executable was
+    # decided by the Planner, and what to say was decided by the Brain.
+    # Exactly one refusal code is routed, and it is the only one that
+    # means "understood, but larger than one action".
+    if refusal is not None and getattr(refusal, "code", None) == NO_STEPS:
+        if reasoning_runner is not None:
+            from master_agent.brain.advisory import advise
+
+            answer = advise(
+                text, reasoning_runner, objective_id=outcome.objective_id,
+            )
+            status.status = COMPLETED
+            status.message = answer
+            return {"reply": answer}
+
     if not outcome.accepted:
         reason = (
             outcome.refusal.reason if outcome.refusal is not None
@@ -629,9 +664,10 @@ def main(argv: list[str] | None = None) -> int:
     capability_domains = None
     decide_approval = None
     if pipeline is not None:
-        mission_service, runtime, mission_control, status = pipeline
+        mission_service, runtime, mission_control, status, reasoning_runner = pipeline
         submit_objective = lambda text: _submit_objective(  # noqa: E731
-            mission_service, runtime, mission_control, status, text
+            mission_service, runtime, mission_control, status, text,
+            reasoning_runner=reasoning_runner,
         )
         # Task 2.5 §8 — the Hyper Agent contract. Read-only: this returns
         # the same `status` object's own `as_dict()`, never a copy that
