@@ -55,6 +55,35 @@ from tests.test_kalpavriksha_desktop_mission_bridge import (  # noqa: E402
 REFUSAL_SENTENCE = "I can't do that with what I'm currently able to do."
 
 
+#: What a correct answer sounds like: Kalpavriksha is the subject of every
+#: verb. It goes and reads, tracks, practises. The founder is not told to
+#: do anything, because the founder did not ask to learn anything -- they
+#: told this system to learn.
+CORRECT_ANSWER = (
+    "Understood -- you want me able to read a market myself and act on it "
+    "with judgement rather than guesswork. That's not one move; it's "
+    "something I build up to. I'd start by picking one liquid instrument "
+    "and following it daily until I know its rhythm, pull the last few "
+    "years of its price history so I have something real to test against, "
+    "and paper-trade it until my calls hold up without money at risk. "
+    "Shall I start on the first one now?"
+)
+
+
+#: The answer this module shipped with before the founder's correction.
+#: Kept verbatim as a fixture: it is fluent, well-meaning and WRONG,
+#: because it makes the founder the actor. If it ever reaches a founder
+#: again, these tests fail.
+COACHING_ANSWER = (
+    "I hear you -- you want to be able to read a market and act on it "
+    "with your own judgement. That's not one move, it's something we'd "
+    "build up together. You should start by settling which market you "
+    "actually care about, then get reading a single instrument daily "
+    "until its rhythm is familiar, then paper-trade it before a rupee "
+    "is at risk. Want me to start on the first one now?"
+)
+
+
 # =========================================================================
 # Stubs
 # =========================================================================
@@ -82,15 +111,7 @@ class Ladder:
     asked -- the prompt, the routing request, and how many times."""
 
     def __init__(self, outcome=None) -> None:
-        self._outcome = outcome if outcome is not None else Answer(
-            "I hear you -- you want to be able to read a market and act on it "
-            "with your own judgement rather than someone else's. That's not "
-            "one move, it's something we'd build up together. I'd start by "
-            "settling which market you actually care about, then get you "
-            "reading a single instrument daily until its rhythm is familiar, "
-            "then paper-trade it before a rupee is at risk. Want me to start "
-            "on the first one now?"
-        )
+        self._outcome = outcome if outcome is not None else Answer(CORRECT_ANSWER)
         self.calls: list[tuple[str, object, dict]] = []
 
     def run(self, prompt, request, **kwargs):
@@ -289,7 +310,7 @@ class TestClassG_GenuineFailure:
         reply, _ = submit("Learn trading", refusal_code=NO_STEPS, ladder=DeadLadder())
         assert reply == UNREACHABLE
         assert REFUSAL_SENTENCE not in reply
-        assert "understand what you're after" in reply
+        assert "understand what you're asking me to take on" in reply
 
 
 # =========================================================================
@@ -419,3 +440,90 @@ class TestNoNewTaxonomy:
 
         assert not hasattr(planner_pkg, "NOT_EXECUTABLE")
         assert not hasattr(planner_pkg, "ADVISORY")
+
+
+# =========================================================================
+# Whose goal is it -- the founder's correction
+# =========================================================================
+
+
+class TestKalpavrikshaIsTheOneWhoLearns:
+    """*"Learn trading means Kalpavriksha itself must learn trading. It
+    does not mean 'teach the Founder trading' or 'give the Founder advice
+    about how to learn trading.'"*
+
+    The first version of this module read the instruction as a request
+    for advice and answered by coaching the founder. It was fluent and it
+    was wrong: the founder did not ask to learn anything, they told this
+    system to learn. These tests hold the subject in place.
+    """
+
+    def test_a_coaching_answer_never_reaches_the_founder(self):
+        """The exact answer this module used to give, fed back in. It must
+        not survive, whatever the provider thinks of it."""
+        reply, _ = submit(
+            "Learn trading", refusal_code=NO_STEPS,
+            ladder=Ladder(Answer(COACHING_ANSWER)),
+        )
+        assert reply == UNREACHABLE, (
+            "the founder was coached about a goal they instructed this "
+            "system to take on -- advice is the failure mode here"
+        )
+
+    def test_a_correctly_framed_answer_passes_through_untouched(self):
+        """The guard must reject the wrong register without also rejecting
+        the right one -- otherwise it is just a mute button."""
+        reply, status = submit(
+            "Learn trading", refusal_code=NO_STEPS, ladder=Ladder(Answer(CORRECT_ANSWER)),
+        )
+        assert reply == CORRECT_ANSWER
+        assert status.status == COMPLETED
+
+    @pytest.mark.parametrize("marker", advisory.COACHING_MARKERS)
+    def test_every_coaching_marker_is_actually_enforced(self, marker):
+        """Each marker is checked individually, so a list entry cannot rot
+        into decoration that nothing reads."""
+        answer = (
+            f"Understood, that matters to you. {marker} settle which market "
+            "is worth following, and I'll take it from there once that's "
+            "clear enough to act on."
+        )
+        assert advise("Learn trading", Ladder(Answer(answer))) == UNREACHABLE
+
+    def test_the_prompt_says_the_instruction_is_about_this_system(self):
+        prompt = advisory._prompt("Learn trading")
+        assert "It is NOT a request for advice" in prompt
+        assert "the founder is telling YOU to acquire that skill" in prompt
+        assert "Never tell the founder to do anything." in prompt
+
+    def test_the_expectation_states_the_register_before_the_answer_arrives(self):
+        """Stated to the provider up front, not only filtered afterwards --
+        the same discipline every other expectation in this codebase
+        follows."""
+        for marker in advisory.COACHING_MARKERS:
+            assert marker in advisory.REFUSAL_MARKERS + advisory.COACHING_MARKERS
+        assert advisory._expectation() is not None
+
+    def test_the_guard_holds_for_a_runner_that_ignores_the_expectation(self):
+        """`expected=` is honoured by the executor. This asserts the
+        guarantee does not DEPEND on that: a bare runner handing back
+        advice is still stopped."""
+        class IgnoresExpectations:
+            def run(self, prompt, request, **kwargs):
+                return Answer(COACHING_ANSWER)
+
+        assert advise("Learn trading", IgnoresExpectations()) == UNREACHABLE
+
+    def test_the_correction_is_recorded_in_the_source(self):
+        """A founder decision that reverses an implementation must be
+        readable where the implementation lives, or the next reader
+        reintroduces it."""
+        # Whitespace-normalised: the correction is prose and wraps, so a
+        # contiguous-substring check would pass or fail on line length.
+        doc = " ".join((advisory.__doc__ or "").split())
+        assert "Kalpavriksha itself must learn trading" in doc
+        assert "teach the Founder trading" in doc
+
+    def test_the_unreachable_fallback_is_not_advice_either(self):
+        for marker in advisory.COACHING_MARKERS:
+            assert marker.lower() not in UNREACHABLE.lower()
