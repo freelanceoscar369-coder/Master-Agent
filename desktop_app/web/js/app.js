@@ -93,14 +93,53 @@ const tree = new window.KalpavrikshaTree(canvas, {
 });
 
 // ------------------------------------------------------------- bloom/UI --
-// 02_ANIMATION_SYSTEM §2.2 — `bloomTransDuration` per state. The base
-// CSS rule (.bloom) declares --d-8 as the default; states that specify a
-// different token override it inline here rather than in the stylesheet,
-// since the duration is a per-state animation parameter, not a static
-// layout fact.
+// UI V1/V2 reconciliation (14 Aug 2026) -- bloomOpacity/bloomToken per
+// state now come from tree.js's own STATE_PARAMS (window.
+// KALPAVRIKSHA_TREE_STATE_PARAMS), not a second, hand-copied table here --
+// "the base parameters live in the renderer" (H1). This function stays
+// the one place that turns those numbers into the actual .bloom element,
+// since bloom is a DOM div, not part of the canvas.
+//
+// RULING -- Priority 2 Item 1, "Waiting/Attention bloom conflict"
+// (documented per the mission's own instruction not to silently pick
+// one): VEDA's per-state table gives Waiting bloomOpacity 0.70; prominence.js
+// (unedited, per the hard rule) gates --tree-bloom-opacity to 0 at BOTH
+// `reduced` and `minimum`. Applying that gate literally would mean
+// Waiting's 0.70 -- and Error/Recovery's 0.55 -- can never actually be
+// seen, since both states are only ever reached at `minimum` prominence.
+// Read for INTENT rather than applied as a blind override: prominence's
+// zero exists for one stated reason -- "bloom is a light source competing
+// with text... the single largest contributor to the reported 'tree over
+// work' feeling" -- which is the Work Region's text, present at `reduced`
+// (a live work sentence). At `minimum`, H3 gives the state's own bloom a
+// DIFFERENT, deliberate job: "local warmth... a human is required there."
+// So: prominence's bloom-to-zero is authoritative at `reduced` (unchanged,
+// already-shipped, no regression); at `minimum` the state's own
+// bloomOpacity governs instead of being forced to 0. `ambient` never
+// disagrees between the two axes (idle's 0.60 already equals prominence's
+// own 0.6). prominence.js itself is never edited -- this ruling lives
+// entirely in how the renderer/wiring layer (here) combines the two
+// numbers, which is exactly the judgment call the handoff leaves to the
+// implementer.
+//
+// RULING -- Priority 2 Item 2, "Error/Recovery colour": diverges from the
+// reconciliation's own single-token recommendation (`--s-live` for both
+// recovering and failed) on ONE point -- see tree.js's own STATE_PARAMS
+// comment for the full reasoning (consistency with the Work Region's own
+// already-shipped tone-to-colour mapping in workState.js/work-region.css).
 const BLOOM_TRANS_DURATION = {
   idle: 'var(--d-8)', listening: 'var(--d-8)', thinking: 'var(--d-8)',
-  speaking: 'var(--d-4)', waiting: 'var(--d-8)', celebration: 'var(--d-6)',
+  executing: 'var(--d-8)', speaking: 'var(--d-4)', waiting: 'var(--d-8)',
+  completed: 'var(--d-8)', recovering: 'var(--d-8)', failed: 'var(--d-8)',
+  celebration: 'var(--d-6)',
+};
+// Internal glow-colour alpha (the radial gradient's own colour strength --
+// distinct from the element opacity above; not a VEDA-specified number,
+// an existing visual-tuning knob this port extends rather than redefines).
+const BLOOM_GLOW_ALPHA = {
+  idle: 0.055, listening: 0.055, thinking: 0.065, executing: 0.065,
+  speaking: 0.050, waiting: 0.045, completed: 0.065,
+  recovering: 0.040, failed: 0.040, celebration: 0.075,
 };
 // 03_VOICE_EXPERIENCE §3.5 — "Tree while denied: tree holds whatever
 // state it was in. The bloom dims to 0.4 at --d-8 --e-settle." `denied`
@@ -109,25 +148,23 @@ const BLOOM_TRANS_DURATION = {
 // opacity currently is, independent of which tree state that happens
 // to be — set/cleared by setMicState below.
 let micDenied = false;
-// Phase 1 port (prominence.js) -- 1 at ambient prominence (unchanged
-// existing behaviour), 0 at reduced/minimum (bloom extinguished: "a
-// light source competing with text is the single largest contributor to
-// the reported 'tree over work' feeling" -- prominence.ts's own words).
-// `lastBloomState` lets applyExecutionStatus() (below) re-apply this
-// multiplier to whatever voice state is currently showing, the same
-// re-apply pattern micDenied already uses, without depending on
-// `tree.state` (referenced elsewhere in this file but never actually
-// set by KalpavrikshaTree — a pre-existing gap this port does not fix).
-let prominenceBloomMultiplier = 1;
+// Tracks the CURRENT prominence level (not just a derived 0/1 multiplier)
+// so applyBloom() can apply the ruling above precisely: force 0 only at
+// `reduced`; let the state's own bloomOpacity govern at `ambient`/`minimum`.
+let currentProminenceLevel = 'ambient';
 let lastBloomState = 'idle';
 function applyBloom(state) {
   lastBloomState = state;
-  const p = micDenied ? 0.4 : ({ idle: 0.60, listening: 1.0, thinking: 0.85, speaking: 1.0, waiting: 0.70, celebration: 1.0 }[state] ?? 0.60);
+  const stateParams = state === 'celebration'
+    ? (window.KALPAVRIKSHA_TREE_CELEBRATION_PARAMS || { bloomOpacity: 1.0, bloomToken: '--s-bloom' })
+    : ((window.KALPAVRIKSHA_TREE_STATE_PARAMS || {})[state] || { bloomOpacity: 0.60, bloomToken: '--s-live' });
+  const bloomGate = currentProminenceLevel === 'reduced' ? 0 : 1;
+  const p = micDenied ? 0.4 : (stateParams.bloomOpacity * bloomGate);
   const dur = micDenied ? 'var(--d-8)' : (BLOOM_TRANS_DURATION[state] || 'var(--d-8)');
   els.bloom.style.transitionDuration = `${dur}, ${dur}`;
-  els.bloom.style.opacity = String(p * prominenceBloomMultiplier);
-  const hueVar = { idle: '--s-live', listening: '--s-live', thinking: '--s-live', speaking: '--s-live', waiting: '--s-attend', celebration: '--s-bloom' }[state] ?? '--s-live';
-  const alpha = { idle: 0.055, listening: 0.055, thinking: 0.065, speaking: 0.050, waiting: 0.045, celebration: 0.075 }[state] ?? 0.055;
+  els.bloom.style.opacity = String(p);
+  const hueVar = stateParams.bloomToken || '--s-live';
+  const alpha = BLOOM_GLOW_ALPHA[state] ?? 0.055;
   const hex = getComputedStyle(document.documentElement).getPropertyValue(hueVar).trim();
   const rgb = hexToRgb(hex);
   if (rgb) {
@@ -137,6 +174,67 @@ function applyBloom(state) {
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+}
+
+// ------------------------------------------------- tree state arbiter --
+// UI V1/V2 reconciliation -- one source of truth for which of the tree's
+// nine character states (tree.js STATE_PARAMS) is showing, combining the
+// voice signal and the execution status per VEDA 02_ANIMATION_SYSTEM
+// §2.3.2's own priority order (Celebration > Speaking > Listening >
+// Thinking > Waiting > Idle). Executing sits in Thinking's slot,
+// Error/Recovery in Waiting's -- both pairs are already mutually
+// exclusive by construction (they derive from the single
+// ExecutionStatus.status field VEDA's own Thinking/Waiting never had to
+// share with anything), so nothing about VEDA's ordering itself changes;
+// this only names where the two additive states sit in it.
+//
+// Replaces every previously-scattered direct tree.setState() call in
+// this file (nine call sites) with one arbiter, so voice events and
+// execution-status polling can never independently disagree about which
+// state should currently be showing -- and fixes a pre-existing bug:
+// applyBloom(tree.state) (setMicState, below) read a property
+// KalpavrikshaTree never actually set.
+let voiceTreeSignal = 'idle'; // 'idle' | 'listening' | 'speaking'
+let conversationalThinking = false; // a plain conversational round-trip in flight
+let currentTreeState = 'idle';
+
+function setTreeState(name) {
+  if (name === currentTreeState) return;
+  currentTreeState = name;
+  tree.setState(name);
+  applyBloom(name);
+}
+
+// Mirrors deriveProminence()'s own precedence (prominence.js, unedited)
+// so the tree's character and its prominence level never disagree about
+// which backend condition is "the" current one. Reads the module-level
+// executionStatus/resultAcknowledged declared later in this file --
+// safe: this function is only ever invoked from event handlers, after
+// the whole script has already run top-to-bottom once.
+function executionTreeState() {
+  const exec = executionStatus;
+  if (!exec) return null;
+  const needsFounder = exec.requires_founder_completion ||
+    exec.status === 'awaiting_founder_completion' ||
+    exec.status === 'awaiting_approval' || exec.status === 'blocked';
+  if (needsFounder) return 'waiting';
+  if (exec.status === 'failed' && !resultAcknowledged) return 'failed';
+  if (exec.status === 'recovering') return 'recovering';
+  if (exec.status === 'completed' || exec.terminal_state) {
+    return resultAcknowledged ? null : 'completed';
+  }
+  if (exec.status === 'executing' || exec.status === 'observing') return 'executing';
+  if (exec.status === 'understanding' || exec.status === 'planning' || exec.status === 'verifying') return 'thinking';
+  return null;
+}
+
+function recomputeTreeState() {
+  if (voiceTreeSignal === 'speaking') { setTreeState('speaking'); return; }
+  if (voiceTreeSignal === 'listening') { setTreeState('listening'); return; }
+  const ex = executionTreeState();
+  if (ex) { setTreeState(ex); return; }
+  if (conversationalThinking) { setTreeState('thinking'); return; }
+  setTreeState('idle');
 }
 
 // ------------------------------------------------------------- greeting --
@@ -206,7 +304,8 @@ function runInterruptVisuals(treeTarget) {
   els.waveform.style.transitionDuration = 'var(--d-2)'; // §3.4 "waveform... drops to opacity 0 at --d-2"
   els.waveform.style.opacity = '0';
   markLastSomeshMessageInterrupted();
-  tree.setState(treeTarget);
+  voiceTreeSignal = treeTarget;
+  recomputeTreeState();
 }
 
 function markLastSomeshMessageInterrupted() {
@@ -251,7 +350,8 @@ function abandonVoiceCapture() {
 function setVoiceState(name) {
   if (name === 'speaking') {
     isSpeaking = true;
-    tree.setState('speaking');
+    voiceTreeSignal = 'speaking';
+    recomputeTreeState();
     return;
   }
   if (isSpeaking && (name === 'listening' || name === 'capturing-speech')) {
@@ -313,20 +413,32 @@ function setMicState(name) {
     els.micSecondary.classList.remove('is-visible');
   }
 
-  // Tree states (02_ANIMATION_SYSTEM §2.2) are a different, six-member
+  // Tree states (02_ANIMATION_SYSTEM §2.2) are a different, nine-member
   // vocabulary from mic states (03_VOICE_EXPERIENCE §3.1) — 'armed' is a
   // mic state only. Armed maps to tree Idle: the tree enters Listening
   // only once the founder is actually being heard. `unavailable` also
   // maps to Idle explicitly — §3.5 "Tree while unavailable: tree holds
   // idle" — rather than being left wherever the tree happened to be
   // (e.g. still Listening if the device vanished mid-utterance).
-  if (name === 'listening' || name === 'capturing-speech') tree.setState('listening');
-  else if (name === 'processing') tree.setState('thinking');
-  else if (name === 'armed' || name === 'idle' || name === 'muted' || name === 'unavailable') tree.setState('idle');
+  // `processing` (Whisper transcribing what was just captured) is
+  // genuinely Thinking in VEDA's own sense -- "active when the runtime is
+  // processing, no audio I/O active" -- routed through the same
+  // conversationalThinking flag submitMessage()'s own round-trip uses,
+  // not a direct tree.setState(), so the two can never disagree.
+  if (name === 'listening' || name === 'capturing-speech') {
+    voiceTreeSignal = 'listening';
+  } else if (name === 'processing') {
+    voiceTreeSignal = 'idle';
+    conversationalThinking = true;
+  } else if (name === 'armed' || name === 'idle' || name === 'muted' || name === 'unavailable') {
+    voiceTreeSignal = 'idle';
+    conversationalThinking = false;
+  }
+  recomputeTreeState();
 
   const wasDenied = micDenied;
   micDenied = name === 'denied';
-  if (micDenied !== wasDenied) applyBloom(tree.state); // apply/clear the §3.5 dim now, even if the tree's own state didn't change this call
+  if (micDenied !== wasDenied) applyBloom(currentTreeState); // apply/clear the §3.5 dim now, even if the tree's own state didn't change this call
 
   updateListeningBar(name);
   updateWaveformVisibility(name);
@@ -545,12 +657,20 @@ let thinkingTimeout = null;  // P2: timeout guard — auto-recover if engine han
 function showThinkingSoon() {
   thinkingTimer = setTimeout(() => {
     els.thinking.classList.add('is-visible');
-    tree.setState('thinking');
-    // P2: safety — if no response within 15s, recover to idle
+    conversationalThinking = true;
+    recomputeTreeState();
+    // P2: safety — if no response within 15s, stop asserting "thinking"
+    // and let the arbiter fall back to whatever is actually true (idle,
+    // or a real in-flight mission the execution-status poller already
+    // knows about independently). Previously forced 'waiting' (amber,
+    // "needs your approval") here -- wrong under the reconciled model:
+    // a slow reply is not a founder-approval request, and forcing amber
+    // for one taught the founder to distrust amber generally.
     thinkingTimeout = setTimeout(() => {
       if (isSending) {
         hideThinking();
-        tree.setState('waiting');
+        conversationalThinking = false;
+        recomputeTreeState();
         isSending = false;
       }
     }, 15000);
@@ -560,6 +680,7 @@ function hideThinking() {
   clearTimeout(thinkingTimer);
   clearTimeout(thinkingTimeout);
   els.thinking.classList.remove('is-visible');
+  conversationalThinking = false;
 }
 
 async function submitMessage(text, source) {
@@ -578,15 +699,22 @@ async function submitMessage(text, source) {
   showThinkingSoon();
   try {
     const result = await Bridge.call('send_message', text, source);
-    hideThinking();
+    hideThinking(); // clears conversationalThinking
     if (result && result.reply) {
       appendSomeshMessage(result.reply);
     }
-    tree.setState('idle');
+    // Let the arbiter decide -- forcing 'idle' here would fight a real
+    // in-flight mission the execution-status poller already knows about
+    // independently (e.g. this reply was the founder's own objective,
+    // now genuinely executing in the background).
+    recomputeTreeState();
     refreshDashboard();
   } catch (e) {
+    // A bridge/network failure, not a founder-approval request -- 'waiting'
+    // (amber) would misrepresent it under the reconciled model. Recompute
+    // instead of asserting a specific wrong state.
     hideThinking();
-    tree.setState('waiting');
+    recomputeTreeState();
   } finally {
     isSending = false;  // P2: always release the guard
   }
@@ -600,25 +728,88 @@ function row(label, value, signal) {
     <span class="dash-row__value"${signal ? ` data-signal="${signal}"` : ''}>${value}</span></div>`;
 }
 
+// UI V1/V2 reconciliation, Decision Gate Item 3 -- four canonical views,
+// locked: Missions · Record · Rules & Learning · System. Replaces the
+// prior single undifferentiated panel. Every row below is either real
+// data from get_dashboard()/the live execution-status poller, or an
+// honest "not yet available" placeholder -- Record and Rules & Learning
+// have no backend data source today (Gate 0 D5/D8, non-blocking, not
+// invented here) and say so rather than showing fabricated content.
+const DASHBOARD_VIEWS = ['missions', 'record', 'rules', 'system'];
+let currentDashboardView = 'missions';
+let lastDashboardData = null;
+
 async function refreshDashboard() {
   try {
-    const d = await Bridge.call('get_dashboard');
-    els.dashboardBody.innerHTML = renderDashboard(d);
+    lastDashboardData = await Bridge.call('get_dashboard');
+    renderCurrentDashboardView();
   } catch (e) { /* honest absence — leave the last known view */ }
 }
 
-function renderDashboard(d) {
+function renderCurrentDashboardView() {
+  const d = lastDashboardData || {};
   const identity = d.identity || {};
+  let html = `<div class="dashboard-title">${identity.assistant_name || 'Somesh'}</div>
+    <div class="dashboard-sub">for ${identity.founder_name || ''} · ${identity.edition || ''}</div>`;
+  if (currentDashboardView === 'missions') html += renderMissionsView();
+  else if (currentDashboardView === 'record') html += renderRecordView();
+  else if (currentDashboardView === 'rules') html += renderRulesView();
+  else html += renderSystemView(d);
+  els.dashboardBody.innerHTML = html;
+  if (currentDashboardView === 'system') wireThemeButtonsInDashboard();
+}
+
+// View 1 -- Missions: what is running, queued, or held, and why. Real
+// data source: the same get_execution_status() poll driving the Work
+// Region (executionStatus, module-level, already live). No queue/held
+// concept exists in the backend yet (Gate 0 D3) -- shown honestly.
+function renderMissionsView() {
+  const exec = executionStatus || window.KalpavrikshaWorkState.IDLE_EXECUTION;
+  const presentation = window.KalpavrikshaWorkState.presentWork(exec);
+  let html = `<div class="dash-section"><div class="dash-section-title">Now</div>`;
+  if (presentation.visible) {
+    html += row('Working on', presentation.headline, presentation.tone);
+    if (exec.current_step && exec.total_steps) {
+      html += row('Step', `${exec.current_step} of ${exec.total_steps}`);
+    }
+  } else {
+    html += `<div class="dash-empty">Nothing running.</div>`;
+  }
+  html += `</div>`;
+  html += `<div class="dash-section"><div class="dash-section-title">Queued &amp; held</div>
+    <div class="dash-empty">Not yet available — mission queue/held-state reporting is not wired to this dashboard yet.</div></div>`;
+  return html;
+}
+
+// View 2 -- Record: what happened, what changed, evidence. No backend
+// record/audit-ledger source exists yet (Gate 0 D8) -- honest placeholder,
+// not fabricated history.
+function renderRecordView() {
+  return `<div class="dash-section"><div class="dash-section-title">What changed</div>
+    <div class="dash-empty">Not yet available — Record has no backend data source wired yet.</div></div>`;
+}
+
+// View 3 -- Rules & Learning: what Kalpavriksha may do alone, what it
+// proposes, what expires. No rule-object source exists yet (Gate 0 D5) --
+// honest placeholder. This is also where the AUTONOMY % this mission was
+// asked to keep removed would have lived; it was never real, and nothing
+// here invents a replacement number.
+function renderRulesView() {
+  return `<div class="dash-section"><div class="dash-section-title">Active rules</div>
+    <div class="dash-empty">Not yet available — Rules &amp; Learning has no backend data source wired yet.</div></div>`;
+}
+
+// View 4 -- System: the pre-existing dashboard content (Session,
+// Environment & Presence, Desktop, Runtime sources, Appearance),
+// unchanged, now under its own named view instead of the whole panel.
+function renderSystemView(d) {
   const session = d.session || {};
   const presence = d.presence || {};
   const coverage = presence.coverage;
   const desktop = d.desktop;
   const sources = d.sources || [];
 
-  let html = `<div class="dashboard-title">${identity.assistant_name || 'Somesh'}</div>
-    <div class="dashboard-sub">for ${identity.founder_name || ''} · ${identity.edition || ''}</div>`;
-
-  html += `<div class="dash-section"><div class="dash-section-title">Session</div>`;
+  let html = `<div class="dash-section"><div class="dash-section-title">Session</div>`;
   html += row('Active', session.active ? 'yes' : 'no', signalFor(session.active));
   html += row('Turns', (d.conversation && d.conversation.entries ? d.conversation.entries.length : 0));
   html += `</div>`;
@@ -650,9 +841,22 @@ function renderDashboard(d) {
   return html;
 }
 
+function setDashboardView(view) {
+  if (!DASHBOARD_VIEWS.includes(view)) return;
+  currentDashboardView = view;
+  document.querySelectorAll('.dashboard-view-btn').forEach((btn) => {
+    btn.setAttribute('aria-selected', String(btn.dataset.view === view));
+  });
+  renderCurrentDashboardView();
+}
+document.querySelectorAll('.dashboard-view-btn').forEach((btn) => {
+  btn.addEventListener('click', () => setDashboardView(btn.dataset.view));
+});
+
 function openDashboard() {
   els.dashboardBackdrop.classList.remove('is-closing');
   els.dashboardBackdrop.classList.add('is-open');
+  setDashboardView(currentDashboardView);
   refreshDashboard().then(wireThemeButtonsInDashboard);
 }
 function closeDashboard() {
@@ -839,6 +1043,10 @@ let completionCompleted = false;
 let completionCountdown = 60;
 let completionCountdownTimer = null;
 let lastCompletionRenderedFor;
+// Decision Gate Item 5 -- the one approved celebration trigger: the
+// Founder's own "Mark complete" action, idempotent per completion_id, at
+// most once per event. Never on app open, never on autonomous `completed`.
+const celebratedCompletionIds = new Set();
 
 function normalizeExecutionStatus(raw) {
   if (!raw || typeof raw !== 'object' || Object.keys(raw).length === 0) {
@@ -877,9 +1085,9 @@ function applyProminence(level) {
   root.setAttribute('data-receding', receding ? 'true' : 'false');
   Object.keys(vars).forEach((key) => root.style.setProperty(key, vars[key]));
   tree.setBreatheAmplitude(parseFloat(vars['--tree-breathe-amp']));
-  // See applyBloom()'s own comment: 0 at reduced/minimum extinguishes
-  // bloom regardless of voice state; 1 at ambient leaves it unchanged.
-  prominenceBloomMultiplier = parseFloat(vars['--tree-bloom-opacity']) > 0 ? 1 : 0;
+  // See applyBloom()'s own documented ruling: bloom is forced to 0 only
+  // at `reduced`; at `minimum` the current state's own bloomOpacity governs.
+  currentProminenceLevel = level;
   applyBloom(lastBloomState);
   prevProminenceLevel = level;
 }
@@ -1042,6 +1250,17 @@ function renderCompletionRequest(exec) {
           completionCountdownTimer = null;
         }
       }, 1000);
+      // The approved celebration trigger, and only this one: the
+      // Founder's decision landing, not the system finishing work.
+      // Idempotent per completion_id -- clicking twice (e.g. after using
+      // undo and completing again) never re-fires it.
+      if (exec.completion_id && !celebratedCompletionIds.has(exec.completion_id)) {
+        celebratedCompletionIds.add(exec.completion_id);
+        const burstMs = (window.KALPAVRIKSHA_TREE_CELEBRATION_PARAMS || {}).pulsePeriod || 2200;
+        tree.celebrate();
+        applyBloom('celebration');
+        setTimeout(() => applyBloom(currentTreeState), burstMs);
+      }
       await Bridge.call('confirm_completion', exec.completion_id).catch(() => {});
     });
 
@@ -1096,6 +1315,11 @@ function applyExecutionStatus(exec) {
   } else {
     renderWorkRegion(presentation, timing);
   }
+
+  // Drive the tree's own character state from this same poll -- resultAcknowledged
+  // above is already final for this cycle, so executionTreeState() (arbiter,
+  // near the top of this file) sees exactly what deriveProminence() just saw.
+  recomputeTreeState();
 }
 
 async function pollExecutionStatus() {

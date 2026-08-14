@@ -23,9 +23,46 @@
   transition: opacity var(--d-6) var(--e-exit), transform var(--d-6) var(--e-exit);
 }
 
-.dashboard-panel {
-  max-width: 920px; margin: var(--sp-9) auto var(--sp-9);
+/* UI V1/V2 reconciliation, Decision Gate Item 3 -- the sheet itself is
+   bounded to <=65vh with its own internal scroll (05_DASHBOARD_BEHAVIOUR
+   §5.10's hard constraint: never a nested overlay, never obscuring the
+   tree canvas, never above z-index 30). The backdrop's own full-viewport
+   dim/blur is a pre-existing, unrelated visual treatment this mission
+   does not redesign; only the sheet's own height is now bounded. */
+.dashboard-sheet {
+  max-width: 920px; max-height: 65vh;
+  margin: var(--sp-9) auto var(--sp-9);
   padding: 0 var(--frame-margin);
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+
+.dashboard-views {
+  display: inline-flex; align-self: flex-start;
+  border: 1px solid var(--c-hair-soft); border-radius: var(--r-1);
+  overflow: hidden;
+  margin-bottom: var(--sp-6);
+  flex-shrink: 0;
+}
+.dashboard-view-btn {
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--t-label-size); font-weight: var(--t-label-weight);
+  letter-spacing: var(--t-label-track); text-transform: uppercase;
+  color: var(--c-ink-2);
+  background: transparent;
+  transition: background-color var(--d-1) var(--e-settle), color var(--d-1) var(--e-settle);
+}
+.dashboard-view-btn[aria-selected="true"] { background: var(--c-raise-2); color: var(--c-ink); }
+.dashboard-view-btn:hover { color: var(--c-ink); }
+
+.dashboard-panel {
+  padding: 0;
+}
+
+.dash-empty {
+  font-size: var(--t-body-size); line-height: var(--t-body-lh);
+  color: var(--c-ink-3);
+  padding: var(--sp-3) 0;
 }
 
 .dashboard-close {

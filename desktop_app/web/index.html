@@ -99,7 +99,15 @@
         <path d="M5 5l10 10M15 5L5 15"/>
       </svg>
     </button>
-    <div class="dashboard-panel" id="dashboard-body"></div>
+    <div class="dashboard-sheet">
+      <div class="dashboard-views" role="tablist" aria-label="Dashboard views">
+        <button class="dashboard-view-btn" data-view="missions" role="tab" aria-selected="false">Missions</button>
+        <button class="dashboard-view-btn" data-view="record" role="tab" aria-selected="false">Record</button>
+        <button class="dashboard-view-btn" data-view="rules" role="tab" aria-selected="false">Rules &amp; Learning</button>
+        <button class="dashboard-view-btn" data-view="system" role="tab" aria-selected="false">System</button>
+      </div>
+      <div class="dashboard-panel" id="dashboard-body"></div>
+    </div>
   </div>
 </div>
 
