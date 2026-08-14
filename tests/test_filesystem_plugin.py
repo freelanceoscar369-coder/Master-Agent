@@ -248,12 +248,28 @@ def test_manifest_capabilities_carry_output_schema_from_contracts():
         assert cap.output_schema["fields"] == []
 
 
-def test_manifest_input_schemas_are_known_but_not_closed():
-    """Extracted schemas declare required args but are open to optional ones (e.g., 'location')."""
+def test_manifest_input_schemas_are_known_and_closed_only_when_published():
+    """Extracted schemas always declare their required args. Whether they
+    are *closed* depends on whether the action opted in by publishing its
+    optional arguments (`Action.optional_parameters()`).
+
+    UPDATED deliberately: `CreateFolderAction` now publishes `location`,
+    which is what lets the Planner know that argument exists at all --
+    without it the Planner had one slot for "create a folder called
+    Research on my Desktop" and passed the whole phrase as `name`. Every
+    other filesystem action still has an open schema, so both sides of the
+    contract stay covered here rather than one replacing the other.
+    """
     executor = LocalExecutor(PermissionSystem())
     plugin = FilesystemPlugin(executor, locations={})
     by_name = {cap.name: cap for cap in plugin.manifest.capabilities}
 
-    for cap in by_name.values():
+    opted_in = {
+        name for name, action in plugin._actions.items()
+        if action.optional_parameters() is not None
+    }
+    assert "create_folder" in opted_in, "create_folder must publish its optional args"
+
+    for name, cap in by_name.items():
         assert cap.input_schema["known"] is True
-        assert cap.input_schema["closed"] is False
+        assert cap.input_schema["closed"] is (name in opted_in), name

@@ -181,6 +181,7 @@ def _build_mission_pipeline():
     from master_agent.executor.executor import LocalExecutor
     from master_agent.plugins.registry import PluginRegistry
     from master_agent.plugins.browser_plugin import BrowserPlugin
+    from master_agent.plugins.filesystem_plugin import FilesystemPlugin
     from master_agent.desktop.plugin import DesktopPlugin
     from master_agent.environment.browser_session import BrowserSessionManager
     from master_agent.mission_control.mission_control import MissionControl
@@ -244,6 +245,19 @@ def _build_mission_pipeline():
     desktop_plugin = DesktopPlugin(executor)
     registry.register(desktop_plugin)
 
+    # Filesystem Executive. `CreateFolderAction` and its siblings have
+    # existed for a long time, but Founder Edition never registered the
+    # plugin that exposes them -- so the Planner could not see a typed
+    # `create_folder` capability at all and satisfied "create a folder"
+    # with `desktop.execute_command`, a raw shell string. That fallback
+    # is wrong twice over: it skips the action's own parameter contract
+    # (`required_parameters = ["name"]`, which is what makes a missing
+    # name a CLARIFICATION rather than a guess), and it reclassifies a
+    # REVERSIBLE_WRITE operation as IRREVERSIBLE, which forced a founder
+    # approval the real policy never asked for.
+    filesystem_plugin = FilesystemPlugin(executor)
+    registry.register(filesystem_plugin)
+
     mission_control = MissionControl()
     discover_executives(mission_control, registry)
 
@@ -258,7 +272,7 @@ def _build_mission_pipeline():
     # is what Gate 2 already proved safe and founder-approved. A capability
     # at IRREVERSIBLE tier (e.g. Desktop's `close_window`) is untouched by
     # this loop and still requires a real decision.
-    for plugin in (browser_plugin, desktop_plugin):
+    for plugin in (browser_plugin, desktop_plugin, filesystem_plugin):
         for descriptor in mission_control.capabilities.for_executive(plugin.manifest.name):
             permissions.grant(
                 plugin.manifest.name, descriptor.capability,
@@ -267,10 +281,14 @@ def _build_mission_pipeline():
 
     runtime = RuntimeEngine(
         mission_control,
-        approval_gate=PermissionSystemGate(permissions, registry),
+        # `approvals=mission_control` is what turns "no standing grant"
+        # into a question for the founder instead of a failed task. See
+        # PermissionSystemGate._ask_founder.
+        approval_gate=PermissionSystemGate(permissions, registry, approvals=mission_control),
     )
     runtime.register_gateway(browser_plugin.manifest.name, PluginGateway(browser_plugin))
     runtime.register_gateway(desktop_plugin.manifest.name, PluginGateway(desktop_plugin))
+    runtime.register_gateway(filesystem_plugin.manifest.name, PluginGateway(filesystem_plugin))
 
     # No Ollama: matches every prior Gemini mission this build carries.
     # `enabled_cloud_providers` names Gemini only; no plugin for any
@@ -341,7 +359,7 @@ def _build_mission_pipeline():
     # `Browser.OpenBrowserSession` needs a `session_id` — proven live
     # against the real API, not assumed.
     contracts = []
-    for plugin in (browser_plugin, desktop_plugin):
+    for plugin in (browser_plugin, desktop_plugin, filesystem_plugin):
         actions = getattr(plugin, "_actions", None)
         if isinstance(actions, dict):
             contracts.extend(
@@ -387,7 +405,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     already decide.
     """
     import time as _time
-    from master_agent.missions.execution_status import COMPLETED, FAILED
+    from master_agent.missions.execution_status import AWAITING_APPROVAL, COMPLETED, FAILED
 
     status.begin(text, timeout_seconds=timeout_seconds)
 
@@ -457,6 +475,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     if state.progress >= 1.0:
         status.result = state.result
         status.message = _describe_result(state.result)
+        return {"reply": status.message}
+    # Waiting on the founder is not slowness. `AWAITING_APPROVAL` means
+    # the plan is ready and held at the permission boundary until a human
+    # decides -- saying "taking longer than expected" would describe the
+    # system as struggling when it is in fact waiting for its founder.
+    if status.status == AWAITING_APPROVAL:
+        status.message = "This needs your approval before I go ahead."
         return {"reply": status.message}
     status.message = "That's taking longer than expected; still working on it."
     return {"reply": status.message}
@@ -602,6 +627,7 @@ def main(argv: list[str] | None = None) -> int:
     get_execution_status = None
     confirm_completion = None
     capability_domains = None
+    decide_approval = None
     if pipeline is not None:
         mission_service, runtime, mission_control, status = pipeline
         submit_objective = lambda text: _submit_objective(  # noqa: E731
@@ -618,6 +644,34 @@ def main(argv: list[str] | None = None) -> int:
         confirm_completion = lambda completion_id: (  # noqa: E731
             mission_control.confirm_completion(completion_id).as_dict()
         )
+        # The founder's decision on an open approval. Mission Control's
+        # own approve/reject -- this composition root decides nothing
+        # about whether the decision is allowed, it only carries it.
+        def decide_approval(approval_id, approved, note=""):
+            """Carry the founder's decision to Mission Control -- and, on
+            approval, into the grant ledger that the permission boundary
+            actually reads.
+
+            Both steps are required, and the second is not a workaround.
+            `ApprovalQueue.find_open` is scoped to *undecided* requests by
+            design ("an approved one does not silently authorise a
+            repeat"), so an answered approval does not by itself let the
+            held task through -- the next boundary check would open a
+            fresh question and the task would wait forever. `GrantScope
+            .ONCE` is the existing mechanism for exactly this: it
+            authorises this one execution and is consumed by it, which
+            preserves the no-silent-repeat property the queue is
+            protecting.
+            """
+            if approved:
+                approval = mission_control.approvals.get(approval_id)
+                if approval is not None:
+                    permissions.grant(
+                        approval.executive_id, approval.local_capability,
+                        GrantScope.ONCE,
+                    )
+                return mission_control.approve(approval_id, "founder", note).as_dict()
+            return mission_control.reject(approval_id, "founder", note).as_dict()
         # The Brain's window onto what this machine can actually act on.
         # It hands over founder-level DOMAINS derived from the same live
         # registry the Planner plans against -- never the Operator's own
@@ -639,6 +693,7 @@ def main(argv: list[str] | None = None) -> int:
         get_execution_status=get_execution_status,
         confirm_completion=confirm_completion,
         capability_domains=capability_domains,
+        decide_approval=decide_approval,
     )
     return 0
 

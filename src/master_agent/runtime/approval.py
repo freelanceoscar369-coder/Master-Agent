@@ -128,10 +128,17 @@ class PermissionSystemGate:
         permissions: Any,
         registry: Any,
         on_decision: Any = None,
+        approvals: Any = None,
     ) -> None:
         self._permissions = permissions
         self._registry = registry
         self._on_decision = on_decision
+        # Mission Control, when the composition root has one. Given it,
+        # a capability the grant ledger will not authorise becomes a
+        # QUESTION FOR THE FOUNDER (`ApprovalPending`) instead of a
+        # refusal. Without it the previous behaviour is unchanged, so
+        # every existing caller and test is unaffected.
+        self._approvals = approvals
         self.reporting_failures: list[str] = []
 
     def report_to(self, bus: Any, decided_by: str = "founder") -> PermissionSystemGate:
@@ -164,10 +171,68 @@ class PermissionSystemGate:
                 request.executive_id, request.local_capability, risk_tier
             )
         except Exception as exc:
+            # THE BOUNDARY THAT WAS COLLAPSING TWO DIFFERENT ANSWERS.
+            #
+            # The Permission System raising here means "no standing grant
+            # covers this" -- which is a question for the founder, not a
+            # verdict. Translating it straight into `ApprovalDenied` sent
+            # the Runtime down `_refuse()`, which reports a FAILED task,
+            # so the founder was told "Couldn't finish" about work that
+            # had merely not been asked about yet. `ApprovalPending`'s own
+            # docstring names this exact failure mode: "Conflating them is
+            # how 'the founder was asleep' becomes 'the mission failed'."
+            #
+            # With Mission Control wired, the question is opened (or
+            # re-read if already open -- `request_approval` is idempotent
+            # per task+capability precisely because the Runtime re-checks
+            # every cycle) and the task WAITS. Once the founder answers,
+            # this same code path reads the decision and either authorises
+            # or refuses. Without Mission Control, the old behaviour
+            # stands unchanged.
+            if self._approvals is not None:
+                decision = self._ask_founder(request, risk_tier, str(exc))
+                if decision is not None:
+                    return decision
             self._decided(request, False, str(exc) or "approval required")
             raise ApprovalDenied(request, "founder approval required") from exc
 
         self._decided(request, True, f"grant satisfied for tier '{tier_value}'")
+
+    def _ask_founder(self, request: ApprovalRequest, risk_tier: Any, reason: str) -> None:
+        """Open (or re-read) the founder's question for this request.
+
+        Returns `None` to mean "authorised, carry on". Raises
+        `ApprovalPending` while the answer is outstanding, or
+        `ApprovalDenied` once the founder has actually said no -- which is
+        a real decision and genuinely ends the task.
+        """
+        from master_agent.mission_control.approvals import ApprovalState
+        from master_agent.mission_control.approvals import PendingApproval
+
+        tier_value = getattr(risk_tier, "value", risk_tier)
+        approval, _is_new = self._approvals.request_approval(
+            PendingApproval(
+                capability=request.qualified_capability,
+                local_capability=request.local_capability,
+                executive_id=request.executive_id,
+                risk_tier=str(tier_value),
+                reason=reason or "founder approval required",
+                task_id=request.task_id,
+                objective_id=request.objective_id,
+            )
+        )
+        state = approval.state
+        if state == ApprovalState.APPROVED:
+            self._decided(request, True, f"founder approved ({approval.approval_id})")
+            return None
+        if state == ApprovalState.REJECTED:
+            self._decided(request, False, f"founder rejected ({approval.approval_id})")
+            raise ApprovalDenied(request, "the founder declined this")
+        if state == ApprovalState.EXPIRED:
+            self._decided(request, False, f"approval expired ({approval.approval_id})")
+            raise ApprovalDenied(request, "the approval expired before it was answered")
+        # PENDING or DEFERRED -- still an open question, so the task holds.
+        raise ApprovalPending(request, approval.approval_id, "awaiting founder approval")
 
     def publishing_reporter(self, bus: Any, decided_by: str = "founder") -> Any:
         """An `on_decision` callback that publishes approval evidence.

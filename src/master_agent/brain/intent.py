@@ -49,7 +49,18 @@ class IntentLayer:
         # Patterns are tried in order; first match wins
         # More specific patterns first
         self._patterns: list[tuple[str, type]] = [
+            # Folder patterns must all precede the generic ("create",
+            # CreateProjectIntent) catch-all below -- first match wins.
+            # Only "create a folder called" was listed, so "Create a
+            # folder" (no name yet, which is exactly the case that needs
+            # clarifying) fell through to the PROJECT parser and asked
+            # "What should the project be called?" about a folder.
             ("create a folder called", CreateFolderIntent),
+            ("create a folder named", CreateFolderIntent),
+            ("create a folder", CreateFolderIntent),
+            ("create folder", CreateFolderIntent),
+            ("create a new folder", CreateFolderIntent),
+            ("make a folder", CreateFolderIntent),
             ("set up a project called", SetUpProjectIntent),  # "set up a project called X"
             ("set up a project named", SetUpProjectIntent),  # "set up a project named X"
             ("set up a", SetUpProjectIntent),  # "set up a demo project" - specific first

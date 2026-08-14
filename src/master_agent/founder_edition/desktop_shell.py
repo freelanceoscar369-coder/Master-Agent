@@ -294,6 +294,7 @@ class DesktopShellApi:
         submit_objective: Callable[[str], dict[str, Any]] | None = None,
         get_execution_status: Callable[[], dict[str, Any]] | None = None,
         confirm_completion: Callable[[str], dict[str, Any]] | None = None,
+        decide_approval: Callable[..., dict[str, Any]] | None = None,
     ) -> None:
         self._app = app
         self._voice = voice
@@ -314,6 +315,10 @@ class DesktopShellApi:
         # reason: this module states no opinion about execution state, it
         # only relays the one callable the composition root handed it.
         self._get_execution_status = get_execution_status
+        # The founder's answer to an open approval. Same injection shape
+        # and the same reason: Mission Control owns the decision, this
+        # module only carries the founder's word to it.
+        self._decide_approval = decide_approval
         self._confirm_completion = confirm_completion
 
     def get_founder_seed(self) -> int:
@@ -409,6 +414,20 @@ class DesktopShellApi:
         if self._confirm_completion is None:
             return {}
         return self._confirm_completion(completion_id)
+
+    def decide_approval(
+        self, approval_id: str, approved: bool, note: str = "",
+    ) -> dict[str, Any]:
+        """The founder's decision on an open approval.
+
+        Relays to Mission Control's own `approve`/`reject`. This module
+        decides nothing about whether the decision is allowed -- it only
+        carries the fact that the founder made one. A rejection is a real
+        decision and ends the task; it is not a failure of the work.
+        """
+        if self._decide_approval is None:
+            return {}
+        return self._decide_approval(approval_id, bool(approved), note or "")
 
     def toggle_mute(self) -> dict[str, Any]:
         """Founder-chosen silence — `03_VOICE_EXPERIENCE §3.5`'s `muted`
@@ -540,6 +559,7 @@ def create_window(
     get_execution_status: Callable[[], dict[str, Any]] | None = None,
     confirm_completion: Callable[[str], dict[str, Any]] | None = None,
     capability_domains: Callable[[], Any] | None = None,
+    decide_approval: Callable[..., dict[str, Any]] | None = None,
 ) -> FounderEditionApp:
     """Boot Founder Edition, start the local voice pipeline, and open the
     one native window.
@@ -586,12 +606,14 @@ def create_window(
         submit_objective=submit_objective,
         get_execution_status=get_execution_status,
         confirm_completion=confirm_completion,
+        decide_approval=decide_approval,
     )
     window.expose(api.get_founder_seed, api.greet, api.send_message,
                   api.get_dashboard, api.toggle_mute,
                   api.open_microphone_settings,
                   api.interrupt_speech, api.abandon_voice_capture, api.get_startup_diagnostics,
-                  api.debug_log, api.get_execution_status, api.confirm_completion)
+                  api.debug_log, api.get_execution_status, api.confirm_completion,
+                  api.decide_approval)
 
     def _on_shown():
         try:

@@ -81,6 +81,10 @@ class ExecutionStatus:
     result: Any = None
     requires_founder_completion: bool = False
     completion_id: str | None = None
+    #: The open founder approval, when one is waiting. Carried so the
+    #: Founder Surface can offer the decision rather than only report
+    #: that a decision is needed.
+    approval_id: str | None = None
     errors: list[str] = field(default_factory=list)
 
     # ---- lifecycle ---------------------------------------------------
@@ -108,6 +112,7 @@ class ExecutionStatus:
         self.result = None
         self.requires_founder_completion = False
         self.completion_id = None
+        self.approval_id = None
         self.errors = []
 
     def record(self, event: Event) -> None:
@@ -154,6 +159,16 @@ class ExecutionStatus:
             # that the question is now open, once FOUNDER_COMPLETION_
             # REQUESTED itself arrives below. Nothing here claims COMPLETED.
             return
+
+        if event.event_type in (
+            EventType.APPROVAL_REQUESTED, EventType.APPROVAL_REQUIRED,
+        ):
+            self.approval_id = (event.payload or {}).get("approval_id")
+        elif event.event_type in (
+            EventType.APPROVAL_GRANTED, EventType.APPROVAL_DENIED,
+        ):
+            # Answered -- the question is no longer open.
+            self.approval_id = None
 
         if event.event_type is EventType.FOUNDER_COMPLETION_REQUESTED:
             self.requires_founder_completion = True
@@ -207,6 +222,7 @@ class ExecutionStatus:
             "result": self.result,
             "requires_founder_completion": self.requires_founder_completion,
             "completion_id": self.completion_id,
+            "approval_id": self.approval_id,
             "errors": list(self.errors),
             "terminal_state": self.terminal_state,
         }

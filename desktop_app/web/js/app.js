@@ -1103,6 +1103,7 @@ function normalizeExecutionStatus(raw) {
     result: raw.result ?? null,
     requires_founder_completion: !!raw.requires_founder_completion,
     completion_id: raw.completion_id ?? null,
+    approval_id: raw.approval_id ?? null,
     terminal_state: !!raw.terminal_state,
   };
 }
@@ -1321,6 +1322,70 @@ function renderCompletionRequest(exec) {
   els.workRegionSlot.appendChild(root);
 }
 
+// Renders the founder's decision on an open approval.
+//
+// This is the surface that was missing. A capability the grant ledger
+// will not authorise reached the founder as "Couldn't finish" -- the
+// runtime reported a FAILED task for work that had merely not been asked
+// about yet. The permission boundary now holds the task and asks; this is
+// where the founder answers.
+//
+// Deliberately the same shape as `renderCompletionRequest` rather than a
+// new component: both are one decision, stated plainly, with the
+// consequence named and no modal. `PendingApproval` carries no options
+// list, so the honest surface is the decision the data model actually
+// supports -- proceed or decline, with the reason shown.
+let lastApprovalRenderedFor;
+function renderApprovalRequest(exec) {
+  if (exec.approval_id === lastApprovalRenderedFor) return;
+  lastApprovalRenderedFor = exec.approval_id;
+
+  const root = document.createElement('div');
+  root.className = 'kv-completion';
+  root.dataset.tone = 'attend';
+
+  const summary = document.createElement('p');
+  summary.className = 'kv-completion__summary';
+  summary.textContent = exec.message || 'This needs your approval before I go ahead.';
+  root.appendChild(summary);
+
+  // What it costs and what happens if nothing is done -- stated, not implied.
+  const consequence = document.createElement('p');
+  consequence.className = 'kv-completion__consequence';
+  consequence.textContent =
+    'Nothing has run yet. If you decline, I will stop here and change nothing.';
+  root.appendChild(consequence);
+
+  const actions = document.createElement('div');
+  actions.className = 'kv-completion__actions';
+
+  const approve = document.createElement('button');
+  approve.type = 'button';
+  approve.className = 'kv-completion__action-primary';
+  approve.textContent = 'Approve';
+  approve.addEventListener('click', async () => {
+    approve.disabled = true;
+    await Bridge.call('decide_approval', exec.approval_id, true, '').catch(() => {});
+  });
+
+  const reject = document.createElement('button');
+  reject.type = 'button';
+  reject.className = 'kv-completion__action-secondary';
+  reject.textContent = 'Decline';
+  reject.disabled = false;
+  reject.addEventListener('click', async () => {
+    reject.disabled = true;
+    await Bridge.call('decide_approval', exec.approval_id, false, '').catch(() => {});
+  });
+
+  actions.appendChild(approve);
+  actions.appendChild(reject);
+  root.appendChild(actions);
+
+  els.workRegionSlot.innerHTML = '';
+  els.workRegionSlot.appendChild(root);
+}
+
 function applyExecutionStatus(exec) {
   const signature = `${exec.status}|${exec.message}|${exec.current_step}|${exec.attempt}|${exec.result}`;
   if (signature !== lastMessageSignature) {
@@ -1348,7 +1413,9 @@ function applyExecutionStatus(exec) {
   const decision = window.KalpavrikshaProminence.deriveProminence(prominenceInput);
   applyProminence(decision.level);
 
-  if (window.KalpavrikshaWorkState.isAwaitingCompletion(exec)) {
+  if (window.KalpavrikshaWorkState.isAwaitingApproval(exec)) {
+    renderApprovalRequest(exec);
+  } else if (window.KalpavrikshaWorkState.isAwaitingCompletion(exec)) {
     renderCompletionRequest(exec);
   } else {
     renderWorkRegion(presentation, timing);

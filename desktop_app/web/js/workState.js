@@ -147,6 +147,15 @@
     return exec.requires_founder_completion || exec.status === 'awaiting_founder_completion';
   }
 
+  /* An open approval is a founder decision too. Kept separate from
+   * `isAwaitingCompletion` because the two ask different questions --
+   * "is this finished?" versus "may I proceed?" -- and answer to
+   * different Mission Control calls. Both render a decision surface;
+   * neither is a failure. */
+  function isAwaitingApproval(exec) {
+    return exec.status === 'awaiting_approval' && !!exec.approval_id;
+  }
+
   window.KalpavrikshaWorkState = {
     IDLE_EXECUTION: IDLE_EXECUTION,
     KNOWN_STATUSES: KNOWN_STATUSES,
@@ -154,5 +163,6 @@
     isKnownStatus: isKnownStatus,
     presentWork: presentWork,
     isAwaitingCompletion: isAwaitingCompletion,
+    isAwaitingApproval: isAwaitingApproval,
   };
 })();

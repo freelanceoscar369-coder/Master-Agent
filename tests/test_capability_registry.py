@@ -78,21 +78,48 @@ def test_a_contract_is_derived_from_the_action_not_hand_written():
 
 def test_extraction_publishes_the_required_argument_names():
     """The whole point. `CreateFolder` requires `name`; MB037's plan said
-    `path` and nothing noticed until execution."""
+    `path` and nothing noticed until execution.
+
+    UPDATED, deliberately: `CreateFolderAction` has since opted into
+    publishing its optional arguments (`optional_parameters()`), which
+    closes its schema. A wrong argument is therefore now caught as a
+    wrong argument, not merely as a missing one -- which is a stronger
+    form of exactly what this test was written to protect.
+    """
     contract = contract_named("CreateFolder")
 
     assert contract.inputs.required_names == ("name",)
-    assert contract.accepts({"path": "demo"}) == ("missing required argument: name",)
+    errors = contract.accepts({"path": "demo"})
+    assert "missing required argument: name" in errors
+    assert any("path" in e for e in errors), "a closed schema must reject unknown args"
     assert contract.accepts({"name": "demo"}) == ()
+    # The published optional argument is accepted, not treated as unknown.
+    assert contract.accepts({"name": "demo", "location": "desktop"}) == ()
 
 
 def test_an_extracted_schema_is_known_but_not_closed():
     """The required names are genuinely known; the optional ones are not
-    published, so an unlisted argument is not an error."""
-    contract = contract_named("CreateFolder")
+    published, so an unlisted argument is not an error.
+
+    Re-pointed at `DeleteFolder`, which has not opted in.
+    `CreateFolder` used to demonstrate this and no longer can -- it now
+    publishes its optional arguments -- but the open-schema behaviour it
+    was covering still exists for every action that has not opted in, so
+    the coverage moves rather than disappears.
+    """
+    contract = contract_named("DeleteFolder")
 
     assert contract.inputs.known is True
     assert contract.inputs.closed is False
+
+
+def test_an_action_that_opts_in_gets_a_closed_schema():
+    """The other side of the same contract: opting in is what lets a
+    caller trust the argument list is the whole story."""
+    contract = contract_named("CreateFolder")
+
+    assert contract.inputs.known is True
+    assert contract.inputs.closed is True
     assert contract.accepts({"name": "demo", "location": "desktop"}) == ()
 
 
@@ -173,12 +200,15 @@ def test_extraction_uses_mission_controls_naming_rather_than_a_second_one():
 
 
 def test_an_index_entry_is_the_summary_a_prompt_needs():
-    entry = entry_for(contract_named("CreateFolder"))
+    # DeleteFolder, not CreateFolder: CreateFolder now publishes its
+    # optional arguments, so it is no longer an example of the
+    # "arguments exist but were never published" shape this test covers.
+    entry = entry_for(contract_named("DeleteFolder"))
 
-    assert entry.canonical_id == "Filesystem.CreateFolder"
-    assert entry.required_args == ("name",)
+    assert entry.canonical_id == "Filesystem.DeleteFolder"
+    assert entry.required_args == ("path",)
     assert entry.args_complete is False
-    assert entry.signature == "Filesystem.CreateFolder(name, ...)"  # index form
+    assert entry.signature == "Filesystem.DeleteFolder(path, ...)"  # index form
 
 
 def test_a_capability_with_no_published_arguments_says_so():
@@ -331,8 +361,8 @@ def test_an_index_serialises_for_a_manifest():
 def test_the_planner_catalogue_carries_argument_names_from_the_index():
     options = catalogue_from_index(build_index(filesystem_contracts()))
 
-    create = next(o for o in options if o.name == "Filesystem.CreateFolder")
-    assert create.required_args == ("name",)
+    create = next(o for o in options if o.name == "Filesystem.DeleteFolder")
+    assert create.required_args == ("path",)
     assert create.args_complete is False
 
 
@@ -354,7 +384,7 @@ def test_the_prompt_shows_the_signature_not_only_the_description():
 
     rendered = render(options)
 
-    assert "Filesystem.CreateFolder | args: name (others may exist)" in rendered
+    assert "Filesystem.DeleteFolder | args: path (others may exist)" in rendered
     assert "Filesystem.WriteFile | args: path (others may exist)" in rendered
 
 

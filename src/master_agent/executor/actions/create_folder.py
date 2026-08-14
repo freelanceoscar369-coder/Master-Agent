@@ -25,7 +25,21 @@ CREATE_FOLDER = "create_folder"
 
 class CreateFolderAction(Action):
     name = CREATE_FOLDER
-    description = "Create a new folder in a known location."
+    # The Planner reads this line to decide both *whether* to use this
+    # capability and *how to fill its arguments*, and only argument NAMES
+    # are rendered alongside it (`planner/catalogue.py::signature`) -- the
+    # per-argument descriptions published below are not. So the split
+    # between the two arguments has to be stated here, or it is not stated
+    # to the model at all. Asked to "create a folder called Research on my
+    # Desktop" without it, the Planner had no reason to treat the trailing
+    # phrase as anything but part of the name, and passed
+    # name="Research on my Desktop" -- producing a folder named after the
+    # whole sentence.
+    description = (
+        "Create a new folder. 'name' is the folder's own name only; when the "
+        "objective also says where to put it (Desktop, Documents, Downloads), "
+        "that belongs in 'location', never in 'name'."
+    )
     risk_tier = RiskTier.REVERSIBLE_WRITE
     permission_category = PermissionCategory.WRITE
     expected_result = (
@@ -42,6 +56,36 @@ class CreateFolderAction(Action):
 
     def required_parameters(self) -> list[str]:
         return ["name"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """Publishes `location`, which this action has always accepted but
+        never advertised.
+
+        Without this the extracted capability contract carried
+        `inputs.closed = False` -- "optional arguments exist and are not
+        listed" -- so the Planner was never told a `location` argument
+        existed. Asked to "create a folder called Research on my
+        Desktop", it had exactly one slot to put everything in and passed
+        `name="Research on my Desktop"`, which produced a folder named
+        after the whole sentence instead of a folder named Research on
+        the Desktop.
+
+        The default is stated here because it is the action's own
+        long-standing behaviour (`run()`/`validate()` both fall back to
+        "desktop"), not a new product policy invented for the Planner's
+        benefit."""
+        return [
+            {
+                "name": "location",
+                "type": "string",
+                "description": (
+                    "Which known base directory to create the folder in: "
+                    + ", ".join(sorted(self._locations))
+                    + ". Omit it to use the default."
+                ),
+                "default": "desktop",
+            },
+        ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []
