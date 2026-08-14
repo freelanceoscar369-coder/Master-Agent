@@ -893,6 +893,55 @@ class TestSpeak:
         assert states[-1] == STATE_ARMED
 
 
+class TestSpeakBeforeModelReady:
+    """The startup-greeting race: `speak()` can be called (via
+    `DesktopShellApi.greet()`) before `_load_and_open()`'s own model load
+    has completed, since the greeting bridge call fires the instant the
+    page's script runs — not after Piper has necessarily finished loading
+    from disk on its own background thread."""
+
+    def test_speaking_before_load_queues_rather_than_drops(self):
+        pipeline, sd, _whisper, voice, *_rest = build()
+        # No _load_and_open() yet — _tts_voice is still None, exactly the
+        # startup-greeting race.
+        pipeline.speak("Good afternoon. I'm awake.")
+        assert voice.requests == []
+        assert sd.play_calls == []
+
+    def test_the_queued_greeting_is_spoken_once_loading_succeeds(self):
+        pipeline, sd, _whisper, voice, states, _amp, _tx = build(
+            piper_chunks=[FakeAudioChunk(0.5, samples=800)],
+        )
+        pipeline.speak("Good afternoon. I'm awake.")
+        pipeline._load_and_open()
+        time.sleep(0.3)
+
+        assert voice.requests == ["Good afternoon. I'm awake."]
+        assert sd.play_calls == [(800, 22050)]
+        assert STATE_SPEAKING in states
+
+    def test_a_real_reply_after_load_replaces_rather_than_queues_behind_the_greeting(self):
+        """Only one pending slot: a founder-facing reply that arrives
+        before the greeting flushes should not leave the founder hearing
+        a stale greeting first."""
+        pipeline, sd, _whisper, voice, *_rest = build()
+        pipeline.speak("Good afternoon. I'm awake.")
+        pipeline._pending_speech = "Hello again."  # a later call supersedes the first
+        pipeline._load_and_open()
+        time.sleep(0.3)
+
+        assert voice.requests == ["Hello again."]
+
+    def test_no_loaded_voice_means_the_queued_greeting_is_silently_dropped(self):
+        """Piper failing to load (or not configured) must not crash
+        `_load_and_open()` trying to flush a greeting nobody can speak."""
+        pipeline, sd, *_rest = build(piper_model_path=None)
+        pipeline.speak("Good afternoon.")
+        pipeline._load_and_open()  # must not raise
+        time.sleep(0.1)
+        assert sd.play_calls == []
+
+
 # ══════════════════════════ interrupt (03_VOICE_EXPERIENCE §3.4) ══════════
 
 
@@ -1013,3 +1062,48 @@ class TestLifecycle:
         import sounddevice as real_sd
 
         assert pipeline._resolve_sd() is real_sd
+
+
+# ═══════════════ startup-diagnostics readiness contract ══════════════════
+# `desktop_shell.DesktopShellApi.get_startup_diagnostics()` reads these
+# three properties by name. They are the exact contract that broke in
+# production: a committed `desktop_shell.py` called `voice.stt_ready`
+# while the committed `voice_pipeline.py` defined no such attribute, so
+# every bridge call raised AttributeError and the founder's startup
+# overlay reported *every* subsystem as failed. Nothing in the suite
+# covered that seam, which is why it shipped. These tests are that cover.
+class TestReadinessContract:
+    def test_the_three_properties_the_bridge_reads_all_exist(self):
+        pipeline, *_ = build()
+        for name in ("stt_ready", "tts_ready", "mic_live"):
+            assert hasattr(pipeline, name), f"desktop_shell reads .{name}"
+            assert isinstance(getattr(pipeline, name), bool)
+
+    def test_nothing_is_ready_before_start(self):
+        pipeline, *_ = build()
+        assert pipeline.stt_ready is False
+        assert pipeline.tts_ready is False
+        assert pipeline.mic_live is False
+
+    def test_models_and_stream_report_ready_after_start(self):
+        pipeline, *_ = build()
+        pipeline.start()
+        try:
+            assert pipeline.stt_ready is True
+            assert pipeline.tts_ready is True
+            # mic_live is the stronger, separate claim: a real input
+            # stream is open, not merely that a model loaded.
+            assert pipeline.mic_live is True
+        finally:
+            pipeline.stop()
+
+    def test_mic_live_is_false_when_permission_is_denied(self):
+        pipeline, *_ = build(permission_granted=False)
+        pipeline.start()
+        try:
+            # The models still load — the microphone is what is blocked,
+            # and the overlay has to be able to say which one failed.
+            assert pipeline.stt_ready is True
+            assert pipeline.mic_live is False
+        finally:
+            pipeline.stop()

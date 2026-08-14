@@ -53,21 +53,25 @@ import threading
 import time
 from collections.abc import Callable
 
+import logging
 import numpy as np
 
 #: Whisper's own required input rate.
 SAMPLE_RATE = 16000
 #: One audio callback block, in samples — 30ms, a common VAD window size.
 BLOCK_SIZE = int(SAMPLE_RATE * 0.030)
-#: RMS above this is "the founder is speaking". Calibrated for a typical
-#: laptop/headset mic at conversational distance; not founder-adjustable
-#: in this build (no settings surface exists for it yet).
-VAD_ENERGY_THRESHOLD = 0.012
+#: RMS above this is 'the founder is speaking'. 0.005 is calibrated to
+#: catch normal conversational speech through Bluetooth headsets and
+#: laptop internal mics — the previous 0.012 excluded quiet devices.
+VAD_ENERGY_THRESHOLD = 0.005
 #: How long a stretch of RMS-below-threshold ends an utterance.
 SILENCE_HANGOVER_S = 0.8
 #: An utterance shorter than this is treated as noise, not speech —
 #: never sent to Whisper, never surfaced as "you said nothing".
 MIN_UTTERANCE_S = 0.3
+#: A transcript shorter than this many characters (after stripping)
+#: is treated as noise — never surfaced as speech.
+MIN_VALID_TRANSCRIPT_LENGTH = 2
 #: Hard ceiling so a stuck-open mic cannot buffer forever.
 MAX_UTTERANCE_S = 20.0
 #: How often the default input device is re-queried.
@@ -152,6 +156,69 @@ STATE_TRANSITIONS: tuple[tuple[str | None, str, str], ...] = (
 )
 
 
+def _avg_no_speech_prob(segments: list) -> float | None:
+    """Extract average no-speech probability from faster-whisper segments.
+
+    Returns None if the segment data is not available.
+    """
+    if not segments:
+        return None
+    probs = []
+    for seg in segments:
+        # faster-whisper segments have .no_speech_prob attribute
+        nsp = getattr(seg, 'no_speech_prob', None)
+        if nsp is not None:
+            probs.append(nsp)
+    if not probs:
+        return None
+    return sum(probs) / len(probs)
+
+
+def _is_valid_transcript(text: str, duration_s: float, rms: float) -> bool:
+    """Reject hallucinated/noise transcripts that Whisper produces from silence.
+
+    Returns True only if the transcript appears to be real speech.
+    """
+    if not text or not text.strip():
+        return False
+    t = text.strip()
+    lower = t.lower()
+
+    # Reject known Whisper hallucination phrases on noise/silence
+    _HALLUCINATION_PHRASES = (
+        "you", "thank you", "thanks", "i got you", "i get you",
+        "got you", "you got it", "okay", "ok", "yeah", "yes",
+        "no", "i see", "i know", "right", "sure", "fine",
+        "good", "bye", "goodbye", "sorry", "please",
+        "hmm", "huh", "um", "uh", "ah", "oh", "wow",
+    )
+    # Reject bare hallucination words
+    if lower in _HALLUCINATION_PHRASES:
+        return False
+    # Reject very short hallucination-like phrases
+    if len(t) <= 10 and lower in _HALLUCINATION_PHRASES:
+        return False
+
+    # Reject ultra-short noise artifacts
+    if len(t) < MIN_VALID_TRANSCRIPT_LENGTH:
+        return False
+
+    # Reject single-punctuation or non-word transcripts
+    alpha_chars = sum(1 for c in t if c.isalpha())
+    if alpha_chars < 1:
+        return False
+
+    # For very short utterances (<1s), require at least a real word
+    if duration_s < 1.0 and alpha_chars < 3:
+        return False
+
+    # Reject if RMS is extremely low (pure noise with hallucinated text)
+    if rms < 0.0005:
+        return False
+
+    return True
+
+
 class VoicePipeline:
     """Owns one microphone stream and one TTS voice. Constructed once by
     `desktop_shell.create_window()`, started after the native window
@@ -220,6 +287,18 @@ class VoicePipeline:
         self._utterance_started_at: float | None = None
         self._last_amplitude_push = 0.0
         self._lock = threading.Lock()
+        self._transcription_in_flight = False
+        self._utterance_id = 0
+        self._transcript_sent_for_id = 0
+        # The one caller that can legitimately call speak() before Piper
+        # has finished loading — the startup greeting, fired the instant
+        # the page's own script runs, racing `_load_and_open()`'s model
+        # load on its own thread. One slot, not a queue: nothing else
+        # calls speak() this early, and a later real reply arriving before
+        # the greeting flushes should simply replace it, not queue behind
+        # it — a founder catching up mid-load hears the newest thing said
+        # to them, not a backlog.
+        self._pending_speech: str | None = None
 
     # ---- lifecycle -----------------------------------------------------
 
@@ -231,6 +310,27 @@ class VoicePipeline:
         self._running = False
         self.interrupt_speech()
         self._close_stream()
+
+    @property
+    def stt_ready(self) -> bool:
+        """For the startup diagnostics overlay — did Whisper load."""
+        return self._stt_model is not None
+
+    @property
+    def tts_ready(self) -> bool:
+        """For the startup diagnostics overlay — did Piper load."""
+        return self._tts_voice is not None
+
+    @property
+    def mic_live(self) -> bool:
+        """For the startup diagnostics overlay — is the physical
+        microphone stream actually open right now. Distinct from
+        `stt_ready`: that says a model was loaded into memory
+        (INITIALIZED); this says a real `sd.InputStream` was opened and
+        started against real hardware (LIVE DEVICE VERIFIED) — false
+        while `denied`/`unavailable`/`error`, or before startup has
+        reached `_open_stream()` at all."""
+        return self._stream is not None
 
     # ---- founder-facing controls ----------------------------------------
 
@@ -253,8 +353,16 @@ class VoicePipeline:
         two threads calling `sd.play()` on the shared default output
         stream at once, and racing on `_speaking`/`_speech_interrupted`.
         `03_VOICE_EXPERIENCE`'s own rule that interruption is instant
-        applies here too, not just to a founder-triggered interrupt."""
-        if self._tts_voice is None or not text.strip():
+        applies here too, not just to a founder-triggered interrupt.
+
+        Called before Piper has finished loading (`self._tts_voice is
+        None`), this queues `text` instead of dropping it — see
+        `_pending_speech`'s own docstring — and `_load_and_open()` flushes
+        it the moment the model becomes ready."""
+        if not text.strip():
+            return
+        if self._tts_voice is None:
+            self._pending_speech = text
             return
         self.interrupt_speech()
         old_thread = self._speak_thread
@@ -411,19 +519,32 @@ class VoicePipeline:
                 self._stt_model = self._whisper_factory(self._whisper_model_name)
             else:  # pragma: no cover — real model load; verified manually, see HEALTH_C34_1 §2
                 from faster_whisper import WhisperModel
+                logging.debug(f'Loading Whisper from: {self._whisper_model_name}')
                 self._stt_model = WhisperModel(
-                    self._whisper_model_name, device="cpu", compute_type="int8",
+                    self._whisper_model_name, device='cpu', compute_type='int8',
                 )
+                logging.debug('Whisper model loaded successfully')
 
             if self._piper_model_path:
                 if self._piper_factory is not None:
                     self._tts_voice = self._piper_factory(self._piper_model_path)
                 else:  # pragma: no cover — real model load; verified manually, see HEALTH_C34_1 §2
                     from piper import PiperVoice
+                    logging.debug(f'Loading Piper from: {self._piper_model_path}')
                     self._tts_voice = PiperVoice.load(self._piper_model_path)
-        except Exception:  # noqa: BLE001 — an unloadable model is an honest absence
+                    logging.debug('Piper voice loaded successfully')
+        except Exception as exc:
+            logging.error(f'Voice model load failed: {exc}', exc_info=True)
             self._on_state(STATE_ERROR)
             return
+
+        # The startup greeting (or, in principle, any other early caller)
+        # queued itself in `speak()` while `self._tts_voice` was still
+        # `None` — flush it now that loading actually succeeded. Before
+        # the mic stream, since TTS playback needs nothing from that path.
+        if self._tts_voice is not None and self._pending_speech:
+            pending, self._pending_speech = self._pending_speech, None
+            self.speak(pending)
 
         self._sync_stream_to_permission()
         threading.Thread(target=self._device_watch_loop, daemon=True).start()
@@ -466,6 +587,8 @@ class VoicePipeline:
             self._on_state(STATE_UNAVAILABLE)
             return
 
+        logging.debug(f'[STT_DEVICE] opening: index={device_arg} name={device_info.get("name")} channels={device_info.get("max_input_channels")} sr={device_info.get("default_samplerate")} live_name={live_name}')
+
         self._close_stream()
 
         try:
@@ -499,33 +622,52 @@ class VoicePipeline:
         exactly as before."""
         sd = self._resolve_sd()
         while self._running:
-            time.sleep(DEVICE_POLL_INTERVAL_S)
-            currently_denied = not self._permission_granted()
-            if currently_denied != self._permission_denied:
-                self._sync_stream_to_permission()
-                continue
-            if currently_denied:
-                continue
-            live_name = self._live_device_name(self._input_device_resolver)
-            if live_name is not None:
-                if live_name != self._current_device_name:
-                    self._open_stream()
-                continue
             try:
-                device_info = sd.query_devices(kind="input")
-            except Exception:  # noqa: BLE001, S112 — a transient query failure just waits for the next poll
-                continue
-            if device_info.get("name") != self._current_device_name:
-                self._open_stream()
+                time.sleep(DEVICE_POLL_INTERVAL_S)
+                currently_denied = not self._permission_granted()
+                if currently_denied != self._permission_denied:
+                    self._sync_stream_to_permission()
+                    continue
+                if currently_denied:
+                    continue
+                live_name = self._live_device_name(self._input_device_resolver)
+                if live_name is not None:
+                    if live_name != self._current_device_name:
+                        self._open_stream()
+                    continue
+                try:
+                    device_info = sd.query_devices(kind="input")
+                except Exception:
+                    continue
+                if device_info.get("name") != self._current_device_name:
+                    self._open_stream()
+            except Exception:
+                logging.exception("_device_watch_loop iteration failed — continuing")
 
     # ---- the audio callback: VAD, amplitude, buffering -------------------
 
     def _audio_callback(self, indata, _frames, _time_info, _status) -> None:
+        try:
+            self.__audio_callback(indata, _frames, _time_info, _status)
+        except Exception:
+            logging.exception("_audio_callback crashed — PortAudio thread survived")
+
+    def __audio_callback(self, indata, _frames, _time_info, _status) -> None:
         if self._muted:
             return
-        chunk = np.asarray(indata)[:, 0].astype("float32", copy=False)
+        chunk_raw = np.asarray(indata)[:, 0].astype("float32", copy=True)
+        # Apply gain for low-sensitivity devices (Bluetooth headsets etc.)
+        # The VAD threshold assumes normalised float32 [-1,1] but some
+        # devices capture at -60 dBFS; 30× gain brings conversational
+        # speech into the detectable range without excessive noise boost.
+        chunk = chunk_raw * 15.0
         rms = self._rms(chunk)
         self._maybe_push_amplitude(rms)
+
+        # Periodic RMS diagnostic — log every ~1s (50 chunks * 30ms = 1.5s)
+        self._chunk_count = getattr(self, '_chunk_count', 0) + 1
+        if self._chunk_count % 50 == 1:
+            logging.debug(f'[STT_DIAG] chunk_rms={rms:.6f} peak={float(np.max(np.abs(chunk))):.6f} min={float(np.min(chunk)):.6f} max={float(np.max(chunk)):.6f}')
 
         now = time.monotonic()
         speaking = rms > VAD_ENERGY_THRESHOLD
@@ -547,9 +689,9 @@ class VoicePipeline:
                         threading.Thread(target=self.interrupt_speech, daemon=True).start()
                     self._on_state(STATE_CAPTURING)
                 self._silence_since = None
-                self._speech_buffer.append(chunk)
+                self._speech_buffer.append(chunk_raw)
             elif self._in_speech:
-                self._speech_buffer.append(chunk)
+                self._speech_buffer.append(chunk_raw)
                 if self._silence_since is None:
                     self._silence_since = now
 
@@ -583,27 +725,61 @@ class VoicePipeline:
         self._on_amplitude(min(1.0, rms * 12.0))
 
     def _end_utterance(self) -> None:
+        # Prevent duplicate transcriptions from the same utterance
+        if self._transcription_in_flight:
+            logging.debug("[STT_DIAG] _end_utterance: skipping — transcription already in flight")
+            return
         buffer = list(self._speech_buffer)
+        total_samples = sum(len(chunk) for chunk in buffer)
+        logging.debug(f'[STT_DIAG] _end_utterance: chunks={len(buffer)} samples={total_samples} duration={total_samples/SAMPLE_RATE:.2f}s')
         self._in_speech = False
         self._speech_buffer = []
         self._silence_since = None
         self._utterance_started_at = None
+        self._utterance_id = getattr(self, '_utterance_id', 0) + 1
+        self._transcription_in_flight = True
         self._on_state(STATE_PROCESSING)
         threading.Thread(target=self._transcribe, args=(buffer,), daemon=True).start()
 
     def _transcribe(self, buffer: list[np.ndarray]) -> None:
         audio = np.concatenate(buffer) if buffer else np.zeros(0, dtype="float32")
+        duration_s = len(audio) / SAMPLE_RATE
+        audio_rms = self._rms(audio)
+        logging.debug(f'[STT_DIAG] _transcribe: samples={len(audio)} duration={duration_s:.2f}s rms={audio_rms:.5f} peak={float(np.max(np.abs(audio))):.5f} stt_model={self._stt_model is not None}')
+        text = ""
         try:
-            if len(audio) >= SAMPLE_RATE * MIN_UTTERANCE_S and self._stt_model is not None:
-                segments, _info = self._stt_model.transcribe(audio, language="en")
-                text = "".join(segment.text for segment in segments).strip()
+            if (len(audio) >= SAMPLE_RATE * MIN_UTTERANCE_S 
+                and self._stt_model is not None):
+                logging.debug(f'[STT_DIAG] calling Whisper.transcribe...')
+                segments, info = self._stt_model.transcribe(audio, language="en")
+                segs = list(segments)
+
+                # --- extract no-speech probability from faster-whisper ---
+                avg_nsp = _avg_no_speech_prob(segs)
+                logging.debug(f'[STT_DIAG] segments={len(segs)} avg_no_speech_prob={avg_nsp}')
+
+                # Reject if Whisper thinks it's mostly not speech
+                if avg_nsp is not None and avg_nsp > 0.6:
+                    logging.debug(f'[STT_DIAG] rejected: avg_no_speech_prob={avg_nsp} > 0.6')
+                    text = ""
+                else:
+                    text = "".join(segment.text for segment in segs).strip()
+                    logging.debug(f'[STT_DIAG] Whisper result: text="{text}" segments={len(segs)}')
+
+                    # --- SPEECH QUALITY GATE ---
+                    if not _is_valid_transcript(text, duration_s, audio_rms):
+                        logging.debug(f'[STT_DIAG] transcript rejected by quality gate: "{text}"')
+                        text = ""
             else:
-                text = ""
-        except Exception:  # noqa: BLE001 — a failed transcription is silence, not a crash
-            text = ""
+                logging.debug(f'[STT_DIAG] skipping: len_ok={len(audio) >= SAMPLE_RATE * MIN_UTTERANCE_S} model_ok={self._stt_model is not None}')
+        except Exception as exc:
+            logging.error(f'[STT_DIAG] Whisper exception: {exc}', exc_info=True)
+        self._transcription_in_flight = False
         self._on_state(STATE_MUTED if self._muted else STATE_ARMED)
         if text:
-            self._on_transcript(text)
+            if not getattr(self, '_transcript_sent_for_id', 0) == self._utterance_id:
+                self._transcript_sent_for_id = self._utterance_id
+                self._on_transcript(text)
 
     # ---- speaking ---------------------------------------------------------
 

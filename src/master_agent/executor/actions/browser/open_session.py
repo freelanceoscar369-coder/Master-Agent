@@ -37,14 +37,25 @@ class OpenBrowserSessionAction(Action):
                 "name": "headless",
                 "type": "boolean",
                 "description": (
-                    "Whether the browser window is invisible (true, the "
-                    "default) or visible so the founder can watch this "
-                    "session (false). Set false when the objective asks to "
-                    "be shown the browser, or otherwise implies the "
-                    "founder wants to see it happen."
+                    "Whether the browser window is invisible (true) or "
+                    "visible so the founder can watch this session "
+                    "(false). Set false whenever the objective names a "
+                    "browser the founder can see, asks to be shown "
+                    "something, or says to open a browser application."
                 ),
                 "default": True,
-            }
+            },
+            {
+                "name": "channel",
+                "type": "string",
+                "description": (
+                    "Which installed browser to drive: 'chrome' uses the "
+                    "founder's real Google Chrome application; omit it to "
+                    "use the built-in browser. Set 'chrome' whenever the "
+                    "objective names Chrome specifically."
+                ),
+                "default": None,
+            },
         ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
@@ -53,18 +64,29 @@ class OpenBrowserSessionAction(Action):
         if not session_id:
             errors.append("missing required parameter: session_id")
 
-        headless = parameters.get("headless", True)
-        if not isinstance(headless, bool):
+        headless = parameters.get("headless")
+        if headless is not None and not isinstance(headless, bool):
             errors.append("'headless' must be a boolean if provided")
+
+        channel = parameters.get("channel")
+        if channel is not None and not isinstance(channel, str):
+            errors.append("'channel' must be a string if provided")
 
         return errors
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
         session_id = parameters["session_id"].strip()
-        headless = parameters.get("headless", True)
+        # `None` (absent) is passed through rather than defaulted here:
+        # the session manager owns what "unspecified" means, so a
+        # composition root can configure founder-visible defaults without
+        # this Action having to know a founder exists.
+        headless = parameters.get("headless")
+        channel = parameters.get("channel") or None
 
         try:
-            handle = self._sessions.open_session(session_id, headless=headless)
+            handle = self._sessions.open_session(
+                session_id, headless=headless, channel=channel
+            )
         except BrowserSessionError as exc:
             return ExecutionResult(success=False, errors=[str(exc)])
         except Exception as exc:  # noqa: BLE001 — mechanical failure, e.g. browser failed to launch
@@ -76,5 +98,6 @@ class OpenBrowserSessionAction(Action):
                 "session_id": handle.session_id,
                 "opened_at": handle.opened_at.isoformat(),
                 "headless": handle.headless,
+                "channel": handle.channel,
             },
         )

@@ -334,7 +334,18 @@ class DesktopShellApi:
             conversation_ready=self._app.runtime.conversation() is not None,
             presence_ready=self._presence_complete(),
         )
-        return {"reply": greet(identity, context), "presence": None}
+        reply = greet(identity, context)
+        # This bridge call fires as soon as the page's own startup script
+        # runs (`runStartup()` calls `fetchGreeting()` first thing) — the
+        # same moment `voice.start()`'s model-loading thread has, at best,
+        # only just begun loading Whisper/Piper from disk. `speak()`
+        # queues this text itself when TTS is not ready yet and flushes it
+        # the moment loading finishes (`VoicePipeline._load_and_open`), so
+        # this call is correct to make unconditionally rather than only
+        # when `voice.tts_ready` already happens to be true.
+        if self._voice is not None and reply:
+            self._voice.speak(reply)
+        return {"reply": reply, "presence": None}
 
     def send_message(self, text: str, source: str = "text") -> dict[str, Any]:
         if self._app.communication is None:
@@ -359,7 +370,17 @@ class DesktopShellApi:
             # founder typed but the answer layer has nothing to say about
             # is exactly what the Planner pipeline exists for.
             if self._submit_objective is not None:
-                return self._submit_objective(text)
+                outcome = self._submit_objective(text)
+                # A mission reply is exactly as founder-facing as a
+                # conversational one — the founder-spoken objective that
+                # got here voiced the request, and hearing nothing back
+                # would break the same voice loop the branch below
+                # honours. `outcome["reply"]` is already the one plain
+                # sentence `_describe_result`/the refusal/timeout paths
+                # produce; nothing here composes a second one.
+                if self._voice is not None and outcome.get("reply"):
+                    self._voice.speak(outcome["reply"])
+                return outcome
             return {"reply": None}
         if self._voice is not None:
             self._voice.speak(routed.response.spoken)
@@ -437,7 +458,16 @@ class DesktopShellApi:
     def get_startup_diagnostics(self) -> dict[str, bool]:
         """Startup Diagnostics overlay — one honest check per subsystem,
         so a founder (or whoever's helping them) sees exactly where
-        startup stopped instead of a silent blank window."""
+        startup stopped instead of a silent blank window.
+
+        `stt_loaded`/`tts_loaded` say a model was loaded into memory
+        (INITIALIZED). `mic_live` is the separate, stronger claim that a
+        real microphone stream is open against real hardware right now
+        (LIVE DEVICE VERIFIED) — a machine with no working input device
+        can have `stt_loaded=True` and `mic_live=False` simultaneously,
+        and that distinction is the point: a founder debugging silence
+        needs to know which one failed.
+        """
         voice = self._voice
         return {
             "webview_loaded": True,  # this call answering at all proves it
@@ -445,6 +475,7 @@ class DesktopShellApi:
             "voice_initialized": voice is not None,
             "stt_loaded": voice is not None and voice.stt_ready,
             "tts_loaded": voice is not None and voice.tts_ready,
+            "mic_live": voice is not None and voice.mic_live,
             "dashboard_ready": self._app.dashboard is not None,
         }
 

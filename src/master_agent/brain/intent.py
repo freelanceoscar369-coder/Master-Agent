@@ -64,6 +64,48 @@ class IntentLayer:
             ("search for", SearchFilesIntent),
         ]
 
+    #: Phrases that mean *"tell me what you can do"* rather than *"do
+    #: something"*. Deliberately the same rule-based, first-match-wins
+    #: shape as `_patterns` above — this is the existing Intent Layer
+    #: learning one more distinction, not a second classifier sitting
+    #: beside it. A question about capabilities has no goal to plan
+    #: toward, so routing it to the Planner can only ever produce a
+    #: refusal (proven live: "the available capabilities cannot achieve
+    #: this objective" for "what all you can do right now").
+    _CAPABILITY_QUESTION_PATTERNS: tuple[str, ...] = (
+        "what can you do",
+        "what all can you do",
+        "what all you can do",
+        "what do you can do",
+        "what are you capable of",
+        "what are your capabilities",
+        "what capabilities",
+        "list your capabilities",
+        "tell me your capabilities",
+        "know your capabilities",
+        "what can you help",
+        "what else can you do",
+        "what can i ask you",
+        "what should i ask you",
+    )
+
+    def is_capability_question(self, text: str) -> bool:
+        """Is this input asking *what* the system can do, rather than
+        asking it to do something?
+
+        A predicate rather than an `IntentResult` variant on purpose: the
+        answer is not an Intent at all — there is nothing to plan — and
+        the decision it feeds is a *routing* one, made by the Founder
+        Surface before a mission is ever created. Keeping it here keeps
+        the vocabulary in the one layer that already owns "what did the
+        founder mean", instead of scattering phrase-matching into the
+        surface.
+        """
+        lowered = (text or "").strip().lower()
+        if not lowered:
+            return False
+        return any(pattern in lowered for pattern in self._CAPABILITY_QUESTION_PATTERNS)
+
     def parse(self, text: str) -> IntentResult:
         """Parse raw input into Intent or clarification request."""
         text = text.strip()

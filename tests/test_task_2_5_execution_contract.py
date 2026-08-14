@@ -44,10 +44,14 @@ def test_headless_is_an_optional_parameter_on_the_action():
     action = OpenBrowserSessionAction(sessions=None)
     optional = action.optional_parameters()
     assert optional is not None
-    names = [item["name"] for item in optional]
-    assert names == ["headless"]
-    assert optional[0]["type"] == "boolean"
-    assert optional[0]["default"] is True
+    by_name = {item["name"]: item for item in optional}
+    # `headless` is the parameter Task 2.5 published; `channel` joined it
+    # for the visible-Chrome golden path (see
+    # `test_golden_path_visible_chrome.py`). Asserted by containment so a
+    # future published parameter does not break this claim.
+    assert "headless" in by_name
+    assert by_name["headless"]["type"] == "boolean"
+    assert by_name["headless"]["default"] is True
 
 
 def test_the_extracted_contract_publishes_headless_and_claims_closed():
@@ -90,12 +94,12 @@ def test_headless_reaches_the_index_entry_and_the_catalogue_option():
     action = OpenBrowserSessionAction(sessions=None)
     contract = contract_from_action(action, "Browser.OpenBrowserSession", "browser")
     entry = entry_for(contract)
-    assert entry.optional_args == ("headless",)
+    assert "headless" in entry.optional_args
 
     index = build_index([contract])
     options = catalogue_from_index(index)
     assert len(options) == 1
-    assert options[0].optional_args == ("headless",)
+    assert "headless" in options[0].optional_args
 
 
 def test_headless_appears_in_the_rendered_prompt_text():

@@ -50,15 +50,34 @@ class BrowserSessionHandle:
     session_id: str
     opened_at: datetime
     headless: bool
+    #: Which installed browser this session is driving, when it is not the
+    #: bundled build — `"chrome"` for the founder's real Google Chrome.
+    #: Reported so a caller (and an audit record) can tell a founder-
+    #: visible session from a bundled headless one after the fact.
+    channel: str | None = None
 
 
-def _launch(playwright: Playwright, headless: bool) -> Browser:
+def _launch(
+    playwright: Playwright, headless: bool, channel: str | None = None
+) -> Browser:
     """The one place in the whole Browser Worker that names a specific
     Playwright engine. Everything above this function — BrowserSession,
     every Action, BrowserVerifier, BrowserWorker — only ever sees "a
     browser," never which one. Swapping this for a different engine, or a
     different browser-automation library entirely, is a one-function
-    change; see BROWSER_WORKER_ARCHITECTURE.md §5."""
+    change; see BROWSER_WORKER_ARCHITECTURE.md §5.
+
+    `channel` is Playwright's own first-class parameter for *"use a
+    browser already installed on this machine rather than the bundled
+    build"* — `"chrome"` resolves to the founder's real Google Chrome
+    installation. It stays confined to this one function for exactly the
+    reason above, and it is why satisfying "open Chrome" needs no second
+    browser subsystem: the same session Playwright drives, observes and
+    verifies *is* the founder's visible Chrome. `None` keeps Playwright's
+    bundled Chromium — the unchanged default for every existing caller.
+    """
+    if channel:
+        return playwright.chromium.launch(headless=headless, channel=channel)
     return playwright.chromium.launch(headless=headless)
 
 
@@ -109,44 +128,71 @@ class BrowserSessionManager:
     Environment. See BROWSER_WORKER_ARCHITECTURE.md §4 for why this is not
     yet a generic EnvironmentSessionManager base class."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        default_headless: bool = True,
+        default_channel: str | None = None,
+    ) -> None:
         self._sessions: dict[str, BrowserSession] = {}
         self._handles: dict[str, BrowserSessionHandle] = {}
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._browser_headless: bool | None = None
+        self._browser_channel: str | None = None
+        # What a caller gets when it does not say. Defaults preserve the
+        # pre-existing behaviour exactly (bundled Chromium, headless), so
+        # every existing caller and test is unaffected; the one place that
+        # overrides them is the Founder Edition composition root, where a
+        # founder is literally sitting in front of the machine and "open
+        # Chrome" has to mean the Chrome they can see.
+        self._default_headless = default_headless
+        self._default_channel = default_channel
 
-    def _ensure_browser(self, headless: bool) -> Browser:
+    def _ensure_browser(self, headless: bool, channel: str | None = None) -> Browser:
         if self._browser is not None:
-            if self._browser_headless != headless:
+            if self._browser_headless != headless or self._browser_channel != channel:
                 raise BrowserSessionError(
-                    "a browser is already running with a different 'headless' setting; "
-                    "close all sessions before changing it"
+                    "a browser is already running with a different 'headless'/'channel' "
+                    "setting; close all sessions before changing it"
                 )
             return self._browser
         self._playwright = sync_playwright().start()
         try:
-            self._browser = _launch(self._playwright, headless)
+            self._browser = _launch(self._playwright, headless, channel)
         except Exception:
             # Don't leave a half-started Playwright driver behind if launch fails.
             self._playwright.stop()
             self._playwright = None
             raise
         self._browser_headless = headless
+        self._browser_channel = channel
         return self._browser
 
-    def open_session(self, session_id: str, headless: bool = True) -> BrowserSessionHandle:
+    def open_session(
+        self,
+        session_id: str,
+        headless: bool | None = None,
+        channel: str | None = None,
+    ) -> BrowserSessionHandle:
         if session_id in self._sessions:
             raise BrowserSessionError(f"session already open: '{session_id}'")
 
-        browser = self._ensure_browser(headless)
+        # `None` means "the caller did not say" — distinct from an explicit
+        # False, which is a caller deliberately asking to be shown.
+        resolved_headless = (
+            self._default_headless if headless is None else headless
+        )
+        resolved_channel = self._default_channel if channel is None else channel
+
+        browser = self._ensure_browser(resolved_headless, resolved_channel)
         context = browser.new_context()
         session = BrowserSession(context)
         self._sessions[session_id] = session
         handle = BrowserSessionHandle(
             session_id=session_id,
             opened_at=datetime.now(UTC),
-            headless=headless,
+            headless=resolved_headless,
+            channel=resolved_channel,
         )
         self._handles[session_id] = handle
         return handle
@@ -179,6 +225,7 @@ class BrowserSessionManager:
         self._browser = None
         self._playwright = None
         self._browser_headless = None
+        self._browser_channel = None
         return warnings
 
     def list_sessions(self) -> list[BrowserSessionHandle]:
