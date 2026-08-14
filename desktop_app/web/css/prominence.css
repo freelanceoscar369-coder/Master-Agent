@@ -1,0 +1,98 @@
+/*
+ * PROMINENCE CONTRACT -- Phase 1 tree prominence, ported verbatim (levels
+ * + transitions + reduced-motion) from the HyperAgent reference
+ * implementation (surface/src/styles/prominence.css). The rule: the
+ * tree's prominence is inversely proportional to the work in flight. At
+ * `ambient` the tree is exactly as Product Veda S2 specified -- primary
+ * and full-bleed. `reduced`/`minimum` are active yielding states, not
+ * errors.
+ *
+ * Values below must stay identical to js/prominence.js's own VARS -- do
+ * not edit one without editing the other (same rule the reference source
+ * states for its own two files).
+ */
+
+[data-prominence="ambient"] {
+  --tree-scale:         1;
+  --tree-alpha:         1;
+  --tree-bloom-opacity: 0.6;
+  --tree-breathe-amp:   1;
+  --veil-strength:      0.82;
+}
+
+[data-prominence="reduced"] {
+  --tree-scale:         0.55;
+  --tree-alpha:         0.55;
+  --tree-bloom-opacity: 0;
+  --tree-breathe-amp:   0.42;
+  --veil-strength:      0.92;
+}
+
+[data-prominence="minimum"] {
+  --tree-scale:         0.3;
+  --tree-alpha:         0.32;
+  --tree-bloom-opacity: 0;
+  --tree-breathe-amp:   0.2;
+  --veil-strength:      0.96;
+}
+
+/* Direction is signalled via data-receding="true|false" on the same
+ * element (documentElement) app.js sets data-prominence on -- CSS cannot
+ * know which way prominence is travelling. The tree yields quickly
+ * (--d-6, 600ms) so attention releases to work at once; it returns
+ * slowly (--d-8, 1400ms) so it does not snap back over a result still
+ * being read. */
+
+[data-prominence][data-receding="true"] canvas#treeCanvas {
+  transition:
+    transform var(--d-6) var(--e-settle),
+    opacity   var(--d-6) var(--e-settle);
+}
+
+[data-prominence][data-receding="false"] canvas#treeCanvas {
+  transition:
+    transform var(--d-8) var(--e-settle),
+    opacity   var(--d-8) var(--e-settle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-prominence][data-receding="true"] canvas#treeCanvas,
+  [data-prominence][data-receding="false"] canvas#treeCanvas {
+    transition: none;
+  }
+}
+
+/*
+ * ── Application to this shipped app's own tree/veil elements ──────────
+ *
+ * The portable contract above is four numbers on a data attribute; this
+ * block is the one this app's own port adds to actually apply them.
+ * `--tree-scale`/`--tree-alpha` become a CSS transform/opacity directly
+ * on the canvas (its own drawn content is untouched -- only its on-screen
+ * presentation changes). `--veil-strength` becomes the veil's opacity
+ * (previously undeclared -- always fully opaque). `--tree-breathe-amp`
+ * has no CSS expression: js/app.js reads it and feeds
+ * tree.setBreatheAmplitude(), since the tree's breathing motion is drawn
+ * on canvas, not CSS-animated.
+ *
+ * `--tree-bloom-opacity` is deliberately NOT bound here as a CSS rule:
+ * .bloom's opacity is already driven per voice/mic state by
+ * app.js::applyBloom() (rich existing behaviour this port must not
+ * regress -- see that function's own history in 02_ANIMATION_SYSTEM).
+ * applyBloom() itself reads --tree-bloom-opacity as a multiplier so the
+ * two compose instead of one silently overriding the other.
+ */
+
+canvas#treeCanvas {
+  transform: scale(var(--tree-scale, 1));
+  opacity: var(--tree-alpha, 1);
+}
+
+.veil {
+  opacity: var(--veil-strength, 1);
+  transition: opacity var(--d-8) var(--e-settle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .veil { transition: none; }
+}

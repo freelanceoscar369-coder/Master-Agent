@@ -8,12 +8,8 @@
      so the correct theme is set before first paint. -->
 <script>
 (function () {
-  var p = localStorage.getItem('theme-preference') || 'auto';
-  var theme = p === 'light' ? 'light'
-            : p === 'dark'  ? 'dark'
-            : window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', theme);
+  // Founder Edition requires dark theme per Product Veda
+  document.documentElement.setAttribute('data-theme', 'dark');
 })();
 </script>
 <link rel="stylesheet" href="css/tokens.css">
@@ -21,10 +17,12 @@
 <link rel="stylesheet" href="css/surface.css">
 <link rel="stylesheet" href="css/conversation.css">
 <link rel="stylesheet" href="css/dashboard.css">
+<link rel="stylesheet" href="css/prominence.css">
+<link rel="stylesheet" href="css/work-region.css">
 </head>
 <body>
 <div id="app">
-  <canvas id="tree"></canvas>
+  <canvas id="treeCanvas"></canvas>
   <div class="field-base"></div>
   <div class="bloom"></div>
   <div class="veil"></div>
@@ -38,12 +36,15 @@
 
   <div class="conversation-scroll">
     <div class="conversation">
+      <div class="work-region-slot"></div>
       <div class="thinking-indicator">
         <div class="thinking-indicator__hairline"></div>
         <div class="thinking-indicator__label">THINKING</div>
       </div>
     </div>
   </div>
+
+  <div class="startup-diagnostics"></div>
 
   <div class="stack">
     <div class="greeting"></div>
@@ -65,6 +66,12 @@
       <div class="listening-bar"></div>
       <div class="mic-label">TAP TO SPEAK</div>
       <div class="mic-secondary"></div>
+    </div>
+
+    <div class="mode-switch">
+      <button class="mode-btn" data-mode="local" onclick="setAppMode('local')">LOCAL</button>
+      <button class="mode-btn" data-mode="ai_mode" onclick="setAppMode('ai_mode')">AI MODE</button>
+      <button class="mode-btn is-active" data-mode="both" onclick="setAppMode('both')">BOTH</button>
     </div>
 
     <div class="composer-wrap">
@@ -97,6 +104,9 @@
 </div>
 
 <script src="js/tree.js"></script>
+<script src="js/prominence.js"></script>
+<script src="js/workState.js"></script>
+<script src="js/timing.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

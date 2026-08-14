@@ -13,22 +13,53 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matc
 const $ = (sel) => document.querySelector(sel);
 
 // ---------------------------------------------------------------- bridge --
+// A founder-visible P0: pywebviewready failing to fire used to hang every
+// Bridge.call forever — no tree, no greeting, no voice, no text, the whole
+// app looking dead with nothing to diagnose. A bounded wait means the rest
+// of startup (tree build, greeting slot, diagnostics overlay below) always
+// eventually proceeds, degrading honestly instead of hanging silently.
+const BRIDGE_READY_TIMEOUT_MS = 8000;
+let bridgeTimedOut = false;
+
 const Bridge = {
   ready: false,
   async call(name, ...args) {
     if (!window.pywebview || !window.pywebview.api) {
-      await new Promise((resolve) => {
-        window.addEventListener('pywebviewready', resolve, { once: true });
-      });
+      await Promise.race([
+        new Promise((resolve) => {
+          window.addEventListener('pywebviewready', resolve, { once: true });
+        }),
+        new Promise((_resolve, reject) => {
+          setTimeout(() => {
+            bridgeTimedOut = true;
+            reject(new Error('pywebview bridge did not become ready in time'));
+          }, BRIDGE_READY_TIMEOUT_MS);
+        }),
+      ]);
     }
     return window.pywebview.api[name](...args);
   },
 };
 
 // ------------------------------------------------------------- elements --
-const canvas = $('#tree');
+const canvas = $('#treeCanvas');
+console.log('TREE_CANVAS_FOUND', {
+  exists: !!canvas,
+  width: canvas?.width,
+  height: canvas?.height,
+  clientWidth: canvas?.clientWidth,
+  clientHeight: canvas?.clientHeight,
+  rect: canvas?.getBoundingClientRect(),
+  display: canvas ? getComputedStyle(canvas).display : null,
+  visibility: canvas ? getComputedStyle(canvas).visibility : null,
+  opacity: canvas ? getComputedStyle(canvas).opacity : null,
+  zIndex: canvas ? getComputedStyle(canvas).zIndex : null,
+  position: canvas ? getComputedStyle(canvas).position : null
+});
+
 const els = {
   wordmark: $('.wordmark'),
+  startupDiagnostics: $('.startup-diagnostics'),
   chevron: $('.dashboard-chevron'),
   fieldBase: $('.field-base'),
   bloom: $('.bloom'),
@@ -46,8 +77,10 @@ const els = {
   composerPlaceholder: $('.composer-placeholder'),
   composerSend: $('.composer-send'),
   footerHint: $('.footer-hint'),
+  modeSwitch: $('.mode-switch'),
   conversationScroll: $('.conversation-scroll'),
   conversation: $('.conversation'),
+  workRegionSlot: $('.work-region-slot'),
   thinking: $('.thinking-indicator'),
   dashboardBackdrop: $('.dashboard-backdrop'),
   dashboardClose: $('.dashboard-close'),
@@ -76,11 +109,23 @@ const BLOOM_TRANS_DURATION = {
 // opacity currently is, independent of which tree state that happens
 // to be — set/cleared by setMicState below.
 let micDenied = false;
+// Phase 1 port (prominence.js) -- 1 at ambient prominence (unchanged
+// existing behaviour), 0 at reduced/minimum (bloom extinguished: "a
+// light source competing with text is the single largest contributor to
+// the reported 'tree over work' feeling" -- prominence.ts's own words).
+// `lastBloomState` lets applyExecutionStatus() (below) re-apply this
+// multiplier to whatever voice state is currently showing, the same
+// re-apply pattern micDenied already uses, without depending on
+// `tree.state` (referenced elsewhere in this file but never actually
+// set by KalpavrikshaTree — a pre-existing gap this port does not fix).
+let prominenceBloomMultiplier = 1;
+let lastBloomState = 'idle';
 function applyBloom(state) {
+  lastBloomState = state;
   const p = micDenied ? 0.4 : ({ idle: 0.60, listening: 1.0, thinking: 0.85, speaking: 1.0, waiting: 0.70, celebration: 1.0 }[state] ?? 0.60);
   const dur = micDenied ? 'var(--d-8)' : (BLOOM_TRANS_DURATION[state] || 'var(--d-8)');
   els.bloom.style.transitionDuration = `${dur}, ${dur}`;
-  els.bloom.style.opacity = String(p);
+  els.bloom.style.opacity = String(p * prominenceBloomMultiplier);
   const hueVar = { idle: '--s-live', listening: '--s-live', thinking: '--s-live', speaking: '--s-live', waiting: '--s-attend', celebration: '--s-bloom' }[state] ?? '--s-live';
   const alpha = { idle: 0.055, listening: 0.055, thinking: 0.065, speaking: 0.050, waiting: 0.045, celebration: 0.075 }[state] ?? 0.055;
   const hex = getComputedStyle(document.documentElement).getPropertyValue(hueVar).trim();
@@ -154,6 +199,7 @@ function micSettingsLink() {
 // the mic-click/typing handlers need a synchronous answer to "is Somesh
 // talking right now".
 let isSpeaking = false;
+let isSending = false;  // P2: guards against duplicate submitMessage calls
 let lastSomeshMessageEl = null;
 
 function runInterruptVisuals(treeTarget) {
@@ -495,19 +541,37 @@ function scrollToBottom() {
 }
 
 let thinkingTimer = null;
+let thinkingTimeout = null;  // P2: timeout guard — auto-recover if engine hangs
 function showThinkingSoon() {
   thinkingTimer = setTimeout(() => {
     els.thinking.classList.add('is-visible');
     tree.setState('thinking');
+    // P2: safety — if no response within 15s, recover to idle
+    thinkingTimeout = setTimeout(() => {
+      if (isSending) {
+        hideThinking();
+        tree.setState('waiting');
+        isSending = false;
+      }
+    }, 15000);
   }, 400); // --d-gate
 }
 function hideThinking() {
   clearTimeout(thinkingTimer);
+  clearTimeout(thinkingTimeout);
   els.thinking.classList.remove('is-visible');
 }
 
 async function submitMessage(text, source) {
   if (!text.trim()) return;
+  if (isSending) return;  // P2: prevent duplicate/concurrent submissions
+  isSending = true;
+  // Phase 1/3 port -- sending a new message is the founder's own "moving
+  // on" signal: whatever terminal result (completed/failed) was showing
+  // is now acknowledged, which is what lets tree prominence return to
+  // ambient (prominence.js's own resultAcknowledged input) instead of
+  // staying reduced forever after a result nobody dismissed.
+  resultAcknowledged = true;
   markInteracted();
   enterConversationView();
   appendFounderMessage(text, new Date());
@@ -518,16 +582,13 @@ async function submitMessage(text, source) {
     if (result && result.reply) {
       appendSomeshMessage(result.reply);
     }
-    // Idle now; if voice.speak() (already fired, Python side) actually
-    // has a TTS voice loaded, an onVoiceState('speaking') push follows
-    // within a frame or two and moves the tree again. If it does not
-    // (no voice loaded), the tree correctly stays here rather than
-    // lingering in Thinking.
     tree.setState('idle');
     refreshDashboard();
   } catch (e) {
     hideThinking();
     tree.setState('waiting');
+  } finally {
+    isSending = false;  // P2: always release the guard
   }
 }
 
@@ -653,6 +714,7 @@ async function runStartup() {
     });
     applyGreeting();
     els.micWrap.classList.add('is-visible');
+    els.modeSwitch.classList.add('is-visible');
     els.composerWrap.classList.add('is-visible');
     els.chevron.classList.add('is-visible');
     els.footerHint.classList.add('is-visible');
@@ -676,6 +738,7 @@ async function runStartup() {
   }, 2400);
   setTimeout(() => {
     els.micWrap.classList.add('is-visible');
+    els.modeSwitch.classList.add('is-visible');
     els.composerWrap.classList.add('is-visible');
     els.chevron.classList.add('is-visible');
   }, 3400);
@@ -722,9 +785,373 @@ function finishStartup() {
   // never hurries or blocks the animation (06_STARTUP_EXPERIENCE §6.0).
 }
 
+// ----------------------------------------------------- startup diagnostics --
+// Founder-requested safety net: if startup ever goes dead again, this says
+// exactly which step stopped instead of a silent blank window. Not a
+// Product Veda element — a debug/support tool, so it's terse and corner-
+// anchored rather than designed into the founder-facing experience.
+const DIAG_LABELS = {
+  webview_loaded: 'WebView bridge',
+  conversation_engine_ready: 'Conversation Engine',
+  voice_initialized: 'Voice pipeline',
+  stt_loaded: 'STT (Whisper)',
+  tts_loaded: 'TTS (Piper)',
+  dashboard_ready: 'Dashboard',
+};
+function renderStartupDiagnostics(checks) {
+  const rows = Object.keys(DIAG_LABELS).map((key) => {
+    const ok = !!checks[key];
+    const mark = ok ? '✓' : '✗';
+    const cls = ok ? 'diag-ok' : 'diag-fail';
+    return `<div class="diag-row"><span class="${cls}">${mark}</span> ${DIAG_LABELS[key]}</div>`;
+  });
+  els.startupDiagnostics.innerHTML = rows.join('');
+  els.startupDiagnostics.classList.add('is-visible');
+}
+async function showStartupDiagnostics() {
+  const diag = await Bridge.call('get_startup_diagnostics').catch(() => null);
+  if (diag === null) {
+    // The bridge itself never answered — every check downstream of it is
+    // unknown, but "bridge failed" is exactly the one fact worth surfacing.
+    renderStartupDiagnostics({ webview_loaded: false });
+    return;
+  }
+  renderStartupDiagnostics({ webview_loaded: true, ...diag });
+}
+
+// ------------------------------------------ execution status / prominence --
+// Port manifest steps 1/2/6/7/8 (docs/audits/UI_INTEGRATION_AUDIT.md,
+// SS7) -- Phase 1 tree prominence + Phase 3 Work Region / Founder
+// Completion, wired against the real, already-shipped backend contract
+// (master_agent.missions.execution_status.ExecutionStatus, exposed as
+// window.pywebview.api.get_execution_status()/confirm_completion() in
+// founder_edition/desktop_shell.py). Polled -- this bridge has no push
+// channel for execution status the way voice state does.
+const EXECUTION_POLL_INTERVAL_MS = 1500;
+
+let executionStatus = window.KalpavrikshaWorkState.IDLE_EXECUTION;
+let lastMessageSignature = null;
+let lastChangeAt = Date.now();
+let resultAcknowledged = true;
+let lastAcknowledgeKey = null;
+let prevProminenceLevel = 'ambient';
+let completionCompleted = false;
+let completionCountdown = 60;
+let completionCountdownTimer = null;
+let lastCompletionRenderedFor;
+
+function normalizeExecutionStatus(raw) {
+  if (!raw || typeof raw !== 'object' || Object.keys(raw).length === 0) {
+    return window.KalpavrikshaWorkState.IDLE_EXECUTION;
+  }
+  return {
+    status: raw.status ?? null,
+    message: raw.message ?? null,
+    current_step: raw.current_step ?? null,
+    total_steps: raw.total_steps ?? null,
+    elapsed_ms: raw.elapsed_ms ?? null,
+    timeout_ms: raw.timeout_ms ?? null,
+    attempt: raw.attempt ?? null,
+    max_attempts: raw.max_attempts ?? null,
+    result: raw.result ?? null,
+    requires_founder_completion: !!raw.requires_founder_completion,
+    completion_id: raw.completion_id ?? null,
+    terminal_state: !!raw.terminal_state,
+  };
+}
+
+// A new *distinct* terminal event (a fresh objective/completion, not a
+// second poll of the same one) starts un-acknowledged. Keyed on
+// completion_id when present (founder-completion path), else on
+// status+message (a plain completed/failed with no completion_id).
+function terminalKeyFor(exec) {
+  if (!exec.terminal_state && exec.status !== 'failed') return null;
+  return exec.completion_id || `${exec.status}:${exec.message || ''}`;
+}
+
+function applyProminence(level) {
+  const vars = window.KalpavrikshaProminence.prominenceVars(level);
+  const receding = window.KalpavrikshaProminence.isReceding(prevProminenceLevel, level);
+  const root = document.documentElement;
+  root.setAttribute('data-prominence', level);
+  root.setAttribute('data-receding', receding ? 'true' : 'false');
+  Object.keys(vars).forEach((key) => root.style.setProperty(key, vars[key]));
+  tree.setBreatheAmplitude(parseFloat(vars['--tree-breathe-amp']));
+  // See applyBloom()'s own comment: 0 at reduced/minimum extinguishes
+  // bloom regardless of voice state; 1 at ambient leaves it unchanged.
+  prominenceBloomMultiplier = parseFloat(vars['--tree-bloom-opacity']) > 0 ? 1 : 0;
+  applyBloom(lastBloomState);
+  prevProminenceLevel = level;
+}
+
+function clearWorkRegionSlot() {
+  if (completionCountdownTimer) {
+    clearInterval(completionCountdownTimer);
+    completionCountdownTimer = null;
+  }
+  els.workRegionSlot.innerHTML = '';
+}
+
+// Renders the Work Region -- WorkRegion.tsx ported to vanilla DOM. Renders
+// NOTHING at all when presentation.visible is false (the idle guarantee):
+// no wrapper, no reserved height.
+function renderWorkRegion(presentation, timing) {
+  if (!presentation.visible) {
+    clearWorkRegionSlot();
+    return;
+  }
+  const region = document.createElement('div');
+  region.className = 'kv-work-region';
+  region.dataset.tone = presentation.tone;
+  region.setAttribute('role', 'status');
+  region.setAttribute('aria-live', 'polite');
+  region.setAttribute('aria-atomic', 'true');
+
+  const headline = document.createElement('p');
+  headline.className = 'kv-work-region__headline';
+  headline.textContent = presentation.headline;
+  region.appendChild(headline);
+
+  if (presentation.supporting !== null) {
+    const supporting = document.createElement('p');
+    supporting.className = 'kv-work-region__supporting';
+    supporting.textContent = presentation.supporting;
+    region.appendChild(supporting);
+  }
+
+  if (timing.steps !== null) {
+    const bar = document.createElement('div');
+    bar.className = 'kv-work-region__step-bar';
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-valuenow', String(timing.steps.current));
+    bar.setAttribute('aria-valuemin', '1');
+    bar.setAttribute('aria-valuemax', String(timing.steps.total));
+    bar.setAttribute('aria-label', `Step ${timing.steps.current} of ${timing.steps.total}`);
+    for (let i = 0; i < timing.steps.total; i++) {
+      const segment = document.createElement('div');
+      segment.className = i < timing.steps.current
+        ? 'kv-work-region__step-segment kv-work-region__step-segment--filled'
+        : 'kv-work-region__step-segment';
+      bar.appendChild(segment);
+    }
+    region.appendChild(bar);
+  }
+
+  els.workRegionSlot.innerHTML = '';
+  els.workRegionSlot.appendChild(region);
+}
+
+// Renders the Founder Completion flow -- CompletionRequest.tsx ported to
+// vanilla DOM. Exactly five elements (HYPER_UI_UX_REVIEW SS Founder
+// Completion Experience): summary, evidence (collapsed; this backend
+// contract carries no evidence rows, so this section never renders --
+// an honest absence, not a stub), consequence, actions, undo window.
+//
+// "Send back" is rendered per the five-element contract but stays
+// disabled: no backend counterpart to confirm_completion() exists for it
+// (mission_control.py has confirm_completion() only -- checked during
+// this port; reject()/defer() operate on a different id namespace,
+// approval_id, for a different subsystem). Recorded here, not silently
+// wired to the wrong call.
+function renderCompletionRequest(exec) {
+  if (exec.completion_id !== lastCompletionRenderedFor) {
+    completionCompleted = false;
+    completionCountdown = 60;
+    if (completionCountdownTimer) {
+      clearInterval(completionCountdownTimer);
+      completionCountdownTimer = null;
+    }
+    lastCompletionRenderedFor = exec.completion_id;
+  }
+
+  const root = document.createElement('div');
+  root.className = 'kv-completion';
+  root.dataset.completed = completionCompleted ? 'true' : 'false';
+
+  const summary = document.createElement('p');
+  summary.className = 'kv-completion__summary';
+  summary.textContent = exec.result || exec.message || 'Ready for your review';
+  root.appendChild(summary);
+
+  // Element 3: consequence.
+  const consequence = document.createElement('p');
+  consequence.className = 'kv-completion__consequence';
+  consequence.textContent = exec.terminal_state
+    ? 'Marking complete will close this mission.'
+    : 'Marking complete will signal that this step is done.';
+
+  const hasActions = exec.completion_id !== null;
+
+  if (completionCompleted) {
+    const undo = document.createElement('div');
+    undo.className = 'kv-completion__undo';
+    const label = document.createElement('span');
+    label.className = 'kv-completion__undo-label';
+    label.textContent = 'Marked complete';
+    const sep = document.createElement('span');
+    sep.className = 'kv-completion__undo-separator';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '·';
+    undo.appendChild(label);
+    undo.appendChild(sep);
+    if (completionCountdown > 0) {
+      const undoBtn = document.createElement('button');
+      undoBtn.type = 'button';
+      undoBtn.className = 'kv-completion__undo-action';
+      undoBtn.textContent = 'undo';
+      undoBtn.addEventListener('click', () => {
+        completionCompleted = false;
+        completionCountdown = 60;
+        if (completionCountdownTimer) { clearInterval(completionCountdownTimer); completionCountdownTimer = null; }
+        renderCompletionRequest(executionStatus);
+      });
+      const countdown = document.createElement('span');
+      countdown.className = 'kv-completion__undo-countdown';
+      countdown.setAttribute('aria-live', 'off');
+      countdown.textContent = `${completionCountdown}s`;
+      undo.appendChild(undoBtn);
+      undo.appendChild(countdown);
+    } else {
+      const done = document.createElement('span');
+      done.className = 'kv-completion__undo-countdown';
+      done.textContent = 'done';
+      undo.appendChild(done);
+    }
+    root.appendChild(consequence);
+    root.appendChild(undo);
+  } else {
+    const actions = document.createElement('div');
+    actions.className = 'kv-completion__actions';
+
+    const primary = document.createElement('button');
+    primary.type = 'button';
+    primary.className = 'kv-completion__action-primary';
+    primary.textContent = 'Mark complete';
+    primary.disabled = !hasActions;
+    if (!hasActions) primary.title = 'No completion ID — actions are unavailable';
+    primary.addEventListener('click', async () => {
+      if (!hasActions) return;
+      completionCompleted = true;
+      completionCountdown = 60;
+      renderCompletionRequest(executionStatus);
+      completionCountdownTimer = setInterval(() => {
+        completionCountdown = Math.max(0, completionCountdown - 1);
+        renderCompletionRequest(executionStatus);
+        if (completionCountdown === 0 && completionCountdownTimer) {
+          clearInterval(completionCountdownTimer);
+          completionCountdownTimer = null;
+        }
+      }, 1000);
+      await Bridge.call('confirm_completion', exec.completion_id).catch(() => {});
+    });
+
+    const secondary = document.createElement('button');
+    secondary.type = 'button';
+    secondary.className = 'kv-completion__action-secondary';
+    secondary.textContent = 'Send back';
+    // See this function's own docstring: no backend action exists for
+    // this yet -- disabled honestly rather than wired to nothing.
+    secondary.disabled = true;
+    secondary.title = 'Send back is not yet wired to a backend action';
+
+    actions.appendChild(primary);
+    actions.appendChild(secondary);
+    root.appendChild(consequence);
+    root.appendChild(actions);
+  }
+
+  els.workRegionSlot.innerHTML = '';
+  els.workRegionSlot.appendChild(root);
+}
+
+function applyExecutionStatus(exec) {
+  const signature = `${exec.status}|${exec.message}|${exec.current_step}|${exec.attempt}|${exec.result}`;
+  if (signature !== lastMessageSignature) {
+    lastMessageSignature = signature;
+    lastChangeAt = Date.now();
+  }
+  const msSinceLastChange = Date.now() - lastChangeAt;
+
+  const key = terminalKeyFor(exec);
+  if (key !== null && key !== lastAcknowledgeKey) {
+    // A genuinely new terminal event this poll has not seen before.
+    resultAcknowledged = false;
+    lastAcknowledgeKey = key;
+  }
+
+  const timing = window.KalpavrikshaTiming.presentTiming({ exec, msSinceLastChange });
+  const presentation = window.KalpavrikshaWorkState.presentWork(exec, timing.line);
+
+  const prominenceInput = {
+    status: exec.status,
+    requires_founder_completion: exec.requires_founder_completion,
+    terminal_state: exec.terminal_state,
+    resultAcknowledged: resultAcknowledged,
+  };
+  const decision = window.KalpavrikshaProminence.deriveProminence(prominenceInput);
+  applyProminence(decision.level);
+
+  if (window.KalpavrikshaWorkState.isAwaitingCompletion(exec)) {
+    renderCompletionRequest(exec);
+  } else {
+    renderWorkRegion(presentation, timing);
+  }
+}
+
+async function pollExecutionStatus() {
+  let raw = null;
+  try {
+    raw = await Bridge.call('get_execution_status');
+  } catch (e) {
+    raw = null;
+  }
+  executionStatus = normalizeExecutionStatus(raw);
+  applyExecutionStatus(executionStatus);
+}
+
 // ------------------------------------------------------------------ boot --
-(async function boot() {
+let appMode = 'both';  // session-level: 'local' | 'ai_mode' | 'both'
+
+async function setAppMode(mode) {
+  const result = await Bridge.call('set_mode', mode).catch(() => null);
+  if (result && result.mode) {
+    appMode = result.mode;
+    updateModeButtons();
+  }
+}
+
+function updateModeButtons() {
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.mode === appMode);
+  });
+}
+
+async function boot() {
   const seed = await Bridge.call('get_founder_seed').catch(() => 1);
   tree.build(seed >>> 0);
+
   runStartup();
-})();
+  showStartupDiagnostics();
+  // Set default mode to BOTH at startup
+  await Bridge.call('set_mode', 'both').catch(() => {});
+  updateModeButtons();
+  // Re-check diagnostics after voice models have had time to load
+  setTimeout(async () => {
+    const diag = await Bridge.call('get_startup_diagnostics').catch(() => null);
+    if (diag) renderStartupDiagnostics(diag);
+  }, 15000);
+  setTimeout(async () => {
+    const diag = await Bridge.call('get_startup_diagnostics').catch(() => null);
+    if (diag) renderStartupDiagnostics(diag);
+  }, 45000);
+
+  // Port manifest step 7/8 -- start polling execution status once the
+  // bridge is reachable. Applies ambient prominence immediately so the
+  // tree/veil carry correct data-prominence/CSS vars from first paint,
+  // not only after the first poll resolves.
+  applyProminence('ambient');
+  pollExecutionStatus();
+  setInterval(pollExecutionStatus, EXECUTION_POLL_INTERVAL_MS);
+}
+
+boot();
