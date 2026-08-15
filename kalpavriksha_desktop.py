@@ -126,6 +126,23 @@ def _default_output_device_name() -> str | None:
         return None
 
 
+def _app_state_dir():
+    """Where this application keeps its durable state.
+
+    The same convention `desktop/intelligence/screenshot.py` already uses
+    for its evidence directory -- `%LOCALAPPDATA%/Kalpavriksha/<subdir>`
+    -- so a packaged run and a source run resolve the SAME logical store,
+    and nothing is ever written into the repository, `build/` or `dist/`.
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    root = _Path(_os.environ.get("LOCALAPPDATA") or _Path.home()) / "Kalpavriksha"
+    state = root / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    return state
+
+
 def _build_mission_pipeline():
     """The minimal Planner -> Broker -> Gemini -> MissionPlan -> Mission
     Control -> Browser Executive assembly Founder Edition needs for one
@@ -385,9 +402,41 @@ def _build_mission_pipeline():
         runner=tiered_runner, catalogue=capability_index,
         mode=lambda: mode_cell["mode"],
     )
+    # ---- durable audit history ---------------------------------------
+    #
+    # The founder's last real session could not be audited after the
+    # process exited, because this composition persisted nothing: no
+    # event log, no plan history, no snapshot. The architecture for all
+    # three already existed and was simply never constructed here --
+    # `launcher/boot.py` has wired exactly this since MB025/MB037.
+    #
+    # `PersistenceService` appends every bus event to a durable log
+    # (PERSISTENCE_ARCHITECTURE.md §3: "the event log, appended as events
+    # happen -- audit history, replay") and `PlanHistory` records one row
+    # per mission with an entry per step. Both are subscribers: they
+    # observe the bus and drive nothing, so adding them cannot change
+    # what Kalpavriksha does -- only what survives it.
+    #
+    # Deliberately NOT restored into the runtime. This mission is about
+    # being able to reconstruct what happened, not about resuming
+    # interrupted missions after a restart; recovery semantics are their
+    # own decision and `restore_into()` is left uncalled.
+    from master_agent.missions.history import (
+        HISTORY_FILENAME, JsonFilePlanStore, PlanHistory,
+    )
+    from master_agent.persistence.service import PersistenceService
+    from master_agent.persistence.store import JsonFileStateStore
+
+    state_dir = _app_state_dir()
+    persistence = PersistenceService(JsonFileStateStore(state_dir), mission_control)
+    persistence.start_recording()
+    plan_history = PlanHistory(store=JsonFilePlanStore(state_dir / HISTORY_FILENAME))
+    plan_history.attach_to(mission_control)
+
     mission_service = MissionService(
         planner=planner, mission_control=mission_control,
         intent_layer=IntentLayer(), reporter=Reporter(),
+        history=plan_history,
     )
 
     # Task 2.5 — the Hyper Agent status contract. One ExecutionStatus,
@@ -398,6 +447,7 @@ def _build_mission_pipeline():
 
     status = ExecutionStatus()
     mission_control.bus.subscribe(status.record, event_type=None)
+
 
     # `tiered_runner` is returned as well as given to the Planner: it is
     # the Brain's one door to reasoning (VISION_V2 §3.3), and planning is
