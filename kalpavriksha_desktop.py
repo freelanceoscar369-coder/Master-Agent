@@ -410,8 +410,20 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     already decide.
     """
     import time as _time
-    from master_agent.missions.execution_status import AWAITING_APPROVAL, COMPLETED, FAILED
+    from master_agent.brain.intent import ClarificationQuestion
+    from master_agent.missions.execution_status import (
+        AWAITING_APPROVAL,
+        AWAITING_CLARIFICATION,
+        COMPLETED,
+        FAILED,
+        PendingClarification,
+    )
     from master_agent.planner import NO_STEPS
+
+    # Read the open question BEFORE `begin()` clears it: the founder's
+    # answer arrives as the next message, so the turn that resolves a
+    # clarification is the same turn that would otherwise reset it.
+    pending = status.pending_clarification
 
     status.begin(text, timeout_seconds=timeout_seconds)
 
@@ -440,14 +452,67 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # request is understood, and it is `mission_service`'s OWN instance --
     # there is one Intent Layer in this process, not a second one wired
     # up here.
-    intent_result = mission_service.intent_layer.parse(text)
+    # A question was asked last turn, so this message is its answer.
+    #
+    # The founder's words are clarification DATA, not a new objective:
+    # "Research" is not a mission, it is the name of the folder they
+    # already asked for. `clarify()` re-parses their ORIGINAL sentence
+    # with the answer supplied against the question's own `key`, so
+    # everything they already said survives and only the missing field
+    # comes from the answer.
+    #
+    # Which messages can be an answer is decided upstream and is not a
+    # judgement made here: the Conversation Engine runs first, so a
+    # greeting or a capability question is HANDLED and never reaches this
+    # function at all. Only input the engine escalates -- input it takes
+    # to be work -- can land on an open question. STATED LIMIT: an
+    # unrelated escalated request typed while a question is open ("what's
+    # the weather today?") is taken as the answer, because nothing in
+    # this architecture can tell an odd folder name from a change of
+    # subject without guessing, and guessing is what the standing rule
+    # forbids. Deterministic and documented, per ADR-0024's discipline of
+    # stating a boundary rather than papering over it.
+    if pending is not None:
+        intent_result = mission_service.intent_layer.clarify(
+            pending.objective,
+            text,
+            ClarificationQuestion(
+                question=pending.question,
+                key=pending.key,
+                options=tuple(pending.options),
+                required=pending.required,
+            ),
+        )
+        # The objective under way is still the founder's ORIGINAL request.
+        # Reporting the answer as the objective would lose what they asked
+        # for and leave "Research" standing where "Create a folder" should.
+        status.objective = pending.objective
+    else:
+        intent_result = mission_service.intent_layer.parse(text)
+
     if intent_result.needs_clarification:
         # Clarification is not refusal, and it is not failure. The founder
         # is asked, verbatim, so they can answer and the request proceeds.
-        question = intent_result.clarification.question
-        status.status = COMPLETED
-        status.message = question
-        return {"reply": question}
+        #
+        # The objective is NOT completed here. It used to be marked
+        # COMPLETED the moment the question was successfully displayed,
+        # which told the founder their request had finished when it had
+        # not started -- and left nothing pending, so their answer arrived
+        # as a brand-new mission. It stays AWAITING_CLARIFICATION, with
+        # everything needed to resume it, until they answer.
+        question = intent_result.clarification
+        objective = pending.objective if pending is not None else text
+        status.status = AWAITING_CLARIFICATION
+        status.objective = objective
+        status.message = question.question
+        status.pending_clarification = PendingClarification(
+            question=question.question,
+            key=question.key,
+            objective=objective,
+            options=tuple(question.options),
+            required=question.required,
+        )
+        return {"reply": question.question}
 
     if intent_result.intent is None:
         status.status = FAILED

@@ -22,12 +22,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from master_agent.mission_control.events import Event, EventType
 
 # ---- the eleven states Task 2.5 names, and nothing else -------------------
 
 UNDERSTANDING = "understanding"
+#: The founder has been asked a question and the objective is waiting on
+#: their answer. Deliberately NOT `COMPLETED`: the surface used to mark a
+#: clarified objective completed the moment the question was successfully
+#: displayed, which told the founder their request had finished when in
+#: fact it had not started. ADR-0024 Decision 10 -- a clarification is not
+#: an outcome. Sits beside `AWAITING_APPROVAL` and
+#: `AWAITING_FOUNDER_COMPLETION` because it is the same shape of fact:
+#: work is paused, and a specific founder response resumes it.
+AWAITING_CLARIFICATION = "awaiting_clarification"
 PLANNING = "planning"
 AWAITING_APPROVAL = "awaiting_approval"
 EXECUTING = "executing"
@@ -59,6 +69,62 @@ _STATUS_BY_EVENT = {
 
 
 @dataclass
+class PendingClarification:
+    """A question the founder has been asked, and everything needed to
+    resume the objective from their answer.
+
+    ## Why the semantic key travels as data
+
+    `ClarificationQuestion.key` already existed and was dropped before
+    reaching the founder: only `question` was transmitted, as the `detail`
+    string of a `PlanRefusal`. That left the answer un-attachable —
+    `"Research"` arrived with nothing saying *what it was the answer to*,
+    so resolving it meant re-reading the question text and inferring the
+    field. `key` is carried here so that never has to happen.
+
+    ## Why `objective` is stored rather than recovered
+
+    `ExecutionStatus.objective` holds the same sentence, but `begin()`
+    overwrites it the moment the next founder message arrives — including
+    the message that *is* the answer. Holding the founder's original
+    request here makes resumption independent of call ordering, and it is
+    the string re-parsed on resolution, so everything they already said
+    (a location, a project type) is re-derived from their own words.
+
+    `options` is carried even though today's surface renders a plain text
+    prompt: the field exists on `ClarificationQuestion`, a founder may be
+    offered choices later, and dropping it here would recreate exactly the
+    transport gap `key` is here to close.
+    """
+
+    question: str
+    key: str
+    objective: str
+    options: tuple[str, ...] = ()
+    required: bool = True
+    #: Correlates the founder's answer with this question. A dedicated id
+    #: rather than a reused one: `approval_id` names a permission decision
+    #: on an objective that already exists, and `completion_id` names
+    #: founder confirmation of one that has finished. A clarification
+    #: happens *before* an objective exists at all, so neither identifier
+    #: is in scope for it, and borrowing one would make two different
+    #: founder interactions indistinguishable to the surface. Minted the
+    #: same way both of those are (`uuid4().hex[:8]`, see
+    #: `mission_control/approvals.py`), so nothing new is introduced but
+    #: the name.
+    clarification_id: str = field(default_factory=lambda: uuid4().hex[:8])
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "clarification_id": self.clarification_id,
+            "question": self.question,
+            "key": self.key,
+            "options": list(self.options),
+            "required": self.required,
+        }
+
+
+@dataclass
 class ExecutionStatus:
     """One founder objective's live status, as a plain, JSON-shaped
     contract. Mutated only by `record()`, which does nothing but read an
@@ -85,6 +151,10 @@ class ExecutionStatus:
     #: Founder Surface can offer the decision rather than only report
     #: that a decision is needed.
     approval_id: str | None = None
+    #: The open founder question, when one is waiting. Same shape of fact
+    #: as `approval_id` above: the objective is paused and a specific
+    #: founder response resumes it. `None` whenever nothing is pending.
+    pending_clarification: PendingClarification | None = None
     errors: list[str] = field(default_factory=list)
 
     # ---- lifecycle ---------------------------------------------------
@@ -113,6 +183,10 @@ class ExecutionStatus:
         self.requires_founder_completion = False
         self.completion_id = None
         self.approval_id = None
+        # A new objective inherits no question. The founder surface reads
+        # any pending clarification BEFORE calling this, precisely because
+        # the message that answers one arrives as the next objective.
+        self.pending_clarification = None
         self.errors = []
 
     def record(self, event: Event) -> None:
@@ -223,6 +297,10 @@ class ExecutionStatus:
             "requires_founder_completion": self.requires_founder_completion,
             "completion_id": self.completion_id,
             "approval_id": self.approval_id,
+            "pending_clarification": (
+                self.pending_clarification.as_dict()
+                if self.pending_clarification is not None else None
+            ),
             "errors": list(self.errors),
             "terminal_state": self.terminal_state,
         }

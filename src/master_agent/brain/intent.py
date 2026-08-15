@@ -9,6 +9,7 @@ This replaces the regex-based parse_intent() stand-in from cli.py.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -118,7 +119,7 @@ class IntentLayer:
             return False
         return any(pattern in lowered for pattern in self._CAPABILITY_QUESTION_PATTERNS)
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         """Parse raw input into Intent or clarification request."""
         text = text.strip()
         if not text:
@@ -136,7 +137,7 @@ class IntentLayer:
         # Try exact patterns first
         for pattern, handler in self._patterns:
             if pattern in text.lower():
-                return self._with_roles(handler().parse(text), text)
+                return self._with_roles(handler().parse(text, supplied), text)
 
         # Fallback: generic intent for any input (allows Planner to handle
         # it). ADR-0024 Decision 3: lexical unfamiliarity is not semantic
@@ -186,23 +187,58 @@ class IntentLayer:
         result.intent.beneficiary = beneficiary
         return result
 
-    def clarify(self, original: str, answer: str) -> IntentResult:
-        """Process a clarification answer and re-parse.
+    def clarify(
+        self,
+        original: str,
+        answer: str,
+        question: ClarificationQuestion | None = None,
+    ) -> IntentResult:
+        """Resolve a pending clarification with the founder's answer.
 
-        The separator used to be an em-dash, which the parsers then read
-        as part of the value: answering "Research" to "create a folder
-        called" produced a folder literally named "— Research". A plain
-        space keeps the rejoined sentence in the same shape the parsers
-        already expect.
+        ## The limitation this method used to carry, and how it is fixed
 
-        KNOWN LIMITATION, stated rather than papered over: this rejoins
-        two strings and re-parses. It therefore only resolves cleanly when
-        `original` ends where the missing value belongs. A general fix
-        would fill `ClarificationQuestion.key` directly instead of
-        re-parsing prose -- the field exists for that -- but nothing in
-        production calls this method yet, so the resolution loop is not
-        wired end-to-end and that change belongs with whoever wires it.
+        The previous body was `self.parse(f"{original} {answer}")` --
+        rejoin the two strings and parse the result -- with its own
+        docstring stating the flaw:
+
+            "It therefore only resolves cleanly when `original` ends where
+            the missing value belongs. A general fix would fill
+            `ClarificationQuestion.key` directly instead of re-parsing
+            prose -- the field exists for that -- but nothing in
+            production calls this method yet, so the resolution loop is
+            not wired end-to-end and that change belongs with whoever
+            wires it."
+
+        It genuinely did not work for the ordinary case: `"Create a
+        folder"` + `"Research"` rejoins to `"Create a folder Research"`,
+        which has no `called`, so the parser found no name and asked the
+        same question again -- an infinite loop the founder could not
+        escape. `"Create a folder in Documents"` + `"Research"` failed the
+        same way *and* would have dropped the location.
+
+        This is that general fix. The answer is passed as **data**, keyed
+        by `question.key`, and the original sentence is re-parsed
+        unchanged -- so everything the founder already said (a location, a
+        project type, a constraint) is re-derived from their own words
+        rather than reconstructed from a rejoined string, and only the
+        genuinely missing field comes from the answer.
+
+        `question` is optional so the older two-argument form keeps
+        working for callers that have no question to hand; without it the
+        rejoin is all that can be done, and it is still better than
+        nothing.
         """
+        if question is not None and question.key:
+            result = self.parse(original, supplied={question.key: answer})
+            if result.intent is not None:
+                # Provenance, not contract. The founder's ORIGINAL sentence
+                # stays the raw input -- overwriting it with "Research"
+                # would lose what was actually asked for -- and the answer
+                # is recorded beside it, keyed, so an audit can tell the
+                # request from the reply to a question about it.
+                result.intent.context.setdefault("raw_input", original)
+                result.intent.context["clarified"] = {question.key: answer}
+            return result
         combined = f"{original} {answer}".strip()
         return self.parse(combined)
 
@@ -210,10 +246,38 @@ class IntentLayer:
 # --- Specific Intent Parsers ---
 
 class BaseIntentParser:
-    """Base class for specific intent parsers."""
+    """Base class for specific intent parsers.
 
-    def parse(self, text: str) -> IntentResult:
+    `supplied` carries answers the founder has already given to this
+    layer's own clarification questions, keyed by
+    `ClarificationQuestion.key`. A parser consults it for exactly the
+    field it was about to ask about, and for nothing else.
+
+    This is what `clarify()`'s docstring said the general fix would be --
+    *"fill `ClarificationQuestion.key` directly instead of re-parsing
+    prose -- the field exists for that"* -- and it works because every
+    parser already declares its own key. Nothing here maps a key to a
+    phrase template or re-renders the founder's sentence: the parser that
+    knows what it was missing is the one that fills it.
+    """
+
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         raise NotImplementedError
+
+    @staticmethod
+    def _answer(supplied: Mapping[str, str] | None, key: str) -> str | None:
+        """The founder's answer for `key`, or `None` if they gave none.
+
+        Empty and whitespace-only answers are `None` on purpose: a founder
+        who pressed enter on a blank line has not named anything, and
+        accepting `""` would invent a nameless folder rather than ask
+        again (ADR-0024 Decision 3, and the standing rule that a missing
+        parameter is not permission to invent one).
+        """
+        if not supplied:
+            return None
+        value = str(supplied.get(key, "") or "").strip()
+        return value or None
 
 
 class CreateFolderIntent(BaseIntentParser):
@@ -254,8 +318,20 @@ class CreateFolderIntent(BaseIntentParser):
         r"(?:called|named)\s+[\"']?(?P<name>[^\"'.]+?)[\"']?"
         r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)\.?\s*$"
     )
+    #: A location with NO name -- "create a folder in Documents". Neither
+    #: pattern above matches it, because both require `called`/`named`, so
+    #: before clarification could resolve it the location was simply lost:
+    #: the founder was asked for a name, answered it, and the folder was
+    #: created wherever the action's default put it. The founder had
+    #: already said where. This pattern is only consulted once the name
+    #: arrives from a clarification answer, so it can never compete with
+    #: the two above for an ordinary one-shot command.
+    _LOCATION_ONLY = (
+        r"create\s+(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder\s+"
+        r"(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)\.?\s*$"
+    )
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
 
         location: str | None = None
@@ -265,17 +341,19 @@ class CreateFolderIntent(BaseIntentParser):
         else:
             match = re.search(self._NAME_ONLY, text, re.IGNORECASE)
 
-        if not match:
-            return IntentResult(
-                clarification=ClarificationQuestion(
-                    question="What should the folder be called?",
-                    key="folder_name",
-                    required=True,
-                ),
-                raw_input=text,
-            )
+        name = match.group("name").strip() if match else ""
 
-        name = match.group("name").strip()
+        if not name:
+            # The founder may already have answered this exact question.
+            # Their answer fills the name and nothing else -- the location
+            # below is still read from THEIR original sentence, so
+            # "create a folder in Documents" keeps Documents rather than
+            # falling back to whatever the action's default is.
+            name = self._answer(supplied, "folder_name") or ""
+            if name and location is None:
+                located = re.search(self._LOCATION_ONLY, text, re.IGNORECASE)
+                if located:
+                    location = located.group("location").strip()
 
         if not name:
             return IntentResult(
@@ -317,7 +395,7 @@ class CreateFolderIntent(BaseIntentParser):
 class CreateProjectIntent(BaseIntentParser):
     """Parse 'create a [type] project called X'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(
             r"create\s+(?:a\s+new\s+|a\s+|an\s+|new\s+)?(?:(?P<type>[A-Za-z][\w.+#-]*)\s+)?(?:project|application)\s+(?:called|named)\s+[\"']?([^\"'.]+)[\"']?\.?\s*$",
@@ -364,7 +442,7 @@ class CreateProjectIntent(BaseIntentParser):
 class ReadFileIntent(BaseIntentParser):
     """Parse 'read X'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^read\s+(?:the\s+file\s+)?(?P<path>\S+?)\.?\s*$", text, re.IGNORECASE)
         if not match:
@@ -392,7 +470,7 @@ class ReadFileIntent(BaseIntentParser):
 class RenameFileIntent(BaseIntentParser):
     """Parse 'rename X to Y'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^rename\s+(?P<path>\S+?)\s+to\s+(?P<new_name>\S+?)\.?\s*$", text, re.IGNORECASE)
         if not match:
@@ -421,7 +499,7 @@ class RenameFileIntent(BaseIntentParser):
 class CopyFileIntent(BaseIntentParser):
     """Parse 'copy X to Y'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^copy\s+(?P<path>\S+?)\s+to\s+(?P<destination>.+?)\.?\s*$", text, re.IGNORECASE)
         if not match:
@@ -450,7 +528,7 @@ class CopyFileIntent(BaseIntentParser):
 class MoveFileIntent(BaseIntentParser):
     """Parse 'move X to Y'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^move\s+(?P<path>\S+?)\s+to\s+(?P<destination>.+?)\.?\s*$", text, re.IGNORECASE)
         if not match:
@@ -479,7 +557,7 @@ class MoveFileIntent(BaseIntentParser):
 class DeleteIntent(BaseIntentParser):
     """Parse 'delete X [folder]'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^delete\s+(?P<path>.+?)\.?\s*$", text, re.IGNORECASE)
         if not match:
@@ -510,7 +588,7 @@ class DeleteIntent(BaseIntentParser):
 class ListDirectoryIntent(BaseIntentParser):
     """Parse 'list files inside X'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(
             r"^list\s+(?:the\s+)?files\s+(?:inside|in|on)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)\.?\s*$",
@@ -544,7 +622,7 @@ class ListDirectoryIntent(BaseIntentParser):
 class SearchFilesIntent(BaseIntentParser):
     """Parse 'search for X'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^search\s+for\s+(?P<pattern>\S+?)\.?\s*$", text, re.IGNORECASE)
         if not match:
@@ -572,7 +650,7 @@ class SearchFilesIntent(BaseIntentParser):
 class SetUpProjectIntent(BaseIntentParser):
     """Parse 'set up a [type] project called X' or 'set up a demo project' or 'set up a project for X'."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         # Match "set up a [type] project called X" or "set up a project named X"
         match = re.search(
@@ -640,7 +718,7 @@ class SetUpProjectIntent(BaseIntentParser):
 class LookAtIntent(BaseIntentParser):
     """Parse 'look at X' - for scanning/machine inspection."""
 
-    def parse(self, text: str) -> IntentResult:
+    def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^look\s+at\s+(?P<target>.+?)\.?\s*$", text, re.IGNORECASE)
         if not match:
