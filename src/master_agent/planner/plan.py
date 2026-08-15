@@ -213,6 +213,17 @@ class PlanOutcome:
     #: What the provider actually said. Kept so a malformed plan can be
     #: read by a founder rather than only described to them.
     raw: str = ""
+    #: The founder's LOCAL / AI MODE / BOTH selection at plan time, and
+    #: the mode this mission actually ran under. They differ when the
+    #: objective required resources the selection did not name -- an AI
+    #: preference meeting an objective that needs Hands. Carried on the
+    #: outcome rather than in a separate audit store: the plan and the
+    #: reason it was planned that way belong together.
+    selected_mode: str = ""
+    effective_mode: str = ""
+    #: Why they differ, when they do. Empty when nothing was broadened.
+    mode_reason: str = ""
+
 
     @property
     def planned(self) -> bool:

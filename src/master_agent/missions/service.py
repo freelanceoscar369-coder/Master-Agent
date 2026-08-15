@@ -75,6 +75,12 @@ class MissionOutcome:
     reasons: tuple[str, ...] = ()
     provider_id: str | None = None
     entry_id: int | None = None
+    #: The founder's selection and what the mission actually ran under.
+    #: Carried from the Planner rather than recomputed -- the component
+    #: that made the decision is the one that reports it.
+    selected_mode: str = ""
+    effective_mode: str = ""
+    mode_reason: str = ""
 
     @property
     def accepted(self) -> bool:
@@ -265,6 +271,9 @@ class MissionService:
             return MissionOutcome(
                 status=REFUSED,
                 refusal=outcome.refusal,
+                selected_mode=getattr(outcome, "selected_mode", ""),
+                effective_mode=getattr(outcome, "effective_mode", ""),
+                mode_reason=getattr(outcome, "mode_reason", ""),
                 provider_id=outcome.provider_id,
                 entry_id=outcome.entry_id,
             )
@@ -315,6 +324,9 @@ class MissionService:
         # Return accepted outcome; mission outcome will be reported via events
         return MissionOutcome(
             status=ACCEPTED,
+            selected_mode=getattr(outcome, "selected_mode", ""),
+            effective_mode=getattr(outcome, "effective_mode", ""),
+            mode_reason=getattr(outcome, "mode_reason", ""),
             objective_id=submitted.objective_id,
             plan=outcome.plan,
             objective=submitted,

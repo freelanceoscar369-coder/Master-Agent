@@ -155,6 +155,14 @@ class ExecutionStatus:
     #: as `approval_id` above: the objective is paused and a specific
     #: founder response resumes it. `None` whenever nothing is pending.
     pending_clarification: PendingClarification | None = None
+    #: The founder's LOCAL / AI MODE / BOTH selection, and the mode this
+    #: mission actually ran under. They differ when the objective needed
+    #: resources the selection did not name -- an AI preference meeting an
+    #: objective that needs Hands. Reported so the surface can show the
+    #: founder what really happened instead of only what they picked.
+    selected_mode: str = ""
+    effective_mode: str = ""
+    mode_reason: str = ""
     errors: list[str] = field(default_factory=list)
 
     # ---- lifecycle ---------------------------------------------------
@@ -187,6 +195,9 @@ class ExecutionStatus:
         # any pending clarification BEFORE calling this, precisely because
         # the message that answers one arrives as the next objective.
         self.pending_clarification = None
+        self.selected_mode = ""
+        self.effective_mode = ""
+        self.mode_reason = ""
         self.errors = []
 
     def record(self, event: Event) -> None:
@@ -301,6 +312,9 @@ class ExecutionStatus:
                 self.pending_clarification.as_dict()
                 if self.pending_clarification is not None else None
             ),
+            "selected_mode": self.selected_mode,
+            "effective_mode": self.effective_mode,
+            "mode_reason": self.mode_reason,
             "errors": list(self.errors),
             "terminal_state": self.terminal_state,
         }

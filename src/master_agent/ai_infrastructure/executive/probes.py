@@ -6,6 +6,8 @@ All deterministic — no AI decisions.
 from __future__ import annotations
 
 import subprocess
+
+from master_agent.foundation.windowless import NO_WINDOW
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -53,6 +55,7 @@ class ProbeProviderAvailabilityAction(Action):
                 result = subprocess.run(
                     ["ollama", "list"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )
@@ -77,6 +80,7 @@ class ProbeProviderAvailabilityAction(Action):
                 result = subprocess.run(
                     ["lms", "ps"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )
@@ -173,6 +177,7 @@ class ProbeProviderCapabilitiesAction(Action):
                 result = subprocess.run(
                     ["ollama", "list"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )
@@ -196,6 +201,7 @@ class ProbeProviderCapabilitiesAction(Action):
                 result = subprocess.run(
                     ["lms", "ps"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )
@@ -287,6 +293,7 @@ class ProbeProviderLatencyAction(Action):
                     result = subprocess.run(
                         ["ollama", "run", "gemma2:2b", test_prompt],
                         capture_output=True,
+                creationflags=NO_WINDOW,
                         text=True,
                         timeout=60,
                     )
@@ -394,6 +401,7 @@ class RunProviderBenchmarkAction(Action):
                     proc_result = subprocess.run(
                         ["ollama", "run", "gemma2:2b", prompt],
                         capture_output=True,
+                creationflags=NO_WINDOW,
                         text=True,
                         timeout=120,
                     )

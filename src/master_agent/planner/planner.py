@@ -54,7 +54,7 @@ from master_agent.planner.catalogue import (
     names,
 )
 from master_agent.planner.direct import direct_plan
-from master_agent.planner.modes import AI_MODE, LOCAL, resolve_mode
+from master_agent.planner.modes import AI_MODE, BOTH, LOCAL, resolve_mode
 from master_agent.planner.parsing import validate
 from master_agent.planner.plan import (
     LOCAL_ONLY,
@@ -176,11 +176,29 @@ class Planner:
         # Intent Layer already named and the catalogue already publishes
         # needs no provider to rediscover. A founder who explicitly chose
         # AI MODE is asking for reasoning, so that mode alone skips it.
+        # Tried under EVERY mode, including AI. A founder who selected AI
+        # is expressing a preference about reasoning, not forbidding their
+        # own machine -- and an objective that needs Hands needs Hands
+        # whatever the preference. So when a registered local capability
+        # already settles it, that is what runs, and the mission's
+        # effective mode is BOTH: the selected mode broadened by what the
+        # objective actually requires (ADR-0024's separation of what the
+        # founder means from what is executable, applied to resources).
+        #
+        # This is the AI -> BOTH transition, and it is a transition to
+        # LOCAL EXECUTION, never "ask a provider how to create a folder".
         mode = self.mode()
-        if mode != AI_MODE:
-            plan = direct_plan(intent, options)
-            if plan is not None:
-                return PlanOutcome(plan=plan)
+        plan = direct_plan(intent, options)
+        if plan is not None:
+            return PlanOutcome(
+                plan=plan,
+                selected_mode=mode,
+                effective_mode=BOTH if mode == AI_MODE else mode,
+                mode_reason=(
+                    f"local execution required: {plan.steps[0].capability}"
+                    if mode == AI_MODE else ""
+                ),
+            )
 
         if mode == LOCAL:
             # LOCAL means local capabilities only. Reaching a provider here
@@ -199,7 +217,9 @@ class Planner:
                         "capabilities are not enough."
                     ),
                     known_capabilities=tuple(option.name for option in options),
-                )
+                ),
+                selected_mode=mode,
+                effective_mode=LOCAL,
             )
 
         prompt = build_prompt(intent, options)

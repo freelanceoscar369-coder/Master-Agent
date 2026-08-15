@@ -17,6 +17,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+
+from master_agent.foundation.windowless import NO_WINDOW
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,6 +112,7 @@ class RealSystemProbe:
             completed = subprocess.run(
                 command,
                 capture_output=True,
+                creationflags=NO_WINDOW,
                 text=True,
                 timeout=timeout,
                 check=False,

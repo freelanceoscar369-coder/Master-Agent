@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+
+from master_agent.foundation.windowless import NO_WINDOW
 import sys
 import winreg
 from dataclasses import dataclass, field
@@ -118,6 +120,7 @@ class DiscoverOllamaAction(Action):
                 result = subprocess.run(
                     ["ollama", "--version"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )
@@ -131,6 +134,7 @@ class DiscoverOllamaAction(Action):
                 result = subprocess.run(
                     ["ollama", "list"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )
@@ -212,6 +216,7 @@ class DiscoverLMStudioAction(Action):
                 result = subprocess.run(
                     ["lms", "--version"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )
@@ -223,6 +228,7 @@ class DiscoverLMStudioAction(Action):
                 result = subprocess.run(
                     ["lms", "ps"],
                     capture_output=True,
+                creationflags=NO_WINDOW,
                     text=True,
                     timeout=10,
                 )

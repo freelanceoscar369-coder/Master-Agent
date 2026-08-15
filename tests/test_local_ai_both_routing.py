@@ -168,13 +168,21 @@ class TestModes:
         planner.plan(intent_for("Learn trading"))
         assert runner.calls == 1, "BOTH refused to escalate when local was insufficient"
 
-    def test_ai_mode_goes_to_the_provider_by_the_founders_choice(self, catalogue):
-        """A founder who explicitly selects AI MODE is asking for
-        reasoning; skipping it because a local shortcut existed would
-        override them."""
+    def test_ai_mode_reasons_when_reasoning_is_what_is_needed(self, catalogue):
+        """AI MODE reaches the Model Router for an objective that genuinely
+        needs reasoning.
+
+        It deliberately does NOT for a local-solvable one -- see
+        `TestEffectiveModeTransition`. An earlier revision of this file
+        asserted the opposite, on the reasoning that skipping a provider
+        would override the founder's choice. The founder's decision is
+        that the choice is a preference about reasoning, not a refusal of
+        their own machine: a mode must never stop an achievable objective
+        from completing.
+        """
         runner = CountingRunner()
         planner = Planner(runner=runner, catalogue=catalogue, mode=AI_MODE)
-        planner.plan(intent_for("Create a folder called Research"))
+        planner.plan(intent_for("Learn trading"))
         assert runner.calls == 1
 
     def test_the_mode_is_read_at_plan_time_not_captured_at_boot(self, catalogue):
@@ -297,3 +305,79 @@ class TestNoSecondRouter:
                 f"{policy!r} in the composition root -- the mode decision "
                 "belongs to the Planner, not to wiring"
             )
+
+
+# =========================================================================
+# Autonomous effective-mode transition (§2, §12, §14, §18)
+# =========================================================================
+
+
+class TestEffectiveModeTransition:
+    """A selected mode is a preference about reasoning, never a cage.
+
+    "AI MODE" says the founder is happy for reasoning to be used. It does
+    not say their own machine is off-limits, and an objective that needs
+    Hands needs Hands whatever the preference. So AI + an objective a
+    registered local capability already settles becomes an effective BOTH
+    and runs locally -- with, emphatically, no provider asked how to
+    create a folder.
+    """
+
+    def test_ai_plus_local_objective_runs_locally_and_contacts_nobody(self, catalogue):
+        planner = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=AI_MODE)
+        outcome = planner.plan(intent_for("Create a folder called T in Documents"))
+
+        assert outcome.plan is not None
+        assert outcome.plan.steps[0].capability == "Filesystem.CreateFolder"
+
+    def test_the_transition_is_recorded_not_silent(self, catalogue):
+        """§13 -- selected, effective, and why. On the outcome the Planner
+        already returns, not in a separate audit store."""
+        planner = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=AI_MODE)
+        outcome = planner.plan(intent_for("Create a folder called T in Documents"))
+
+        assert outcome.selected_mode == AI_MODE
+        assert outcome.effective_mode == BOTH
+        assert "Filesystem.CreateFolder" in outcome.mode_reason
+        assert "local execution required" in outcome.mode_reason
+
+    def test_the_founder_preference_is_not_overwritten(self, catalogue):
+        """§3 -- the mission escalates; the preference does not move. The
+        next objective is still planned as AI."""
+        cell = {"mode": AI_MODE}
+        planner = Planner(
+            runner=ExplodingRunner(), catalogue=catalogue, mode=lambda: cell["mode"],
+        )
+        planner.plan(intent_for("Create a folder called T in Documents"))
+        assert cell["mode"] == AI_MODE
+        assert planner.mode() == AI_MODE
+
+    def test_ai_never_refuses_an_achievable_local_objective(self, catalogue):
+        """§14 -- "this is unavailable in AI mode" is forbidden when a
+        registered capability can do it."""
+        planner = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=AI_MODE)
+        outcome = planner.plan(intent_for("Create a folder called T in Documents"))
+        assert outcome.refusal is None
+
+    def test_local_does_not_transition(self, catalogue):
+        """LOCAL is the one mode that is a boundary rather than a
+        preference: it never broadens, in either direction."""
+        planner = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=LOCAL)
+        outcome = planner.plan(intent_for("Learn trading"))
+        assert outcome.selected_mode == LOCAL
+        assert outcome.effective_mode == LOCAL
+        assert outcome.refusal.code == LOCAL_ONLY
+
+    def test_a_clarified_intent_routes_exactly_like_a_direct_one(self, catalogue):
+        """§30 -- the resume must not accidentally take a different path."""
+        layer = IntentLayer()
+        question = layer.parse("Create a folder in Documents").clarification
+        clarified = layer.clarify("Create a folder in Documents", "T", question).intent
+        direct = layer.parse("Create a folder called T in Documents").intent
+
+        for mode in (LOCAL, BOTH, AI_MODE):
+            a = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=mode).plan(clarified)
+            b = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=mode).plan(direct)
+            assert a.plan.steps[0].capability == b.plan.steps[0].capability
+            assert a.plan.steps[0].payload == b.plan.steps[0].payload
+            assert a.effective_mode == b.effective_mode

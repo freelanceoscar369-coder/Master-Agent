@@ -428,6 +428,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     from master_agent.missions.execution_status import (
         AWAITING_APPROVAL,
         AWAITING_CLARIFICATION,
+        AWAITING_FOUNDER_COMPLETION,
         COMPLETED,
         FAILED,
         PendingClarification,
@@ -537,6 +538,11 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # success criteria, and the agency the founder expressed. MissionService
     # admits it without reinterpreting a word of it.
     outcome = mission_service.start(intent_result.intent)
+    # What the founder chose, and what the mission actually needed. Read
+    # from the outcome rather than re-derived: the Planner decided it.
+    status.selected_mode = getattr(outcome, "selected_mode", "") or ""
+    status.effective_mode = getattr(outcome, "effective_mode", "") or ""
+    status.mode_reason = getattr(outcome, "mode_reason", "") or ""
     refusal = outcome.refusal
 
     # Not executable is not not-understood. `NO_STEPS` is the Planner's
@@ -593,6 +599,15 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     while _time.monotonic() < deadline and not (objective.is_complete or objective.has_failure):
         runtime.run_once()
         objective = mission_control.dispatcher.objective(objective_id)
+        # Waiting on the founder is a terminal state for THIS call. The
+        # work has run and been verified; nothing further will happen
+        # until a human answers, so spinning to the deadline only delays
+        # telling them so -- and, before this, ended in "that's taking
+        # longer than expected" about a mission that had already finished.
+        if status.requires_founder_completion or status.status in (
+            AWAITING_APPROVAL, AWAITING_FOUNDER_COMPLETION
+        ):
+            break
         if not (objective.is_complete or objective.has_failure):
             _time.sleep(0.2)
 
@@ -615,6 +630,23 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # system as struggling when it is in fact waiting for its founder.
     if status.status == AWAITING_APPROVAL:
         status.message = "This needs your approval before I go ahead."
+        return {"reply": status.message}
+    # Finished, verified, and held for the founder's confirmation. This had
+    # no branch, so it fell to the sentence below and told a founder whose
+    # folder already existed on disk that the system was struggling. A
+    # mission waiting on a human is not a slow mission -- the same
+    # distinction the approval branch above already draws.
+    #
+    # The result is spoken from what actually happened, so this cannot
+    # claim success for work that did not run: `state.result` is the
+    # Operator's own evidence, and Verification has already compared it
+    # against the Step's expected outcome by the time this event fires.
+    if status.requires_founder_completion or status.status == AWAITING_FOUNDER_COMPLETION:
+        done = _describe_result(state.result) if state.result else ""
+        status.message = (
+            f"{done} Ready for your review.".strip() if done
+            else "That's done and checked. Ready for your review."
+        )
         return {"reply": status.message}
     status.message = "That's taking longer than expected; still working on it."
     return {"reply": status.message}
