@@ -46,6 +46,11 @@ UNVERIFIED = "unverified"
 NOT_JSON = "not_json"
 MALFORMED = "malformed"
 NO_STEPS = "no_steps"
+#: LOCAL mode was chosen and no registered capability completes the
+#: objective on its own. Distinct from `NO_STEPS`, which is a provider
+#: saying the catalogue cannot achieve it: here no provider was asked,
+#: because the founder asked for none to be.
+LOCAL_ONLY = "local_only"
 UNKNOWN_CAPABILITY = "unknown_capability"
 MISSING_EXPECTATION = "missing_expectation"
 BAD_DEPENDENCY = "bad_dependency"
@@ -105,6 +110,25 @@ class Intent:
     actor: str = UNKNOWN_ROLE
     #: Who receives, learns, or benefits from the result. One of `ROLES`.
     beneficiary: str = UNKNOWN_ROLE
+    #: The capability this intent names, when the Intent Layer recognised
+    #: a typed action rather than free prose -- e.g. `"create_folder"`.
+    #: Empty whenever nothing was recognised, which is most input.
+    #:
+    #: This is not the Brain deciding what is executable; the Planner still
+    #: checks the capability is registered and that its contract is
+    #: satisfied, and refuses or reasons if it is not (ADR-0024 Decision
+    #: 2). It is the Intent Layer stating what it already parsed, so the
+    #: Planner does not have to pay a model to rediscover it.
+    #:
+    #: The pair is `cli.py`'s own `ParsedActionIntent` contract, which has
+    #: said since MB005 that `capability` "becomes the plan's
+    #: Step.capability directly" -- adopted here rather than re-invented,
+    #: so there is one shape for "a parsed action and its arguments".
+    capability: str = ""
+    #: Arguments for `capability`, keyed by the capability contract's OWN
+    #: published argument names (`name`, `location`, ...), never by the
+    #: parser's internal vocabulary. Becomes `Step.payload` verbatim.
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 #: MB037. Closed vocabularies, both of them, for the same reason every

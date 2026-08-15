@@ -87,6 +87,7 @@ from master_agent.communication import (
 )
 from master_agent.founder_edition.boot import FounderEditionApp, boot_founder_edition
 from master_agent.founder_edition.voice_pipeline import VoicePipeline
+from master_agent.planner.modes import DEFAULT_MODE, normalise as normalise_mode
 from master_agent.founder_identity import FounderContext, greet
 
 # Custom BottleServer that fixes the pywebview 6.x asset() signature issue
@@ -295,6 +296,7 @@ class DesktopShellApi:
         get_execution_status: Callable[[], dict[str, Any]] | None = None,
         confirm_completion: Callable[[str], dict[str, Any]] | None = None,
         decide_approval: Callable[..., dict[str, Any]] | None = None,
+        set_mode: Callable[[str], None] | None = None,
     ) -> None:
         self._app = app
         self._voice = voice
@@ -319,6 +321,10 @@ class DesktopShellApi:
         # and the same reason: Mission Control owns the decision, this
         # module only carries the founder's word to it.
         self._decide_approval = decide_approval
+        self._set_mode = set_mode
+        #: LOCAL / AI MODE / BOTH. BOTH by default, matching both the
+        #: historical shell and the button the page marks active at boot.
+        self._mode: str = DEFAULT_MODE
         self._confirm_completion = confirm_completion
 
     def get_founder_seed(self) -> int:
@@ -438,6 +444,33 @@ class DesktopShellApi:
         self._muted = not self._muted
         self._voice.set_muted(self._muted)
         return {"muted": self._muted}
+
+    def set_mode(self, mode: str) -> dict[str, Any]:
+        """The founder's LOCAL / AI MODE / BOTH switch.
+
+        Restored. The three buttons have been on the surface all along and
+        the page has always called this, but the method existed only in the
+        stale `build/lib/` copy -- and the page swallows the failure
+        (`.catch(() => null)`), so every click was silently inert and every
+        session ran as whatever the Planner defaulted to.
+
+        Session-scoped by design, exactly as the historical version was:
+        an operating mode is a decision about right now, not a preference
+        to be remembered and later surprise a founder who has forgotten
+        setting it.
+
+        The mode is *stored* here and *read* by the Planner, which is the
+        component that can act on it. This method decides nothing.
+        """
+        resolved = normalise_mode(mode)
+        self._mode = resolved
+        if self._set_mode is not None:
+            with contextlib.suppress(Exception):
+                self._set_mode(resolved)
+        return {"mode": resolved}
+
+    def get_mode(self) -> dict[str, Any]:
+        return {"mode": self._mode}
 
     def open_microphone_settings(self) -> None:
         """`03_VOICE_EXPERIENCE §3.5`'s `denied` recovery path: a click on
@@ -560,6 +593,7 @@ def create_window(
     confirm_completion: Callable[[str], dict[str, Any]] | None = None,
     capability_domains: Callable[[], Any] | None = None,
     decide_approval: Callable[..., dict[str, Any]] | None = None,
+    set_mode: Callable[[str], None] | None = None,
 ) -> FounderEditionApp:
     """Boot Founder Edition, start the local voice pipeline, and open the
     one native window.
@@ -607,13 +641,14 @@ def create_window(
         get_execution_status=get_execution_status,
         confirm_completion=confirm_completion,
         decide_approval=decide_approval,
+        set_mode=set_mode,
     )
     window.expose(api.get_founder_seed, api.greet, api.send_message,
                   api.get_dashboard, api.toggle_mute,
                   api.open_microphone_settings,
                   api.interrupt_speech, api.abandon_voice_capture, api.get_startup_diagnostics,
                   api.debug_log, api.get_execution_status, api.confirm_completion,
-                  api.decide_approval)
+                  api.decide_approval, api.set_mode, api.get_mode)
 
     def _on_shown():
         try:

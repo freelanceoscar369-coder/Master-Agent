@@ -381,12 +381,31 @@ class CreateFolderIntent(BaseIntentParser):
             constraints.append(f"Location: {location}")
 
         where = f" at {location}" if location is not None else ""
+
+        # The capability this sentence named, and its arguments under the
+        # contract's OWN names (`name`, `location`) rather than this
+        # parser's internal `folder_name`. `context` keeps the parser's
+        # vocabulary for the prompt and for anything reading provenance;
+        # `payload` is what a Step actually needs.
+        #
+        # Stating it costs nothing and saves a model call: the Planner can
+        # see that "create a folder called Research in Documents" means
+        # `Filesystem.CreateFolder(name="Research", location="Documents")`
+        # without asking a provider to rediscover a mapping this parser
+        # already performed. Whether that capability is registered, and
+        # whether its contract is satisfied, remains the Planner's call.
+        payload: dict[str, Any] = {"name": name}
+        if location is not None:
+            payload["location"] = location
+
         return IntentResult(
             intent=Intent(
                 goal=f"Create folder '{name}'",
                 constraints=constraints,
                 context=context,
                 success_criteria=[f"Folder '{name}' exists{where}"],
+                capability="create_folder",
+                payload=payload,
             ),
             raw_input=text,
         )

@@ -348,8 +348,13 @@ class TestNoParallelBrain:
         Broker, one decision trail. Read from the source of the one
         function that wires both."""
         source = inspect.getsource(kd._build_mission_pipeline)
-        assert "Planner(runner=tiered_runner" in source
-        assert source.rstrip().endswith("tiered_runner"), (
+        assert "runner=tiered_runner" in source
+        # The pipeline returns the same runner it handed the Planner. Checked
+        # on the return statement rather than the last token, so adding
+        # another element (the founder's mode switch did) does not read as
+        # the runner having been dropped.
+        returns = [ln for ln in source.splitlines() if ln.strip().startswith("return ")]
+        assert any("tiered_runner" in ln for ln in returns), (
             "the pipeline no longer returns the runner it gave the Planner"
         )
 

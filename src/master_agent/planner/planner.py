@@ -53,8 +53,11 @@ from master_agent.planner.catalogue import (
     catalogue_from_index,
     names,
 )
+from master_agent.planner.direct import direct_plan
+from master_agent.planner.modes import AI_MODE, LOCAL, resolve_mode
 from master_agent.planner.parsing import validate
 from master_agent.planner.plan import (
+    LOCAL_ONLY,
     BROKER_REFUSED,
     NO_CAPABILITIES,
     NOT_JSON,
@@ -108,6 +111,7 @@ class Planner:
         requester: str = REQUESTER,
         requires_strong_reasoning: bool = False,
         offline: bool = False,
+        mode: Any = None,
     ) -> None:
         self._runner = runner
         self._catalogue = catalogue
@@ -119,8 +123,18 @@ class Planner:
         # here would be the Planner deciding the founder should pay.
         self._requires_strong_reasoning = requires_strong_reasoning
         self._offline = offline
+        # The founder's LOCAL / AI MODE / BOTH switch, read at plan time
+        # rather than captured at construction -- the founder flips it
+        # mid-session and this object is built once at boot. A callable or
+        # a plain string; `None` means nobody wired the switch and the
+        # historical default (BOTH) applies.
+        self._mode = mode
 
     # ---- planning --------------------------------------------------------
+
+    def mode(self) -> str:
+        """The founder's current LOCAL / AI MODE / BOTH choice."""
+        return resolve_mode(self._mode)
 
     def options(self) -> tuple[CapabilityOption, ...]:
         """What may appear in a plan right now."""
@@ -152,6 +166,39 @@ class Planner:
                         "naming capabilities that do not exist, so nothing is "
                         "asked."
                     ),
+                )
+            )
+
+        # ---- deterministic first -------------------------------------
+        #
+        # BOTH is local-first, and LOCAL is local-only. Both start here,
+        # and so does AI MODE's absence of a reason to: a capability the
+        # Intent Layer already named and the catalogue already publishes
+        # needs no provider to rediscover. A founder who explicitly chose
+        # AI MODE is asking for reasoning, so that mode alone skips it.
+        mode = self.mode()
+        if mode != AI_MODE:
+            plan = direct_plan(intent, options)
+            if plan is not None:
+                return PlanOutcome(plan=plan)
+
+        if mode == LOCAL:
+            # LOCAL means local capabilities only. Reaching a provider here
+            # would be the one thing the founder switched the mode off to
+            # prevent, so this refuses instead -- honestly, naming what is
+            # registered, the same way NO_CAPABILITIES does.
+            return PlanOutcome(
+                refusal=PlanRefusal(
+                    code=LOCAL_ONLY,
+                    reason=(
+                        "no plan: LOCAL mode uses only your computer's own "
+                        "capabilities, and none of them completes this on its own"
+                    ),
+                    detail=(
+                        "Switch to BOTH to let reasoning help when local "
+                        "capabilities are not enough."
+                    ),
+                    known_capabilities=tuple(option.name for option in options),
                 )
             )
 

@@ -373,7 +373,18 @@ def _build_mission_pipeline():
     # expose the identical `run(prompt, request, **kwargs)` surface
     # (`tiered_runner.py`'s own docstring cites the exact interface this
     # session's own research confirmed `Planner` requires).
-    planner = Planner(runner=tiered_runner, catalogue=capability_index)
+    # The founder's LOCAL / AI MODE / BOTH switch. One mutable cell shared
+    # between the surface (which sets it) and the Planner (which reads it
+    # at plan time) -- the founder flips it mid-session and the Planner is
+    # built once at boot, so a captured value would freeze the choice made
+    # at startup. The root stores; it decides nothing.
+    from master_agent.planner.modes import DEFAULT_MODE, normalise as _normalise_mode
+
+    mode_cell = {"mode": DEFAULT_MODE}
+    planner = Planner(
+        runner=tiered_runner, catalogue=capability_index,
+        mode=lambda: mode_cell["mode"],
+    )
     mission_service = MissionService(
         planner=planner, mission_control=mission_control,
         intent_layer=IntentLayer(), reporter=Reporter(),
@@ -393,7 +404,10 @@ def _build_mission_pipeline():
     # only one of the things the Brain reasons about. Returning the same
     # instance is what keeps `brain/advisory.py` from needing a provider
     # path of its own -- one ladder, one Broker, one decision trail.
-    return mission_service, runtime, mission_control, status, tiered_runner
+    def _set_mode(mode: str) -> None:
+        mode_cell["mode"] = _normalise_mode(mode)
+
+    return mission_service, runtime, mission_control, status, tiered_runner, _set_mode
 
 
 def _submit_objective(mission_service, runtime, mission_control, status, text: str,
@@ -748,7 +762,7 @@ def main(argv: list[str] | None = None) -> int:
     capability_domains = None
     decide_approval = None
     if pipeline is not None:
-        mission_service, runtime, mission_control, status, reasoning_runner = pipeline
+        mission_service, runtime, mission_control, status, reasoning_runner, set_mode = pipeline
         submit_objective = lambda text: _submit_objective(  # noqa: E731
             mission_service, runtime, mission_control, status, text,
             reasoning_runner=reasoning_runner,
@@ -814,6 +828,7 @@ def main(argv: list[str] | None = None) -> int:
         confirm_completion=confirm_completion,
         capability_domains=capability_domains,
         decide_approval=decide_approval,
+        set_mode=set_mode,
     )
     return 0
 
