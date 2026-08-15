@@ -236,7 +236,13 @@ function executionTreeState() {
   if (!exec) return null;
   const needsFounder = exec.requires_founder_completion ||
     exec.status === 'awaiting_founder_completion' ||
-    exec.status === 'awaiting_approval' || exec.status === 'blocked';
+    exec.status === 'awaiting_approval' ||
+    // A question Kalpavriksha asked is a founder requirement exactly like
+    // an approval: the work is stopped until the founder answers. Omitted
+    // when the status was introduced, so the tree fell through every
+    // branch below to `null` and rendered IDLE -- indistinguishable from
+    // nothing happening, while the founder was in fact being waited on.
+    exec.status === 'awaiting_clarification' || exec.status === 'blocked';
   if (needsFounder) return 'waiting';
   if (exec.status === 'failed' && !resultAcknowledged) return 'failed';
   if (exec.status === 'recovering') return 'recovering';

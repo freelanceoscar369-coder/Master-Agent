@@ -52,6 +52,9 @@
     if (status === 'awaiting_approval') {
       return { level: 'minimum', reason: 'Awaiting founder approval.' };
     }
+    if (status === 'awaiting_clarification') {
+      return { level: 'minimum', reason: 'Awaiting founder answer.' };
+    }
     if (status === 'blocked') {
       return { level: 'minimum', reason: 'Blocked -- needs the founder.' };
     }

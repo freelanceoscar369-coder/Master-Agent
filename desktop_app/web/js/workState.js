@@ -33,6 +33,7 @@
     understanding: 'Reading your request',
     planning: 'Working out the steps',
     awaiting_approval: 'Needs your approval',
+    awaiting_clarification: 'Needs your answer',
     executing: 'Working',
     observing: 'Watching for the result',
     verifying: 'Checking the result',
@@ -48,7 +49,8 @@
   ];
 
   var KNOWN_STATUSES = [
-    'idle', 'understanding', 'planning', 'awaiting_approval', 'executing',
+    'idle', 'understanding', 'planning', 'awaiting_approval',
+    'awaiting_clarification', 'executing',
     'observing', 'verifying', 'recovering', 'awaiting_founder_completion',
     'completed', 'failed', 'blocked',
   ];
@@ -76,11 +78,13 @@
       requiresFounderCompletion ||
       status === 'awaiting_founder_completion' ||
       status === 'awaiting_approval' ||
+      status === 'awaiting_clarification' ||
       status === 'blocked';
 
     /* 1 -- A human is required. Outranks everything, including a message. */
     if (needsFounder) {
       var headline = status === 'awaiting_approval' ? STATE_LANGUAGE.awaiting_approval
+        : status === 'awaiting_clarification' ? STATE_LANGUAGE.awaiting_clarification
         : status === 'blocked' ? STATE_LANGUAGE.blocked
         : STATE_LANGUAGE.awaiting_founder_completion;
       return {
