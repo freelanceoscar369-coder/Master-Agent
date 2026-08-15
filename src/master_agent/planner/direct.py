@@ -49,6 +49,7 @@ construct a `MissionPlan` at all (asserted by an AST test over `src/`).
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 from master_agent.planner.outcomes import SuccessSpec
 from master_agent.planner.plan import Intent, MissionPlan, Step
@@ -122,8 +123,24 @@ def direct_plan(intent: Intent, options) -> MissionPlan | None:
         (c for c in (intent.success_criteria or []) if c and c.strip()),
         f"{option.name} completes for {intent.goal}".strip(),
     )
+    # The id must be unique across every mission this process runs, not
+    # merely within this plan.
+    #
+    # It was `f"{option.name}-1"`, which is unique inside a one-step plan
+    # and identical for every folder mission ever planned. `RuntimeEngine
+    # ._objective_of()` finds a task's objective by scanning every
+    # objective for a matching `task_id` and returning the FIRST hit -- so
+    # the second folder mission's completion was applied to the first
+    # mission's objective. The second objective then never completed, no
+    # `OBJECTIVE_COMPLETED` fired, no completion question was asked, and
+    # the founder surface span its full timeout and reported "that's
+    # taking longer than expected" about a folder already sitting on disk.
+    #
+    # Every third-and-later mission compounded it. The founder saw this as
+    # completed work blocking new work; the cause was two missions sharing
+    # one identity.
     step = Step(
-        step_id=f"{option.name}-1",
+        step_id=f"{option.name}-{uuid4().hex[:8]}",
         capability=option.name,
         payload=payload,
         expected_outcome=SuccessSpec(description=description).to_expected_outcome(),
