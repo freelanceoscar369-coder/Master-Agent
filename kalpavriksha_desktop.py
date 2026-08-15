@@ -709,9 +709,24 @@ def _founder_refusal_sentence(reason: str) -> str:
 #: `_describe_capabilities`'s handling of unknown executives.
 #: Noun phrases, not sentences: the composer says "I can work with
 #: {domains}", so each value has to slot into that grammatically.
+#: A founder-facing sentence per registered executive.
+#:
+#: `filesystem` was missing, and the omission was silent: `_capability_
+#: domains()` filters the live registry through this table, so an
+#: executive with no entry simply does not exist as far as the founder is
+#: concerned. Asked "tell me what capabilities you currently have",
+#: Kalpavriksha answered browser and desktop and never mentioned files or
+#: folders -- while fourteen `Filesystem.*` capabilities were registered,
+#: including the one thing it does deterministically, every time, with no
+#: provider involved at all.
+#:
+#: An incomplete self-report is an untrue one. `test_capability_self_
+#: knowledge.py` now asserts every registered executive has an entry
+#: here, so the next one to be registered cannot vanish the same way.
 _EXECUTIVE_DOMAINS: dict[str, str] = {
     "browser": "your browser — opening pages, reading what is there, and acting on them",
     "desktop": "your desktop — opening your applications, reading what is on screen, and operating them",
+    "filesystem": "your files and folders — creating, reading, renaming, moving and organising them",
 }
 
 
