@@ -57,6 +57,36 @@ BAD_PAYLOAD = "bad_payload"
 CYCLIC = "cyclic"
 
 
+# ---- semantic roles ------------------------------------------------------
+#
+# ADR-0024 Decision 5: an Intent must preserve *who is expected to act* and
+# *who receives or benefits from the result*. Before these existed,
+#
+#     "Learn trading"        -> Intent(goal="Learn trading", ...)
+#     "Teach me trading"     -> Intent(goal="Teach me trading", ...)
+#     "Help me learn trading"-> Intent(goal="Help me learn trading", ...)
+#
+# were structurally identical, and agency survived only because the raw
+# sentence was carried downstream for a model to re-derive it from -- which
+# is the "send the raw string to a model" pattern Constitution §3.1 says the
+# Intent Layer deliberately is not.
+#
+# A closed vocabulary, like PRIORITIES and COMPLEXITIES below, and for the
+# same reason: an open one drifts, and a founder-facing surface must be able
+# to branch on these without parsing prose.
+#
+# UNKNOWN is a first-class member, not a failure. ADR-0024 §6: "For semantic
+# dimensions that cannot yet be established confidently, unknown is
+# preferable to guessing." Nothing may fabricate a role it did not derive.
+
+SYSTEM = "system"
+FOUNDER = "founder"
+BOTH = "both"
+UNKNOWN_ROLE = "unknown"
+
+ROLES = (SYSTEM, FOUNDER, BOTH, UNKNOWN_ROLE)
+
+
 @dataclass
 class Intent:
     """Structured intent -- the output of the Intent Layer, the input to
@@ -68,6 +98,13 @@ class Intent:
     context: dict[str, Any] = field(default_factory=dict)
     success_criteria: list[str] = field(default_factory=list)
     is_sensitive: bool = False
+    #: Who is expected to do the work. One of `ROLES`. Defaults to
+    #: `UNKNOWN_ROLE` rather than `SYSTEM` so that an `Intent` built by
+    #: hand -- in a test, or by a caller that has not thought about it --
+    #: never silently claims an agency nobody derived.
+    actor: str = UNKNOWN_ROLE
+    #: Who receives, learns, or benefits from the result. One of `ROLES`.
+    beneficiary: str = UNKNOWN_ROLE
 
 
 #: MB037. Closed vocabularies, both of them, for the same reason every

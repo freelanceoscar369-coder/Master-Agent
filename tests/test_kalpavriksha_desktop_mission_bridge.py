@@ -88,12 +88,32 @@ class _FakeOutcome:
 
 
 class _FakeMissionService:
-    def __init__(self, outcome):
+    """Stands in for `MissionService` at the admission boundary.
+
+    Carries a REAL `IntentLayer`, because the production surface now
+    resolves intent through `mission_service.intent_layer` before calling
+    `start()` (ADR-0024 Decision 1). A double with a stubbed parser would
+    let a test pass while the real boundary was broken, and `IntentLayer`
+    is pure -- no clock, no I/O, no model -- so using the real one costs
+    nothing and keeps the double honest.
+
+    `started_with` records what `start()` received: `None` means it was
+    never called, which is what ADR-0024 §10 requires for a
+    clarification-required Intent.
+    """
+
+    def __init__(self, outcome, intent_layer=None):
+        from master_agent.brain.intent import IntentLayer
+
         self._outcome = outcome
         self.started_with = None
+        self.intent_layer = intent_layer if intent_layer is not None else IntentLayer()
 
-    def start(self, text):
-        self.started_with = text
+    def start(self, objective, **kwargs):
+        # `objective` is a canonical `Intent` on the production path now,
+        # not raw text. Recorded verbatim so a test can assert exactly what
+        # crossed the boundary.
+        self.started_with = objective
         return self._outcome
 
 
@@ -380,53 +400,63 @@ class TestClarificationReachesTheFounder:
     """Defect C: a clarification question was destroyed before it was asked.
 
     The Intent Layer produces a real `ClarificationQuestion` for an
-    ambiguous objective, and MissionService carries it out as
-    `PlanRefusal(code="CLARIFICATION_REQUIRED", detail=<the question>)`.
-    The composition root then flattened every refusal through
-    `_founder_refusal_sentence()`, which has no branch for that code, so
-    the founder was told "I couldn't plan that just now. Please try
-    again." — ending the exchange instead of continuing it.
-    """
+    ambiguous objective. That question used to travel to the founder
+    wrapped in `PlanRefusal(code="CLARIFICATION_REQUIRED")` -- a question
+    disguised as a planning failure -- and the composition root flattened
+    every refusal through `_founder_refusal_sentence()`, which has no
+    branch for that code, so the founder was told "I couldn't plan that
+    just now. Please try again." -- ending the exchange instead of
+    continuing it.
 
-    class _Refusal:
-        code = "CLARIFICATION_REQUIRED"
-        reason = "clarification required"
-        detail = "What should the project be called?"
+    ADR-0024 Decision 1 removed the disguise: intent is resolved BEFORE
+    a mission exists, so an under-specified request never becomes one and
+    the question is asked directly. These tests now drive the real
+    `IntentLayer` rather than a fabricated refusal, which is a stronger
+    check -- the question has to be genuinely produced, not stubbed.
+    """
 
     class _Outcome:
         accepted = False
         refusal = None
         reasons = ()
 
-    def _submit(self, outcome):
-        """Drive `_submit_objective` with a stubbed mission service."""
+    def _submit(self, outcome, text="create folder"):
+        """Drive `_submit_objective` with a stubbed mission service that
+        carries a real Intent Layer."""
+        from master_agent.brain.intent import IntentLayer
         from master_agent.missions.execution_status import ExecutionStatus
         from kalpavriksha_desktop import _submit_objective
 
         class _MS:
-            intent_layer = None
+            intent_layer = IntentLayer()
+            started = False
 
-            def start(self, text):
+            def start(self, objective, **kwargs):
+                type(self).started = True
                 return outcome
 
+        service = _MS()
         status = ExecutionStatus()
-        return _submit_objective(_MS(), None, _mission_control_with(), status, "create folder")
+        result = _submit_objective(service, None, _mission_control_with(), status, text)
+        return result, service
 
     def test_the_actual_question_is_asked_verbatim(self):
-        outcome = self._Outcome()
-        outcome.refusal = self._Refusal()
-        reply = self._submit(outcome)["reply"]
-        assert reply == "What should the project be called?"
+        result, service = self._submit(self._Outcome())
+        assert result["reply"] == "What should the folder be called?"
+        assert not service.started, (
+            "an under-specified request became a mission -- ADR-0024 §10 "
+            "requires MissionService and Planner to be untouched"
+        )
 
     def test_it_is_not_flattened_into_the_generic_refusal(self):
-        outcome = self._Outcome()
-        outcome.refusal = self._Refusal()
-        reply = self._submit(outcome)["reply"]
+        reply = self._submit(self._Outcome())[0]["reply"]
         assert reply != "I couldn't plan that just now. Please try again."
         assert "couldn't plan" not in reply
 
     def test_an_ordinary_refusal_is_still_explained_as_a_refusal(self):
-        """Clarification must not swallow genuine refusals."""
+        """Clarification must not swallow genuine refusals. This objective
+        IS understood, so it passes admission and the refusal it meets is
+        a real planning refusal."""
         class _Plain:
             code = "NOT_EXECUTABLE"
             reason = "the available capabilities cannot achieve this objective"
@@ -434,5 +464,6 @@ class TestClarificationReachesTheFounder:
 
         outcome = self._Outcome()
         outcome.refusal = _Plain()
-        reply = self._submit(outcome)["reply"]
-        assert reply == "I can't do that with what I'm currently able to do."
+        result, service = self._submit(outcome, text="Open github.com")
+        assert service.started, "an understood objective never reached MissionService"
+        assert result["reply"] == "I can't do that with what I'm currently able to do."

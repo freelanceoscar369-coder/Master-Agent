@@ -425,21 +425,40 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # are now `Intent.CAPABILITY_QUERY` in the Conversation Engine's own
     # taxonomy and never reach this function at all.
 
-    outcome = mission_service.start(text)
-    # Clarification is not refusal. The Intent Layer produces a real
-    # question for an ambiguous objective and MissionService carries it
-    # here as `CLARIFICATION_REQUIRED` with the question in `detail`;
-    # flattening that through `_founder_refusal_sentence()` threw the
-    # question away and told the founder "I couldn't plan that just now",
-    # which ends the exchange instead of continuing it. Asked, verbatim,
-    # so the founder can answer and the request can proceed.
+    # ADR-0024 Decision 1 -- the admission boundary. Understanding happens
+    # BEFORE a mission exists, not inside it.
+    #
+    # This used to read `mission_service.start(text)`, which parsed intent
+    # *inside* the mission: an under-specified request became a mission,
+    # was refused, and the question came back wrapped in a `PlanRefusal`
+    # for this function to unwrap -- a question travelling as a planning
+    # failure, which is exactly the collapse ADR-0024 Decision 10 forbids.
+    # ADR-0024 §10 requires that a clarification-required Intent reach
+    # neither MissionService nor the Planner. Asking first is how.
+    #
+    # This root still decides nothing. `IntentLayer` decides whether the
+    # request is understood, and it is `mission_service`'s OWN instance --
+    # there is one Intent Layer in this process, not a second one wired
+    # up here.
+    intent_result = mission_service.intent_layer.parse(text)
+    if intent_result.needs_clarification:
+        # Clarification is not refusal, and it is not failure. The founder
+        # is asked, verbatim, so they can answer and the request proceeds.
+        question = intent_result.clarification.question
+        status.status = COMPLETED
+        status.message = question
+        return {"reply": question}
+
+    if intent_result.intent is None:
+        status.status = FAILED
+        status.message = _founder_refusal_sentence("the intent layer produced no intent")
+        return {"reply": status.message}
+
+    # A canonical, already-understood Intent -- goal, constraints, context,
+    # success criteria, and the agency the founder expressed. MissionService
+    # admits it without reinterpreting a word of it.
+    outcome = mission_service.start(intent_result.intent)
     refusal = outcome.refusal
-    if refusal is not None and getattr(refusal, "code", None) == "CLARIFICATION_REQUIRED":
-        question = getattr(refusal, "detail", None)
-        if question:
-            status.status = COMPLETED
-            status.message = question
-            return {"reply": question}
 
     # Not executable is not not-understood. `NO_STEPS` is the Planner's
     # own verdict, under `prompting.py` rule 6, that a provider looked at

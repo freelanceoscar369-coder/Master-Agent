@@ -125,13 +125,54 @@ class MissionService:
     memory: Any = None
     _counter: int = field(default=0, repr=False)
 
-    def start(self, objective: str, *, objective_id: str | None = None) -> MissionOutcome:
+    def start(
+        self, objective: Intent | str, *, objective_id: str | None = None
+    ) -> MissionOutcome:
         """Plan it, check it, submit it.
 
         Returns rather than raises for every expected failure: a founder
         typing an impossible objective at 22:13 must get a sentence, not a
         traceback.
+
+        ## Why this takes an `Intent` as well as a string
+
+        ADR-0024 Decision 1 makes this the canonical admission boundary:
+        the Planner may only be reached through here, and only with an
+        Intent that is already sufficiently understood. The production
+        path therefore resolves intent *before* calling — the founder
+        surface asks `IntentLayer` first, and a clarification-required
+        result never reaches this method at all, which is what ADR-0024
+        §10 requires ("MissionService = 0, Planner = 0").
+
+        Given an `Intent`, this method **does not reinterpret it**. It
+        does not re-parse the founder's language, does not touch `goal`,
+        `actor` or `beneficiary`, and invents no constraints. Whatever
+        the Intent Layer decided the founder meant survives this boundary
+        unchanged (ADR-0024 Decision 12).
+
+        The string form is retained for callers that hand over raw text
+        and have no Intent Layer of their own — the console path and a
+        large body of existing tests. It parses through the *same*
+        `intent_layer` instance, so there is one Intent Layer in the
+        system and one place agency is derived, never two.
         """
+        # An already-resolved Intent skips understanding entirely: it was
+        # understood before it got here, and re-deriving meaning from
+        # `goal` would be the "second parser" ADR-0024 Decision 13 forbids.
+        if isinstance(objective, Intent):
+            self._counter += 1
+            task_id = f"plan-{self._counter}"
+            # The understanding phase happened immediately upstream, in the
+            # Intent Layer. The event is published here anyway so the
+            # founder's phase timeline stays complete -- it describes the
+            # mission's lifecycle, not which class did the work, and a
+            # missing phase would read to the founder as a skipped step.
+            description = str(objective.context.get("raw_input") or objective.goal)
+            self._publish_phase(
+                EventType.MISSION_UNDERSTANDING_STARTED, task_id, objective_id, description
+            )
+            return self._admit(objective, task_id=task_id, objective_id=objective_id)
+
         text = objective.strip()
         self._counter += 1
         task_id = f"plan-{self._counter}"
@@ -180,6 +221,31 @@ class MissionService:
                     detail="",
                 ),
             )
+
+        return self._admit(intent, task_id=task_id, objective_id=objective_id, description=text)
+
+    # ---- admission ---------------------------------------------------
+
+    def _admit(
+        self, intent: Intent, *, task_id: str, objective_id: str | None,
+        description: str | None = None,
+    ) -> MissionOutcome:
+        """Everything downstream of understanding: plan, translate, submit.
+
+        One body, reached by both forms of `start()`, so an Intent handed
+        in by the founder surface and an Intent parsed here from raw text
+        follow byte-for-byte the same path to the Planner. Two bodies
+        would be two admission policies waiting to diverge.
+
+        `description` is the founder's own wording, carried for history,
+        reports and Memory -- provenance, not contract. When the caller
+        supplies an Intent it is recovered from `context["raw_input"]`,
+        falling back to `goal`. Nothing downstream of this line derives
+        *meaning* from it (ADR-0024 §7).
+        """
+        if description is None:
+            description = str(intent.context.get("raw_input") or intent.goal)
+        text = description
 
         self._publish_phase(EventType.MISSION_PLANNING_STARTED, task_id, objective_id, text)
         outcome = self.planner.plan(

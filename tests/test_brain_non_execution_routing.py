@@ -265,23 +265,30 @@ class TestClassF_GenuinelyAmbiguous:
     a question, and the advisory route must not swallow it."""
 
     def test_f_clarification_still_reaches_the_founder_verbatim(self):
-        outcome = _FakeOutcome(
-            accepted=False,
-            refusal=PlanRefusal(
-                code="CLARIFICATION_REQUIRED",
-                reason="ambiguous",
-                detail="What should the folder be called, and where should it go?",
-            ),
-        )
+        """The question comes from the REAL `IntentLayer` now, not from a
+        fabricated `CLARIFICATION_REQUIRED` refusal.
+
+        That refusal used to be how the question travelled: the request
+        became a mission, the mission was refused, and this function
+        unwrapped a question out of a planning failure. ADR-0024 Decision
+        1 moved the boundary earlier, so the fabricated refusal is
+        unreachable and the question is asked before a mission exists.
+        """
         status = ExecutionStatus()
         ladder = Ladder()
+        service = _FakeMissionService(_FakeOutcome(accepted=True, objective_id="never"))
         reply = kd._submit_objective(
-            _FakeMissionService(outcome), _FakeRuntime(),
+            service, _FakeRuntime(),
             _FakeMissionControl([_FakeObjective(complete=True)], _FakeFounderState()),
             status, "Create a folder", timeout_seconds=1.0, reasoning_runner=ladder,
         )["reply"]
 
-        assert reply == "What should the folder be called, and where should it go?"
+        assert reply == "What should the folder be called?"
+        assert service.started_with is None, (
+            "an under-specified request became a mission -- ADR-0024 §10 "
+            "requires MissionService = 0 and Planner = 0 when clarification "
+            "is required"
+        )
         assert ladder.calls == [], (
             "an ambiguous request was reasoned about instead of asked about -- "
             "clarification means 'I don't know enough about what you want', "

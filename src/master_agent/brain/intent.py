@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from master_agent.brain.agency import roles
 from master_agent.planner.plan import Intent
 
 
@@ -135,18 +136,55 @@ class IntentLayer:
         # Try exact patterns first
         for pattern, handler in self._patterns:
             if pattern in text.lower():
-                return handler().parse(text)
+                return self._with_roles(handler().parse(text), text)
 
-        # Fallback: generic intent for any input (allows Planner to handle it)
-        return IntentResult(
-            intent=Intent(
-                goal=text,
-                constraints=[],
-                context={"raw_input": text},
-                success_criteria=[f"Objective completed: {text}"],
+        # Fallback: generic intent for any input (allows Planner to handle
+        # it). ADR-0024 Decision 3: lexical unfamiliarity is not semantic
+        # ambiguity. That this layer holds no pattern for a sentence is a
+        # fact about this layer's vocabulary, not about whether the founder
+        # was clear -- so unmatched-but-clear input travels on rather than
+        # becoming an interrogation.
+        #
+        # `success_criteria` is deliberately EMPTY here, where it used to
+        # hold `f"Objective completed: {text}"`. That echoed the prompt back
+        # as though it were a criterion: it named nothing checkable, and
+        # Verification (§10) cannot compare observed reality against a
+        # restatement of the request. ADR-0024 §8 -- preserve uncertainty
+        # rather than invent a criterion. The typed parsers above, which
+        # know what they parsed, still state real ones ("Folder 'Research'
+        # exists at Desktop").
+        return self._with_roles(
+            IntentResult(
+                intent=Intent(
+                    goal=text,
+                    constraints=[],
+                    context={"raw_input": text},
+                    success_criteria=[],
+                ),
+                raw_input=text,
             ),
-            raw_input=text,
+            text,
         )
+
+    @staticmethod
+    def _with_roles(result: IntentResult, text: str) -> IntentResult:
+        """Stamp derived agency onto whatever a parser produced.
+
+        Applied HERE rather than inside each of the twelve parsers: agency
+        is a property of the founder's sentence, not of which action the
+        sentence happened to name, so deriving it once at the one entry
+        point keeps a single implementation and makes it impossible for a
+        new parser to be added without it.
+
+        A clarification result carries no `Intent` to stamp and is returned
+        untouched -- there is no agency to preserve on a question.
+        """
+        if result.intent is None:
+            return result
+        actor, beneficiary = roles(text)
+        result.intent.actor = actor
+        result.intent.beneficiary = beneficiary
+        return result
 
     def clarify(self, original: str, answer: str) -> IntentResult:
         """Process a clarification answer and re-parse.
