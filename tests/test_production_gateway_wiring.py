@@ -195,11 +195,20 @@ class TestVerificationSupportIsStatedNotGuessed:
     def test_desktop_input_capabilities_are_not_claimed(self):
         from master_agent.desktop.gateway import supports
 
-        for capability in ("launch_application", "focus_window", "close_window"):
+        for capability in ("launch_application", "close_application",
+                           "focus_window", "bring_to_front"):
             assert supports(capability)
 
         # No generic read-only postcondition exists for these.
-        for capability in ("desktop_click", "desktop_press_key", "execute_command"):
+        #
+        # `close_window` was briefly claimed here and should not have been:
+        # the payload names an application while execution resolves a
+        # window handle internally, so afterwards -- without reading the
+        # Action's own report -- "the intended window closed and a sibling
+        # remains" cannot be told apart from "the intended window is still
+        # open". See `test_desktop_verification_semantics.py`.
+        for capability in ("desktop_click", "desktop_press_key",
+                           "execute_command", "close_window"):
             assert not supports(capability)
 
     def test_an_unsupported_capability_yields_no_evidence(self):

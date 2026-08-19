@@ -95,7 +95,7 @@ Independent read-only observation sources already in the Desktop package:
 | `close_application` | `CloseApplicationAction` | `ProcessExecutive.is_running` | **YES** (absence) |
 | `focus_window` | `VerifiedFocusWindowAction` | `WindowManager.active` | **YES** |
 | `bring_to_front` | `VerifiedBringToFrontAction` | `WindowManager.active` | **YES** |
-| `close_window` | `CloseWindowAction` | `WindowManager.locate` | **YES** (absence) |
+| `close_window` | `CloseWindowAction` | `WindowManager.locate` | **NO** — the payload names an application while execution resolves a handle internally; afterwards a closed window is indistinguishable from a sibling window of the same application |
 | `desktop_observe` | `ObserveDesktopAction` | `capture_evidence` | NO — the effect *is* the observation; no separate postcondition |
 | `find_target` | `FindTargetAction` | `capture_evidence` | NO — returns a locator; nothing changes |
 | `read_text` | `ReadWindowTextAction` | UIA text read | NO — query |
@@ -106,7 +106,7 @@ Independent read-only observation sources already in the Desktop package:
 | `open_file` / `open_folder` | `desktop.actions` | `WindowManager` | NO — which window is app-specific |
 | `is_running`, `is_installed`, `get_version`, `list_*` | `desktop.actions` | n/a | NO — queries |
 
-**5 of 19 verifiable.** The rest return `None` — not a fabricated `MATCHED`, and never a
+**4 of 19 verifiable.** The rest return `None` — not a fabricated `MATCHED`, and never a
 fallback to the Planner's text-shaped checks.
 
 ---
@@ -117,7 +117,7 @@ fallback to the Planner's text-shaped checks.
 |---|---|---|
 | **Filesystem** (14) | `create_folder`, `write_file`, `append_file`, `copy_file`, `move_file`, `rename_file`, `delete_file`, `delete_folder`, `workspace_bootstrap` — **9** | `read_file`, `list_directory`, `search_files`, `file_exists`, `directory_exists` — **5 queries** |
 | **Browser** (9) | `open_browser_session`, `navigate`, `observe_browser`, `close_browser_session` — **4** | `click`, `type_text`, `scroll`, `press_key`, `wait_for_selector` — **5** |
-| **Desktop** (19) | `launch_application`, `close_application`, `focus_window`, `bring_to_front`, `close_window` — **5** | 14 |
+| **Desktop** (19) | `launch_application`, `close_application`, `focus_window`, `bring_to_front` — **4** | 15 |
 
 Exact **content** verification exists only for `write_file`. `append_file` is deliberately
 excluded: the finished file is prior content plus this step's, and this layer never saw
@@ -184,7 +184,7 @@ no second Worker, no resurrection of the old `DesktopObserver` as a primary path
 | Desktop Execution | **WIRED** |
 | Desktop V2 Knowledge | **WIRED** — `intelligence/`, `app_knowledge_bridge`, `capture_evidence` |
 | Desktop Interaction Layer | **WIRED** — `actions_interaction` backs the interaction capabilities |
-| Desktop Verification | **PARTIAL** — 5/19 |
+| Desktop Verification | **PARTIAL** — 4/19 |
 | Evidence → Mission State | **WIRED** — `dispatcher.task_completed` sets `task.evidence_id` |
 | Evidence → Persistence | **WIRED** — `PlanRecord.verdict` / `.evidence_id`, `verified` = verdict is matched |
 | Evidence → Reporter | **NOT WIRED** — the Founder sentence is composed from `state.result`; the code already says so: *"Naming the artifact a multi-step mission produced needs evidence the surface is not currently given"* |
@@ -245,7 +245,7 @@ The 20 pre-existing failures are the known set (`test_desktop_executive` ×5,
 | FILESYSTEM EXECUTION PATH PRESERVED | **YES** |
 | FILESYSTEM CANONICAL VERIFICATION | **PARTIAL** — 9/14 |
 | BROWSER CANONICAL VERIFICATION | **PARTIAL** — 4/9 |
-| DESKTOP CANONICAL VERIFICATION | **PARTIAL** — 5/19 |
+| DESKTOP CANONICAL VERIFICATION | **PARTIAL** — 4/19 |
 | GLOBAL FAIL-CLOSED SAFE TO ENABLE | **NO** |
 | ALL BUILT PRODUCTION COMPONENTS WIRED INTO CANONICAL PATH | **NO** — Evidence → Reporter remains unwired |
 
@@ -260,3 +260,13 @@ The 20 pre-existing failures are the known set (`test_desktop_executive` ×5,
 ---
 
 **STOP.** Medium FMEA not started, per §17.
+
+
+---
+
+## Correction (superseded by `REPORT_DESKTOP_VERIFICATION_CORRECTNESS.md`)
+
+This report stated **Desktop Verification = 5/19** and listed `close_window`
+as verifiable. Both were wrong, along with three semantic defects in the
+adapter itself. Corrected to **4/19**; see the Desktop Verification
+Correctness report for the defects and their mutation proofs.
