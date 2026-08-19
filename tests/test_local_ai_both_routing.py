@@ -104,7 +104,10 @@ class TestNoReasoningForADeterministicObjective:
     @pytest.mark.parametrize("text", [
         "Create a folder called KalpavrikshaLiveTest3 in Documents",
         "Create a folder called Research on my Desktop",
-        "Create a folder called Notes",
+        # A location is founder-required now, so a complete request names
+        # one. An incomplete request never reaches the Planner at all --
+        # `TestNothingRunsWhileTheIntentIsIncomplete` covers that.
+        "Create a folder called Notes on Desktop",
     ])
     def test_no_provider_is_contacted(self, catalogue, mode, text):
         planner = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=mode)
@@ -128,13 +131,25 @@ class TestNoReasoningForADeterministicObjective:
         """`objective_from_plan()` rejects a step with no expectation, and
         Verification would have nothing to compare against."""
         planner = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=BOTH)
-        step = planner.plan(intent_for("Create a folder called Research")).plan.steps[0]
+        step = planner.plan(
+            intent_for("Create a folder called Research on Desktop")
+        ).plan.steps[0]
         assert step.expected_outcome is not None
 
-    def test_an_unstated_location_is_still_not_invented(self, catalogue):
+    def test_the_planner_passes_the_founders_location_through_untouched(self, catalogue):
+        """Superseded premise. This used to assert that an unstated
+        location stayed absent from the payload -- true then, and
+        unreachable now: an Intent without a location never gets admitted,
+        so the Planner only ever sees one the founder resolved.
+
+        What still matters is that the Planner does not substitute its
+        own. Documents must arrive as Documents.
+        """
         planner = Planner(runner=ExplodingRunner(), catalogue=catalogue, mode=BOTH)
-        step = planner.plan(intent_for("Create a folder called Research")).plan.steps[0]
-        assert "location" not in step.payload
+        step = planner.plan(
+            intent_for("Create a folder called Research in Documents")
+        ).plan.steps[0]
+        assert step.payload["location"] == "Documents"
         assert "Desktop" not in str(step.payload)
 
 
@@ -162,7 +177,7 @@ class TestModes:
         runner = CountingRunner()
         planner = Planner(runner=runner, catalogue=catalogue, mode=BOTH)
 
-        planner.plan(intent_for("Create a folder called Research"))
+        planner.plan(intent_for("Create a folder called Research on Desktop"))
         assert runner.calls == 0, "BOTH reached a provider for a local-solvable goal"
 
         planner.plan(intent_for("Learn trading"))
@@ -199,7 +214,7 @@ class TestModes:
     def test_an_unwired_switch_behaves_as_both(self, catalogue):
         planner = Planner(runner=ExplodingRunner(), catalogue=catalogue)
         assert planner.mode() == DEFAULT_MODE == BOTH
-        assert planner.plan(intent_for("Create a folder called Research")).plan
+        assert planner.plan(intent_for("Create a folder called Research on Desktop")).plan
 
 
 class TestModeVocabulary:

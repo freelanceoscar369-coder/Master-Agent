@@ -68,7 +68,10 @@ class TestIncompleteFolderRequestsAreClarified:
         assert "project" in result.clarification.question.lower()
 
     def test_a_complete_request_is_not_clarified(self):
-        result = IntentLayer().parse("Create a folder called Research")
+        """Complete now means BOTH founder-owned fields: what it is called
+        and where it goes. A name alone is no longer a complete request --
+        see `test_create_folder_intent_completeness.py`."""
+        result = IntentLayer().parse("Create a folder called Research on Desktop")
         assert not result.needs_clarification
         assert result.intent is not None
 

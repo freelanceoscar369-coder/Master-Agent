@@ -192,6 +192,7 @@ class IntentLayer:
         original: str,
         answer: str,
         question: ClarificationQuestion | None = None,
+        supplied: Mapping[str, str] | None = None,
     ) -> IntentResult:
         """Resolve a pending clarification with the founder's answer.
 
@@ -229,7 +230,18 @@ class IntentLayer:
         nothing.
         """
         if question is not None and question.key:
-            result = self.parse(original, supplied={question.key: answer})
+            # Answers from EARLIER rounds first, then this one. An
+            # objective that needs two fields cannot be resolved from the
+            # original sentence plus a single reply: re-parsing "Create a
+            # folder" with only `{"location": "Desktop"}` loses the name
+            # given a turn earlier. `supplied` carries what is already
+            # resolved so each round adds a field rather than replacing
+            # the set. The founder's original sentence is still what gets
+            # re-parsed, so anything they stated themselves continues to
+            # win over anything reconstructed.
+            answers: dict[str, str] = dict(supplied or {})
+            answers[question.key] = answer
+            result = self.parse(original, supplied=answers)
             if result.intent is not None:
                 # Provenance, not contract. The founder's ORIGINAL sentence
                 # stays the raw input -- overwriting it with "Research"
@@ -237,7 +249,11 @@ class IntentLayer:
                 # is recorded beside it, keyed, so an audit can tell the
                 # request from the reply to a question about it.
                 result.intent.context.setdefault("raw_input", original)
-                result.intent.context["clarified"] = {question.key: answer}
+                # Every answer that built this Intent, not only the last
+                # one -- an audit reading `clarified` should see the whole
+                # resolution, and on a two-round objective the last answer
+                # alone explains neither the folder's name nor its place.
+                result.intent.context["clarified"] = dict(answers)
             return result
         combined = f"{original} {answer}".strip()
         return self.parse(combined)
@@ -365,22 +381,58 @@ class CreateFolderIntent(BaseIntentParser):
                 raw_input=text,
             )
 
-        # No location is NOT the same as location "Desktop". The Intent
-        # Layer used to write `location = match.group(2) or "Desktop"`,
-        # which is product policy living in the Brain -- and it is policy
-        # the action already owns: `CreateFolderAction` publishes
-        # `location` as optional with its own default, and its `run()`
-        # falls back to that default when the argument is absent. So an
-        # unstated location is simply left unstated here, and the action
-        # contract applies its own default downstream. Nothing is invented,
-        # and the default lives in exactly one place.
-        context: dict[str, Any] = {"folder_name": name}
-        constraints: list[str] = []
-        if location is not None:
-            context["location"] = location
-            constraints.append(f"Location: {location}")
+        # WHERE is Founder-owned information, exactly as WHAT-IT-IS-CALLED
+        # is, and an unstated location is now a question rather than a
+        # gap for something downstream to fill.
+        #
+        # It was not always. The Intent Layer correctly refused to write
+        # `location or "Desktop"` -- product policy does not belong in the
+        # Brain -- and left an unstated location unstated, on the reasoning
+        # that `CreateFolderAction` publishes its own default and applies
+        # it in `run()`. That reasoning is sound about DEFAULTS and wrong
+        # about MEANING, and the difference showed up live:
+        #
+        #     Onkar:  Create a folder.
+        #     Somesh: What should the folder be called?
+        #     Onkar:  Research
+        #     -> created on the Desktop
+        #
+        # Onkar never said Desktop. The action's default supplied a piece
+        # of the founder's meaning that the founder had not given, and it
+        # did so silently, because by then the Intent was already
+        # "complete" and nothing was left to ask.
+        #
+        # An action default answers "what should this argument be when a
+        # caller omits it" -- a question about an API. Founder intent asks
+        # "what did Onkar mean" -- a question about a person. The action
+        # keeps its default for its other callers (see
+        # `optional_parameters`); it simply no longer gets to complete a
+        # founder's sentence. Completeness is decided here, upstream, and
+        # is deliberately NOT derived from the capability schema: changing
+        # that default to Documents tomorrow must not change what Onkar is
+        # asked today.
+        if location is None:
+            location = self._answer(supplied, "location")
+        if location is None:
+            return IntentResult(
+                clarification=ClarificationQuestion(
+                    # Uses what is already known. "Where should I create
+                    # the Research folder?" reads as the same request
+                    # continuing; a generic "Please provide a location"
+                    # reads as a form. Deterministic string composition --
+                    # no model is asked to phrase a question this layer
+                    # already has all the words for.
+                    question=f"Where should I create the {name} folder?",
+                    key="location",
+                    required=True,
+                ),
+                raw_input=text,
+            )
 
-        where = f" at {location}" if location is not None else ""
+        context: dict[str, Any] = {"folder_name": name, "location": location}
+        constraints: list[str] = [f"Location: {location}"]
+
+        where = f" at {location}"
 
         # The capability this sentence named, and its arguments under the
         # contract's OWN names (`name`, `location`) rather than this
@@ -394,9 +446,11 @@ class CreateFolderIntent(BaseIntentParser):
         # without asking a provider to rediscover a mapping this parser
         # already performed. Whether that capability is registered, and
         # whether its contract is satisfied, remains the Planner's call.
-        payload: dict[str, Any] = {"name": name}
-        if location is not None:
-            payload["location"] = location
+        # Both fields, always. `location` is no longer conditional here:
+        # execution is not reached until the founder has resolved it, so
+        # the capability is always called with an explicit founder-owned
+        # location and never falls through to its own default.
+        payload: dict[str, Any] = {"name": name, "location": location}
 
         return IntentResult(
             intent=Intent(

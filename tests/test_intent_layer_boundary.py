@@ -71,15 +71,24 @@ class TestMissingRequiredInformationClarifies:
 
 
 class TestOptionalInformationUsesTheActionsOwnDefault:
-    def test_an_unstated_location_is_left_unstated(self):
-        """Not the same as defaulting it here. `CreateFolderAction`
-        publishes `location` as optional and its `run()` applies the
-        default, so the Intent Layer omits it rather than writing product
-        policy into the Brain."""
-        intent = parse("Create a folder called Research").intent
-        assert intent is not None
-        assert intent.context["folder_name"] == "Research"
-        assert "location" not in intent.context
+    def test_an_unstated_location_is_asked_about_not_defaulted(self):
+        """SUPERSEDED CONTRACT. This asserted that an unstated location is
+        left unstated, on the reasoning that `CreateFolderAction` owns the
+        default and the Brain should not write product policy.
+
+        That reasoning was right about where a DEFAULT belongs and wrong
+        about what completes founder MEANING, and the gap showed up live:
+        Onkar said "Create a folder", was asked only for a name, answered
+        "Research", and got a folder on the Desktop he had never named.
+        The action's default had silently completed his sentence.
+
+        Location is now founder-required, so an unstated one is a question
+        rather than an omission. The action keeps its default for its
+        other callers -- proven by the test below, which is unchanged.
+        """
+        result = parse("Create a folder called Research")
+        assert result.intent is None, "an unstated location must not yield an admissible Intent"
+        assert result.clarification.key == "location"
 
     def test_the_action_still_supplies_the_default_downstream(self):
         """The default did not disappear -- it moved to the one place
@@ -112,9 +121,15 @@ class TestClarificationResolution:
         layer = IntentLayer()
         assert layer.parse("Create a folder").needs_clarification
 
+        # The rejoin form now lands on the location question rather than a
+        # finished Intent -- location became founder-required. What this
+        # test is about is unchanged: the NAME must come through clean.
+        # The question quotes it back, which is where a polluted value
+        # would show ("Where should I create the -- Research folder?").
         resolved = layer.clarify("Create a folder called", "Research")
-        assert not resolved.needs_clarification
-        assert resolved.intent.context["folder_name"] == "Research"
+        assert resolved.needs_clarification
+        assert resolved.clarification.key == "location"
+        assert resolved.clarification.question == "Where should I create the Research folder?"
 
     def test_the_resolution_loop_has_no_production_caller_yet(self):
         """Documented gap, asserted so it cannot be forgotten.

@@ -237,13 +237,25 @@ class TestSuccessCriteriaAndDefaults:
         assert "Location: Documents" in intent.constraints
 
     def test_a_downstream_default_is_not_recorded_as_a_founder_instruction(self):
-        """*"Create a folder called Research"* states no location. The
-        action contract defaults it; the Intent must not claim the founder
-        asked for that default."""
-        intent = IntentLayer().parse("Create a folder called Research").intent
-        assert "location" not in intent.context
-        assert intent.constraints == []
-        assert "Desktop" not in str(intent.context)
+        """*"Create a folder called Research"* states no location, and the
+        Intent must never claim the founder asked for one they did not.
+
+        The way that is honoured has changed. It used to mean the Intent
+        stayed silent and `CreateFolderAction` supplied its own default --
+        which put the default in the founder's mouth one layer later, and
+        did: Onkar was given a Desktop folder he never named. Now an
+        unstated location is asked about, so there is no Intent to
+        misrecord until he has answered.
+        """
+        result = IntentLayer().parse("Create a folder called Research")
+        assert result.intent is None
+        assert result.clarification.key == "location"
+
+        # And once he answers, the constraint records HIS words.
+        resolved = IntentLayer().parse("Create a folder called Research in Documents").intent
+        assert resolved.context["location"] == "Documents"
+        assert resolved.constraints == ["Location: Documents"]
+        assert "Desktop" not in str(resolved.context)
 
 
 # =========================================================================

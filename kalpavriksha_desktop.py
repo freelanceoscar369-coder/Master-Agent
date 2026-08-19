@@ -609,6 +609,12 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                 options=tuple(pending.options),
                 required=pending.required,
             ),
+            # What the founder resolved in EARLIER rounds. Without it a
+            # second question silently discards the first answer: "Create
+            # a folder" re-parsed with only `{"location": "Desktop"}` has
+            # no name in it, so the founder would be asked for the name
+            # they had already given.
+            supplied=dict(getattr(pending, "supplied", {}) or {}),
         )
         # The objective under way is still the founder's ORIGINAL request.
         # Reporting the answer as the objective would lose what they asked
@@ -632,12 +638,20 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         status.status = AWAITING_CLARIFICATION
         status.objective = objective
         status.message = question.question
+        # Carry every answer so far, plus the one just given, into the
+        # next question. This is the same logical Intent being resolved
+        # field by field -- the objective and the clarification thread are
+        # unchanged -- not a new objective built out of replies.
+        resolved: dict[str, str] = dict(getattr(pending, "supplied", {}) or {}) if pending else {}
+        if pending is not None and pending.key:
+            resolved[pending.key] = text
         status.pending_clarification = PendingClarification(
             question=question.question,
             key=question.key,
             objective=objective,
             options=tuple(question.options),
             required=question.required,
+            supplied=resolved,
         )
         return _founder_reply(status, question.question,
                               interaction_type="clarification_question")

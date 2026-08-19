@@ -113,6 +113,23 @@ class PendingClarification:
     #: `mission_control/approvals.py`), so nothing new is introduced but
     #: the name.
     clarification_id: str = field(default_factory=lambda: uuid4().hex[:8])
+    #: Answers the founder has ALREADY given for this same logical
+    #: objective, keyed by `ClarificationQuestion.key`.
+    #:
+    #: One clarification round could always be resolved without this,
+    #: because `clarify()` re-parses the founder's original sentence and
+    #: only the single missing field came from the answer. Two rounds
+    #: could not. "Create a folder" needs both a name and a location, and
+    #: the original sentence contains neither, so on the second round the
+    #: first answer had nowhere to live -- re-parsing "Create a folder"
+    #: with `{"location": "Desktop"}` loses the name the founder gave a
+    #: turn earlier, and the layer would ask for it again.
+    #:
+    #: So resolved fields accumulate here and travel with the question.
+    #: This is still one logical Intent being progressively resolved --
+    #: the objective, the raw input and the clarification correlation are
+    #: unchanged -- not a second Intent built from replies.
+    supplied: dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -121,6 +138,7 @@ class PendingClarification:
             "key": self.key,
             "options": list(self.options),
             "required": self.required,
+            "supplied": dict(self.supplied),
         }
 
 

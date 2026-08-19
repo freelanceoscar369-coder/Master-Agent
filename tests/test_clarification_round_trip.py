@@ -137,12 +137,27 @@ class TestA_BasicFolderClarification:
         assert surface.status.status not in TERMINAL_STATUSES
         assert not surface.status.terminal_state
 
+    def test_the_location_is_asked_for_before_anything_is_admitted(self):
+        """The founder requirement this suite gained: a name alone does
+        not finish a folder request. Onkar said "Create a folder" and
+        "Research" -- he never said where, and nothing may run until he
+        does."""
+        surface = Surface()
+        surface.say("Create a folder")
+        reply = surface.say("Research")
+
+        assert reply == "Where should I create the Research folder?"
+        assert surface.admissions == [], "MissionService was entered without a location"
+        assert surface.planner.calls == [], "the Planner was called without a location"
+        assert surface.pending is not None
+
     def test_the_answer_resumes_the_same_objective(self):
         surface = Surface()
         surface.say("Create a folder")
         first_id = surface.pending.clarification_id
 
         surface.say("Research")
+        surface.say("Desktop")
 
         assert len(surface.admissions) == 1, "the answer did not reach MissionService"
         assert len(surface.planner.calls) == 1, "the answer did not reach the Planner"
@@ -157,21 +172,26 @@ class TestA_BasicFolderClarification:
         surface = Surface()
         surface.say("Create a folder")
         surface.say("Research")
+        surface.say("Desktop")
 
         assert len(surface.admissions) == 1
         goals = [i.goal for i in surface.admissions]
         assert "Research" not in goals, "the answer was admitted as its own mission"
+        assert "Desktop" not in goals, "the location answer became its own mission"
 
     def test_the_pending_question_is_cleared_once_answered(self):
         surface = Surface()
         surface.say("Create a folder")
         surface.say("Research")
+        assert surface.pending is not None, "still missing the location"
+        surface.say("Desktop")
         assert surface.pending is None
 
     def test_the_objective_reported_is_the_original_request(self):
         surface = Surface()
         surface.say("Create a folder")
         surface.say("Research")
+        surface.say("Desktop")
         assert surface.status.objective == "Create a folder"
 
 
@@ -183,12 +203,16 @@ class TestA_BasicFolderClarification:
 class TestB_ClarifiedEqualsDirect:
 
     def test_clarified_and_direct_produce_the_same_intent(self):
+        """Two rounds of questions must land in the same place as saying
+        it all at once. If they diverge, clarification is building a
+        different Intent rather than resolving the founder's."""
         surface = Surface()
         surface.say("Create a folder")
         surface.say("Research")
+        surface.say("Desktop")
         clarified = surface.admissions[0]
 
-        direct = IntentLayer().parse("Create a folder called Research").intent
+        direct = IntentLayer().parse("Create a folder called Research on Desktop").intent
 
         assert clarified.goal == direct.goal
         assert clarified.constraints == direct.constraints
@@ -196,11 +220,14 @@ class TestB_ClarifiedEqualsDirect:
         assert clarified.actor == direct.actor
         assert clarified.beneficiary == direct.beneficiary
         assert clarified.context["folder_name"] == direct.context["folder_name"]
+        assert clarified.context["location"] == direct.context["location"]
+        assert clarified.payload == direct.payload
 
     def test_the_clarified_intent_keeps_its_agency(self):
         surface = Surface()
         surface.say("Create a folder")
         surface.say("Research")
+        surface.say("Desktop")
         assert surface.admissions[0].actor == SYSTEM
 
 
@@ -210,27 +237,43 @@ class TestB_ClarifiedEqualsDirect:
 
 
 class TestC_NoInventedDefaults:
+    """The principle is unchanged and its consequence has moved.
 
-    def test_an_unstated_location_is_not_invented_by_clarifying(self):
-        """The founder said nothing about where. `CreateFolderAction`
-        owns that default, and the Intent must not claim they asked for
-        it -- a clarification answer changes nothing about that."""
+    Nothing may invent where a folder goes. Previously that meant the
+    Intent stayed silent about location and `CreateFolderAction` applied
+    its default downstream -- which is invention with an extra step, as
+    the live session showed: Onkar got a Desktop folder he never asked
+    for. Now not-inventing means *asking*.
+    """
+
+    def test_an_unstated_location_is_asked_for_rather_than_invented(self):
         surface = Surface()
         surface.say("Create a folder")
         surface.say("Research")
+
+        assert surface.admissions == [], "admitted without a location"
+        assert surface.pending is not None
+        assert surface.pending.key == "location"
+
+    def test_the_admitted_intent_carries_only_what_the_founder_said(self):
+        surface = Surface()
+        surface.say("Create a folder")
+        surface.say("Research")
+        surface.say("Documents")
         admitted = surface.admissions[0]
 
-        assert "location" not in admitted.context
-        assert admitted.constraints == []
-        assert "Desktop" not in str(admitted.context)
+        assert admitted.context["location"] == "Documents"
+        assert "Desktop" not in str(admitted.context), "a default overrode the founder"
+        assert admitted.payload["location"] == "Documents"
 
-    def test_only_required_information_is_asked_about(self):
-        """A complete command asks nothing, even though `location` was
-        omitted -- optional fields are not clarification material."""
+    def test_a_request_missing_only_the_location_is_still_asked_about(self):
+        """Superseded: this asserted that a name-only command asks
+        nothing, because location was optional. It is required now."""
         surface = Surface()
         surface.say("Create a folder called Research")
-        assert surface.pending is None
-        assert len(surface.admissions) == 1
+        assert surface.pending is not None
+        assert surface.pending.key == "location"
+        assert surface.admissions == []
 
 
 # =========================================================================
@@ -273,7 +316,9 @@ class TestD_KnownInformationIsNotLost:
 
 class TestE_PlannerBlockedUntilResolved:
 
-    def test_zero_before_and_exactly_one_after(self):
+    def test_zero_until_every_required_field_is_resolved(self):
+        """The Planner is reached once, after the LAST missing field --
+        not after the first answer. Two fields, two questions, one plan."""
         surface = Surface()
 
         surface.say("Create a folder")
@@ -281,6 +326,10 @@ class TestE_PlannerBlockedUntilResolved:
         assert len(surface.admissions) == 0
 
         surface.say("Research")
+        assert len(surface.planner.calls) == 0, "planned before the location was known"
+        assert len(surface.admissions) == 0, "admitted before the location was known"
+
+        surface.say("Desktop")
         assert len(surface.planner.calls) == 1
         assert len(surface.admissions) == 1
 
@@ -385,6 +434,7 @@ class TestClarificationTransport:
         surface = Surface()
         surface.say("Create a folder")
         surface.say(r"D:\Projects\Research")
+        surface.say("Desktop")
         assert surface.admissions[0].context["folder_name"] == r"D:\Projects\Research"
 
     def test_each_question_carries_its_own_identity(self):
@@ -422,9 +472,9 @@ class TestIntentLayerClarifyIsTheProductionPath:
         calls = []
 
         class Recording(IntentLayer):
-            def clarify(self, original, answer, question=None):
+            def clarify(self, original, answer, question=None, supplied=None):
                 calls.append((original, answer, question))
-                return super().clarify(original, answer, question)
+                return super().clarify(original, answer, question, supplied)
 
         surface = Surface()
         surface.service.intent_layer = Recording()
@@ -450,15 +500,26 @@ class TestIntentLayerClarifyIsTheProductionPath:
             "key-based fix may no longer be what is being exercised"
         )
 
+        # The key-based fill is what is under test, and it worked: the
+        # name was taken from the answer rather than from prose. The
+        # request is not finished, because a folder also needs a place --
+        # and the question proves the name landed.
         keyed = layer.clarify("Create a folder", "Research", question)
-        assert not keyed.needs_clarification
-        assert keyed.intent.context["folder_name"] == "Research"
+        assert keyed.needs_clarification
+        assert keyed.clarification.key == "location"
+        assert "Research" in keyed.clarification.question
+
+        finished = layer.clarify("Create a folder", "Desktop", keyed.clarification,
+                                 supplied={"folder_name": "Research"})
+        assert not finished.needs_clarification
+        assert finished.intent.context["folder_name"] == "Research"
 
     def test_the_two_argument_form_still_works(self):
         """Callers with no question to hand keep the old behaviour."""
         result = IntentLayer().clarify("Create a folder called", "Research")
-        assert not result.needs_clarification
-        assert result.intent.context["folder_name"] == "Research"
+        assert result.needs_clarification, "the rejoin no longer resolves the name"
+        assert result.clarification.key == "location"
+        assert result.clarification.question == "Where should I create the Research folder?"
 
 
 # =========================================================================
@@ -497,6 +558,7 @@ class TestPendingConversationPolicy:
         surface = Surface()
         surface.say("Create a folder")
         surface.say("What's the weather today?")
+        surface.say("Desktop")
 
         assert len(surface.admissions) == 1
         assert surface.admissions[0].context["folder_name"] == "What's the weather today?"
@@ -514,22 +576,25 @@ class TestPendingConversationPolicy:
             assert reply == "What should the folder be called?"
             assert surface.pending is not None
         surface.say("Research")
+        surface.say("Desktop")
         assert len(surface.planner.calls) == 1
 
 
 class TestMultipleMissingFields:
     """§15 audit, recorded as executable fact rather than prose.
 
-    No parser in this layer raises two sequential questions today: each
-    returns at most one `ClarificationQuestion`, and the parsers that need
-    two values ask for both in one question under a composite key
-    (`rename_details`, `copy_details`, `move_details`). So there is no
-    interview engine to build and none is built.
+    Each parse returns at most ONE `ClarificationQuestion`; parsers
+    needing two values either ask for both under a composite key
+    (`rename_details`, `copy_details`, `move_details`) or ask in
+    sequence. So there is still no interview engine and none is built.
 
-    What the loop DOES support, because it re-evaluates the whole original
-    sentence on every answer, is ask -> answer -> re-evaluate -> ask again.
-    That is the mechanism a second required field would use if one were
-    ever added, and it is exercised by the blank-answer path above.
+    `CreateFolderIntent` is the sequential case, and it uses exactly the
+    mechanism this note said a second required field would use if one
+    were ever added: the loop re-evaluates the whole original sentence on
+    every answer, so ask -> answer -> re-evaluate -> ask again resolves
+    one logical Intent field by field. Answers accumulate on
+    `PendingClarification.supplied`; without that the second round would
+    re-parse the original sentence and lose the first answer.
     """
 
     def test_one_request_raises_at_most_one_question_at_a_time(self):
