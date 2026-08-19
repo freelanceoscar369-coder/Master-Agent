@@ -177,7 +177,12 @@ SOMESH = "somesh"
 #: The founder's name when none was given. Generic on purpose — a boot
 #: sequence that guessed at a real name would be inventing the one fact
 #: C29 says Somesh must already know rather than ask for.
-DEFAULT_FOUNDER_NAME = "Founder"
+#: The founder this edition is built for. A founder decision, not a
+#: placeholder: Onkar is the founder, Somesh is the chief of staff he
+#: delegates to (`FounderIdentity.assistant_name`), and Kalpavriksha is
+#: the system Somesh operates. Overridable by `--founder-name` or
+#: `KALPAVRIKSHA_FOUNDER_NAME` for anyone else running this build.
+DEFAULT_FOUNDER_NAME = "Onkar"
 _NO_DOMAINS_WATCHED = (
     "no domain has been registered yet; vigilance has nothing to attest "
     "over until a founder connects a domain"

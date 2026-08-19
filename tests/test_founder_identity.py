@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from master_agent.founder_identity import (
+    FounderIdentity,
     DEFAULT_TRAITS,
     ForbiddenWording,
     FounderContext,
@@ -141,18 +142,40 @@ class TestFounderSession:
 
 
 class TestGreetingEngine:
-    def test_matches_the_brief_example(self):
+    def test_it_greets_the_founder_by_name_as_the_chief_of_staff(self):
+        """A founder decision supersedes C29's own example here.
+
+        The brief's greeting was "Good morning. I'm awake." -- correct in
+        cadence and addressed to nobody. `greet()` has always been handed
+        a `FounderIdentity` carrying both names and never read either, so
+        the founder was greeted by no one, by name, in their own product.
+
+        Two different people are named, and they are not interchangeable:
+        Onkar is the founder being addressed, Somesh is the chief of staff
+        speaking. "Good morning, Somesh" would greet the assistant as
+        though it were the founder.
+        """
         assert is_greeting("Good morning Somesh") is True
         reply = greet(identity(), ready_context(T_MORNING))
-        assert reply.startswith("Good morning.")
-        assert "I'm awake." in reply
+        assert reply.startswith("Good morning, ")
+        assert identity().founder_name in reply
+        assert f"{identity().assistant_name} here." in reply
         assert "Everything is ready." in reply
+
+    def test_a_generic_founder_name_is_not_spoken_aloud(self):
+        """"Good morning, Founder." is worse than no name. When identity is
+        unconfigured the greeting simply omits the address."""
+        anonymous = FounderIdentity(founder_name="Founder")
+        reply = greet(anonymous, ready_context(T_MORNING))
+        assert reply.startswith("Good morning.")
+        assert "Founder." not in reply.replace("Good morning.", "", 1)
+        assert "Somesh here." in reply
 
     def test_afternoon_and_evening_vary_the_opening(self):
         afternoon = greet(identity(), ready_context(T_EVENING.replace(hour=14)))
-        assert afternoon.startswith("Good afternoon.")
+        assert afternoon.startswith("Good afternoon, ")
         evening = greet(identity(), ready_context(T_EVENING))
-        assert evening.startswith("Good evening.")
+        assert evening.startswith("Good evening, ")
 
     def test_partial_readiness_is_reported_between_the_two_extremes(self):
         half_ready = FounderContext(

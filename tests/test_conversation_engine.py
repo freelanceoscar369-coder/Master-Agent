@@ -328,8 +328,13 @@ class TestResponseComposerGreetingAndContinuation:
     composer = ResponseComposer()
 
     def test_greeting_delegates_to_c29(self):
+        """Still C29's own `greet()` -- this composer adds no wording of
+        its own. The opening now carries the founder's name because the
+        greeting names both people (Onkar addressed, Somesh speaking), so
+        this asserts delegation rather than a fixed sentence."""
         reply = self.composer.greeting(identity(), context())
-        assert reply.startswith("Good morning.")
+        assert reply.startswith("Good morning")
+        assert "Somesh here." in reply
 
     def test_continuation_delegates_to_c29(self):
         conversation = ConversationMemory()
@@ -591,9 +596,12 @@ class TestResponsePipeline:
 class TestConversationEngine:
     def test_the_briefs_own_dialogue_end_to_end(self):
         eng = engine(coverage=complete_coverage(), environment_ready=True)
-        assert eng.reply("Good morning Somesh", moment=T0).reply == (
-            "Good morning. I'm awake. Everything is ready."
-        )
+        # C29's dialogue, updated for the founder decision that the
+        # greeting names both people: Onkar is greeted, Somesh speaks.
+        reply = eng.reply("Good morning Somesh", moment=T0).reply
+        assert reply.startswith("Good morning")
+        assert "Somesh here." in reply
+        assert "Everything is ready." in reply
 
     def test_activity_query_never_claims_calm_over_nothing_watched(self):
         eng = engine(coverage=empty_coverage())

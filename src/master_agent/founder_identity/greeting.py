@@ -69,7 +69,23 @@ def greet(identity: FounderIdentity, context: FounderContext) -> str:
         raise TypeError("greet takes a FounderContext")
 
     opening = _time_of_day_greeting(context.moment.hour)
-    sentence = f"{opening}. I'm awake. {_readiness_clause(context)}"
+    # Both names come from the identity this function is handed, and were
+    # simply never read: `greet()` has always taken a `FounderIdentity`
+    # and composed "Good morning. I'm awake." from the clock alone. The
+    # founder was greeted by nobody, by name, in their own product.
+    #
+    # Two distinct people are named here and they are not interchangeable:
+    # `founder_name` is the person being addressed, `assistant_name` is
+    # the chief of staff speaking. Reversing them ("Good morning, Somesh")
+    # would greet the assistant as though it were the founder.
+    #
+    # The assistant introduces itself only when there is a real name to
+    # introduce -- a generic fallback ("Founder") is addressed without the
+    # introduction rather than with an awkward one.
+    founder = identity.founder_name.strip()
+    assistant = identity.assistant_name.strip()
+    address = f"{opening}, {founder}" if founder and founder.lower() != "founder" else opening
+    sentence = f"{address}. {assistant} here. {_readiness_clause(context)}"
 
     lowered = sentence.lower()
     for phrase in FORBIDDEN_PHRASES:
