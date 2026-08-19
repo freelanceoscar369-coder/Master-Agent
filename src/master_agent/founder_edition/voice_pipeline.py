@@ -807,10 +807,40 @@ class VoicePipeline:
             logging.error(f'[STT_DIAG] Whisper exception: {exc}', exc_info=True)
         self._transcription_in_flight = False
         self._on_state(STATE_MUTED if self._muted else STATE_ARMED)
+
+        # MUTED means the founder's speech does not become a founder turn.
+        #
+        # `__audio_callback` already refuses to capture while muted, so the
+        # obvious path was covered. This is the one that was not: an
+        # utterance captured while live, transcribed on a worker thread
+        # over the following seconds, and emitted here -- by which time the
+        # founder may have muted. The line directly above reads `_muted` to
+        # set the mic label, so the canonical value was known at this exact
+        # point and simply not consulted; mute gated the display and
+        # nothing else.
+        #
+        # A packaged session showed the cost: ambient speech reached the
+        # conversation, an external reasoning provider, and the durable
+        # audit while the microphone read MUTED. Nothing executed, but the
+        # words left the machine.
+        #
+        # Checked HERE rather than in the callback that receives it,
+        # because this is where the pipeline -- the canonical owner of
+        # `_muted` -- decides whether an utterance is a founder turn. A
+        # guard in the surface would be a second opinion about a state it
+        # does not own.
+        #
+        # The utterance is still marked as sent, so un-muting cannot later
+        # flush a transcript the founder muted through.
         if text:
             if not getattr(self, '_transcript_sent_for_id', 0) == self._utterance_id:
                 self._transcript_sent_for_id = self._utterance_id
-                self._on_transcript(text)
+                if self._muted:
+                    logging.debug(
+                        "[STT_DIAG] transcript discarded: muted before transcription completed"
+                    )
+                else:
+                    self._on_transcript(text)
 
     # ---- speaking ---------------------------------------------------------
 
