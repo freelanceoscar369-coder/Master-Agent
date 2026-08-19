@@ -104,6 +104,142 @@ class Reporter:
 
         return template(mission, evidence_list, ctx)
 
+    def report_plan_record_outcome(
+        self,
+        record: Any,
+        context: ReportContext | None = None,
+    ) -> Report:
+        """Explain a finished mission from the authoritative `PlanRecord`.
+
+        The production entry point. `report_mission_outcome()` above is
+        typed against `mission_manager.Mission`, and building a synthetic
+        one from `PlanRecord` just to call it would give us two Mission
+        representations that can drift -- the same shape of mistake as the
+        launcher rebuilding `Evidence` out of an id. So this reads the
+        record the Runtime actually wrote.
+
+        ## Where the facts come from
+
+        Exact `Evidence` is recovered ONLY from `step.evidence`, the
+        canonical projection Verification produced. Never from
+        `evidence_id`, a verdict string, a capability name or a timestamp:
+        an id correlates a record, it does not describe an observation. A
+        step whose `evidence` is `None` is *unverified*, and that is
+        reported rather than filled in.
+
+        ## What it may and may not claim
+
+        Three different claims are kept apart:
+
+        1. **Execution** -- did the Action run?
+        2. **Step verification** -- did fresh observed reality match what
+           the Step asked for?
+        3. **Founder-outcome conformance** -- did the whole mission do what
+           Onkar meant?
+
+        There is Evidence for (2). There is no generic authority for (3)
+        yet, so every step matching is reported as *"all executed steps
+        were independently verified"* and never as *"your objective was
+        verified"*. Those are different sentences and only the first is
+        supported.
+        """
+        from master_agent.missions.history import COMPLETED, FAILED
+
+        ctx = context or ReportContext()
+        steps = list(getattr(record, "steps", ()) or ())
+
+        executed = [s for s in steps if getattr(s, "state", "") in (COMPLETED, FAILED)]
+        evidence_by_step: list[tuple[Any, Evidence | None]] = []
+        for step in executed:
+            projection = getattr(step, "evidence", None)
+            recovered: Evidence | None = None
+            if isinstance(projection, dict):
+                try:
+                    recovered = Evidence.from_dict(projection)
+                except (KeyError, ValueError, TypeError):
+                    # A projection this build cannot read is missing
+                    # evidence, not an excuse to invent one.
+                    recovered = None
+            evidence_by_step.append((step, recovered))
+
+        verified = [e for _, e in evidence_by_step if e is not None and e.verdict is Verdict.MATCHED]
+        unverified = [s for s, e in evidence_by_step if e is None]
+        contradicted = [
+            e for _, e in evidence_by_step
+            if e is not None and e.verdict is not Verdict.MATCHED
+        ]
+
+        objective = getattr(record, "objective", "") or ""
+        state = getattr(record, "state", "")
+        total = len(executed)
+
+        if state == FAILED:
+            opening = "That didn't finish."
+            if objective:
+                # Punctuated, so the objective does not run into the
+                # sentence that follows it.
+                opening = f"{opening} {objective.rstrip('.')}."
+            lines = [opening]
+            if contradicted:
+                lines.append(
+                    f"{len(contradicted)} step(s) did not match what was expected."
+                )
+            if verified:
+                lines.append(f"{len(verified)} of {total} step(s) were verified before it stopped.")
+            title = "Mission failed"
+        else:
+            lines = ["Work finished."]
+            if total == 0:
+                lines.append("No steps were executed.")
+            elif unverified and verified:
+                lines.append(
+                    f"{len(verified)} of {total} steps were independently verified; "
+                    f"{len(unverified)} could not be independently verified."
+                )
+            elif unverified and not verified:
+                # The honest version of the old "done and checked".
+                lines.append(
+                    "I don't have independent verification for the executed steps."
+                )
+            elif contradicted:
+                lines.append(
+                    f"{len(verified)} of {total} steps were independently verified; "
+                    f"{len(contradicted)} did not match what was expected."
+                )
+            else:
+                lines.append(
+                    f"All {total} executed step(s) were independently verified."
+                )
+            title = "Mission completed"
+
+        if ctx.include_evidence_details and ctx.tone == ReportTone.DETAILED:
+            for step, evidence in evidence_by_step:
+                capability = getattr(step, "capability", "?")
+                if evidence is None:
+                    lines.append(f"  • {capability}: no independent verification")
+                else:
+                    lines.append(
+                        f"  • {capability}: {evidence.worker} reported "
+                        f"{evidence.verdict.value}"
+                    )
+
+        return Report(
+            title=title,
+            body=" ".join(lines) if ctx.tone == ReportTone.CONCISE else "\n".join(lines),
+            format=ctx.format,
+            metadata={
+                "plan_id": getattr(record, "plan_id", None),
+                "state": state,
+                "steps_executed": total,
+                "steps_verified": len(verified),
+                "steps_unverified": len(unverified),
+                "steps_contradicted": len(contradicted),
+                # Stated explicitly so no consumer can read verification
+                # coverage as a claim about the founder's objective.
+                "founder_outcome_conformance": "not_evaluated",
+            },
+        )
+
     def report_plan_result(
         self,
         objective: str,

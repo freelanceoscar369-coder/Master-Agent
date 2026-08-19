@@ -197,10 +197,17 @@ def test_an_accepted_objective_runs_until_complete_and_reports_the_result():
         mission_service, runtime, mission_control, ExecutionStatus(), "open chrome"
     )
 
-    # The reply now travels with the identifiers the interaction audit
-    # needs to join it to its mission, so this asserts the founder-facing
-    # text rather than the exact shape of the envelope carrying it.
-    assert result["reply"] == "example.com loaded; title matched."
+    # The reply travels with the identifiers the interaction audit needs to
+    # join it to its mission, so this asserts the founder-facing text
+    # rather than the shape of the envelope carrying it.
+    #
+    # SUPERSEDED VALUE. It used to be the last Task's output verbatim
+    # ("example.com loaded; title matched."). A completed mission is now
+    # explained by the Brain Reporter from the authoritative PlanRecord;
+    # this rig has no history, so the truthful fallback is returned rather
+    # than a task output standing in for a mission outcome.
+    assert result["reply"] != "example.com loaded; title matched."
+    assert "can't reconstruct" in result["reply"]
     assert "mission_id" in result and "status" in result
     assert runtime.run_once_calls >= 1
 
@@ -240,10 +247,24 @@ def test_a_browser_observation_result_gets_a_readable_sentence():
         mission_service, runtime, mission_control, ExecutionStatus(), "open chrome"
     )
 
-    assert result["reply"] == (
-        'Done — the page at https://example.com/ loaded with title "Example Domain".'
-    )
+    # SUPERSEDED SHAPE, SAME PROPERTY. The founder reply used to BE the
+    # last Task's output rendered into a sentence. It is now the Brain
+    # Reporter's account of the mission, read from the authoritative
+    # PlanRecord -- this rig has no history, so the truthful fallback is
+    # what comes back rather than a task output standing in for a mission.
+    #
+    # What the test was really protecting is unchanged and still asserted:
+    # a raw url/title dict must never reach the founder.
     assert "{" not in result["reply"]
+    assert "url" not in result["reply"]
+    assert "https://example.com/" not in result["reply"]
+
+    # The formatting helper still exists for anything that wants to render
+    # a last-Task result, and is exercised directly rather than through a
+    # path that no longer uses it.
+    assert kd._describe_result(
+        {"url": "https://example.com/", "title": "Example Domain"}, ""
+    ) == 'Done — the page at https://example.com/ loaded with title "Example Domain".'
 
 
 def test_a_non_browser_result_falls_back_to_its_own_string_form():
@@ -258,7 +279,12 @@ def test_a_non_browser_result_falls_back_to_its_own_string_form():
         mission_service, runtime, mission_control, ExecutionStatus(), "count something"
     )
 
-    assert result["reply"] == "42"
+    # SUPERSEDED. A bare Task output is not a mission summary, and this rig
+    # provides no PlanRecord, so the truthful fallback is returned instead
+    # of "42". The helper's own behaviour is asserted directly below.
+    assert result["reply"] != "42"
+    assert "can't reconstruct" in result["reply"]
+    assert kd._describe_result(42, "") == "42"
 
 
 def test_a_timeout_reports_honestly_rather_than_a_fabricated_success():

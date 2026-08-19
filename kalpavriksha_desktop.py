@@ -583,6 +583,40 @@ def _founder_reply(status, reply: str, *, interaction_type: str = "") -> dict:
     }
 
 
+def _mission_report(mission_service, objective_id: str | None) -> str:
+    """What the Brain's Reporter says about this mission, or "".
+
+    Terminal Founder messages used to be composed from `state.result` --
+    the most recently completed Task's output. That is a truthful thing to
+    call "the last task result" and an untruthful thing to call "the
+    mission outcome": a three-step browser mission ending in a cleanup
+    step reported `{"closed": true}` as though closing the browser were
+    what Onkar had asked for.
+
+    The authoritative record is the `PlanRecord` the Runtime wrote, with
+    the exact Evidence Verification produced now durable on each step. This
+    asks the already-wired Reporter to explain that, and returns "" when it
+    genuinely cannot -- the caller then says so plainly rather than
+    substituting a task output.
+    """
+    reporter = getattr(mission_service, "reporter", None)
+    history = getattr(mission_service, "history", None)
+    if reporter is None or history is None or not objective_id:
+        return ""
+    try:
+        record = history.get(objective_id)
+    except Exception:  # noqa: BLE001 -- reporting must not break a mission
+        logging.exception("could not read mission history for %s", objective_id)
+        return ""
+    if record is None:
+        return ""
+    try:
+        return reporter.report_plan_record_outcome(record).body
+    except Exception:  # noqa: BLE001
+        logging.exception("reporter failed for %s", objective_id)
+        return ""
+
+
 def _submit_objective(mission_service, runtime, mission_control, status, text: str,
                        timeout_seconds: float = 45.0, reasoning_runner=None) -> dict:
     """One founder objective, run to a terminal state, and a plain reply
@@ -809,8 +843,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         status.message = _founder_failure_sentence(joined)
         return _founder_reply(status, status.message)
     if state.progress >= 1.0:
+        # `state.result` is still recorded -- other consumers legitimately
+        # want the last Task result -- but it is no longer what the founder
+        # is told the MISSION did.
         status.result = state.result
-        status.message = _describe_result(state.result, status.objective or '')
+        status.message = _mission_report(mission_service, status.objective_id) or (
+            "The work finished, but I can't reconstruct a verified mission summary."
+        )
         return _founder_reply(status, status.message)
     # Waiting on the founder is not slowness. `AWAITING_APPROVAL` means
     # the plan is ready and held at the permission boundary until a human
@@ -825,15 +864,23 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # mission waiting on a human is not a slow mission -- the same
     # distinction the approval branch above already draws.
     #
-    # The result is spoken from what actually happened, so this cannot
-    # claim success for work that did not run: `state.result` is the
-    # Operator's own evidence, and Verification has already compared it
-    # against the Step's expected outcome by the time this event fires.
+    # The Reporter says what happened; this surface says what the founder
+    # is being asked to do next. That split is why the prompt is appended
+    # here rather than moved into the Brain.
+    #
+    # The comment that used to sit here claimed "Verification has already
+    # compared it against the Step's expected outcome by the time this
+    # event fires". It had not -- every gateway returned no Evidence at
+    # all -- and that belief is how Onkar was told "Done" for an empty
+    # folder. The sentence now comes from the mission record and the
+    # Evidence that actually exists, including when that Evidence is
+    # missing.
     if status.requires_founder_completion or status.status == AWAITING_FOUNDER_COMPLETION:
-        done = _describe_result(state.result, status.objective or "") if state.result else ""
+        done = _mission_report(mission_service, status.objective_id)
         status.message = (
-            f"{done} Ready for your review.".strip() if done
-            else "That's done and checked. Ready for your review."
+            f"{done} Ready for your review." if done
+            else "The work finished, but I can't reconstruct a verified "
+                 "mission summary. Ready for your review."
         )
         return _founder_reply(status, status.message)
     status.message = "That's taking longer than expected; still working on it."
