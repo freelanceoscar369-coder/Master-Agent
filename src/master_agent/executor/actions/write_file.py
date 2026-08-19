@@ -21,7 +21,24 @@ WRITE_FILE = "write_file"
 
 class WriteFileAction(Action):
     name = WRITE_FILE
-    description = "Write text content to a file in a known location."
+    # The Planner reads this line to decide both *whether* to use this
+    # capability and *how to fill its arguments*, and only argument NAMES
+    # are rendered alongside it (`planner/catalogue.py::signature`) -- the
+    # per-argument descriptions below are not. So the relationship between
+    # the two path arguments has to be stated here, or it is not stated to
+    # the model at all.
+    #
+    # Without it, a plan asked to put a file on the Desktop produced
+    # `location="Desktop"` AND `path="Desktop/KV_.../page_info.txt"`, and
+    # the two were applied one after the other: the file landed in a
+    # `Desktop` folder inside the Desktop while the folder the founder
+    # asked for stayed empty. Both steps reported success.
+    description = (
+        "Write text content to a file. 'location' names a known base "
+        "directory (Desktop, Documents, Downloads) and 'path' is relative "
+        "to it -- so with location 'Desktop', path is 'Notes/summary.txt', "
+        "never 'Desktop/Notes/summary.txt'. 'content' is the text to write."
+    )
     risk_tier = RiskTier.REVERSIBLE_WRITE
     permission_category = PermissionCategory.WRITE
     expected_result = (
@@ -38,6 +55,46 @@ class WriteFileAction(Action):
 
     def required_parameters(self) -> list[str]:
         return ["path"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """Publishes `location` and `content`, which this action has always
+        accepted and never advertised.
+
+        Without this the extracted capability contract carried
+        `inputs.closed = False` -- "optional arguments exist and are not
+        listed" -- so the Planner was never told either argument existed.
+        It still filled them, from the shape of the objective rather than
+        from a published contract, and it got the `path`/`location`
+        relationship wrong in exactly the way the class description above
+        now spells out.
+
+        `content` is optional rather than required because the action
+        genuinely accepts its absence: `parameters.get("content", "")`
+        writes an empty file, and an empty file is a legitimate thing to
+        ask for. Nothing new is introduced here -- this states what the
+        action already does.
+        """
+        return [
+            {
+                "name": "location",
+                "type": "string",
+                "description": (
+                    "Which known base directory the path is relative to: "
+                    + ", ".join(sorted(self._locations))
+                    + ". Omit it to use the default. Do not repeat this "
+                    "name at the start of 'path'."
+                ),
+                "default": "desktop",
+            },
+            {
+                "name": "content",
+                "type": "string",
+                "description": (
+                    "The exact text to write. Omit it to create an empty file."
+                ),
+                "default": "",
+            },
+        ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []

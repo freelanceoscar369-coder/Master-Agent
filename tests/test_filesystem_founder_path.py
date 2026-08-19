@@ -134,11 +134,38 @@ class TestFounderEditionRegistersFilesystem:
         assert "registry.register(filesystem_plugin)" in source
 
     def test_it_is_wired_through_every_seam_the_runtime_needs(self):
+        """Gateway, pre-grant loop and planner catalogue -- not just the
+        registry.
+
+        The gateway half was `assert "register_gateway(filesystem_plugin"
+        in source`, which asserted a source SPELLING rather than the
+        wiring. It broke the moment the call was reformatted across lines
+        to pass a verifying `FilesystemGateway` -- i.e. it failed on a
+        change that made the wiring strictly better. Read over the parsed
+        AST instead, so the property under test is "filesystem is
+        registered, with something that verifies".
+        """
+        import ast
         import inspect
 
         import kalpavriksha_desktop as root
 
         source = inspect.getsource(root._build_mission_pipeline)
-        # gateway, pre-grant loop and planner catalogue, not just the registry
-        assert "register_gateway(filesystem_plugin" in source
+
+        registered: list[str] = []
+        for node in ast.walk(ast.parse(source.lstrip())):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "register_gateway"
+            ):
+                registered.append(ast.unparse(node))
+
+        filesystem_wiring = [call for call in registered if "filesystem_plugin" in call]
+        assert filesystem_wiring, "the filesystem Executive has no gateway"
+        assert any("FilesystemGateway" in call for call in filesystem_wiring), (
+            "the filesystem Executive is wired with a gateway that cannot "
+            "verify; a step would complete on execution success alone"
+        )
+
         assert source.count("browser_plugin, desktop_plugin, filesystem_plugin") >= 2

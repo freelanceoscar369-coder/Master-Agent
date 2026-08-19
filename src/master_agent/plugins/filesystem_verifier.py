@@ -21,11 +21,13 @@ class FilesystemVerifier(Verifier):
         base_path: str,
         include_content_preview: bool = False,
         include_directory_listing: bool = False,
+        include_content_digest: bool = False,
     ) -> None:
         self._target_path = target_path
         self._base_path = base_path
         self._include_content_preview = include_content_preview
         self._include_directory_listing = include_directory_listing
+        self._include_content_digest = include_content_digest
 
     def capture_observation_dict(self) -> dict[str, Any]:
         """Re-observe current real-world filesystem state fresh at the moment
@@ -42,5 +44,6 @@ class FilesystemVerifier(Verifier):
             base,
             include_content_preview=self._include_content_preview,
             include_directory_listing=self._include_directory_listing,
+            include_content_digest=self._include_content_digest,
         )
         return observation.as_dict()

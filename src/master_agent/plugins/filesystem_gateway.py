@@ -74,10 +74,40 @@ class FilesystemGateway:
 
         target_path = Path(base) / path
 
+        # The Planner's `expected` states WHAT this step is for; its checks
+        # are text-shaped (`field="empty"`) because the Planner does not
+        # know what a disk observation looks like and must not learn. This
+        # package does, so it binds that claim to checks a disk can answer.
+        # The plan is not rewritten -- this expectation is used for this
+        # one verification, and the Evidence records the checks actually
+        # evaluated.
+        from master_agent.plugins.filesystem_expectations import (
+            bind_for_environment,
+            wants_content_digest,
+        )
+
+        effective = bind_for_environment(
+            capability=capability,
+            payload=payload,
+            description=expected.description,
+        )
+        if effective is None:
+            # This capability has no disk-checkable effect yet (the query
+            # capabilities: read_file, list_directory, search_files,
+            # file_exists, directory_exists). Returning None says exactly
+            # that. It must NOT fall back to the Planner's text-shaped
+            # checks, which would fail a correct step, and it must not
+            # invent a pass -- under the fail-closed runtime the step
+            # simply cannot claim completion, which is the truth.
+            return None
+
         verifier = FilesystemVerifier(
             target_path=str(target_path),
             base_path=str(base),
             include_content_preview=payload.get("include_content_preview", False),
             include_directory_listing=payload.get("include_directory_listing", False),
+            # Paid for only when there is an exact expectation to compare
+            # against, since every verified step re-observes.
+            include_content_digest=wants_content_digest(capability, payload),
         )
-        return verifier.verify(expected)
+        return verifier.verify(effective)

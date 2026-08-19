@@ -91,6 +91,22 @@ class FilesystemObservation:
     target_permissions: str | None = None
     content_preview: str | None = None
     content_preview_truncated: bool = False
+    #: SHA-256 of the file's TEXT, read with universal newlines, or None
+    #: when not requested or not a readable text file.
+    #:
+    #: Exists because `content_preview` is deliberately capped, so it can
+    #: establish that content *starts* a certain way and never that it *is*
+    #: a certain thing. Verification needs the second, and a digest gives it
+    #: in 64 characters instead of by copying the file into the Evidence.
+    #:
+    #: Text rather than raw bytes, and the name says so. `WriteFileAction`
+    #: uses `Path.write_text()`, which on Windows stores a newline as a
+    #: carriage-return/newline pair --
+    #: so a byte digest of exactly the string a step asked to write would
+    #: not match the file that step correctly wrote. Line-ending storage is
+    #: a property of the platform, not a difference in content, so both
+    #: sides are normalised and the field is not called a byte digest.
+    content_text_sha256: str | None = None
     directory_listing: list[DirectoryEntry] = field(default_factory=list)
     directory_listing_truncated: bool = False
     parent_directory: str | None = None
@@ -108,6 +124,7 @@ class FilesystemObservation:
             "target_permissions": self.target_permissions,
             "content_preview": self.content_preview,
             "content_preview_truncated": self.content_preview_truncated,
+            "content_text_sha256": self.content_text_sha256,
             "directory_listing": [entry.as_dict() for entry in self.directory_listing],
             "directory_listing_truncated": self.directory_listing_truncated,
             "parent_directory": self.parent_directory,
@@ -184,11 +201,51 @@ def _safe_read_preview(target: Path, max_chars: int) -> tuple[str | None, bool]:
     return content, False
 
 
+def normalise_text(content: str) -> str:
+    """The one spelling of "the same text regardless of line endings".
+
+    Both sides of a content check go through this, so a file stored with
+    carriage-return/newline pairs still matches the text a step asked to
+    write. Line-ending storage is a platform property, not a difference
+    in content.
+    """
+    return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _safe_content_digest(target: Path) -> str | None:
+    """SHA-256 of the file's text, read in bounded chunks, or None.
+
+    Streamed rather than slurped: Verification re-observes on every
+    verified step, and a step that happens to touch a large file must not
+    pull it into memory to prove what it contains. `None` on any read
+    error, which a caller must treat as *not established* rather than as
+    a mismatch -- an unreadable file is a fact about observation, not
+    about content.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    try:
+        # `newline=None` is universal-newline mode: whatever line ending
+        # the platform stored comes back normalised, which is what makes
+        # this comparable to the text a step asked to write.
+        with target.open("r", encoding="utf-8", newline=None) as handle:
+            while chunk := handle.read(65536):
+                digest.update(chunk.encode("utf-8"))
+    except (OSError, UnicodeDecodeError):
+        # Unreadable or not text. `None` is a fact about observation, not
+        # about content -- the caller must treat it as "not established"
+        # rather than as a mismatch.
+        return None
+    return digest.hexdigest()
+
+
 def normalize_observation(
     target: Path,
     base: Path,
     include_content_preview: bool = False,
     include_directory_listing: bool = False,
+    include_content_digest: bool = False,
 ) -> FilesystemObservation:
     """Reads generic, universal facts off a live filesystem path.
 
@@ -238,6 +295,10 @@ def normalize_observation(
     if include_content_preview and target_exists and target.is_file():
         content_preview, content_truncated = _safe_read_preview(target, MAX_CONTENT_PREVIEW_CHARS)
 
+    content_text_sha256 = None
+    if include_content_digest and target_exists and target.is_file():
+        content_text_sha256 = _safe_content_digest(target)
+
     directory_listing: list[DirectoryEntry] = []
     dir_truncated = False
     if include_directory_listing and target_exists and target.is_dir():
@@ -257,6 +318,7 @@ def normalize_observation(
         target_permissions=target_perms,
         content_preview=content_preview,
         content_preview_truncated=content_truncated,
+        content_text_sha256=content_text_sha256,
         directory_listing=directory_listing,
         directory_listing_truncated=dir_truncated,
         parent_directory=parent_dir,

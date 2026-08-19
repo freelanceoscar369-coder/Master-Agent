@@ -91,6 +91,14 @@ class BrowserObservation:
     title: str
     viewport_width: int | None
     viewport_height: int | None
+    #: `url` with the incidentals that do not change which page this is
+    #: removed -- scheme and host lower-cased, a bare trailing slash
+    #: dropped. Exists so Verification can compare destinations by
+    #: EQUALITY: asking for "https://example.com" and landing on
+    #: "https://example.com/" is the same page, and the alternative to a
+    #: normalised field is a substring test, which would also accept
+    #: "https://example.com.attacker.test".
+    url_normalised: str = ""
     elements: list[BrowserElement] = field(default_factory=list)
     accessibility_tree: str | None = None
     accessibility_tree_truncated: bool = False
@@ -101,6 +109,7 @@ class BrowserObservation:
     def as_dict(self) -> dict[str, Any]:
         return {
             "url": self.url,
+            "url_normalised": self.url_normalised,
             "title": self.title,
             "viewport_width": self.viewport_width,
             "viewport_height": self.viewport_height,
@@ -204,6 +213,30 @@ def _observe_available_actions(page: Page) -> tuple[list[AvailableAction], bool]
     return actions, truncated
 
 
+def normalise_url(url: str) -> str:
+    """The one spelling of "the same destination".
+
+    Both sides of a navigation check go through this, so a step that asked
+    for `https://example.com` still matches a browser that reports
+    `https://example.com/`. Deliberately conservative: only the scheme and
+    host case and a bare trailing slash are touched. Query and fragment
+    are left alone because they can select a different page.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        parts = urlsplit((url or "").strip())
+    except ValueError:
+        return (url or "").strip()
+
+    path = parts.path
+    if path == "/":
+        path = ""
+    return urlunsplit((
+        parts.scheme.lower(), parts.netloc.lower(), path, parts.query, parts.fragment
+    ))
+
+
 def normalize_observation(
     page: Page,
     selectors: list[str] | None = None,
@@ -226,6 +259,7 @@ def normalize_observation(
 
     return BrowserObservation(
         url=page.url,
+        url_normalised=normalise_url(page.url),
         title=page.title(),
         viewport_width=viewport["width"] if viewport else None,
         viewport_height=viewport["height"] if viewport else None,

@@ -317,9 +317,70 @@ def _build_mission_pipeline():
         # PermissionSystemGate._ask_founder.
         approval_gate=PermissionSystemGate(permissions, registry, approvals=mission_control),
     )
-    runtime.register_gateway(browser_plugin.manifest.name, PluginGateway(browser_plugin))
-    runtime.register_gateway(desktop_plugin.manifest.name, PluginGateway(desktop_plugin))
-    runtime.register_gateway(filesystem_plugin.manifest.name, PluginGateway(filesystem_plugin))
+    # Gateways. `PluginGateway.verify()` returns None unconditionally --
+    # "the Plugin contract has no verification surface" -- so registering
+    # it for Browser and Filesystem meant no step in the packaged app
+    # could ever produce Evidence. A live six-step mission verified
+    # nothing, completed on execution success alone, and Onkar was told
+    # "Done" for a folder that was empty.
+    #
+    # `launcher/boot.py` had already wired the verifying FilesystemGateway;
+    # this composition root had simply never been given the same treatment,
+    # and no production BrowserGateway existed outside test support at all.
+    #
+    # The composition root is allowed to know which concrete gateway
+    # belongs to which concrete Executive. The Runtime is not, which is why
+    # these imports are here and not in `runtime/`.
+    from master_agent.environment.browser_session import (  # noqa: PLC0415
+        BrowserSessionManager as _Sessions,
+    )
+    from master_agent.plugins.browser_gateway import BrowserGateway  # noqa: PLC0415
+    from master_agent.plugins.browser_worker import BrowserWorker  # noqa: PLC0415
+    from master_agent.plugins.filesystem_gateway import FilesystemGateway  # noqa: PLC0415
+    from master_agent.plugins.filesystem_worker import FilesystemWorker  # noqa: PLC0415
+
+    # The SAME session manager the plugin drives. A second one would open a
+    # second browser, and verification would then observe a window nobody
+    # navigated.
+    browser_sessions = getattr(browser_plugin, "_sessions", None)
+    if browser_sessions is None:
+        browser_sessions = _Sessions(default_headless=False, default_channel="chrome")
+
+    # The SAME location map the actions resolve against, so verification
+    # looks where execution wrote.
+    _fs_locations = None
+    for _action in (getattr(filesystem_plugin, "_actions", {}) or {}).values():
+        if hasattr(_action, "_locations"):
+            _fs_locations = _action._locations
+            break
+
+    runtime.register_gateway(
+        browser_plugin.manifest.name,
+        BrowserGateway(
+            BrowserWorker(executor, browser_sessions),
+            permissions,
+            executor.name,
+        ),
+    )
+    # Desktop: `DesktopGateway` subclasses `PluginGateway` and overrides
+    # only `verify()`, so `invoke()` is inherited verbatim and the Desktop
+    # execution path -- DesktopPlugin -> registered Action ->
+    # DesktopExecutor / DesktopExecutiveV2 -> Process/Window/UIA -- is
+    # unchanged. It adds canonical Evidence for the five capabilities with
+    # a read-only postcondition (launch/close application, focus,
+    # bring-to-front, close window) and returns None for the rest, which
+    # is what the old gateway did for all of them.
+    from master_agent.desktop.gateway import DesktopGateway  # noqa: PLC0415
+
+    runtime.register_gateway(desktop_plugin.manifest.name, DesktopGateway(desktop_plugin))
+    runtime.register_gateway(
+        filesystem_plugin.manifest.name,
+        FilesystemGateway(
+            FilesystemWorker(executor, locations=_fs_locations),
+            permissions,
+            executor.name,
+        ),
+    )
 
     # No Ollama: matches every prior Gemini mission this build carries.
     # `enabled_cloud_providers` names Gemini only; no plugin for any

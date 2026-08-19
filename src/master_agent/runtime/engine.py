@@ -377,6 +377,27 @@ class RuntimeEngine:
         # Execution succeeding never implies the mission step succeeded:
         # a NOT_MATCHED verdict is a failure, because ADR-0011 exists
         # precisely to keep those two claims separate.
+        #
+        # DEFERRED -- fail-closed on ABSENT Evidence.
+        #
+        # This condition still fails OPEN: `evidence is None` falls through
+        # to completion, so a step whose Executive has no Verifier completes
+        # on execution success alone. That is the defect behind Onkar being
+        # told "Done" for an empty folder, and the final state of this gate
+        # is `_verification_required(task)` -> absent Evidence cannot
+        # complete.
+        #
+        # It is not switched on yet, and the reason is sequencing rather
+        # than doubt. The Desktop Executive is wired through the generic
+        # `PluginGateway`, whose `verify()` returns None unconditionally, so
+        # enabling the strict gate today would stop every currently-working
+        # Desktop capability from completing -- disabling integrated
+        # production behaviour to enforce an invariant, which is a worse
+        # failure than the one being fixed.
+        #
+        # Enable this the moment every production Executive reaching this
+        # Runtime has a canonical verification path. Filesystem and Browser
+        # now do; Desktop does not.
         if evidence is not None and evidence.verdict.value != "matched":
             self._report_failure(
                 task,
