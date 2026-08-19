@@ -197,7 +197,11 @@ def test_an_accepted_objective_runs_until_complete_and_reports_the_result():
         mission_service, runtime, mission_control, ExecutionStatus(), "open chrome"
     )
 
-    assert result == {"reply": "example.com loaded; title matched."}
+    # The reply now travels with the identifiers the interaction audit
+    # needs to join it to its mission, so this asserts the founder-facing
+    # text rather than the exact shape of the envelope carrying it.
+    assert result["reply"] == "example.com loaded; title matched."
+    assert "mission_id" in result and "status" in result
     assert runtime.run_once_calls >= 1
 
 
@@ -254,7 +258,7 @@ def test_a_non_browser_result_falls_back_to_its_own_string_form():
         mission_service, runtime, mission_control, ExecutionStatus(), "count something"
     )
 
-    assert result == {"reply": "42"}
+    assert result["reply"] == "42"
 
 
 def test_a_timeout_reports_honestly_rather_than_a_fabricated_success():

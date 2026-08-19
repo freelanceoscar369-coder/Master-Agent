@@ -81,6 +81,13 @@ class InteractionRecord:
     #: What the founder was actually SHOWN, when that differs from
     #: anything the Reporter believed internally.
     status: str | None = None
+    #: The founder turn this answers. A founder's message is recorded
+    #: BEFORE the mission it creates exists, so its own record cannot name
+    #: a mission_id -- and this log is append-only, so going back to edit
+    #: it is not available and should not be. The reply, which does know
+    #: the mission, points back instead. That gives an exact join in one
+    #: direction without rewriting history in the other.
+    in_reply_to: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -361,12 +361,20 @@ class DesktopShellApi:
         # when `voice.tts_ready` already happens to be true.
         if self._voice is not None and reply:
             self._voice.speak(reply)
+        # The first thing Onkar sees. It is a founder-visible Chief-of-Staff
+        # interaction under ADR-0025 and belongs in the same trail as every
+        # other one -- it was absent only because the boot greeting reaches
+        # the page through this bridge call rather than `send_message()`.
+        # Recorded here, at the one place the exact shown text exists; no
+        # separate greeting history, and no routing through mission
+        # machinery to make an audit work.
+        self._audit("chief_of_staff", reply, interaction_type="greeting")
         return {"reply": reply, "presence": None}
 
     def send_message(self, text: str, source: str = "text") -> dict[str, Any]:
         if self._app.communication is None:
             return {"reply": None}
-        self._audit("founder", text)
+        asked = self._audit("founder", text)
         resolved_source = _SOURCE_BY_NAME.get(source, Source.TEXT)
         request = CommunicationRequest(
             source=resolved_source, content=text,
@@ -400,24 +408,36 @@ class DesktopShellApi:
                 # What the founder was actually SHOWN. The whole point of
                 # ADR-0025 is being able to compare this against what the
                 # backend believed happened.
-                self._audit("chief_of_staff", outcome.get("reply"),
-                            interaction_type="mission_result")
+                # Every identifier the mission owner already had at the
+                # moment it replied, projected onto the record -- plus a
+                # back-reference to the founder turn that caused it.
+                self._audit(
+                    "chief_of_staff", outcome.get("reply"),
+                    interaction_type=outcome.get("interaction_type") or "mission_result",
+                    mission_id=outcome.get("mission_id"),
+                    status=outcome.get("status"),
+                    clarification_id=outcome.get("clarification_id"),
+                    approval_id=outcome.get("approval_id"),
+                    completion_id=outcome.get("completion_id"),
+                    in_reply_to=asked,
+                )
                 return outcome
             return {"reply": None}
         if self._voice is not None:
             self._voice.speak(routed.response.spoken)
         self._audit("chief_of_staff", routed.response.display,
-                    interaction_type="conversation")
+                    interaction_type="conversation", in_reply_to=asked)
         return {"reply": routed.response.display}
 
-    def _audit(self, direction: str, text: Any, **fields: Any) -> None:
+    def _audit(self, direction: str, text: Any, **fields: Any) -> str | None:
         """Best-effort, always. A founder's request must never fail because
         a log write did -- a missing record is recoverable, a broken
         session is not."""
         if self._record_interaction is None or not text:
-            return
+            return None
         with contextlib.suppress(Exception):
-            self._record_interaction(direction, str(text), **fields)
+            return self._record_interaction(direction, str(text), **fields)
+        return None
 
     def get_dashboard(self) -> dict[str, Any]:
         return self._app.dashboard()

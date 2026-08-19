@@ -318,6 +318,7 @@ class MissionService:
                 selected_mode=getattr(outcome, "selected_mode", "") or "",
                 effective_mode=getattr(outcome, "effective_mode", "") or "",
                 mode_reason=getattr(outcome, "mode_reason", "") or "",
+                attempts=getattr(outcome, "attempts", ()) or (),
             )
 
         if self.reporter:

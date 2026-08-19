@@ -480,6 +480,34 @@ def _build_mission_pipeline():
             _set_mode, interactions)
 
 
+def _founder_reply(status, reply: str, *, interaction_type: str = "") -> dict:
+    """The reply, plus the identifiers the audit needs to join it.
+
+    Every return from `_submit_objective()` used to be `{"reply": text}`,
+    and the first packaged FMEA measured the consequence: mission_id 0/8,
+    status 0/8, clarification_id 0/8 on the interaction audit. The fields
+    existed and were designed; the transport simply dropped them, so an
+    investigator could only join a founder turn to its mission by
+    timestamp proximity -- which stops being reliable the moment two
+    missions overlap.
+
+    Nothing here owns anything. `ExecutionStatus` is the mission owner and
+    already holds every one of these at the moment of return; this
+    projects them onto the wire (ADR-0025: the audit records mission
+    identity, it never becomes the source of it).
+    """
+    pending = getattr(status, "pending_clarification", None)
+    return {
+        "reply": reply,
+        "mission_id": getattr(status, "objective_id", None),
+        "status": getattr(status, "status", None),
+        "clarification_id": getattr(pending, "clarification_id", None),
+        "approval_id": getattr(status, "approval_id", None),
+        "completion_id": getattr(status, "completion_id", None),
+        "interaction_type": interaction_type or None,
+    }
+
+
 def _submit_objective(mission_service, runtime, mission_control, status, text: str,
                        timeout_seconds: float = 45.0, reasoning_runner=None) -> dict:
     """One founder objective, run to a terminal state, and a plain reply
@@ -597,12 +625,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             options=tuple(question.options),
             required=question.required,
         )
-        return {"reply": question.question}
+        return _founder_reply(status, question.question,
+                              interaction_type="clarification_question")
 
     if intent_result.intent is None:
         status.status = FAILED
         status.message = _founder_refusal_sentence("the intent layer produced no intent")
-        return {"reply": status.message}
+        return _founder_reply(status, status.message)
 
     # A canonical, already-understood Intent -- goal, constraints, context,
     # success criteria, and the agency the founder expressed. MissionService
@@ -641,7 +670,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             )
             status.status = COMPLETED
             status.message = answer
-            return {"reply": answer}
+            return _founder_reply(status, answer, interaction_type="mission_result")
 
     if not outcome.accepted:
         reason = (
@@ -661,7 +690,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         logging.warning("objective refused: %s", reason)
         status.message = _founder_refusal_sentence(reason)
         status.errors.append(reason)
-        return {"reply": status.message}
+        return _founder_reply(status, status.message)
 
     objective_id = outcome.objective_id
     deadline = _time.monotonic() + timeout_seconds
@@ -689,18 +718,18 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         joined = "; ".join(state.errors)
         logging.warning("objective failed: %s", joined)
         status.message = _founder_failure_sentence(joined)
-        return {"reply": status.message}
+        return _founder_reply(status, status.message)
     if state.progress >= 1.0:
         status.result = state.result
         status.message = _describe_result(state.result)
-        return {"reply": status.message}
+        return _founder_reply(status, status.message)
     # Waiting on the founder is not slowness. `AWAITING_APPROVAL` means
     # the plan is ready and held at the permission boundary until a human
     # decides -- saying "taking longer than expected" would describe the
     # system as struggling when it is in fact waiting for its founder.
     if status.status == AWAITING_APPROVAL:
         status.message = "This needs your approval before I go ahead."
-        return {"reply": status.message}
+        return _founder_reply(status, status.message)
     # Finished, verified, and held for the founder's confirmation. This had
     # no branch, so it fell to the sentence below and told a founder whose
     # folder already existed on disk that the system was struggling. A
@@ -717,9 +746,9 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             f"{done} Ready for your review.".strip() if done
             else "That's done and checked. Ready for your review."
         )
-        return {"reply": status.message}
+        return _founder_reply(status, status.message)
     status.message = "That's taking longer than expected; still working on it."
-    return {"reply": status.message}
+    return _founder_reply(status, status.message)
 
 
 #: Founder-facing sentences for the refusal kinds a founder can actually
@@ -949,7 +978,9 @@ def main(argv: list[str] | None = None) -> int:
         decide_approval=decide_approval,
         set_mode=set_mode,
         record_interaction=(
-            lambda direction, text, **f: interactions.record(direction, text, **f)
+            lambda direction, text, **f: getattr(
+                interactions.record(direction, text, **f), "interaction_id", None
+            )
         ) if interactions is not None else None,
     )
     return 0

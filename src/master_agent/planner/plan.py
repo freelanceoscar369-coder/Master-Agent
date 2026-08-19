@@ -223,6 +223,13 @@ class PlanOutcome:
     effective_mode: str = ""
     #: Why they differ, when they do. Empty when nothing was broadened.
     mode_reason: str = ""
+    #: The reasoning ladder's own attempt sequence, when a provider was
+    #: asked at all. `TieredPromptRunner` has recorded this on
+    #: `last_attempts` since it was written -- "report which tier actually
+    #: handled the request, not just a final yes/no" -- and nothing ever
+    #: read it, so it was overwritten by the next call and never survived.
+    #: Empty for a deterministic plan, which asked nobody.
+    attempts: tuple[dict[str, Any], ...] = ()
 
 
     @property

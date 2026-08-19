@@ -249,11 +249,18 @@ class Planner:
         # decides whether this plan is usable also decides whether it is
         # worth caching. One judgement, one artefact.
         outcome = self._runner.run(prompt, request, expected=plan_expectation())
+        # Read straight off the runner rather than re-deriving: the ladder
+        # is the only thing that knows which tiers it walked, and it has
+        # always kept the record. Metadata only -- no prompt, no response.
+        attempts = _attempt_trail(self._runner)
 
         refusal = self._rejected(outcome)
         if refusal is not None:
             return PlanOutcome(
                 refusal=refusal,
+                attempts=attempts,
+                selected_mode=mode,
+                effective_mode=mode,
                 evidence=outcome.evidence,
                 entry_id=outcome.entry_id,
                 provider_id=outcome.provider_id,
@@ -265,6 +272,9 @@ class Planner:
         return PlanOutcome(
             plan=plan,
             refusal=invalid,
+            attempts=attempts,
+            selected_mode=mode,
+            effective_mode=mode,
             evidence=outcome.evidence,
             entry_id=outcome.entry_id,
             provider_id=outcome.provider_id,
@@ -340,3 +350,27 @@ class Planner:
     def catalogue_names(self) -> tuple[str, ...]:
         """What a founder would see if they asked what it can plan with."""
         return names(self.options())
+
+
+def _attempt_trail(runner: Any) -> tuple[dict[str, Any], ...]:
+    """The ladder's attempt sequence as plain, serialisable metadata.
+
+    Deliberately narrow: tier, whether it was tried, which providers were
+    considered, which one answered, and whether it worked. No prompt and
+    no response text -- an audit trail is for reconstructing routing, and
+    persisting the content of every reasoning call would be a privacy
+    decision nobody has made.
+    """
+    trail: list[dict[str, Any]] = []
+    for order, attempt in enumerate(getattr(runner, "last_attempts", ()) or (), start=1):
+        outcome = getattr(attempt, "outcome", None)
+        trail.append({
+            "order": order,
+            "tier": getattr(attempt, "tier", ""),
+            "attempted": bool(getattr(attempt, "attempted", False)),
+            "considered": list(getattr(attempt, "provider_ids_considered", ()) or ()),
+            "provider_id": getattr(outcome, "provider_id", None),
+            "ok": bool(getattr(outcome, "ok", False)) if outcome is not None else None,
+            "reason": (getattr(outcome, "reason", "") or "")[:200] if outcome is not None else "",
+        })
+    return tuple(trail)

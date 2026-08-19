@@ -160,6 +160,12 @@ class PlanRecord:
     selected_mode: str = ""
     effective_mode: str = ""
     mode_reason: str = ""
+    #: The reasoning ladder's attempt sequence, in order, when a provider
+    #: was asked at all. `planned_by` names the provider that ANSWERED;
+    #: this names the ones tried before it and why they did not. Empty for
+    #: a deterministic plan, which asked nobody -- and that emptiness is
+    #: itself the answer to "did this mission use AI?".
+    attempts: list[dict[str, Any]] = field(default_factory=list)
 
     # ---- derived reads --------------------------------------------------
 
@@ -243,6 +249,7 @@ class PlanRecord:
             "selected_mode": self.selected_mode,
             "effective_mode": self.effective_mode,
             "mode_reason": self.mode_reason,
+            "attempts": [dict(a) for a in self.attempts],
             "steps": [record.as_dict() for record in self.steps],
         }
 
@@ -263,6 +270,7 @@ class PlanRecord:
             selected_mode=document.get("selected_mode", ""),
             effective_mode=document.get("effective_mode", ""),
             mode_reason=document.get("mode_reason", ""),
+            attempts=[dict(a) for a in (document.get("attempts") or [])],
         )
 
 
@@ -412,6 +420,7 @@ class PlanHistory:
         selected_mode: str = "",
         effective_mode: str = "",
         mode_reason: str = "",
+        attempts: Any = (),
     ) -> PlanRecord:
         """Write the plan as planned, before anything runs.
 
@@ -427,6 +436,7 @@ class PlanHistory:
             selected_mode=selected_mode,
             effective_mode=effective_mode,
             mode_reason=mode_reason,
+            attempts=[dict(a) for a in (attempts or ())],
             entry_id=entry_id,
             steps=[_step_record(step) for step in plan.steps],
         )
