@@ -477,6 +477,12 @@ class RuntimeEngine:
             verdict=evidence.verdict.value,
             evidence_id=evidence.evidence_id,
             objective_id=objective_id,
+            # The whole record, not just its id and result. The Runtime
+            # does not read `worker`, `environment`, `observation` or the
+            # checks -- it stays domain-agnostic and transports an opaque
+            # canonical projection. It simply stops being the place where
+            # Evidence is thrown away.
+            evidence=evidence.as_dict(),
         )
         return evidence
 

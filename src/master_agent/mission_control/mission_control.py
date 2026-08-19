@@ -237,18 +237,39 @@ class MissionControl:
         verdict: str,
         evidence_id: str,
         objective_id: str | None = None,
+        evidence: dict[str, Any] | None = None,
     ) -> Event:
         """Records a Verification outcome. `verdict` and `evidence_id` come
         from Mission Brief 022's Evidence, reused unchanged — Mission
         Control never defines a second evidence type and never recomputes a
-        verdict of its own."""
+        verdict of its own.
+
+        `evidence` is the canonical JSON projection of that same Evidence
+        (`Evidence.as_dict()`), carried whole. It is additive: callers that
+        pass only a verdict and an id keep working, and their events simply
+        have no `evidence` key.
+
+        Carrying it matters because the pair that used to travel alone is
+        a correlation key and a result code. Neither can answer what was
+        observed, when, by which Environment verifier, against which
+        checks, or which of them failed — so after a restart none of those
+        questions had an answer. Mission Control does not read this object,
+        does not validate it and does not modify it; it transports exactly
+        what Verification produced.
+        """
         resolved = self._resolve_objective_id(objective_id, required=False)
+        payload: dict[str, Any] = {"verdict": verdict, "evidence_id": evidence_id}
+        if evidence is not None:
+            # Nested, not flattened: `verdict` and `evidence_id` stay at the
+            # top level for compatibility and searchability, and the whole
+            # canonical record lives under one key.
+            payload["evidence"] = evidence
         return self._publish(
             EventType.VERIFICATION_COMPLETED,
             objective_id=resolved,
             task_id=task_id,
             capability=self._capability_of(resolved, task_id),
-            payload={"verdict": verdict, "evidence_id": evidence_id},
+            payload=payload,
         )
 
     def _capability_of(self, objective_id: str | None, task_id: str) -> str | None:

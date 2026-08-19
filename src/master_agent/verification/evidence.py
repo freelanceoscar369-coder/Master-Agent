@@ -44,6 +44,23 @@ class ObservationCheck:
     value: Any = None
     description: str = ""
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "field": self.field,
+            "operator": self.operator,
+            "value": self.value,
+            "description": self.description,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ObservationCheck:
+        return cls(
+            field=data["field"],
+            operator=data["operator"],
+            value=data.get("value"),
+            description=data.get("description", ""),
+        )
+
 
 @dataclass
 class ExpectedOutcome:
@@ -55,6 +72,19 @@ class ExpectedOutcome:
     description: str
     checks: list[ObservationCheck] = field(default_factory=list)
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "description": self.description,
+            "checks": [check.as_dict() for check in self.checks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExpectedOutcome:
+        return cls(
+            description=data.get("description", ""),
+            checks=[ObservationCheck.from_dict(c) for c in data.get("checks", [])],
+        )
+
 
 @dataclass
 class CheckResult:
@@ -62,6 +92,23 @@ class CheckResult:
     passed: bool
     actual_value: Any = None
     error: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "check": self.check.as_dict(),
+            "passed": self.passed,
+            "actual_value": self.actual_value,
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CheckResult:
+        return cls(
+            check=ObservationCheck.from_dict(data["check"]),
+            passed=bool(data["passed"]),
+            actual_value=data.get("actual_value"),
+            error=data.get("error"),
+        )
 
 
 @dataclass
@@ -83,3 +130,54 @@ class Evidence:
     verdict: Verdict
     check_results: list[CheckResult] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        """The canonical JSON-plain projection. **One** serializer, here,
+        because the alternative is three that drift.
+
+        Everything survives. Evidence answers *what was observed, when, by
+        which Environment verifier, against what checks, and which of them
+        passed*; a projection that kept only `evidence_id` and `verdict`
+        would be a correlation key and a result code, and none of those
+        questions could be answered from it after a restart. That is
+        exactly what used to reach durable storage.
+
+        `captured_at` is rendered ISO-8601 rather than dropped, because the
+        one thing a historical observation must never acquire is a fresh
+        timestamp: `datetime.now()` at read time would silently claim the
+        observation happened when the report was generated.
+        """
+        return {
+            "evidence_id": self.evidence_id,
+            "worker": self.worker,
+            "environment": self.environment,
+            "captured_at": self.captured_at.isoformat(),
+            "expected": self.expected.as_dict(),
+            "observation": dict(self.observation),
+            "verdict": self.verdict.value,
+            "check_results": [result.as_dict() for result in self.check_results],
+            "errors": list(self.errors),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Evidence:
+        """Rebuild Evidence from its canonical projection.
+
+        Reconstruction only. Nothing is invented for a field that is
+        absent, and no value is recomputed -- in particular the Verdict is
+        read, never re-derived from `check_results`, because Verification
+        is the only thing permitted to decide one.
+        """
+        return cls(
+            evidence_id=data["evidence_id"],
+            worker=data["worker"],
+            environment=data["environment"],
+            captured_at=datetime.fromisoformat(data["captured_at"]),
+            expected=ExpectedOutcome.from_dict(data.get("expected") or {}),
+            observation=dict(data.get("observation") or {}),
+            verdict=Verdict(data["verdict"]),
+            check_results=[
+                CheckResult.from_dict(r) for r in data.get("check_results", [])
+            ],
+            errors=list(data.get("errors", [])),
+        )

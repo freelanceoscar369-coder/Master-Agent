@@ -82,6 +82,14 @@ class StepRecord:
     state: str = PENDING
     verdict: str = ""
     evidence_id: str | None = None
+    #: The canonical JSON projection of the Evidence Verification produced
+    #: (`Evidence.as_dict()`), or `None` when this step was verified before
+    #: Evidence was retained -- or was never verified at all.
+    #:
+    #: `evidence_id` is NOT evidence. The id correlates a record; it cannot
+    #: say what was observed, when, by which verifier, against what checks,
+    #: or which of them failed. Those answers live here.
+    evidence: dict[str, Any] | None = None
     errors: list[str] = field(default_factory=list)
     started_at: str | None = None
     ended_at: str | None = None
@@ -105,6 +113,7 @@ class StepRecord:
             "state": self.state,
             "verdict": self.verdict,
             "evidence_id": self.evidence_id,
+            "evidence": self.evidence,
             "errors": list(self.errors),
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -124,6 +133,10 @@ class StepRecord:
             state=document.get("state", PENDING),
             verdict=document.get("verdict", ""),
             evidence_id=document.get("evidence_id"),
+            # `.get` with no default: a record written before Evidence was
+            # retained loads with `None`, which is the truth about it. It is
+            # never synthesised from `evidence_id` -- an id is not evidence.
+            evidence=document.get("evidence"),
             errors=list(document.get("errors") or []),
             started_at=document.get("started_at"),
             ended_at=document.get("ended_at"),
@@ -525,6 +538,13 @@ class PlanHistory:
         payload = event.payload or {}
         step.verdict = str(payload.get("verdict") or "")
         step.evidence_id = payload.get("evidence_id") or step.evidence_id
+        # Stored exactly as Verification produced it. Nothing is filled in
+        # for an event that carries none: a step verified before this
+        # existed truthfully has no Evidence, and inventing one from the id
+        # would be fabrication.
+        evidence = payload.get("evidence")
+        if isinstance(evidence, dict):
+            step.evidence = dict(evidence)
         self._flush()
 
     def _on_objective_completed(self, event: Any) -> None:

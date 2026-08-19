@@ -689,70 +689,29 @@ def build_system(
     )
     report.add("Founder Dashboard", OK, "attached to the event bus")
 
-    # Wire Reporter to Mission Control events for mission outcome reporting
-    if reporter is not None and missions is not None:
-        from master_agent.mission_control.events import EventType
-        from master_agent.verification.evidence import Evidence, Verdict
-        from master_agent.mission_manager.mission import Mission, MissionStatus
-        
-        def _on_objective_completed(event: Any) -> None:
-            """Generate mission completed report."""
-            plan_id = event.objective_id
-            if plan_id:
-                record = plan_history.get(plan_id) if plan_history else None
-                if record:
-                    mission = Mission(intent_summary=record.objective)
-                    mission.mission_id = plan_id
-                    mission.status = MissionStatus.COMPLETED
-                    # Get evidence from history - use evidence_ids to create minimal Evidence objects
-                    evidence_list = []
-                    for step in record.steps:
-                        if step.evidence_id:
-                            # Create a minimal Evidence object with just the evidence_id and verdict
-                            evidence = Evidence(
-                                evidence_id=step.evidence_id,
-                                worker="filesystem",
-                                environment="filesystem_environment",
-                                captured_at=datetime.now(UTC),
-                                expected=ExpectedOutcome(description=step.expectation, checks=[]),
-                                observation={},
-                                verdict=Verdict(step.verdict) if step.verdict else Verdict.ERROR,
-                                check_results=[],
-                                errors=step.errors,
-                            )
-                            evidence_list.append(evidence)
-                    reporter.report_mission_outcome(mission, evidence_list)
-        
-        def _on_objective_failed(event: Any) -> None:
-            """Generate mission failed report."""
-            plan_id = event.objective_id
-            if plan_id:
-                record = plan_history.get(plan_id) if plan_history else None
-                if record:
-                    mission = Mission(intent_summary=record.objective)
-                    mission.mission_id = plan_id
-                    mission.status = MissionStatus.FAILED
-                    mission.outcome = {"error": event.error or "Unknown error"}
-                    # Get evidence from history
-                    evidence_list = []
-                    for step in record.steps:
-                        if step.evidence_id:
-                            evidence = Evidence(
-                                evidence_id=step.evidence_id,
-                                worker="filesystem",
-                                environment="filesystem_environment",
-                                captured_at=datetime.now(UTC),
-                                expected=ExpectedOutcome(description=step.expectation, checks=[]),
-                                observation={},
-                                verdict=Verdict(step.verdict) if step.verdict else Verdict.ERROR,
-                                check_results=[],
-                                errors=step.errors,
-                            )
-                            evidence_list.append(evidence)
-                    reporter.report_mission_outcome(mission, evidence_list)
-        
-        mission_control.bus.subscribe(_on_objective_completed, EventType.OBJECTIVE_COMPLETED)
-        mission_control.bus.subscribe(_on_objective_failed, EventType.OBJECTIVE_FAILED)
+    # REMOVED: two callbacks that manufactured Evidence.
+    #
+    # They rebuilt an `Evidence` object per step from nothing but an
+    # `evidence_id` and a verdict, filling the rest in:
+    #
+    #     worker="filesystem"                 # for EVERY step
+    #     environment="filesystem_environment"
+    #     captured_at=datetime.now(UTC)       # report time, not observation time
+    #     observation={}
+    #     check_results=[]
+    #
+    # A Browser step came back claiming a filesystem worker, and a
+    # historical observation acquired the timestamp of the moment the
+    # report was generated. That is not Evidence; it is fabricated
+    # metadata wearing the Evidence type, and an `evidence_id` is a
+    # correlation key rather than a record of what was observed.
+    #
+    # Both callbacks discarded the `Report` they built, and
+    # `report_mission_outcome()` is pure -- it persists nothing -- so
+    # this was dead code whose only effect was to make fabrication look
+    # supported. Real Evidence now travels on VERIFICATION_COMPLETED and
+    # is retained on `StepRecord.evidence`; a future Reporter wiring
+    # consumes that, and is a separate mission.
 
     return KalpavrikshaSystem(
         config=config,
