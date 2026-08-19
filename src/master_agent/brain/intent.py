@@ -38,6 +38,85 @@ class IntentResult:
         return self.clarification is not None
 
 
+#: Connectives with which a founder strings requirements together. Their
+#: presence means the sentence carries more than one thing to do, whoever
+#: ends up doing it.
+_SEQUENCING_CONNECTIVES: tuple[str, ...] = (
+    " then ", " and then ", " after that ", " followed by ",
+)
+
+
+def enumerates_multiple_requirements(text: str) -> bool:
+    """Did the founder ask for more than one thing in this message?
+
+    ## Why this exists
+
+    Every specialised parser in this module is a COMPLETE-COMMAND
+    recogniser: fifteen of their regexes are anchored to end-of-string and
+    several to start-of-string, because each was written to recognise a
+    sentence that *is* its command. None was written to extract a phrase
+    out of a larger objective.
+
+    The dispatcher, however, selected them with a substring test --
+    `if pattern in text.lower()`. So a five-requirement objective that
+    merely *mentioned* creating a folder was handed whole to
+    `CreateFolderIntent`, whose end-anchored patterns then found no name
+    mid-sentence and asked for one. Observed live:
+
+        Onkar:  Open a browser and navigate to https://example.com.
+                Observe the page's actual title and final URL. Create a
+                folder called KV_MEDIUM_155505 on Desktop. Inside that
+                folder create a text file called page_info.txt ... Then
+                close the browser.
+        Somesh: What should the folder be called?
+
+    The browser, the observation, the file and the shutdown were discarded
+    before a mission existed -- not because anything misunderstood them,
+    but because a substring decided who owned the sentence. The same
+    objective phrased "make a directory named ..." produced a correct
+    generic Intent carrying the whole request, which proves the failure was
+    routing rather than understanding.
+
+    ## What is being detected
+
+    Not *what* the founder wants -- that is the Planner's to work out.
+    Only whether they enumerated more than one requirement, which is the
+    boundary at which a single-command recogniser stops being the right
+    reader. Two signals, both structural and both the founder's own
+    punctuation and connectives:
+
+      * more than one sentence carrying content;
+      * an explicit sequencing connective ("then", "after that", ...).
+
+    ## What this deliberately is not
+
+    Not a classifier, not a decomposer, and not a second router. It answers
+    one yes/no question and changes nothing about meaning. Decomposition
+    stays with the Planner, which already receives the complete objective
+    through the generic route and is the layer the Constitution gives that
+    job to.
+
+    STATED LIMIT: a genuine single command whose own words contain a
+    connective -- `create a folder called then on Desktop` -- is treated as
+    compound and travels the generic route. It is still planned and still
+    executed; it simply is not fast-pathed. Deterministic and documented,
+    and the safe direction to err: the generic route loses no requirement,
+    while the fast path can lose four.
+    """
+    import re
+
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+
+    sentences = [s for s in re.split(r"[.!?]+(?:\s+|$)", stripped) if s.strip()]
+    if len(sentences) > 1:
+        return True
+
+    lowered = f" {stripped.lower()} "
+    return any(c in lowered for c in _SEQUENCING_CONNECTIVES)
+
+
 class IntentLayer:
     """Parses raw input into structured Intent.
 
@@ -134,10 +213,19 @@ class IntentLayer:
                 raw_input=text,
             )
 
-        # Try exact patterns first
-        for pattern, handler in self._patterns:
-            if pattern in text.lower():
-                return self._with_roles(handler().parse(text, supplied), text)
+        # Try exact patterns first -- but only for a message that asks for
+        # ONE thing. Every parser below is a complete-command recogniser
+        # (see `enumerates_multiple_requirements`); offering one a compound
+        # objective lets a substring match decide who owns a sentence, and
+        # four of Onkar's five requirements were discarded that way.
+        #
+        # A compound objective is not refused and not decomposed here. It
+        # travels the generic route below, which preserves it whole, and the
+        # Planner -- the layer that owns decomposition -- plans it.
+        if not enumerates_multiple_requirements(text):
+            for pattern, handler in self._patterns:
+                if pattern in text.lower():
+                    return self._with_roles(handler().parse(text, supplied), text)
 
         # Fallback: generic intent for any input (allows Planner to handle
         # it). ADR-0024 Decision 3: lexical unfamiliarity is not semantic
