@@ -176,8 +176,24 @@ class TestFmeaMicrophonePolicy:
         from master_agent.founder_edition import desktop_shell
 
         shell = inspect.getsource(desktop_shell)
-        assert "microphone_enabled" in shell
         assert "if not microphone_enabled:" in shell
+
+        # The flag must be THREADED, not merely declared. An earlier
+        # version of this test asserted only that the identifier appeared
+        # somewhere in the module -- which it did, on the parameter and in
+        # a comment -- while `create_window` silently dropped it and the
+        # packaged FMEA profile built a real microphone anyway.
+        call = shell.split("piper_model_path=voice_model_path,")[1][:400]
+        assert "microphone_enabled=microphone_enabled" in call, (
+            "create_window accepts the flag and never passes it on"
+        )
+
+        # ...and the lifecycle bindings must survive a None pipeline.
+        # `window.events.closing += voice.stop` raised AttributeError at
+        # composition time the first time the flag actually took effect.
+        assert "if voice is not None:" in shell, (
+            "voice lifecycle wiring assumes a pipeline always exists"
+        )
         assert "KALPAVRIKSHA_DISABLE_MIC" not in shell, (
             "the guarded package is reading the environment itself"
         )

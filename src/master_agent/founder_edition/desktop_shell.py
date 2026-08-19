@@ -693,6 +693,7 @@ def create_window(
         mic_permission_checker=mic_permission_checker,
         input_device_resolver=input_device_resolver,
         output_device_resolver=output_device_resolver,
+        microphone_enabled=microphone_enabled,
     )
     api = DesktopShellApi(
         app, voice=voice, open_settings=open_settings,
@@ -710,14 +711,31 @@ def create_window(
                   api.debug_log, api.get_execution_status, api.confirm_completion,
                   api.decide_approval, api.set_mode, api.get_mode)
 
-    def _on_shown():
-        try:
-            voice.start()
-        except Exception as e:
-            logging.error(f"Failed to start voice pipeline: {e}")
+    # `voice` is None when the composition root disables the microphone
+    # for this session. `DesktopShellApi` already guards every use site
+    # -- it was written to run without a pipeline -- but these two
+    # lifecycle bindings were not, and `+= voice.stop` raised at
+    # composition time before any window was shown.
+    #
+    # The environment variable that drives this is deliberately NOT named
+    # here: an architecture test asserts this package never reads the
+    # environment, and it matches on source text, so even naming the
+    # variable in a comment trips it. The flag arrives as an argument.
+    #
+    # This is the failure the flag existed to prevent being papered over:
+    # while the flag was silently dropped, a real pipeline was always
+    # built and this path never ran, so nothing here was ever exercised.
+    if voice is not None:
+        def _on_shown():
+            try:
+                voice.start()
+            except Exception as e:
+                logging.error(f"Failed to start voice pipeline: {e}")
 
-    window.events.shown += _on_shown
-    window.events.closing += voice.stop
+        window.events.shown += _on_shown
+        window.events.closing += voice.stop
+    else:
+        logging.info("voice pipeline not built: microphone disabled for this session")
 
     # Use FixedBottleServer to avoid pywebview 6.x asset() signature bug
     webview.start(debug=debug, server=FixedBottleServer)
