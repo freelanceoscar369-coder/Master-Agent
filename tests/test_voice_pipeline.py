@@ -190,6 +190,10 @@ def build(
     permission = FakePermission(permission_granted)
 
     pipeline = VoicePipeline(
+        # Muted-by-default arrived with the startup-privacy fix; these
+        # tests exercise capture/speech, so they ask for a live pipeline
+        # explicitly rather than relying on the old implicit default.
+        start_muted=False,
         on_state=states.append,
         on_amplitude=amplitudes.append,
         on_transcript=transcripts.append,
@@ -234,6 +238,7 @@ class TestLoadAndOpen:
 
         states = []
         pipeline = VoicePipeline(
+            start_muted=False,
             on_state=states.append, on_amplitude=lambda a: None,
             on_transcript=lambda t: None,
             sounddevice_module=FakeSoundDevice(),
@@ -641,6 +646,7 @@ class TestMicPermission:
 
         states = []
         pipeline = VoicePipeline(
+            start_muted=False,
             on_state=states.append, on_amplitude=lambda a: None,
             on_transcript=lambda t: None,
             sounddevice_module=FakeSoundDevice(),
@@ -656,6 +662,7 @@ class TestMicPermission:
         comment); an absent checker must mean "assume granted", not
         "assume denied"."""
         pipeline = VoicePipeline(
+            start_muted=False,
             on_state=lambda s: None, on_amplitude=lambda a: None, on_transcript=lambda t: None,
         )
         assert pipeline._resolve_permission_checker()() is True
@@ -835,6 +842,7 @@ class TestSetMuted:
 
     def test_before_models_load_it_only_records_the_preference(self):
         pipeline = VoicePipeline(
+            start_muted=False,
             on_state=lambda s: pytest.fail(f"unexpected push: {s}"),
             on_amplitude=lambda a: None, on_transcript=lambda t: None,
         )
@@ -1077,6 +1085,7 @@ class TestLifecycle:
 
     def test_stop_before_any_stream_opened_does_not_raise(self):
         pipeline = VoicePipeline(
+            start_muted=False,
             on_state=lambda s: None, on_amplitude=lambda a: None, on_transcript=lambda t: None,
         )
         pipeline.stop()  # must not raise
@@ -1102,6 +1111,7 @@ class TestLifecycle:
 
     def test_resolve_sd_returns_the_real_module_when_none_was_injected(self):
         pipeline = VoicePipeline(
+            start_muted=False,
             on_state=lambda s: None, on_amplitude=lambda a: None, on_transcript=lambda t: None,
         )
         import sounddevice as real_sd

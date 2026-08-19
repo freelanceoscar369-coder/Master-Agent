@@ -601,11 +601,26 @@ def _build_voice(
     mic_permission_checker: Callable[[], bool] | None = None,
     input_device_resolver: Callable[[], str | None] | None = None,
     output_device_resolver: Callable[[], str | None] | None = None,
+    microphone_enabled: bool = True,
 ) -> VoicePipeline:
     """One `VoicePipeline`, wired to push its three event kinds into the
     page. Construction never fails — a model that cannot load reports
     `error` through the same `on_state` push every other absence uses
     (`VoicePipeline._load_and_open`'s own try/except)."""
+    # An automated run must not listen to the room. Ambient founder speech
+    # reached a reasoning provider during a packaged test because the
+    # harness drove the same process, on the same microphone, that the
+    # founder was speaking near.
+    #
+    # `microphone_enabled=False` skips the capture device entirely for
+    # exactly that case. Injected rather than read here: this package is
+    # architecture-guarded against importing `os` directly, so the
+    # composition root owns the environment and hands down the decision --
+    # the same way `mic_permission_checker` and `open_settings` already
+    # work. A voice-input test that needs the device leaves it True.
+    if not microphone_enabled:
+        return None
+
     voice = VoicePipeline(
         on_state=lambda state: _push(window, "onVoiceState", state),
         on_amplitude=lambda amplitude: _push(window, "onVoiceAmplitude", amplitude),
@@ -630,6 +645,7 @@ def create_window(
     open_settings: Callable[[], None] | None = None,
     input_device_resolver: Callable[[], str | None] | None = None,
     output_device_resolver: Callable[[], str | None] | None = None,
+    microphone_enabled: bool = True,
     submit_objective: Callable[[str], dict[str, Any]] | None = None,
     get_execution_status: Callable[[], dict[str, Any]] | None = None,
     confirm_completion: Callable[[str], dict[str, Any]] | None = None,

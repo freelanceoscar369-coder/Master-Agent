@@ -241,6 +241,7 @@ class VoicePipeline:
         on_state: Callable[[str], None],
         on_amplitude: Callable[[float], None],
         on_transcript: Callable[[str], None],
+        start_muted: bool = True,
         whisper_model: str = "base.en",
         piper_model_path: str | None = None,
         sounddevice_module=None,
@@ -281,7 +282,25 @@ class VoicePipeline:
         self._permission_denied = False
 
         self._running = False
-        self._muted = False
+        # Muted until the founder says otherwise.
+        #
+        # This was `False`, and nothing in the composition ever called
+        # `set_muted()` at startup -- its only caller is `toggle_mute()`,
+        # a founder click. So Kalpavriksha opened the microphone at launch
+        # and listened to the room, and no founder had chosen that.
+        #
+        # The state machine already treats a pre-muted start as a
+        # supported entry ("permission granted, device opens, founder
+        # pre-muted" -> STATE_MUTED); only the composition never produced
+        # one. This makes that documented path the default.
+        #
+        # It also removes the possibility of the UI and the pipeline
+        # disagreeing at boot: the label is pushed FROM this value
+        # (`STATE_MUTED if self._muted else STATE_ARMED`), so a founder who
+        # sees MUTED is looking at the canonical state rather than a
+        # coincidence. `_muted` remains the single owner; the surface
+        # projects it and toggles it, and never holds a second opinion.
+        self._muted = start_muted
         self._speaking = False
         self._speech_interrupted = False
         self._speak_thread: threading.Thread | None = None

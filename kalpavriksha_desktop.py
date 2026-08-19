@@ -137,6 +137,20 @@ def _app_state_dir():
     import os as _os
     from pathlib import Path as _Path
 
+    # An automated validation session must not write into the founder's
+    # own history. A packaged FMEA run shared this directory with the live
+    # session, so test interactions, missions and broker decisions landed
+    # in the same stores as real ones.
+    #
+    # `KALPAVRIKSHA_STATE_DIR` names a disposable root for that case. It is
+    # an override, not a second architecture: unset -- which is every
+    # founder run -- resolves exactly as before.
+    override = _os.environ.get("KALPAVRIKSHA_STATE_DIR")
+    if override:
+        state = _Path(override)
+        state.mkdir(parents=True, exist_ok=True)
+        return state
+
     root = _Path(_os.environ.get("LOCALAPPDATA") or _Path.home()) / "Kalpavriksha"
     state = root / "state"
     state.mkdir(parents=True, exist_ok=True)
@@ -1005,6 +1019,11 @@ def main(argv: list[str] | None = None) -> int:
         capability_domains=capability_domains,
         decide_approval=decide_approval,
         set_mode=set_mode,
+        # The composition root owns the environment; `founder_edition` is
+        # guarded against reading it. An automated validation run sets
+        # KALPAVRIKSHA_DISABLE_MIC so the harness cannot listen to the
+        # room -- unset, which is every founder run, leaves voice intact.
+        microphone_enabled=not os.environ.get("KALPAVRIKSHA_DISABLE_MIC"),
         record_interaction=(
             lambda direction, text, **f: getattr(
                 interactions.record(direction, text, **f), "interaction_id", None
