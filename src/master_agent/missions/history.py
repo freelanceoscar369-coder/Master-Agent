@@ -145,6 +145,21 @@ class PlanRecord:
     #: record rather than by correlating timestamps.
     planned_by: str | None = None
     entry_id: int | None = None
+    #: WHY this mission was planned the way it was. `planned_by` already
+    #: answered "which provider planned this?"; these answer the question
+    #: underneath it -- whether a provider was asked at all, and on what
+    #: grounds.
+    #:
+    #: `selected_mode` is the founder's LOCAL / AI MODE / BOTH choice at
+    #: plan time. `effective_mode` is what the mission actually ran under;
+    #: they differ when the objective needed resources the selection did
+    #: not name, and `mode_reason` says which resource forced it. A
+    #: deterministic local plan records a provider of `None` and a mode
+    #: pair that explains why nothing was asked -- which is precisely the
+    #: fact an FMEA pass needs and could not previously recover.
+    selected_mode: str = ""
+    effective_mode: str = ""
+    mode_reason: str = ""
 
     # ---- derived reads --------------------------------------------------
 
@@ -225,6 +240,9 @@ class PlanRecord:
             "finished_at": self.finished_at,
             "planned_by": self.planned_by,
             "entry_id": self.entry_id,
+            "selected_mode": self.selected_mode,
+            "effective_mode": self.effective_mode,
+            "mode_reason": self.mode_reason,
             "steps": [record.as_dict() for record in self.steps],
         }
 
@@ -239,6 +257,12 @@ class PlanRecord:
             finished_at=document.get("finished_at"),
             planned_by=document.get("planned_by"),
             entry_id=document.get("entry_id"),
+            # Absent in records written before routing was recorded. An
+            # older history stays readable and simply reports the routing
+            # it never captured as unknown, rather than failing to load.
+            selected_mode=document.get("selected_mode", ""),
+            effective_mode=document.get("effective_mode", ""),
+            mode_reason=document.get("mode_reason", ""),
         )
 
 
@@ -385,6 +409,9 @@ class PlanHistory:
         plan: Any,
         planned_by: str | None = None,
         entry_id: int | None = None,
+        selected_mode: str = "",
+        effective_mode: str = "",
+        mode_reason: str = "",
     ) -> PlanRecord:
         """Write the plan as planned, before anything runs.
 
@@ -397,6 +424,9 @@ class PlanHistory:
             objective=objective,
             planned_at=_stamp(self._clock()) or "",
             planned_by=planned_by,
+            selected_mode=selected_mode,
+            effective_mode=effective_mode,
+            mode_reason=mode_reason,
             entry_id=entry_id,
             steps=[_step_record(step) for step in plan.steps],
         )

@@ -312,6 +312,12 @@ class MissionService:
                 plan=outcome.plan,
                 planned_by=outcome.provider_id,
                 entry_id=outcome.entry_id,
+                # The routing decision travels with the plan it explains.
+                # The Planner already returns all three on `PlanOutcome`;
+                # they simply stopped at the process boundary.
+                selected_mode=getattr(outcome, "selected_mode", "") or "",
+                effective_mode=getattr(outcome, "effective_mode", "") or "",
+                mode_reason=getattr(outcome, "mode_reason", "") or "",
             )
 
         if self.reporter:
