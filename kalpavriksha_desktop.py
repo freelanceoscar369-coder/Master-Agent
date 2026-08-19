@@ -331,7 +331,20 @@ def _build_mission_pipeline():
         specs=PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,),
         enabled_cloud_providers=("gemini.api",),
     )
-    ledger = DecisionLedger(store=None)  # in-memory; this process is the record
+    # The Broker already records a full DecisionEntry for every reasoning
+    # request -- which providers were eligible, their rank, which was
+    # chosen, on what policy, and what happened when it ran. That was
+    # constructed with `store=None`, so the whole provider-attempt trail
+    # evaporated with the process, exactly as the mission audit did before
+    # cbf5b2a. `JsonFileDecisionStore` already exists and `launcher/boot
+    # .py` already uses it; only this composition was passing null.
+    #
+    # No routing behaviour changes: the ledger is a sink the Broker writes
+    # through, and giving it somewhere to write cannot alter what it
+    # decided.
+    from master_agent.ai_infrastructure.ledger import LEDGER_FILENAME, JsonFileDecisionStore
+
+    ledger = DecisionLedger(store=JsonFileDecisionStore(_app_state_dir() / LEDGER_FILENAME))
     broker = CapabilityBroker(policy=get_policy("prefer_free"), sink=ledger.record)
     intelligence = AiCapabilityService(
         broker=broker, providers=providers_source, ledger=ledger, approvals=None,
