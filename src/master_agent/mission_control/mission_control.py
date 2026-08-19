@@ -190,8 +190,15 @@ class MissionControl:
             self._current_objective_id = objective.objective_id
         return objective
 
-    def dispatch_ready(self, objective_id: str | None = None) -> list[Task]:
-        return self.dispatcher.dispatch_ready(self._resolve_objective_id(objective_id))
+    def dispatch_ready(
+        self, objective_id: str | None = None, limit: int | None = None
+    ) -> list[Task]:
+        """`limit` caps how many tasks are actually committed to an
+        Executive. Passed straight through: capacity is the Runtime's to
+        know and dispatch is the dispatcher's to do."""
+        return self.dispatcher.dispatch_ready(
+            self._resolve_objective_id(objective_id), limit=limit
+        )
 
     def ready_tasks(self, objective_id: str | None = None) -> list[Task]:
         return self.dispatcher.ready_tasks(self._resolve_objective_id(objective_id))

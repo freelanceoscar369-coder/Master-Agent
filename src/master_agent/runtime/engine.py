@@ -249,13 +249,37 @@ class RuntimeEngine:
             # Re-offer held tasks first: the founder's answer arrives
             # between cycles, and the task that was waiting for it should
             # be the first thing tried, not the last.
-            tasks = self._resume_awaiting() + self._dispatch()
+            # Take only what this cycle will actually run.
+            #
+            # This used to be `self._resume_awaiting() + self._dispatch()`
+            # followed by `for task in tasks[:max_concurrent_tasks]`, which
+            # asked Mission Control to commit EVERY ready task and then ran
+            # one. The surplus was left DISPATCHED with an Executive marked
+            # busy, so it was never offered again and its Executive never
+            # freed. A folder step sat in that state while the founder was
+            # told "Step 4 of 6" indefinitely.
+            #
+            # Capacity is the Runtime's to know; assignment is Mission
+            # Control's to perform. So the number travels to the decision
+            # instead of a slice being applied after it.
+            capacity = self._config.max_concurrent_tasks
+
+            # Held tasks were already assigned in an earlier cycle and are
+            # taken off the pile by `_resume_awaiting()`, so any that do
+            # not fit must go back on it rather than be dropped -- the same
+            # stranding, one layer over.
+            held = self._resume_awaiting()
+            taken, deferred = held[:capacity], held[capacity:]
+            for task in deferred:
+                self._awaiting_approval[task.task_id] = task
+
+            tasks = taken + self._dispatch(limit=capacity - len(taken))
             if not tasks:
                 self._go_idle(reason="no work ready")
                 return []
 
             self._last_dispatch_at = self._clock()
-            for task in tasks[: self._config.max_concurrent_tasks]:
+            for task in tasks:
                 self._handle_task(task)
                 handled.append(task)
 
@@ -279,12 +303,22 @@ class RuntimeEngine:
         self._awaiting_approval.clear()
         return held
 
-    def _dispatch(self) -> list[Task]:
-        """Ask Mission Control what is ready across every objective. The
-        Runtime never inspects an Executive to decide this."""
+    def _dispatch(self, limit: int) -> list[Task]:
+        """Ask Mission Control what is ready across every objective, taking
+        at most `limit` in total. The Runtime never inspects an Executive
+        to decide this -- it only says how much work it can accept.
+
+        The budget is spent across objectives, not per objective: two
+        objectives with one ready task each must not both be committed when
+        the Runtime can run one."""
         assigned: list[Task] = []
         for objective in self._mc.dispatcher.objectives():
-            assigned.extend(self._mc.dispatch_ready(objective.objective_id))
+            remaining = limit - len(assigned)
+            if remaining <= 0:
+                break
+            assigned.extend(
+                self._mc.dispatch_ready(objective.objective_id, limit=remaining)
+            )
         return assigned
 
     def _handle_task(self, task: Task) -> None:

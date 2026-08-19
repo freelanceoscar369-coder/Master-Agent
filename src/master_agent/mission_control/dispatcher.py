@@ -136,15 +136,55 @@ class TaskDispatcher:
         self._recompute_readiness(objective)
         return [task for task in objective.tasks if task.state is TaskState.READY]
 
-    def dispatch_ready(self, objective_id: str) -> list[Task]:
-        """Assigns every currently-ready task to an available Executive
-        providing its capability. A ready task with no available provider
-        stays READY (not failed) — the system simply cannot run it yet,
-        which is a scheduling fact, not an error."""
+    def dispatch_ready(self, objective_id: str, limit: int | None = None) -> list[Task]:
+        """Assigns currently-ready tasks to available Executives, at most
+        `limit` of them. A ready task with no available provider stays
+        READY (not failed) — the system simply cannot run it yet, which is
+        a scheduling fact, not an error.
+
+        ## Why `limit` exists
+
+        Assignment is not a note in a ledger. It moves a task READY ->
+        DISPATCHED, records the Executive, and marks that Executive busy —
+        three pieces of state that say *this is being worked on right now*.
+
+        This method used to commit all three for **every** ready task and
+        return them all, while `RuntimeEngine._cycle()` executed only
+        `tasks[:max_concurrent_tasks]`. With two ready tasks and capacity
+        one, the second was assigned and never run:
+
+            step_1  Browser.OpenBrowserSession   READY -> completed
+            step_4  Filesystem.CreateFolder      READY -> DISPATCHED, never started
+
+        `step_4` was no longer READY, so `ready_tasks()` never offered it
+        again, and the filesystem Executive stayed marked busy with a task
+        that would never start — so no later filesystem task could be
+        assigned either. The founder watched "Step 4 of 6" for as long as
+        they cared to wait while the runtime idled 187 times with nothing
+        it believed it could do.
+
+        Capacity belongs to the Runtime and assignment belongs here, so
+        the Runtime says how many it can take and this commits no more
+        than that. Tasks beyond capacity are left untouched in READY and
+        offered again next cycle — which is what READY already means.
+
+        `limit=None` keeps the old unbounded behaviour for callers that
+        genuinely want every assignable task; the Runtime always passes a
+        number.
+        """
+        if limit is not None and limit <= 0:
+            return []
+
         objective = self.objective(objective_id)
         dispatched: list[Task] = []
 
         for task in self.ready_tasks(objective_id):
+            if limit is not None and len(dispatched) >= limit:
+                # Deliberately BEFORE any state is touched. Stopping after
+                # assignment and reverting would mean this method briefly
+                # tells the truth and then takes it back; a task nobody is
+                # about to run must simply stay READY.
+                break
             if not self._capabilities.has(task.capability):
                 self._fail_task(
                     objective,
