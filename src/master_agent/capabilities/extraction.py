@@ -116,6 +116,28 @@ def contract_from_action(
                 fields=required_fields + optional_fields, known=True, closed=True
             )
 
+    try:
+        declared_outputs = action.output_parameters()
+    except Exception:  # noqa: BLE001 - same reflection-is-best-effort reasoning
+        declared_outputs = None
+
+    if declared_outputs is None:
+        outputs = Schema.unknown()
+    else:
+        outputs = Schema(
+            fields=tuple(
+                FieldSpec(
+                    name=str(item["name"]),
+                    type=str(item.get("type", UNKNOWN)),
+                    required=False,
+                    description=_text(item.get("description", "")),
+                )
+                for item in declared_outputs
+            ),
+            known=True,
+            closed=False,
+        )
+
     return CapabilityContract(
         canonical_id=canonical_id,
         version=EXTRACTED_VERSION,
@@ -124,8 +146,12 @@ def contract_from_action(
         inputs=inputs,
         # `expected_result` is a sentence written for a human. It is not a
         # shape, and reading it as one would be exactly the prose-parsing
-        # MB039 exists to remove.
-        outputs=Schema.unknown(),
+        # MB039 exists to remove. `output_parameters()` IS a shape, so an
+        # Action that publishes one gets a known -- but deliberately not
+        # closed -- outputs schema. Known-and-open is the truthful reading:
+        # the Action stated these fields, and did not claim they are all
+        # of them.
+        outputs=outputs,
         permissions=Permissions(
             risk_tier=risk or UNKNOWN,
             category=category or UNKNOWN,

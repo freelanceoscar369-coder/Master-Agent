@@ -203,8 +203,14 @@ class MissionControl:
     def ready_tasks(self, objective_id: str | None = None) -> list[Task]:
         return self.dispatcher.ready_tasks(self._resolve_objective_id(objective_id))
 
-    def task_started(self, task_id: str, objective_id: str | None = None) -> Task:
-        return self.dispatcher.task_started(self._resolve_objective_id(objective_id), task_id)
+    def task_started(
+        self, task_id: str, objective_id: str | None = None,
+        input_provenance: list[dict[str, Any]] | None = None,
+    ) -> Task:
+        return self.dispatcher.task_started(
+            self._resolve_objective_id(objective_id), task_id,
+            input_provenance=input_provenance,
+        )
 
     def task_completed(
         self,
@@ -258,6 +264,22 @@ class MissionControl:
         what Verification produced.
         """
         resolved = self._resolve_objective_id(objective_id, required=False)
+
+        # Mission State is Shared Infrastructure's own responsibility, and a
+        # dependent step binding to this task's output needs the record
+        # rather than its id -- an id cannot say whether the reported value
+        # and the observed value agree. Stored exactly as Verification
+        # produced it: not recomputed, not reinterpreted, verdict untouched.
+        if evidence is not None and resolved:
+            try:
+                task = self.dispatcher.objective(resolved).task(task_id)
+            except Exception:  # noqa: BLE001 -- an event for work this
+                # Mission Control never planned is ignored in silence, the
+                # same way the dispatcher already treats one.
+                task = None
+            if task is not None:
+                task.evidence = dict(evidence)
+
         payload: dict[str, Any] = {"verdict": verdict, "evidence_id": evidence_id}
         if evidence is not None:
             # Nested, not flattened: `verdict` and `evidence_id` stay at the

@@ -175,6 +175,27 @@ class Action(ABC):
         stays a plain, self-contained shape so that remains true."""
         return None
 
+    def output_parameters(self) -> list[dict[str, Any]] | None:
+        """Fields this action's successful `ExecutionResult.output` contains,
+        each as a plain `{"name", "type", "description"}` dict -- or `None`
+        (the default every existing Action inherits) when nobody has
+        published them yet.
+
+        Exists so a Planner can declare that a later step's input comes
+        from this one's output without guessing result keys. A plan that
+        binds `step_3.url` is only valid if `url` is published here; the
+        alternative is the Planner inventing a key and the binding failing
+        at execution, which is the same class of guess this contract
+        removes.
+
+        `None` means *unknown*, which is not the same as *empty*. An action
+        that returns nothing publishable and one nobody has documented are
+        different facts, and only the first can honestly close a schema.
+        Same shape and same self-contained discipline as
+        `optional_parameters()` above: `executor/` still imports nothing
+        from `capabilities/`."""
+        return None
+
     @abstractmethod
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         """Return validation error messages; empty list means valid."""

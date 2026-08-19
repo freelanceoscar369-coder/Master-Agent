@@ -90,6 +90,14 @@ class StepRecord:
     #: say what was observed, when, by which verifier, against what checks,
     #: or which of them failed. Those answers live here.
     evidence: dict[str, Any] | None = None
+    #: Destination argument -> binding, as the Planner declared it. Kept so
+    #: durable history can answer "where was this input meant to come
+    #: from?" alongside `input_provenance`'s "where did it actually come
+    #: from?".
+    input_bindings: dict[str, Any] = field(default_factory=dict)
+    #: Which step and field actually supplied each bound input, and under
+    #: which Evidence, recorded when the step started.
+    input_provenance: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     started_at: str | None = None
     ended_at: str | None = None
@@ -114,6 +122,8 @@ class StepRecord:
             "verdict": self.verdict,
             "evidence_id": self.evidence_id,
             "evidence": self.evidence,
+            "input_bindings": dict(self.input_bindings),
+            "input_provenance": list(self.input_provenance),
             "errors": list(self.errors),
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -137,6 +147,8 @@ class StepRecord:
             # retained loads with `None`, which is the truth about it. It is
             # never synthesised from `evidence_id` -- an id is not evidence.
             evidence=document.get("evidence"),
+            input_bindings=document.get("input_bindings") or {},
+            input_provenance=document.get("input_provenance") or [],
             errors=list(document.get("errors") or []),
             started_at=document.get("started_at"),
             ended_at=document.get("ended_at"),
@@ -503,6 +515,12 @@ class PlanHistory:
         record, step = found
         step.state = RUNNING
         step.started_at = _stamp(self._clock())
+        provenance = (event.payload or {}).get("input_provenance")
+        if isinstance(provenance, list) and provenance:
+            # Where each bound input actually came from, recorded at the
+            # moment it was used. Nothing is filled in for a step that
+            # declared no bindings.
+            step.input_provenance = list(provenance)
         record.state = RUNNING
         self._flush()
 
@@ -630,6 +648,7 @@ def _step_record(step: Any) -> StepRecord:
         capability=step.capability,
         payload=dict(step.payload),
         depends_on=list(step.depends_on),
+        input_bindings=dict(getattr(step, "input_bindings", None) or {}),
         expectation=getattr(expected, "description", "") or "",
         checks=[check.description for check in getattr(expected, "checks", ())],
         priority=getattr(step, "priority", "normal"),

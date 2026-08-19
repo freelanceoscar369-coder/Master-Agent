@@ -46,6 +46,10 @@ class CapabilityOption:
     #: False when optional arguments exist that nobody has published, so
     #: the list above is a floor rather than the whole story.
     args_complete: bool = False
+    #: Result fields this capability publishes. A later step may bind an
+    #: input to one of these; anything else the Planner would have to
+    #: invent, so plan validation refuses it.
+    output_fields: tuple[str, ...] = ()
 
 
 def catalogue_from(registry: Any) -> tuple[CapabilityOption, ...]:
@@ -83,6 +87,7 @@ def catalogue_from_index(index: Any) -> tuple[CapabilityOption, ...]:
             required_args=tuple(entry.required_args),
             optional_args=tuple(entry.optional_args),
             args_complete=entry.args_complete,
+            output_fields=tuple(getattr(entry, "output_fields", ()) or ()),
         )
         for entry in sorted(index.entries, key=lambda e: e.canonical_id)
     )
@@ -135,6 +140,12 @@ def signature(option: CapabilityOption) -> str:
         # must not mistake it for a required argument it now has to fill
         # in on every call.
         base += f" | optional: {', '.join(option.optional_args)}"
+    if option.output_fields:
+        # Names only, and only where declared. This is what lets a plan say
+        # "content comes from step_3.url" instead of predicting the value:
+        # a Planner that cannot see a capability's result fields has no
+        # choice but to guess one.
+        base += f" | outputs: {', '.join(option.output_fields)}"
     return base
 
 

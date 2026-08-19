@@ -147,6 +147,17 @@ class Step:
     capability: str
     payload: dict[str, Any]
     depends_on: list[str] = field(default_factory=list)
+    #: Destination argument -> binding, for inputs produced by an earlier
+    #: Step rather than known at planning time.
+    #:
+    #: `depends_on` says WHEN a step may run. This says WHAT flows into it.
+    #: A Medium mission had the first and not the second: it correctly
+    #: declared that the write depended on the observation, then filled the
+    #: content from the founder's own sentence because there was no way to
+    #: say "that argument comes from step_3". The file recorded
+    #: `https://example.com` for a page that had actually reported
+    #: `https://example.com/`.
+    input_bindings: dict[str, Any] = field(default_factory=dict)
     #: MB036. What this Step is expected to produce, stated before it runs
     #: so the verdict on it is falsifiable rather than a rationalisation.
     #: `None` means nobody said -- which MB035's founder page renders as

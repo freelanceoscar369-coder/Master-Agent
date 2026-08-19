@@ -29,6 +29,37 @@ class ObserveBrowserAction(Action):
     def required_parameters(self) -> list[str]:
         return ["session_id"]
 
+    def output_parameters(self) -> list[dict[str, Any]] | None:
+        """The observation fields a later step may bind to.
+
+        `run()` returns `observation.as_dict()`, which carries more than
+        this -- viewport, elements, an optional accessibility tree. Only
+        the two stable, universally-present page facts are published,
+        because publishing a field is a promise that a plan may depend on
+        it. `url` and `title` are what a browser always has; `elements`
+        depends on selectors the caller passed, and an accessibility tree
+        is opt-in.
+
+        So this list is deliberately *known*, not *closed*: the contract
+        does not claim it enumerates the whole output. Claiming that while
+        leaving fields undocumented would be the same overreach as an
+        `inputs` schema calling itself closed with arguments unstated.
+
+        `run()` is unchanged -- this publishes what it already returned.
+        """
+        return [
+            {
+                "name": "url",
+                "type": "string",
+                "description": "The page's current URL as the browser reports it.",
+            },
+            {
+                "name": "title",
+                "type": "string",
+                "description": "The page's current title as the browser reports it.",
+            },
+        ]
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []
         if not (parameters.get("session_id") or "").strip():

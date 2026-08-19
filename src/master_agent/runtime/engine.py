@@ -38,6 +38,10 @@ from master_agent.runtime.approval import (
 from master_agent.runtime.checkpoint import CheckpointSink, RuntimeCheckpoint
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.gateway import ExecutiveGateway, GatewayResult
+from master_agent.runtime.input_resolution import (
+    BindingResolutionError,
+    resolve_inputs,
+)
 from master_agent.runtime.health import RuntimeHealth
 from master_agent.runtime.states import RuntimeState, assert_transition
 
@@ -303,6 +307,23 @@ class RuntimeEngine:
         self._awaiting_approval.clear()
         return held
 
+    def _dependency_tasks(self, task: Task) -> dict[str, Any]:
+        """The tasks this one declares a dependency on, by id.
+
+        Only declared dependencies are offered to the resolver, so a
+        binding cannot read a step the DAG never made it wait for.
+        `depends_on` stays the single execution-order authority.
+        """
+        found: dict[str, Any] = {}
+        wanted = set(getattr(task, "depends_on", ()) or ())
+        if not wanted:
+            return found
+        for objective in self._mc.dispatcher.objectives():
+            for candidate in objective.tasks:
+                if candidate.task_id in wanted:
+                    found[candidate.task_id] = candidate
+        return found
+
     def _dispatch(self, limit: int) -> list[Task]:
         """Ask Mission Control what is ready across every objective, taking
         at most `limit` in total. The Runtime never inspects an Executive
@@ -344,6 +365,23 @@ class RuntimeEngine:
             self._report_failure(task, f"could not resolve capability: {exc}")
             return
 
+        # ---- DECLARED INPUT BINDINGS ----------------------------------
+        # Resolved here, BEFORE the approval boundary, so the founder and
+        # the Permission System decide on the values that will actually
+        # execute rather than on a placeholder. A binding that cannot be
+        # trustworthily resolved fails the task before anything is
+        # approved, invoked or written -- and never falls back to a
+        # planner literal or the founder's raw words, because a missing
+        # value is not permission to invent one.
+        #
+        # `task.payload` is untouched throughout: the persisted plan stays
+        # what the Planner decided, and this is execution material.
+        try:
+            resolved = resolve_inputs(task, self._dependency_tasks(task))
+        except BindingResolutionError as exc:
+            self._report_failure(task, str(exc))
+            return
+
         # ---- THE APPROVAL BOUNDARY (MB028.0, ADR-0019) ----------------
         # Everything below this line executes. Nothing above it does. This
         # is the only place in the Runtime where a gateway is reached, so
@@ -351,7 +389,7 @@ class RuntimeEngine:
         # place one can be bypassed, which is why it is here and not
         # inside any gateway implementation.
         try:
-            self._require_approval(task, local_capability)
+            self._require_approval(task, local_capability, payload=resolved.payload)
         except ApprovalPending as pending:
             # MB028.1: an unanswered question is not a failure. The task
             # stays exactly where it is and the boundary is re-consulted
@@ -364,15 +402,31 @@ class RuntimeEngine:
             return
 
         self._transition(RuntimeState.WAITING)
-        self._mc.task_started(task.task_id, objective_id=self._objective_of(task))
+        self._mc.task_started(
+            task.task_id,
+            objective_id=self._objective_of(task),
+            # Which step and field supplied each bound input, and under
+            # which Evidence. Ids and paths only -- the values themselves
+            # already live in the source Evidence, and copying dynamic
+            # content again would store more without recording a new fact.
+            input_provenance=resolved.provenance or None,
+        )
 
-        result = self._execute_with_retry(gateway, task, local_capability)
+        result = self._execute_with_retry(
+            gateway, task, local_capability, payload=resolved.payload,
+        )
 
         if not result.success:
             self._escalate(task, result.error_text)
             return
 
-        evidence = self._verify(gateway, task, local_capability)
+        # The SAME resolved payload. Verifying the plan's literal payload
+        # would check a file nobody wrote -- for a bound `content` there is
+        # no literal at all, so the digest check would have nothing to
+        # compare against.
+        evidence = self._verify(
+            gateway, task, local_capability, payload=resolved.payload,
+        )
 
         # Execution succeeding never implies the mission step succeeded:
         # a NOT_MATCHED verdict is a failure, because ADR-0011 exists
@@ -415,7 +469,8 @@ class RuntimeEngine:
         self._tasks_completed += 1
 
     def _execute_with_retry(
-        self, gateway: ExecutiveGateway, task: Task, local_capability: str
+        self, gateway: ExecutiveGateway, task: Task, local_capability: str,
+        payload: dict[str, Any] | None = None,
     ) -> GatewayResult:
         """Mechanical retry only: identical capability, identical payload,
         bounded attempts, fixed delay. Mission Control is told nothing
@@ -425,7 +480,13 @@ class RuntimeEngine:
 
         for attempt in range(1, self._config.max_attempts + 1):
             try:
-                last = gateway.invoke(local_capability, dict(task.payload))
+                # Identical payload on every attempt, including a
+                # resolved one -- a retry must not re-resolve and risk
+                # executing something different from what was approved.
+                last = gateway.invoke(
+                    local_capability,
+                    dict(task.payload if payload is None else payload),
+                )
             except Exception as exc:  # noqa: BLE001 — a gateway that raises is a failed attempt, not a dead runtime
                 last = GatewayResult(success=False, errors=[f"gateway raised: {exc}"])
 
@@ -448,7 +509,8 @@ class RuntimeEngine:
         return last
 
     def _verify(
-        self, gateway: ExecutiveGateway, task: Task, local_capability: str
+        self, gateway: ExecutiveGateway, task: Task, local_capability: str,
+        payload: dict[str, Any] | None = None,
     ) -> Any:
         expected = task.expected_outcome
         if expected is None or not self._config.verify_when_expected_outcome_present:
@@ -458,7 +520,11 @@ class RuntimeEngine:
         objective_id = self._objective_of(task)
         self._mc.verification_started(task.task_id, objective_id=objective_id)
 
-        evidence = gateway.verify(local_capability, dict(task.payload), expected)
+        evidence = gateway.verify(
+            local_capability,
+            dict(task.payload if payload is None else payload),
+            expected,
+        )
         self._last_verification_at = self._clock()
 
         if evidence is None:
@@ -488,7 +554,10 @@ class RuntimeEngine:
 
     # ---- failure handling -------------------------------------------
 
-    def _require_approval(self, task: Task, local_capability: str) -> None:
+    def _require_approval(
+        self, task: Task, local_capability: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
         """Consult the approval boundary. Raises `ApprovalDenied`.
 
         **Fails closed.** A Runtime with no gate refuses *everything* --
@@ -506,7 +575,7 @@ class RuntimeEngine:
             local_capability=local_capability,
             task_id=task.task_id,
             objective_id=self._objective_of(task),
-            payload=dict(task.payload),
+            payload=dict(task.payload if payload is None else payload),
         )
         if self._approval_gate is None:
             raise ApprovalDenied(

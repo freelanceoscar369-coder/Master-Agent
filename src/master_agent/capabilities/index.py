@@ -53,6 +53,11 @@ class IndexEntry:
     #: False when optional arguments exist that nobody has published, so a
     #: caller knows the list above is a floor rather than the whole story.
     args_complete: bool = False
+    #: Result fields this capability publishes, for a Planner declaring
+    #: that a later step's input comes from this one's output. Empty when
+    #: the Action has published none -- a plan may only bind a field that
+    #: appears here, so an unpublished output means "do not guess a key".
+    output_fields: tuple[str, ...] = ()
     approval_required: bool = False
     side_effect: str = UNKNOWN
 
@@ -63,7 +68,14 @@ class IndexEntry:
         tail = ", ..." if not self.args_complete and self.required_args else ""
         if not self.required_args:
             tail = "..." if not self.args_complete else ""
-        return f"{self.canonical_id}({args}{tail})"
+        rendered = f"{self.canonical_id}({args}{tail})"
+        if self.output_fields:
+            # Only where genuinely declared, and only names. This is the
+            # lightweight tier of MB039's two-tier index -- full field
+            # descriptions stay behind the lazy contract seam, because
+            # planning prompt size has already cost real latency once.
+            rendered += " -> " + ", ".join(self.output_fields)
+        return rendered
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -74,6 +86,7 @@ class IndexEntry:
             "required_args": list(self.required_args),
             "optional_args": list(self.optional_args),
             "args_complete": self.args_complete,
+            "output_fields": list(self.output_fields),
             "approval_required": self.approval_required,
             "side_effect": self.side_effect,
         }
@@ -102,6 +115,9 @@ def entry_for(contract: CapabilityContract) -> IndexEntry:
         # known-but-open means the required names are published and the
         # optional ones are not.
         args_complete=complete,
+        output_fields=(
+            contract.outputs.field_names if contract.outputs.known else ()
+        ),
         approval_required=contract.permissions.approval_required,
         side_effect=contract.side_effect,
     )

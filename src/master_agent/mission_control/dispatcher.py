@@ -213,17 +213,26 @@ class TaskDispatcher:
 
     # ---- reports back from whoever actually executed -----------------
 
-    def task_started(self, objective_id: str, task_id: str) -> Task:
+    def task_started(
+        self, objective_id: str, task_id: str,
+        input_provenance: list[dict[str, Any]] | None = None,
+    ) -> Task:
         objective = self.objective(objective_id)
         task = objective.task(task_id)
         task.state = TaskState.RUNNING
         task.started_at = datetime.now(UTC)
+        payload: dict[str, Any] = {"executive_id": task.assigned_executive}
+        if input_provenance:
+            # Carried on the event that already means "this task is running
+            # with these inputs", rather than inventing an event type for a
+            # fact the existing one can express. Ids and field paths only.
+            payload["input_provenance"] = input_provenance
         self._publish(
             EventType.TASK_STARTED,
             objective_id=objective_id,
             task_id=task_id,
             capability=task.capability,
-            payload={"executive_id": task.assigned_executive},
+            payload=payload,
         )
         return task
 

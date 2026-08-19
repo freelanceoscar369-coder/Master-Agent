@@ -112,6 +112,10 @@ def task_from_step(step: Any) -> Task:
         payload=dict(step.payload),
         depends_on=list(step.depends_on),
         expected_outcome=step.expected_outcome,
+        # Copied, not resolved. Translation stays 1:1 -- no binding is
+        # evaluated here, and no dynamic value exists yet. The Runtime
+        # resolves them immediately before execution.
+        input_bindings=dict(getattr(step, "input_bindings", None) or {}),
         task_id=step.step_id,
     )
 

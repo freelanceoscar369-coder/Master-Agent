@@ -53,6 +53,23 @@ class Task:
     assigned_executive: str | None = None
     result: Any = None
     evidence_id: str | None = None
+    #: Destination argument -> `Binding`. Declared by the Planner, resolved
+    #: by the Runtime immediately before execution. Separate from `payload`
+    #: on purpose: `payload` means "arguments for the capability", and
+    #: putting `${step_3.url}` placeholders inside one would force every
+    #: Action to understand references it has no business knowing about.
+    input_bindings: dict[str, Any] = field(default_factory=dict)
+    #: The canonical Evidence projection Verification produced for THIS
+    #: task, stored by Mission Control when it transports the verification
+    #: event.
+    #:
+    #: `evidence_id` alone was enough while nothing downstream needed the
+    #: record. A dependent step binding to this task's output does: it must
+    #: check that the reported value and the independently observed value
+    #: agree, and an id cannot answer that. Mission State is Shared
+    #: Infrastructure's own responsibility, so the Runtime reads it here
+    #: rather than reaching into PlanHistory or the Reporter.
+    evidence: dict[str, Any] | None = None
     errors: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
@@ -72,6 +89,8 @@ class Task:
             "assigned_executive": self.assigned_executive,
             "depends_on": list(self.depends_on),
             "evidence_id": self.evidence_id,
+            "input_bindings": dict(self.input_bindings),
+            "evidence": self.evidence,
             "errors": list(self.errors),
             "duration_seconds": self.duration_seconds,
         }

@@ -30,6 +30,7 @@ PLAN_SHAPE = """{
       "id": "step_1",
       "capability": "<exactly one name from the catalogue above>",
       "payload": {"<argument>": "<value>"},
+      "input_bindings": {},
       "depends_on": [],
       "priority": "low | normal | high | critical",
       "complexity": "trivial | small | moderate | large",
@@ -66,6 +67,21 @@ _RULES = (
     (
         "4. `depends_on` lists the `id`s of steps that must finish first. "
         "Leave it empty if there are none."
+    ),
+    (
+        "4a. When a step needs a value that an EARLIER step produces, do "
+        "not guess it, copy it, predict it, or take it from the "
+        "objective's wording. You do not know it yet -- it does not exist "
+        "until that step runs. Declare it in `input_bindings` instead, "
+        "referencing the step that produces it, and put that step in "
+        "`depends_on` as well. Two forms are allowed: "
+        '{"argument": {"from_step": {"step_id": "step_3", "field": "url"}}} '
+        "or "
+        '{"argument": {"concat": [{"literal": "Title: "}, '
+        '{"from_step": {"step_id": "step_3", "field": "title"}}]}}. '
+        "The `field` must be one the source capability lists after "
+        "`outputs:` in the catalogue. An argument set by `input_bindings` "
+        "must NOT also appear in `payload`."
     ),
     "5. Use the fewest steps that actually achieve the goal.",
     (
