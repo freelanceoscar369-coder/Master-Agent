@@ -721,7 +721,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         return _founder_reply(status, status.message)
     if state.progress >= 1.0:
         status.result = state.result
-        status.message = _describe_result(state.result)
+        status.message = _describe_result(state.result, status.objective or '')
         return _founder_reply(status, status.message)
     # Waiting on the founder is not slowness. `AWAITING_APPROVAL` means
     # the plan is ready and held at the permission boundary until a human
@@ -741,7 +741,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # Operator's own evidence, and Verification has already compared it
     # against the Step's expected outcome by the time this event fires.
     if status.requires_founder_completion or status.status == AWAITING_FOUNDER_COMPLETION:
-        done = _describe_result(state.result) if state.result else ""
+        done = _describe_result(state.result, status.objective or "") if state.result else ""
         status.message = (
             f"{done} Ready for your review.".strip() if done
             else "That's done and checked. Ready for your review."
@@ -879,16 +879,44 @@ def _founder_failure_sentence(errors: str) -> str:
     return "That didn't complete. I've kept the details for review."
 
 
-def _describe_result(result) -> str:
-    """The last task's raw output, in one sentence a founder can read —
-    never a re-derived judgment about what happened, only the same facts
-    Mission Control already recorded, worded plainly. A browser
-    observation's own well-known shape (url/title) gets a short sentence;
-    anything else falls back to its own string form rather than guessing
-    at a summary this function has no authority to invent."""
+def _describe_result(result, objective: str = "") -> str:
+    """One sentence a founder can read about the MISSION -- never a raw
+    implementation step.
+
+    This is handed `FounderState.result`, which is `_last_result()`: the
+    output of the LAST task. For a one-step mission that is the mission's
+    own result and reads correctly -- a folder mission's last output is
+    the path, which is exactly what Onkar wanted to know. Every packaged
+    mission until the first AI-planned one was single-step, so the
+    conflation never showed.
+
+    The first five-step plan ended in `Browser.CloseBrowserSession`, and
+    Onkar was shown its raw output -- rendered by the page as
+    `[object Object]` -- for a mission that had genuinely researched the
+    printing press and written the file. The work succeeded; the sentence
+    describing it came from the cleanup step.
+
+    A step's output is not a mission result. So a structure that is
+    plainly implementation detail is no longer stringified at the founder:
+    the mission is described by what Onkar asked for, which is the one
+    thing about it that is certainly true. A plain string is still spoken
+    as-is, because that is the single-step case where the step output IS
+    the mission's answer.
+
+    Deliberately still no invention. This function has no authority to
+    summarise, and does not acquire it here -- it only stops repeating
+    something meaningless. Naming the artifact a multi-step mission
+    produced needs evidence the surface is not currently given; that is a
+    follow-up, not a place to guess.
+    """
     if isinstance(result, dict) and "title" in result and "url" in result:
         return f"Done — the page at {result['url']} loaded with title \"{result['title']}\"."
-    return str(result) if result else "Done."
+    if isinstance(result, (dict, list, tuple, set, bytes)):
+        return f"Done — {objective}." if objective else "Done."
+    text = str(result).strip() if result is not None else ""
+    if not text:
+        return f"Done — {objective}." if objective else "Done."
+    return text
 
 
 def main(argv: list[str] | None = None) -> int:
