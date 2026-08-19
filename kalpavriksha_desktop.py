@@ -428,6 +428,12 @@ def _build_mission_pipeline():
     from master_agent.persistence.store import JsonFileStateStore
 
     state_dir = _app_state_dir()
+    # ADR-0025. Written by the surface, read by an investigator, and by
+    # nothing in the Brain, Planner or Runtime -- that boundary is what
+    # keeps a transcript from becoming a memory system.
+    from master_agent.audit import FILENAME as _INTERACTIONS, InteractionLog, JsonlInteractionStore
+
+    interactions = InteractionLog(JsonlInteractionStore(state_dir / _INTERACTIONS))
     persistence = PersistenceService(JsonFileStateStore(state_dir), mission_control)
     persistence.start_recording()
     plan_history = PlanHistory(store=JsonFilePlanStore(state_dir / HISTORY_FILENAME))
@@ -457,7 +463,8 @@ def _build_mission_pipeline():
     def _set_mode(mode: str) -> None:
         mode_cell["mode"] = _normalise_mode(mode)
 
-    return mission_service, runtime, mission_control, status, tiered_runner, _set_mode
+    return (mission_service, runtime, mission_control, status, tiered_runner,
+            _set_mode, interactions)
 
 
 def _submit_objective(mission_service, runtime, mission_control, status, text: str,
@@ -857,9 +864,11 @@ def main(argv: list[str] | None = None) -> int:
     get_execution_status = None
     confirm_completion = None
     capability_domains = None
+    interactions = None
     decide_approval = None
     if pipeline is not None:
-        mission_service, runtime, mission_control, status, reasoning_runner, set_mode = pipeline
+        (mission_service, runtime, mission_control, status, reasoning_runner,
+         set_mode, interactions) = pipeline
         submit_objective = lambda text: _submit_objective(  # noqa: E731
             mission_service, runtime, mission_control, status, text,
             reasoning_runner=reasoning_runner,
@@ -926,6 +935,9 @@ def main(argv: list[str] | None = None) -> int:
         capability_domains=capability_domains,
         decide_approval=decide_approval,
         set_mode=set_mode,
+        record_interaction=(
+            lambda direction, text, **f: interactions.record(direction, text, **f)
+        ) if interactions is not None else None,
     )
     return 0
 

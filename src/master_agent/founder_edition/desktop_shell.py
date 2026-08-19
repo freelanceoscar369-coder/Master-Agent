@@ -297,6 +297,7 @@ class DesktopShellApi:
         confirm_completion: Callable[[str], dict[str, Any]] | None = None,
         decide_approval: Callable[..., dict[str, Any]] | None = None,
         set_mode: Callable[[str], None] | None = None,
+        record_interaction: Callable[..., None] | None = None,
     ) -> None:
         self._app = app
         self._voice = voice
@@ -322,6 +323,10 @@ class DesktopShellApi:
         # module only carries the founder's word to it.
         self._decide_approval = decide_approval
         self._set_mode = set_mode
+        #: ADR-0025. Injected rather than imported: this package is
+        #: architecture-guarded against reaching into the runtime, and an
+        #: audit trail must never be able to break the product it observes.
+        self._record_interaction = record_interaction
         #: LOCAL / AI MODE / BOTH. BOTH by default, matching both the
         #: historical shell and the button the page marks active at boot.
         self._mode: str = DEFAULT_MODE
@@ -361,6 +366,7 @@ class DesktopShellApi:
     def send_message(self, text: str, source: str = "text") -> dict[str, Any]:
         if self._app.communication is None:
             return {"reply": None}
+        self._audit("founder", text)
         resolved_source = _SOURCE_BY_NAME.get(source, Source.TEXT)
         request = CommunicationRequest(
             source=resolved_source, content=text,
@@ -391,11 +397,27 @@ class DesktopShellApi:
                 # produce; nothing here composes a second one.
                 if self._voice is not None and outcome.get("reply"):
                     self._voice.speak(outcome["reply"])
+                # What the founder was actually SHOWN. The whole point of
+                # ADR-0025 is being able to compare this against what the
+                # backend believed happened.
+                self._audit("chief_of_staff", outcome.get("reply"),
+                            interaction_type="mission_result")
                 return outcome
             return {"reply": None}
         if self._voice is not None:
             self._voice.speak(routed.response.spoken)
+        self._audit("chief_of_staff", routed.response.display,
+                    interaction_type="conversation")
         return {"reply": routed.response.display}
+
+    def _audit(self, direction: str, text: Any, **fields: Any) -> None:
+        """Best-effort, always. A founder's request must never fail because
+        a log write did -- a missing record is recoverable, a broken
+        session is not."""
+        if self._record_interaction is None or not text:
+            return
+        with contextlib.suppress(Exception):
+            self._record_interaction(direction, str(text), **fields)
 
     def get_dashboard(self) -> dict[str, Any]:
         return self._app.dashboard()
@@ -594,6 +616,7 @@ def create_window(
     capability_domains: Callable[[], Any] | None = None,
     decide_approval: Callable[..., dict[str, Any]] | None = None,
     set_mode: Callable[[str], None] | None = None,
+    record_interaction: Callable[..., None] | None = None,
 ) -> FounderEditionApp:
     """Boot Founder Edition, start the local voice pipeline, and open the
     one native window.
@@ -642,6 +665,7 @@ def create_window(
         confirm_completion=confirm_completion,
         decide_approval=decide_approval,
         set_mode=set_mode,
+        record_interaction=record_interaction,
     )
     window.expose(api.get_founder_seed, api.greet, api.send_message,
                   api.get_dashboard, api.toggle_mute,

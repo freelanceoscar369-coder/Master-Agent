@@ -32,7 +32,8 @@ def test_builds_the_full_pipeline_with_a_key(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-test")
     pipeline = kd._build_mission_pipeline()
     assert pipeline is not None
-    mission_service, runtime, mission_control, status, reasoning_runner, set_mode = pipeline
+    (mission_service, runtime, mission_control, status, reasoning_runner,
+     set_mode, interactions) = pipeline
     assert type(mission_service).__name__ == "MissionService"
     assert type(runtime).__name__ == "RuntimeEngine"
     assert type(mission_control).__name__ == "MissionControl"
@@ -46,11 +47,13 @@ def test_builds_the_full_pipeline_with_a_key(monkeypatch):
     # surface can set it and the Planner can read it -- one cell, not
     # a second copy of the mode on either side.
     assert callable(set_mode)
+    # ADR-0025's interaction log, so the surface can record both sides.
+    assert interactions is not None
 
 
 def test_browser_capabilities_are_discovered(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-test")
-    _, _, mission_control, _, _, _ = kd._build_mission_pipeline()
+    _, _, mission_control, _, _, _, _ = kd._build_mission_pipeline()
     names = {c.qualified_name for c in mission_control.capabilities.all()}
     assert "Browser.Navigate" in names
     assert "Browser.ObserveBrowser" in names
@@ -66,7 +69,7 @@ def test_no_ollama_provider_is_ever_registered(monkeypatch):
     `PluginRegistry` this test always checked, reached through the one
     new, sanctioned layer between `Planner` and it."""
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-test")
-    mission_service, _, _, _, _, _ = kd._build_mission_pipeline()
+    mission_service, _, _, _, _, _, _ = kd._build_mission_pipeline()
     provider_ids = {p.provider_id for p in mission_service.planner._runner._executor._providers.all_plugins()}
     assert "ollama.local" not in provider_ids
     assert provider_ids == {
