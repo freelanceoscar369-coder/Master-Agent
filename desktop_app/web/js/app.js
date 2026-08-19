@@ -1312,11 +1312,24 @@ function renderCompletionRequest(exec) {
     const secondary = document.createElement('button');
     secondary.type = 'button';
     secondary.className = 'kv-completion__action-secondary';
-    secondary.textContent = 'Send back';
-    // See this function's own docstring: no backend action exists for
-    // this yet -- disabled honestly rather than wired to nothing.
+    // Onkar tried to use this and found a dead control. It was already
+    // honestly disabled, but the only explanation was a hover title --
+    // which nobody hovers over a greyed-out button to read. An
+    // unexplained unusable action is worse than an absent one, so the
+    // reason is now on the face of it.
+    //
+    // Still not wired, deliberately: mission_control.py has
+    // confirm_completion() only, and reject()/defer() operate on
+    // approval_id -- a different id namespace for a different subsystem.
+    // What "send back" should mean (reopen the mission? amend the
+    // objective? a new Intent?) is an open architecture question, and
+    // guessing it here would improvise strategic replanning.
+    secondary.textContent = 'Send back (not available yet)';
     secondary.disabled = true;
-    secondary.title = 'Send back is not yet wired to a backend action';
+    secondary.setAttribute('aria-disabled', 'true');
+    secondary.title =
+      'Sending a result back for revision is not built yet. ' +
+      'Marking complete only closes this out for you; it does not claim the work was good.';
 
     actions.appendChild(primary);
     actions.appendChild(secondary);

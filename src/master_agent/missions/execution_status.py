@@ -124,6 +124,32 @@ class PendingClarification:
         }
 
 
+def _founder_safe(result: Any) -> Any:
+    """The result as the founder surface may render it.
+
+    `self.result` stays canonical and structured -- an internal consumer
+    that needs the real object still has it. This is the projection, and
+    it exists because the surface assigns the value straight to
+    `textContent` (`app.js`: `summary.textContent = exec.result || exec
+    .message || ...`). JavaScript stringifies an object there as
+    `[object Object]`, which is exactly what Onkar was shown for a
+    five-step research mission that had genuinely run.
+
+    A structure is projected as `None` rather than as prose. That is
+    deliberate: this function has no idea what any capability's payload
+    means, and inventing a sentence for it would be the reporting
+    authority it does not hold. `None` makes the surface fall through to
+    `exec.message`, which the Reporter-side path has already composed
+    truthfully at mission level.
+
+    A plain string passes through untouched -- a folder mission's path is
+    exactly what the founder wants to see.
+    """
+    if isinstance(result, (dict, list, tuple, set, bytes, bytearray)):
+        return None
+    return result
+
+
 @dataclass
 class ExecutionStatus:
     """One founder objective's live status, as a plain, JSON-shaped
@@ -304,7 +330,7 @@ class ExecutionStatus:
             "elapsed_ms": self.elapsed_ms,
             "timeout_ms": self.timeout_ms,
             "message": self.message,
-            "result": self.result,
+            "result": _founder_safe(self.result),
             "requires_founder_completion": self.requires_founder_completion,
             "completion_id": self.completion_id,
             "approval_id": self.approval_id,
