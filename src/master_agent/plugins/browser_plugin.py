@@ -25,6 +25,7 @@ from master_agent.executor.actions.browser.close_session import (
 )
 from master_agent.executor.actions.browser.navigate import NAVIGATE, NavigateAction
 from master_agent.executor.actions.browser.observe import OBSERVE_BROWSER, ObserveBrowserAction
+from master_agent.executor.actions.browser.read_page_text import ReadPageTextAction
 from master_agent.executor.actions.browser.open_session import (
     OPEN_BROWSER_SESSION,
     OpenBrowserSessionAction,
@@ -69,6 +70,7 @@ _ACTION_CLASSES: tuple[type[Action], ...] = (
     ScrollAction,
     WaitForSelectorAction,
     ObserveBrowserAction,
+    ReadPageTextAction,
 )
 
 

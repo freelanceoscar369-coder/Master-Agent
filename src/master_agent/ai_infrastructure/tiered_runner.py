@@ -54,6 +54,11 @@ from typing import Any
 #: already built from — never a hardcoded application name. Adding a
 #: fifth desktop AI application to that catalogue changes membership
 #: here automatically; this module never names one.
+#: Tier 0. A local runtime on the founder's own machine: free, and
+#: nothing it is given leaves the laptop. It is first because that
+#: is the honest order of preference for private work, not because
+#: it is the strongest reasoner.
+TIER_LOCAL = "local"
 TIER_GEMINI = "gemini"
 TIER_DESKTOP = "desktop"
 TIER_BROWSER = "browser"
@@ -85,14 +90,22 @@ class TieredPromptRunner:
         browser_provider_ids: frozenset[str],
         desktop_context: Any = None,
         all_known_provider_ids: frozenset[str] | None = None,
+        local_provider_ids: frozenset[str] = frozenset(),
     ) -> None:
         self._executor = prompt_executor
+        # Local first. Additive and defaulted empty, so every existing
+        # caller keeps the exact ladder it had; a deployment with a local
+        # runtime gets to try it before anything leaves the machine.
         self._tiers: tuple[tuple[str, frozenset[str]], ...] = (
+            (TIER_LOCAL, frozenset(local_provider_ids)),
             (TIER_GEMINI, frozenset(gemini_provider_ids)),
             (TIER_DESKTOP, frozenset(desktop_provider_ids)),
             (TIER_BROWSER, frozenset(browser_provider_ids)),
         )
-        tiered_ids = frozenset().union(gemini_provider_ids, desktop_provider_ids, browser_provider_ids)
+        tiered_ids = frozenset().union(
+            local_provider_ids, gemini_provider_ids, desktop_provider_ids,
+            browser_provider_ids,
+        )
         # A real, live bug found running the actual production pipeline:
         # `ProviderSource` (and therefore `CapabilityBroker.select()`)
         # sees *every* spec in whatever `specs=` tuple the composition

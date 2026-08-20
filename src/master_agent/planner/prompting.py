@@ -18,6 +18,7 @@ from __future__ import annotations
 from master_agent.ai_infrastructure.text_verifier import expect
 from master_agent.planner.catalogue import CapabilityOption, render
 from master_agent.planner.plan import Intent
+from master_agent.planner.task_playbook import playbook_lines
 from master_agent.verification.evidence import ExpectedOutcome
 
 #: The shape a plan must have. Stated as an example rather than as a
@@ -227,6 +228,12 @@ def build_prompt(
             PLAN_SHAPE,
             "",
             *_RULES,
+            "",
+            # Method, kept apart from the rules above on purpose: those
+            # state what a plan must BE, these state how to arrive at one
+            # when the objective has more than one phase. See
+            # `task_playbook.py`.
+            *playbook_lines(),
         ]
     )
     return "\n".join(sections)

@@ -241,6 +241,9 @@ def _build_mission_pipeline():
     from master_agent.capabilities.extraction import contracts_from_actions
     from master_agent.capabilities.index import build_index
     from master_agent.mission_control.capabilities import qualified_name
+    from master_agent.plugins.document_plugin import DocumentPlugin
+    from master_agent.plugins.reasoning_plugin import ReasoningPlugin
+    from pathlib import Path as _Path
 
     permissions = PermissionSystem()
     executor = LocalExecutor(permissions)
@@ -286,8 +289,35 @@ def _build_mission_pipeline():
     # name a CLARIFICATION rather than a guess), and it reclassifies a
     # REVERSIBLE_WRITE operation as IRREVERSIBLE, which forced a founder
     # approval the real policy never asked for.
-    filesystem_plugin = FilesystemPlugin(executor)
+    # Named roots. The three defaults plus the founder's D: drive, which
+    # is where their own documents actually live -- without a name for it
+    # no capability can reach them, and a mission about a file on D: could
+    # only fail. Deliberately recorded as a real widening: EVERY filesystem
+    # capability resolves against this table, deletion included, so this
+    # line grants read AND write reach across that drive.
+    from master_agent.executor.action import default_locations as _default_locations
+
+    _locations = dict(_default_locations())
+    _d_drive = _Path("D:/")
+    if _d_drive.exists():
+        _locations["d_drive"] = _d_drive
+
+    filesystem_plugin = FilesystemPlugin(executor, _locations)
     registry.register(filesystem_plugin)
+
+    # The Document Executive: formats, where Filesystem handles bytes.
+    # `Filesystem.ReadFile` is honest that it reads text files only, which
+    # made every PDF and Word document on the machine unreachable.
+    document_plugin = DocumentPlugin(executor, _locations)
+    registry.register(document_plugin)
+
+    # The Reasoning Executive. Registered here with the others so it is a
+    # real Executive in the catalogue; its runner is bound further down,
+    # once the ladder it delegates to exists. Until this, judgement was
+    # something the Planner could do *about* a mission and nothing could
+    # do *inside* one.
+    reasoning_plugin = ReasoningPlugin(executor)
+    registry.register(reasoning_plugin)
 
     mission_control = MissionControl()
     discover_executives(mission_control, registry)
@@ -426,6 +456,19 @@ def _build_mission_pipeline():
     )
     provider_registry = PluginRegistry()
     provider_registry.register(GeminiProvider(api_key=api_key))
+    # Tier 0 — the founder's own machine. `OllamaProvider` and its
+    # `ollama.local` catalogue entry ("local runtime; nothing leaves the
+    # machine") have both existed for a long time; Founder Edition simply
+    # never registered the provider, so the one reasoner that costs
+    # nothing, needs no quota and keeps private documents on the laptop
+    # was unreachable while three missions failed for want of a planner.
+    #
+    # Registered unconditionally: construction performs no I/O, and a
+    # daemon that is not running fails this tier like any other, falling
+    # through to Gemini exactly as before.
+    from master_agent.providers.ollama import OLLAMA_PROVIDER_ID, OllamaProvider
+
+    provider_registry.register(OllamaProvider(model="gemma4:latest"))
     # Tier 2 — one provider per `locality == DESKTOP` entry already
     # declared in `PROVIDER_CATALOG` (Claude/ChatGPT/Perplexity/Kimi
     # today; a fifth application is a catalogue entry, never a new
@@ -460,6 +503,7 @@ def _build_mission_pipeline():
 
     tiered_runner = TieredPromptRunner(
         prompt_executor,
+        local_provider_ids=frozenset({OLLAMA_PROVIDER_ID}),
         gemini_provider_ids=frozenset({"gemini.api"}),
         desktop_provider_ids=frozenset() if _gemini_only else frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
@@ -475,8 +519,11 @@ def _build_mission_pipeline():
         # because nothing had told this ladder they existed to exclude.
         all_known_provider_ids=frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG
-        ) | {BROWSER_FREE_AI_ID},
+        ) | {BROWSER_FREE_AI_ID, OLLAMA_PROVIDER_ID},
     )
+    # The Reasoning Executive delegates to this same ladder -- one
+    # routing stack for planning and for mid-mission judgement alike.
+    reasoning_plugin.bind_runner(tiered_runner)
     # MB039's richer index, not the plain CapabilityRegistry — the same
     # exact pattern `build_system()` uses, and for the same reason: the
     # simple `catalogue_from(registry)` path carries no `required_args`,
