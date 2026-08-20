@@ -36,6 +36,46 @@ class SearchFilesAction(Action):
     def required_parameters(self) -> list[str]:
         return ["pattern"]
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """`location` was always accepted and never declared.
+
+        `validate()` and `run()` have read it since this Action was
+        written, but nothing published it -- so the catalogue reported the
+        argument roster as incomplete and the Planner, forbidden to guess
+        an argument name, could only ever search the default root. Naming
+        it here changes no behaviour; it states behaviour that already
+        existed.
+        """
+        return [
+            {
+                "name": "location",
+                "type": "string",
+                "description": (
+                    "Which named root to search under: "
+                    + ", ".join(sorted(self._locations))
+                    + "."
+                ),
+                "default": "desktop",
+            },
+        ]
+
+    def output_parameters(self) -> list[dict[str, Any]]:
+        """What a later step may bind to -- published, not new.
+
+        `run()` has always returned these three. Until they were declared,
+        a plan could find files and then had no legitimate way to say
+        "read what you just found", which is the whole point of a
+        discovery step.
+        """
+        return [
+            {"name": "root", "type": "string",
+             "description": "The full path of the root that was searched."},
+            {"name": "matches", "type": "array",
+             "description": "Paths of the matching files, relative to that root."},
+            {"name": "truncated", "type": "boolean",
+             "description": "Whether more files matched than were returned."},
+        ]
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []
 
