@@ -229,8 +229,25 @@ class TestTheOriginalContractSurvives:
     def test_existing_guidance_is_preserved(self, phrase, prompt):
         assert says(prompt, phrase)
 
-    def test_the_binding_syntax_example_is_intact(self, prompt):
-        assert '"from_step": {"step_id": "step_3", "field": "url"}' in prompt
+    def test_the_binding_syntax_example_is_a_whole_step(self, prompt):
+        """A fragment was not enough, proven live: a local model copied the
+        placeholder key `"argument"` verbatim and nested the binding inside
+        `payload`, and a thirteen-minute plan was rejected for it. The
+        example is a complete step now, with `input_bindings` visibly
+        beside `payload`."""
+        assert '"from_step": {"step_id": "step_3", "field": "text"}' in prompt
+        assert '"capability": "Document.WriteDocument"' in prompt
+        assert says(prompt, "sits beside `payload`, never inside it")
+        assert says(prompt, "and not in `payload`")
+
+    def test_the_concat_form_is_still_taught(self, prompt):
+        assert '"concat": [{"literal": "Title: "}' in prompt
+
+    def test_declared_argument_values_must_be_used(self, prompt):
+        """Also observed live: a real drive path written where a named
+        location was offered."""
+        assert says(prompt, "use one of those values exactly")
+        assert says(prompt, "the whole vocabulary that argument has")
 
     def test_an_argument_may_not_be_set_twice(self, prompt):
         assert says(prompt, "must NOT also appear in `payload`")

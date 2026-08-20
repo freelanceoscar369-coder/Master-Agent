@@ -75,14 +75,7 @@ _RULES = (
         "objective's wording. You do not know it yet -- it does not exist "
         "until that step runs. Declare it in `input_bindings` instead, "
         "referencing the step that produces it, and put that step in "
-        "`depends_on` as well. Two forms are allowed: "
-        '{"argument": {"from_step": {"step_id": "step_3", "field": "url"}}} '
-        "or "
-        '{"argument": {"concat": [{"literal": "Title: "}, '
-        '{"from_step": {"step_id": "step_3", "field": "title"}}]}}. '
-        "The `field` must be one the source capability lists after "
-        "`outputs:` in the catalogue. An argument set by `input_bindings` "
-        "must NOT also appear in `payload`."
+        "`depends_on` as well."
     ),
     (
         "5. Use the fewest steps that actually achieve the goal. "
@@ -165,6 +158,35 @@ _RULES = (
         "objective. That no single capability performs the mission is "
         "not a reason to give it, and neither is a value being unknown "
         "now if a step could observe it later."
+    ),
+    (
+        "4b. `input_bindings` sits BESIDE `payload`, never inside it, and "
+        "its keys are the argument names themselves. A step that writes "
+        "what an earlier step read looks exactly like this -- note that "
+        "`content` appears in `input_bindings` and NOT in `payload`:"
+    ),
+    (
+        '   {"id": "step_4", "capability": "Document.WriteDocument", '
+        '"payload": {"path": "summary.txt"}, '
+        '"depends_on": ["step_3"], '
+        '"input_bindings": {"content": {"from_step": '
+        '{"step_id": "step_3", "field": "text"}}}}'
+    ),
+    (
+        "4c. The other allowed form joins fixed text to a produced value: "
+        '{"content": {"concat": [{"literal": "Title: "}, '
+        '{"from_step": {"step_id": "step_3", "field": "title"}}]}}. '
+        "There are no other forms. The `field` must be one the source "
+        "capability lists after `outputs:` in the catalogue, and an "
+        "argument set by `input_bindings` must NOT also appear in "
+        "`payload`."
+    ),
+    (
+        "4d. When an argument's description lists the values it accepts, "
+        "use one of those values exactly. Writing a real path where a "
+        "named location was offered, or a label of your own where a set "
+        "of choices was published, fails at run time -- the names in the "
+        "description are the whole vocabulary that argument has."
     ),
     (
         "13. Never invent a capability. If the objective needs a "
