@@ -438,13 +438,33 @@ def _build_mission_pipeline():
     prompt_executor = PromptExecutor(
         service=intelligence, providers=provider_registry, ledger=ledger,
     )
+    # FMEA reasoning scope. Dormant unless explicitly switched on: with the
+    # variable unset this evaluates to the full ladder that has always been
+    # here, so a normal Founder launch keeps Gemini -> Desktop -> Browser
+    # byte for byte.
+    #
+    # It exists because an FMEA harness must be able to fail fast on its
+    # own test provider. When Gemini returned 429 mid-run, the ladder did
+    # exactly what the product should do -- fell through to the desktop AI
+    # applications -- and launched twenty-three ChatGPT/Kimi/Perplexity
+    # processes on the founder's machine before anything could stop it.
+    # That is correct product behaviour and unacceptable test behaviour.
+    #
+    # The alternative was a pre-flight probe, and that does not work: a
+    # small probe succeeds where a planning-sized request gets 429, and a
+    # planning-sized probe consumes the very quota it is trying to predict.
+    # Scoping the tiers is the only honest answer -- the harness refuses to
+    # fall through rather than trying to guess whether it would need to.
+    _fmea_reasoning = (os.environ.get("KALPAVRIKSHA_FMEA_REASONING_TIER") or "").strip().lower()
+    _gemini_only = _fmea_reasoning == "gemini"
+
     tiered_runner = TieredPromptRunner(
         prompt_executor,
         gemini_provider_ids=frozenset({"gemini.api"}),
-        desktop_provider_ids=frozenset(
+        desktop_provider_ids=frozenset() if _gemini_only else frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
         ),
-        browser_provider_ids=frozenset({BROWSER_FREE_AI_ID}),
+        browser_provider_ids=frozenset() if _gemini_only else frozenset({BROWSER_FREE_AI_ID}),
         desktop_context=desktop_plugin._context,
         # The Broker sees every spec in `providers_source`'s own `specs`
         # tuple (`PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)` — Ollama,
