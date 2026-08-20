@@ -683,7 +683,7 @@ def _mission_report(mission_service, objective_id: str | None) -> str:
 
 
 def _submit_objective(mission_service, runtime, mission_control, status, text: str,
-                       timeout_seconds: float = 45.0, reasoning_runner=None) -> dict:
+                       timeout_seconds: float = 45.0) -> dict:
     """One founder objective, run to a terminal state, and a plain reply
     dict — `desktop_shell.py` never sees a `MissionOutcome`/`FounderState`,
     only a dict shaped exactly like `send_message()`'s own return value.
@@ -835,30 +835,38 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # Not executable is not not-understood. `NO_STEPS` is the Planner's
     # own verdict, under `prompting.py` rule 6, that a provider looked at
     # the whole capability catalogue and honestly reported that nothing
-    # in it achieves this goal -- "learn trading", "buy a house for me".
-    # The goal was parsed, resolved and planned against; the only thing
-    # missing is a single machine action that completes it.
+    # in it achieves this goal. The goal was parsed, resolved and planned
+    # against; what is missing is a plan.
     #
-    # Flattening that into `_founder_refusal_sentence()` said "I can't do
-    # that with what I'm currently able to do", which tells the founder
-    # their instruction was rejected. It was not. It goes to the Brain's
-    # reasoning door instead -- the same `TieredPromptRunner` the Planner
-    # was just given, asked for the same `"reasoning"` capability.
+    # This used to ask `brain/advisory.py::advise()` what to say and then
+    # record the turn as COMPLETED. Both halves were wrong, and the live
+    # CV mission showed exactly how wrong: the founder was told "I am
+    # taking full responsibility for evaluating all your resume files...
+    # Shall I start cataloging those files now?" over a mission that had
+    # no plan, no tasks, and nothing waiting on an answer. Nothing was
+    # cataloguing anything, and there was no resumable work behind the
+    # question.
     #
-    # This root still decides nothing: which goals are executable was
-    # decided by the Planner, and what to say was decided by the Brain.
-    # Exactly one refusal code is routed, and it is the only one that
-    # means "understood, but larger than one action".
+    # An unconstrained reasoner asked "what should I say about this
+    # request?" will propose a next action, because that is what the
+    # question invites. It cannot promise otherwise, so it is not asked.
+    # The sentence is composed from what the Planner actually reported.
+    #
+    # `FAILED` rather than `COMPLETED`: this attempt did not succeed and
+    # nothing is pending. Not `AWAITING_APPROVAL` -- no action is waiting
+    # for a yes; not `AWAITING_CLARIFICATION` -- clarification is for a
+    # fact only the founder holds, and "no plan could be built" is not a
+    # missing fact about the founder. `FAILED` is already what the
+    # refusal path immediately below uses, and it is terminal, which is
+    # the honest shape of this outcome.
     if refusal is not None and getattr(refusal, "code", None) == NO_STEPS:
-        if reasoning_runner is not None:
-            from master_agent.brain.advisory import advise
-
-            answer = advise(
-                text, reasoning_runner, objective_id=outcome.objective_id,
-            )
-            status.status = COMPLETED
-            status.message = answer
-            return _founder_reply(status, answer, interaction_type="mission_result")
+        logging.warning("objective not planable: %s", getattr(refusal, "reason", ""))
+        status.status = FAILED
+        status.message = _founder_no_plan_sentence(refusal)
+        status.errors.append(getattr(refusal, "reason", "") or NO_STEPS)
+        return _founder_reply(
+            status, status.message, interaction_type="mission_result",
+        )
 
     if not outcome.accepted:
         reason = (
@@ -967,6 +975,40 @@ _OFFLINE_MARKERS = (
 )
 _TIMEOUT_MARKERS = ("no answer within", "timed out", "timeout")
 _NO_KEY_MARKERS = ("no gemini_api_key", "api key not valid", "http 401", "http 403")
+
+
+def _founder_no_plan_sentence(refusal) -> str:
+    """What the founder is told when no executable plan could be built.
+
+    Deterministic, and composed only from what the Planner reported --
+    which is the point. The alternative, asking a reasoner what to say
+    about the request, produced an operational commitment ("I am going to
+    catalog your local resume files... Shall I start?") over a mission
+    that had no plan and nothing waiting to run.
+
+    So this states the two facts that are true and stops: the request was
+    understood, and no plan could be built for it. It never says work is
+    starting, queued, or awaiting a yes, because none of those is the
+    case.
+
+    `detail` is surfaced only when the Planner supplied something a
+    founder can act on. `reason` stays out of the sentence entirely and
+    remains on `ExecutionStatus.errors` for whoever is debugging -- it is
+    developer prose ("no plan: the available capabilities cannot achieve
+    this objective") and reads as a rejection of the founder rather than a
+    statement about the machine.
+    """
+    sentence = (
+        "I understood what you asked for, but I couldn't put together an "
+        "executable plan for it with the capabilities I have right now. "
+        "Nothing has been started."
+    )
+    known = tuple(getattr(refusal, "known_capabilities", ()) or ())
+    if known:
+        # Only ever a count. Naming twenty-seven capability identifiers at
+        # a founder is the same overreach as showing them a stack trace.
+        sentence += f" I checked all {len(known)} of the things I can do."
+    return sentence
 
 
 def _founder_refusal_sentence(reason: str) -> str:
@@ -1138,11 +1180,10 @@ def main(argv: list[str] | None = None) -> int:
     interactions = None
     decide_approval = None
     if pipeline is not None:
-        (mission_service, runtime, mission_control, status, reasoning_runner,
+        (mission_service, runtime, mission_control, status, _reasoning_runner,
          set_mode, interactions) = pipeline
         submit_objective = lambda text: _submit_objective(  # noqa: E731
             mission_service, runtime, mission_control, status, text,
-            reasoning_runner=reasoning_runner,
         )
         # Task 2.5 §8 — the Hyper Agent contract. Read-only: this returns
         # the same `status` object's own `as_dict()`, never a copy that
