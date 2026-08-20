@@ -48,6 +48,8 @@ construct a `MissionPlan` at all (asserted by an AST test over `src/`).
 """
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -79,7 +81,7 @@ def find_option(capability: str, options) -> Any | None:
     return None
 
 
-def direct_plan(intent: Intent, options) -> MissionPlan | None:
+def _single_capability_plan(intent: Intent, options) -> MissionPlan | None:
     """One step, or `None` when this objective genuinely needs planning.
 
     `None` is the safe answer and is returned for every uncertainty: no
@@ -146,3 +148,257 @@ def direct_plan(intent: Intent, options) -> MissionPlan | None:
         expected_outcome=SuccessSpec(description=description).to_expected_outcome(),
     )
     return MissionPlan(steps=[step], objective=intent.goal)
+
+
+# ---------------------------------------------------------------------
+# The explicit local workflow
+# ---------------------------------------------------------------------
+#
+# One step was the limit, not the philosophy. A founder who writes "open a
+# browser, go to this address, see what the page says, write that into a
+# file on my Desktop, close the browser" has not posed a planning problem
+# -- they have dictated the steps. Sending that to a reasoning ladder buys
+# nothing, and when every tier is out of quota or refuses, it loses the
+# whole mission to a question nobody needed answered.
+#
+# So this recognises one narrow, explicitly-dictated shape and nothing
+# else. It is deliberately not a workflow engine: no verb is inferred, no
+# ordering is deduced, no capability is chosen by resemblance. Every
+# signal below must be present in the founder's own sentence, and every
+# capability must be registered with a contract that publishes the
+# arguments used. Any doubt returns `None`, and the Planner reasons
+# exactly as before.
+#
+# What this is NOT keyed on: the site. Matching a host would make it a
+# rehearsal rather than a capability -- the same objective pointed at a
+# different address has to plan identically, and a test asserts it does.
+
+_URL = re.compile(r"https?://[^\s'\"<>)\]]+")
+#: "folder called X", "folder named X" -- optionally quoted or back-ticked.
+_FOLDER = re.compile(r"folder\s+(?:called|named)\s+[`'\"]?([^\s`'\"]+)", re.I)
+#: "file called page_info.txt" -- a filename, so an extension is required.
+_FILE = re.compile(r"file\s+(?:called|named)\s+[`'\"]?([^\s`'\"]+\.[A-Za-z0-9]+)", re.I)
+#: Where the folder goes -- the founder's own word, never a default.
+#: Writing to Desktop because nothing was said is exactly the guess the
+#: create-folder completeness repair removed.
+_PLACE = re.compile(
+    r"\b(?:on|in|to)\s+(?:the\s+|my\s+)?(Desktop|Documents|Downloads)\b", re.I
+)
+
+_OPEN = "open_browser_session"
+_NAVIGATE = "navigate"
+_OBSERVE = "observe_browser"
+_CREATE_FOLDER = "create_folder"
+_WRITE_FILE = "write_file"
+_CLOSE = "close_browser_session"
+
+#: The two page facts `Browser.ObserveBrowser` publishes. Confirmed
+#: against the registered contract before use, never assumed here.
+_TITLE = "title"
+_URL_FIELD = "url"
+
+
+@dataclass(frozen=True)
+class _CaptureRequest:
+    """What the founder's sentence explicitly said, and nothing more."""
+
+    url: str
+    folder: str
+    place: str
+    filename: str
+
+
+def _read_capture_request(goal: str) -> _CaptureRequest | None:
+    """The dictated workflow, or `None`.
+
+    Every element must be stated. This does not complete a partial
+    instruction: a sentence naming a page but no file, or a file but no
+    folder, is an objective someone still has to think about.
+    """
+    text = (goal or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+
+    url = _URL.search(text)
+    folder = _FOLDER.search(text)
+    filename = _FILE.search(text)
+    place = _PLACE.search(text)
+    if not (url and folder and filename and place):
+        return None
+
+    # The founder must have asked for the page to be observed, and for the
+    # file to contain what was observed. Without both, that file's content
+    # is not derivable from the browser and this shape does not apply.
+    if "observ" not in lowered:
+        return None
+    if not any(word in lowered for word in ("containing", "contains", "with the")):
+        return None
+    if _TITLE not in lowered or _URL_FIELD not in lowered:
+        return None
+    if "close" not in lowered:
+        return None
+
+    return _CaptureRequest(
+        url=url.group(0).rstrip(".,;"),
+        folder=folder.group(1).rstrip(".,;"),
+        place=place.group(1).capitalize(),
+        filename=filename.group(1).rstrip(".,;"),
+    )
+
+
+def _usable(option: Any, payload: dict[str, Any], bound: tuple[str, ...] = ()) -> bool:
+    """The one-step path's contract test, applied per step.
+
+    An argument supplied by a binding counts as supplied: it is present at
+    execution, just not yet at planning time. That is what a binding is
+    for, and refusing it here would make cross-step data flow impossible
+    to plan deterministically.
+    """
+    if option is None:
+        return False
+    required = set(getattr(option, "required_args", ()) or ())
+    optional = set(getattr(option, "optional_args", ()) or ())
+    supplied = set(payload) | set(bound)
+
+    if not required or not required <= supplied:
+        return False
+    if supplied <= required:
+        # Nothing but the capability's own published requirements. There is
+        # no argument name to get wrong here, so `args_complete` -- which
+        # exists to stop the Planner *inventing* argument names -- has
+        # nothing to certify. `Browser.Navigate` publishes no optional
+        # roster at all; refusing it on that basis would make a capability
+        # unusable for being simple.
+        return True
+    # Beyond the requirements: `headless`, `location`, `content`. Now the
+    # roster matters, because using an optional argument is a claim about
+    # what the contract accepts.
+    if not getattr(option, "args_complete", False):
+        return False
+    return supplied <= (required | optional)
+
+
+def _local_capture_workflow(intent: Intent, options) -> MissionPlan | None:
+    """Six steps for the dictated browser-observe-write workflow, or `None`."""
+    request = _read_capture_request(getattr(intent, "goal", "") or "")
+    if request is None:
+        return None
+
+    found = {
+        name: find_option(name, options)
+        for name in (_OPEN, _NAVIGATE, _OBSERVE, _CREATE_FOLDER, _WRITE_FILE, _CLOSE)
+    }
+    if any(option is None for option in found.values()):
+        # Half of this workflow is not a smaller version of it. If the
+        # machine cannot do all six, it cannot do the job.
+        return None
+
+    # The binding below promises `title` and `url` come from the
+    # observation. That promise is only as good as the contract, so it is
+    # checked against what the capability actually publishes rather than
+    # against this module's expectations of it.
+    published = set(getattr(found[_OBSERVE], "output_fields", ()) or ())
+    if not {_TITLE, _URL_FIELD} <= published:
+        return None
+
+    session_id = f"kv-{uuid4().hex[:8]}"
+    # One mark per mission, distinct per capability: unique across every
+    # mission this process runs, for the identity reason recorded above.
+    mark = uuid4().hex[:8]
+    ids = {name: f"{name}-{mark}" for name in found}
+
+    payloads: dict[str, dict[str, Any]] = {
+        # Visible, because the founder said "open a browser" -- an
+        # instruction about something they expect to watch happen. The
+        # contract publishes `headless` precisely so this is a choice the
+        # Planner may make rather than a default it inherits.
+        _OPEN: {"session_id": session_id, "headless": False},
+        _NAVIGATE: {"session_id": session_id, "url": request.url},
+        _OBSERVE: {"session_id": session_id},
+        _CREATE_FOLDER: {"name": request.folder, "location": request.place},
+        # The path contract: `location` names the founder's place, `path`
+        # is relative to it.
+        _WRITE_FILE: {
+            "path": f"{request.folder}/{request.filename}",
+            "location": request.place,
+        },
+        _CLOSE: {"session_id": session_id},
+    }
+    if not _usable(found[_WRITE_FILE], payloads[_WRITE_FILE], bound=("content",)):
+        return None
+    if not all(
+        _usable(found[name], payloads[name])
+        for name in (_OPEN, _NAVIGATE, _OBSERVE, _CREATE_FOLDER, _CLOSE)
+    ):
+        return None
+
+    expectations = {
+        _OPEN: "A browser session is open and visible to the founder.",
+        _NAVIGATE: f"The browser session's current page is {request.url}.",
+        _OBSERVE: "The page's current title and URL are reported.",
+        _CREATE_FOLDER: f"The folder {request.folder} exists in {request.place}.",
+        _WRITE_FILE: (
+            f"{request.filename} exists in {request.folder} and contains the "
+            f"title and URL the browser reported."
+        ),
+        _CLOSE: "The browser session is closed.",
+    }
+    dependencies = {
+        _OPEN: [],
+        _NAVIGATE: [ids[_OPEN]],
+        _OBSERVE: [ids[_NAVIGATE]],
+        _CREATE_FOLDER: [ids[_OBSERVE]],
+        # Both: the values come from the observation, the destination from
+        # the folder. `depends_on` remains the single ordering authority,
+        # so a binding may read this list but never extend it.
+        _WRITE_FILE: [ids[_OBSERVE], ids[_CREATE_FOLDER]],
+        _CLOSE: [ids[_WRITE_FILE]],
+    }
+    # Plain JSON: the wire form that survives translation, the event bus
+    # and a restart. Emitting parsed objects here is what stalled an
+    # earlier live mission on `'dict' object has no attribute 'ref'`.
+    #
+    # No literal `content` is written, and no title or URL is guessed --
+    # at planning time nobody has looked at the page yet.
+    bindings = {
+        _WRITE_FILE: {
+            "content": {
+                "concat": [
+                    {"literal": "Title: "},
+                    {"from_step": {"step_id": ids[_OBSERVE], "field": _TITLE}},
+                    {"literal": "\nURL: "},
+                    {"from_step": {"step_id": ids[_OBSERVE], "field": _URL_FIELD}},
+                ]
+            }
+        }
+    }
+
+    steps = [
+        Step(
+            step_id=ids[name],
+            capability=found[name].name,
+            payload=payloads[name],
+            depends_on=dependencies[name],
+            input_bindings=bindings.get(name, {}),
+            expected_outcome=SuccessSpec(
+                description=expectations[name]
+            ).to_expected_outcome(),
+        )
+        for name in (_OPEN, _NAVIGATE, _OBSERVE, _CREATE_FOLDER, _WRITE_FILE, _CLOSE)
+    ]
+    return MissionPlan(steps=steps, objective=intent.goal)
+
+
+def direct_plan(intent: Intent, options) -> MissionPlan | None:
+    """A plan written without a model, or `None` when one is genuinely needed.
+
+    Two shapes qualify: a single capability the Intent Layer already named,
+    and the explicitly dictated local browser-observe-write workflow. Both
+    answer `None` on any doubt, and the Planner then asks a provider
+    exactly as it always has.
+    """
+    plan = _single_capability_plan(intent, options)
+    if plan is not None:
+        return plan
+    return _local_capture_workflow(intent, options)
