@@ -307,21 +307,36 @@ class RuntimeEngine:
         self._awaiting_approval.clear()
         return held
 
-    def _dependency_tasks(self, task: Task) -> dict[str, Any]:
-        """The tasks this one declares a dependency on, by id.
+    def _dependency_tasks(self, objective_id: str, task: Task) -> dict[str, Any]:
+        """The tasks this one declares a dependency on, **within its own
+        Mission**, by id.
 
-        Only declared dependencies are offered to the resolver, so a
-        binding cannot read a step the DAG never made it wait for.
-        `depends_on` stays the single execution-order authority.
+        A dependency id is meaningful inside one Objective's DAG and
+        nowhere else. This used to scan every Objective for a matching
+        `task_id`, so a `step_3` in another mission could satisfy this
+        mission's `depends_on: ["step_3"]` -- and, worse, feed its verified
+        observation into this mission's file. Two founders' missions, or
+        two of one founder's, share step ids as a matter of course.
+
+        The lookup key is therefore `(objective_id, task_id)`, resolved
+        through Mission Control's own Objective rather than a Runtime-side
+        index. Only declared dependencies are offered, so a binding still
+        cannot read a step the DAG never made it wait for.
         """
-        found: dict[str, Any] = {}
-        wanted = set(getattr(task, "depends_on", ()) or ())
+        wanted = list(getattr(task, "depends_on", ()) or ())
         if not wanted:
-            return found
-        for objective in self._mc.dispatcher.objectives():
-            for candidate in objective.tasks:
-                if candidate.task_id in wanted:
-                    found[candidate.task_id] = candidate
+            return {}
+
+        objective = self._mc.dispatcher.objective(objective_id)
+        found: dict[str, Any] = {}
+        for dependency_id in wanted:
+            try:
+                found[dependency_id] = objective.task(dependency_id)
+            except KeyError:
+                # Declared but absent from this Mission. Left out rather
+                # than searched for elsewhere: the resolver reports it as
+                # "no such step in this mission", which is the truth.
+                continue
         return found
 
     def _dispatch(self, limit: int) -> list[Task]:
@@ -343,6 +358,13 @@ class RuntimeEngine:
         return assigned
 
     def _handle_task(self, task: Task) -> None:
+        # Established ONCE, from identity, and used for every subsequent
+        # decision about this task -- binding sources, approval,
+        # task_started, verification, failure and completion. Deriving it
+        # separately at each call site is how one of them could disagree
+        # with the others.
+        objective_id = self._objective_of(task)
+
         gateway = self._gateways.get(task.assigned_executive or "")
         if gateway is None:
             message = (
@@ -376,8 +398,21 @@ class RuntimeEngine:
         #
         # `task.payload` is untouched throughout: the persisted plan stays
         # what the Planner decided, and this is execution material.
+        if objective_id is None and (getattr(task, "input_bindings", None) or {}):
+            # Ownership could not be established, so which mission's
+            # `step_3` this binding means is unknowable. Guessing is the
+            # defect; failing before any side effect is the answer.
+            self._report_failure(
+                task,
+                "could not establish which mission owns this task, so its "
+                "declared inputs cannot be resolved",
+            )
+            return
+
         try:
-            resolved = resolve_inputs(task, self._dependency_tasks(task))
+            resolved = resolve_inputs(
+                task, self._dependency_tasks(objective_id, task) if objective_id else {},
+            )
         except BindingResolutionError as exc:
             self._report_failure(task, str(exc))
             return
@@ -404,7 +439,7 @@ class RuntimeEngine:
         self._transition(RuntimeState.WAITING)
         self._mc.task_started(
             task.task_id,
-            objective_id=self._objective_of(task),
+            objective_id=objective_id,
             # Which step and field supplied each bound input, and under
             # which Evidence. Ids and paths only -- the values themselves
             # already live in the source Evidence, and copying dynamic
@@ -702,8 +737,17 @@ class RuntimeEngine:
     # ---- internals ---------------------------------------------------
 
     def _objective_of(self, task: Task) -> str | None:
+        """Which Objective owns this dispatched Task.
+
+        Matched by IDENTITY, not by `task_id`. Step ids are contextual --
+        two missions may each legitimately contain a `step_3`, and the
+        Planner is not asked to mint globally unique ids to work around a
+        lookup. Comparing ids here returned whichever mission happened to
+        be registered first, so a second mission's task could be reported
+        as belonging to the first.
+        """
         for objective in self._mc.dispatcher.objectives():
-            if any(candidate.task_id == task.task_id for candidate in objective.tasks):
+            if any(candidate is task for candidate in objective.tasks):
                 return objective.objective_id
         return None
 
