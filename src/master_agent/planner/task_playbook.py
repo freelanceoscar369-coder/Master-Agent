@@ -108,6 +108,14 @@ DELIVERY = (
         "so the final answer can be followed back to the evidence it rests "
         "on."
     ),
+    (
+        "When the objective asks for something to be given to the founder "
+        "-- a summary, a comparison, a set of recommendations -- the last "
+        "step must put it somewhere they can actually open. A step that "
+        "works the answer out and hands it to nobody has not delivered it: "
+        "the founder is told the work finished and never sees what it "
+        "found."
+    ),
 )
 
 

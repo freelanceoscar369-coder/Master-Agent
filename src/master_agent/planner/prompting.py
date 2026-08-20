@@ -189,6 +189,18 @@ _RULES = (
         "description are the whole vocabulary that argument has."
     ),
     (
+        "12a. You never need a step that asks the founder for permission, "
+        "and there is no capability for one. Any step that changes "
+        "something -- writing a file, deleting, sending -- is held "
+        "automatically for the founder's approval before it runs, and "
+        "they see the actual values it is about to use, including values "
+        "produced by earlier steps. Read-only steps are never held. So "
+        "when an objective says to ask before changing something, plan "
+        "the change step itself: the pause already happens around it, and "
+        "an objective that asks for permission is not one you must refuse "
+        "for lack of a way to ask."
+    ),
+    (
         "13. Never invent a capability. If the objective needs a "
         "transformation in the middle -- judging, comparing, "
         "summarising, deciding what suits -- you may plan it only if "

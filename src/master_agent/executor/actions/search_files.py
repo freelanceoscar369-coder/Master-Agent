@@ -10,6 +10,7 @@ from master_agent.executor.action import (
     Action,
     ExecutionResult,
     default_locations,
+    described_with_locations,
     is_unsafe_relative_path,
     to_portable_relative_str,
 )
@@ -32,6 +33,9 @@ class SearchFilesAction(Action):
 
     def __init__(self, locations: dict[str, Path] | None = None) -> None:
         self._locations = locations or default_locations()
+        self.description = described_with_locations(
+            type(self).description, self._locations
+        )
 
     def required_parameters(self) -> list[str]:
         return ["pattern"]

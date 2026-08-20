@@ -169,6 +169,63 @@ class TestDocumentExtraction:
         assert documents.invoke("extract_text", {"path": "immutable.txt"}).success
         assert (target.read_bytes(), target.stat().st_size) == before
 
+    def test_several_documents_can_be_extracted_in_one_step(
+        self, documents, workspace
+    ):
+        """A discovery step returns however many files it found, and a plan
+        written before it ran cannot know how many. Without this, "read the
+        documents you just found" cannot be planned at all."""
+        (workspace["desktop"] / "one.txt").write_text(ALPHA, encoding="utf-8")
+        write_docx(workspace["desktop"] / "two.docx", [BETA])
+
+        result = documents.invoke(
+            "extract_text", {"path": ["one.txt", "two.docx"]}
+        )
+
+        assert result.success, result.error
+        assert result.output["documents"] == 2
+        assert ALPHA in result.output["text"]
+        assert BETA in result.output["text"]
+
+    def test_each_document_is_named_above_its_own_text(self, documents, workspace):
+        """An undivided blob would let a later step attribute one
+        document's claim to another."""
+        (workspace["desktop"] / "one.txt").write_text(ALPHA, encoding="utf-8")
+        (workspace["desktop"] / "two.txt").write_text(BETA, encoding="utf-8")
+
+        text = documents.invoke(
+            "extract_text", {"path": ["one.txt", "two.txt"]}
+        ).output["text"]
+
+        assert "--- one.txt ---" in text
+        assert "--- two.txt ---" in text
+        assert text.index("one.txt") < text.index(ALPHA)
+
+    def test_a_document_that_could_not_be_read_is_reported(
+        self, documents, workspace
+    ):
+        """A comparison made over two of three documents while claiming
+        three is a wrong answer."""
+        (workspace["desktop"] / "one.txt").write_text(ALPHA, encoding="utf-8")
+
+        result = documents.invoke(
+            "extract_text", {"path": ["one.txt", "absent.txt"]}
+        )
+
+        assert result.success
+        assert result.output["documents"] == 1
+        assert len(result.output["unreadable"]) == 1
+
+    def test_the_single_document_shape_is_unchanged(self, documents, workspace):
+        """Every existing caller and binding must keep working."""
+        (workspace["desktop"] / "solo.txt").write_text(ALPHA, encoding="utf-8")
+        output = documents.invoke("extract_text", {"path": "solo.txt"}).output
+
+        assert output["filename"] == "solo.txt"
+        assert output["text"].strip() == ALPHA
+        assert output["documents"] == 1
+        assert "--- " not in output["text"]
+
     def test_extraction_is_read_only(self, documents):
         tiers = {c.name: c.risk_tier for c in documents.manifest.capabilities}
         assert tiers["extract_text"] is RiskTier.READ_ONLY
@@ -522,6 +579,15 @@ class TestThePlaybookIsGeneric:
         text = " ".join(playbook_lines()).lower()
         assert "never modify or overwrite" in text
         assert "proposal and a fait accompli" in text
+
+    def test_it_requires_the_answer_to_be_delivered_somewhere(self):
+        """A step that works the answer out and hands it to nobody has not
+        delivered it."""
+        from master_agent.planner.task_playbook import playbook_lines
+
+        text = " ".join(playbook_lines()).lower()
+        assert "somewhere they can actually open" in text
+        assert "hands it to nobody has not delivered it" in text
 
     def test_it_forbids_unobserved_external_claims(self):
         from master_agent.planner.task_playbook import playbook_lines

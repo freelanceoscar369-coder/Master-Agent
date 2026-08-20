@@ -93,6 +93,26 @@ def default_locations() -> dict[str, Path]:
     }
 
 
+def described_with_locations(description: str, locations: dict[str, Path]) -> str:
+    """The capability's own sentence, plus the roots it can actually reach.
+
+    The planning catalogue renders a capability's `description` and its
+    argument *names*; the per-argument description, where the roots were
+    listed, never reaches the Planner. So "under a known location" was all
+    a planner ever saw, and a real one concluded -- correctly, from what it
+    was shown -- that files outside Desktop/Documents/Downloads could not
+    be reached at all, and refused an objective the machine could do.
+
+    The roots are injected per deployment, so this is built at
+    construction rather than written into a class attribute that would go
+    stale the moment a deployment adds one.
+    """
+    names = ", ".join(sorted(locations))
+    if not names:
+        return description
+    return f"{description} Known locations: {names}."
+
+
 def resolve_into_or_as(source: Path, destination: Path) -> Path:
     """Shared by CopyFileAction/MoveFileAction: "copy X to backup folder"
     means *into* backup (keeping X's filename); "copy X to X.bak" means

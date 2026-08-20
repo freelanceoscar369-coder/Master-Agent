@@ -29,6 +29,7 @@ from master_agent.executor.action import (
     Action,
     ExecutionResult,
     default_locations,
+    described_with_locations,
     is_unsafe_relative_path,
 )
 from master_agent.plugins.base import PermissionCategory, RiskTier
@@ -114,9 +115,25 @@ class ExtractTextAction(Action):
 
     def __init__(self, locations: dict[str, Path] | None = None) -> None:
         self._locations = locations or default_locations()
+        self.description = described_with_locations(
+            type(self).description, self._locations
+        )
 
     def required_parameters(self) -> list[str]:
         return ["path"]
+
+    def _paths(self, raw: Any) -> list[str]:
+        """One path, or several.
+
+        A discovery step returns however many files it found, and a plan
+        written before it ran cannot know how many. Nothing here fans a
+        step out into N steps, so the alternative to accepting a list is
+        that "read the documents you just found" cannot be planned at all
+        -- which is the shape of objective this capability exists for.
+        """
+        if isinstance(raw, (list, tuple)):
+            return [str(item).strip() for item in raw if str(item).strip()]
+        return [str(raw).strip()] if str(raw).strip() else []
 
     def optional_parameters(self) -> list[dict[str, Any]]:
         return [
@@ -153,17 +170,20 @@ class ExtractTextAction(Action):
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []
 
-        path = (parameters.get("path") or "").strip()
-        if not path:
+        paths = self._paths(parameters.get("path"))
+        if not paths:
             errors.append("missing required parameter: path")
-        elif is_unsafe_relative_path(path):
-            errors.append(f"unsafe path '{path}': must be relative, no '..' segments")
-        else:
+        for path in paths:
+            if is_unsafe_relative_path(path):
+                errors.append(
+                    f"unsafe path '{path}': must be relative, no '..' segments"
+                )
+                continue
             suffix = Path(path).suffix.lstrip(".").lower()
             if suffix not in _EXTRACTORS:
                 errors.append(
-                    f"unsupported document format '{suffix or 'none'}' "
-                    f"(supported: {', '.join(SUPPORTED)})"
+                    f"unsupported document format '{suffix or 'none'}' in "
+                    f"'{path}' (supported: {', '.join(SUPPORTED)})"
                 )
 
         location_key = (parameters.get("location") or "desktop").strip().lower()
@@ -173,46 +193,80 @@ class ExtractTextAction(Action):
 
         return errors
 
-    def run(self, parameters: dict[str, Any]) -> ExecutionResult:
-        path = parameters["path"].strip()
-        location_key = (parameters.get("location") or "desktop").strip().lower()
+    def _one(self, path: str, location_key: str):
+        """Extract a single document, or say why not. Returns (output, error)."""
         target = self._locations[location_key] / path
         suffix = target.suffix.lstrip(".").lower()
 
         if not target.exists():
-            return ExecutionResult(success=False, errors=[f"file not found: {target}"])
+            return None, f"file not found: {target}"
         if target.is_dir():
-            return ExecutionResult(
-                success=False, errors=[f"{target} is a directory, not a document"]
-            )
+            return None, f"{target} is a directory, not a document"
 
         try:
             size = target.stat().st_size
             if size > MAX_SOURCE_BYTES:
-                return ExecutionResult(
-                    success=False,
-                    errors=[
-                        f"{target} is {size} bytes, over the "
-                        f"{MAX_SOURCE_BYTES}-byte limit"
-                    ],
+                return None, (
+                    f"{target} is {size} bytes, over the "
+                    f"{MAX_SOURCE_BYTES}-byte limit"
                 )
             text = _EXTRACTORS[suffix](target)
         except ImportError as exc:
-            # Named plainly rather than reported as a corrupt document:
-            # a missing extractor is an installation fact, and telling a
+            # Named plainly rather than reported as a corrupt document: a
+            # missing extractor is an installation fact, and telling a
             # founder their file is unreadable would be false.
-            return ExecutionResult(
-                success=False,
-                errors=[f"no extractor available for .{suffix} documents: {exc}"],
-            )
+            return None, f"no extractor available for .{suffix} documents: {exc}"
         except OSError as exc:
-            return ExecutionResult(success=False, errors=[str(exc)])
-        except Exception as exc:  # noqa: BLE001 - a damaged document is data, not a crash
+            return None, str(exc)
+        except Exception as exc:  # noqa: BLE001 - a damaged document is data
+            return None, f"could not extract text from {target.name}: {exc}"
+
+        return {
+            "path": str(target),
+            "filename": target.name,
+            "format": suffix,
+            "text": text,
+        }, None
+
+    def run(self, parameters: dict[str, Any]) -> ExecutionResult:
+        paths = self._paths(parameters.get("path"))
+        location_key = (parameters.get("location") or "desktop").strip().lower()
+
+        extracted = []
+        errors = []
+        for path in paths:
+            output, error = self._one(path, location_key)
+            if error is not None:
+                errors.append(error)
+            else:
+                extracted.append(output)
+
+        if not extracted:
             return ExecutionResult(
-                success=False,
-                errors=[f"could not extract text from {target.name}: {exc}"],
+                success=False, errors=errors or ["no document could be read"]
             )
 
+        if len(extracted) == 1 and len(paths) == 1:
+            # The single-document shape, unchanged: one document in, the
+            # same four fields out, so every existing caller and binding
+            # keeps working exactly as it did.
+            single = extracted[0]
+            text = single["text"]
+            truncated = len(text) > MAX_TEXT_CHARS
+            single = dict(single, text=text[:MAX_TEXT_CHARS] if truncated else text)
+            single["truncated"] = truncated
+            single["documents"] = 1
+            return ExecutionResult(success=True, output=single)
+
+        # Several documents: one text, with each document's name above its
+        # own content. A later step reasoning over the whole set has to be
+        # able to tell which document said what -- an undivided blob would
+        # let it attribute one document's claim to another.
+        blocks = [
+            "--- {} ---\n{}".format(item["filename"], item["text"])
+            for item in extracted
+        ]
+        text = "\n\n".join(blocks)
         truncated = len(text) > MAX_TEXT_CHARS
         if truncated:
             text = text[:MAX_TEXT_CHARS]
@@ -220,12 +274,15 @@ class ExtractTextAction(Action):
         return ExecutionResult(
             success=True,
             output={
-                "path": str(target),
-                "filename": target.name,
-                "format": suffix,
+                "path": "; ".join(item["path"] for item in extracted),
+                "filename": "; ".join(item["filename"] for item in extracted),
+                "format": ", ".join(sorted({item["format"] for item in extracted})),
                 "text": text,
-                # Stated, never silent. A later step reasoning over a
-                # partial document should be able to know that it is.
                 "truncated": truncated,
+                "documents": len(extracted),
+                # Files that were asked for and could not be read are
+                # reported, never dropped: a comparison made over three of
+                # four documents while claiming four is a wrong answer.
+                "unreadable": errors,
             },
         )
