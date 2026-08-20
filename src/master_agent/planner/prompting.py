@@ -83,7 +83,13 @@ _RULES = (
         "`outputs:` in the catalogue. An argument set by `input_bindings` "
         "must NOT also appear in `payload`."
     ),
-    "5. Use the fewest steps that actually achieve the goal.",
+    (
+        "5. Use the fewest steps that actually achieve the goal. "
+        "\"Fewest\" means no redundant steps -- it does not mean dropping "
+        "a phase the objective requires in order to make the plan shorter. "
+        "A six-step plan that achieves the whole goal beats a two-step plan "
+        "that achieves part of it."
+    ),
     (
         "5a. `priority` and `complexity` describe the step for a human "
         "reader. They never change the order steps run in -- `depends_on` "
@@ -91,7 +97,84 @@ _RULES = (
     ),
     (
         "6. If the catalogue cannot achieve the goal, reply with "
-        '`{"steps": []}` rather than a step that only pretends to.'
+        '`{"steps": []}` rather than a step that only pretends to. '
+        "Reach this answer last, not first -- see rule 12."
+    ),
+    (
+        "7. A goal that needs several capabilities is normal, not a "
+        "reason to refuse. The question is never 'is there one "
+        "capability that does all of this?' -- it is 'can the "
+        "capabilities in the catalogue, used together in order, "
+        "achieve what was asked?' Evaluate the catalogue "
+        "compositionally: several narrow capabilities whose effects "
+        "and outputs combine are a plan."
+    ),
+    (
+        "8. Discover before guessing. When the objective refers to "
+        "something real that you do not know yet but the catalogue "
+        "can find out -- where a file actually is, what a page "
+        "actually says, what a listing actually contains -- plan the "
+        "step that finds out. Not knowing a value at planning time is "
+        "not a reason to stop, and it is not a reason to ask: it is "
+        "the reason the first steps of the plan exist."
+    ),
+    (
+        "8a. Distinguish two kinds of unknown. A DISCOVERABLE unknown "
+        "can be obtained with the capabilities listed above; acquire "
+        "it. An unknown only the founder holds, which no capability "
+        "can observe, is not yours to invent -- but do not treat a "
+        "discoverable unknown as if it were one. Uncertainty you "
+        "could have resolved is not impossibility."
+    ),
+    (
+        "9. Acquire a fact before using it. If a later step depends on "
+        "information the mission itself produces, plan the step that "
+        "produces it first and reference its output through "
+        "`input_bindings` (rule 4a). Never plan a step that reads "
+        "something and, in the same plan, state what it will say."
+    ),
+    (
+        "10. Observed reality outranks the objective's wording. A "
+        "value that has to come from execution comes from the step "
+        "that produces it -- never from what you know, and never from "
+        "what the founder's sentence made look likely."
+    ),
+    (
+        "11. Cover the whole request. Before answering, check each "
+        "material requirement in the objective against the step or "
+        "output that satisfies it. Do not show this checking -- reply "
+        "with JSON only, as rule 1 says -- but the plan must cover "
+        "the outcome that was asked for, not merely its first "
+        "executable action. A plan that acquires the material and "
+        "stops short of what was asked for is incomplete."
+    ),
+    (
+        "11a. Medium objectives commonly run: acquire, inspect what "
+        "was acquired, use those facts, act or research, collect the "
+        "results, deliver what was asked for. When an objective "
+        "combines something local with external research, acquire and "
+        "inspect the local source first whenever what to look for "
+        "outside depends on it. This is a habit of thought, not a "
+        "required shape."
+    ),
+    (
+        "12. `{\"steps\": []}` is the last answer, not the first. "
+        "Give it only after considering whether the capabilities can "
+        "be chained to acquire what is missing and satisfy the whole "
+        "objective. That no single capability performs the mission is "
+        "not a reason to give it, and neither is a value being unknown "
+        "now if a step could observe it later."
+    ),
+    (
+        "13. Never invent a capability. If the objective needs a "
+        "transformation in the middle -- judging, comparing, "
+        "summarising, deciding what suits -- you may plan it only if "
+        "the catalogue actually lists a capability that performs it. "
+        "Reasoning you are doing now, to write this plan, is not a "
+        "capability the machine has at run time. If a required "
+        "transformation has no capability, say so with "
+        "`{\"steps\": []}` rather than naming something that does not "
+        "exist or pretending another capability performs it."
     ),
 )
 
