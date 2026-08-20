@@ -57,10 +57,6 @@ a = Analysis(
         'master_agent.executor.actions.document.write_document',
         'master_agent.executor.actions.reasoning.transform',
         'master_agent.executor.actions.browser.read_page_text',
-        # The local reasoning provider: registered in the composition root,
-        # reached only through the registry, so nothing imports it by name
-        # in a way PyInstaller would follow.
-        'master_agent.providers.ollama',
         'webview',
         'webview.platforms.edgechromium',
         'webview.platforms.winforms',

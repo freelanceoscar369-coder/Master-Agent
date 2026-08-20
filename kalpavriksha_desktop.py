@@ -456,19 +456,18 @@ def _build_mission_pipeline():
     )
     provider_registry = PluginRegistry()
     provider_registry.register(GeminiProvider(api_key=api_key))
-    # Tier 0 — the founder's own machine. `OllamaProvider` and its
-    # `ollama.local` catalogue entry ("local runtime; nothing leaves the
-    # machine") have both existed for a long time; Founder Edition simply
-    # never registered the provider, so the one reasoner that costs
-    # nothing, needs no quota and keeps private documents on the laptop
-    # was unreachable while three missions failed for want of a planner.
+    # NO OLLAMA ON THIS MACHINE. A founder decision, not a technical one:
+    # this laptop has 16 GB and the smaller of the two installed models
+    # occupies 9 GB resident, which is the founder's working memory rather
+    # than spare capacity.
     #
-    # Registered unconditionally: construction performs no I/O, and a
-    # daemon that is not running fails this tier like any other, falling
-    # through to Gemini exactly as before.
-    from master_agent.providers.ollama import OLLAMA_PROVIDER_ID, OllamaProvider
-
-    provider_registry.register(OllamaProvider(model="gemma4:latest"))
+    # `providers/ollama.py` is untouched and still a perfectly good generic
+    # provider; it is simply not registered here, so Founder Edition never
+    # constructs it, never probes the daemon, never loads a model and never
+    # sends it a prompt. `ollama.local` remains in `PROVIDER_CATALOG`, and
+    # `all_known_provider_ids` below therefore excludes it from every tier
+    # attempt -- so it cannot be selected even by a Broker ranking it
+    # highest. `test_founder_edition_no_ollama.py` fails if this comes back.
     # Tier 2 — one provider per `locality == DESKTOP` entry already
     # declared in `PROVIDER_CATALOG` (Claude/ChatGPT/Perplexity/Kimi
     # today; a fifth application is a catalogue entry, never a new
@@ -503,7 +502,6 @@ def _build_mission_pipeline():
 
     tiered_runner = TieredPromptRunner(
         prompt_executor,
-        local_provider_ids=frozenset({OLLAMA_PROVIDER_ID}),
         gemini_provider_ids=frozenset({"gemini.api"}),
         desktop_provider_ids=frozenset() if _gemini_only else frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
@@ -519,7 +517,7 @@ def _build_mission_pipeline():
         # because nothing had told this ladder they existed to exclude.
         all_known_provider_ids=frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG
-        ) | {BROWSER_FREE_AI_ID, OLLAMA_PROVIDER_ID},
+        ) | {BROWSER_FREE_AI_ID},
     )
     # The Reasoning Executive delegates to this same ladder -- one
     # routing stack for planning and for mid-mission judgement alike.
