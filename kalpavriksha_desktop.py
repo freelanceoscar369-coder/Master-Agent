@@ -333,7 +333,13 @@ def _build_mission_pipeline():
     # is what Gate 2 already proved safe and founder-approved. A capability
     # at IRREVERSIBLE tier (e.g. Desktop's `close_window`) is untouched by
     # this loop and still requires a real decision.
-    for plugin in (browser_plugin, desktop_plugin, filesystem_plugin):
+    # `document_plugin` and `reasoning_plugin` belong here for exactly
+    # the same reason as the other three, and were missing: their
+    # reversible actions would have stopped for a founder decision
+    # that Rule 5 already settles, while `Filesystem.WriteFile` --
+    # the identical tier -- ran straight through.
+    for plugin in (browser_plugin, desktop_plugin, filesystem_plugin,
+                   document_plugin, reasoning_plugin):
         for descriptor in mission_control.capabilities.for_executive(plugin.manifest.name):
             permissions.grant(
                 plugin.manifest.name, descriptor.capability,
@@ -529,7 +535,14 @@ def _build_mission_pipeline():
     # `Browser.OpenBrowserSession` needs a `session_id` — proven live
     # against the real API, not assumed.
     contracts = []
-    for plugin in (browser_plugin, desktop_plugin, filesystem_plugin):
+    # Every Executive this root registers, not a subset. Omitting the
+    # two new ones left the Planner unable to SEE reading a document
+    # or reasoning over one -- so it answered the founder's CV
+    # objective with `NO_STEPS`, correctly, about a machine that
+    # could in fact do the work. It reported checking 43 things; the
+    # three it was never shown were the three the objective needed.
+    for plugin in (browser_plugin, desktop_plugin, filesystem_plugin,
+                   document_plugin, reasoning_plugin):
         actions = getattr(plugin, "_actions", None)
         if isinstance(actions, dict):
             contracts.extend(

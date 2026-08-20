@@ -269,3 +269,59 @@ class TestTheRepairIsNotAPhraseFilter:
         from master_agent.brain.advisory import advise  # noqa: F401
 
         assert callable(advise)
+
+
+class TestEveryExecutiveReachesThePlanner:
+    """The omission that made a capable machine refuse.
+
+    `Document` and `Reasoning` were registered with Mission Control and
+    left out of the two loops that matter: the one building the Planner's
+    capability catalogue, and the one pre-granting each Executive's
+    reversible actions. So the Planner could not see reading a document or
+    reasoning over one, and answered the founder's objective with
+    `NO_STEPS` -- correctly, about a machine that could do the work. It
+    reported checking 43 capabilities; the three it was never shown were
+    the three the objective needed.
+
+    Read structurally: a future Executive added to the registry and
+    forgotten here fails these rather than a founder finding out.
+    """
+
+    @staticmethod
+    def _plugin_tuples() -> list[set[str]]:
+        """Every `for plugin in (...)` fan-out in the composition root."""
+        tree = ast.parse(COMPOSITION.read_text(encoding="utf-8"))
+        found = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.For) and isinstance(node.iter, ast.Tuple):
+                names = {
+                    element.id for element in node.iter.elts
+                    if isinstance(element, ast.Name)
+                }
+                if any(name.endswith("_plugin") for name in names):
+                    found.append(names)
+        return found
+
+    def test_the_registered_executives_are_the_ones_wired(self):
+        source = COMPOSITION.read_text(encoding="utf-8")
+        registered = {
+            line.split("registry.register(")[1].split(")")[0].strip()
+            for line in source.splitlines()
+            if "registry.register(" in line and "provider_registry" not in line
+        }
+        registered = {name for name in registered if name.endswith("_plugin")}
+        assert registered, "no plugin registrations found"
+
+        for names in self._plugin_tuples():
+            missing = registered - names
+            assert not missing, (
+                f"registered but left out of a composition loop: {sorted(missing)}"
+            )
+
+    def test_document_and_reasoning_are_in_every_loop(self):
+        """Named explicitly: these two are the ones that were missed, and
+        the objective that exposed it needs all three of their
+        capabilities."""
+        for names in self._plugin_tuples():
+            assert "document_plugin" in names
+            assert "reasoning_plugin" in names
