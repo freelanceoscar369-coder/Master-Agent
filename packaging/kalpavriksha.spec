@@ -44,6 +44,23 @@ a = Analysis(
     # `_whisper_model_path()`), collected by the single `voice_models` datas
     # entry above since it copies the whole directory tree.
     hiddenimports=[
+        # Document extraction/writing. Imported lazily inside the actions
+        # that use them -- deliberately, so a build without a PDF library
+        # still starts -- which means static analysis cannot see them and
+        # they have to be named here or a packaged run reports every PDF
+        # and Word file as unreadable.
+        'pypdf',
+        'docx',
+        'master_agent.plugins.document_plugin',
+        'master_agent.plugins.reasoning_plugin',
+        'master_agent.executor.actions.document.extract_text',
+        'master_agent.executor.actions.document.write_document',
+        'master_agent.executor.actions.reasoning.transform',
+        'master_agent.executor.actions.browser.read_page_text',
+        # The local reasoning provider: registered in the composition root,
+        # reached only through the registry, so nothing imports it by name
+        # in a way PyInstaller would follow.
+        'master_agent.providers.ollama',
         'webview',
         'webview.platforms.edgechromium',
         'webview.platforms.winforms',
