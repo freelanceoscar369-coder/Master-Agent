@@ -331,21 +331,43 @@ class TestPrivacy:
         )
         assert approval_needed(cloud, "sensitive") == SENSITIVE_THIRD_PARTY
 
-    def test_the_local_provider_is_first_in_the_ladder(self):
-        from master_agent.ai_infrastructure.tiered_runner import (
-            TIER_LOCAL,
-            TieredPromptRunner,
-        )
+    def _ladder(self):
+        from master_agent.ai_infrastructure.tiered_runner import TieredPromptRunner
 
-        runner = TieredPromptRunner(
+        return TieredPromptRunner(
             object(),
             local_provider_ids=frozenset({"ollama.local"}),
             gemini_provider_ids=frozenset({"gemini.api"}),
-            desktop_provider_ids=frozenset(),
-            browser_provider_ids=frozenset(),
+            desktop_provider_ids=frozenset({"chatgpt-desktop"}),
+            browser_provider_ids=frozenset({"browser.free-ai"}),
         )
-        assert runner._tiers[0][0] == TIER_LOCAL
-        assert runner._tiers[0][1] == frozenset({"ollama.local"})
+
+    def test_sensitive_work_goes_to_the_machines_own_runtime_first(self):
+        from master_agent.ai_infrastructure.tiered_runner import TIER_LOCAL
+
+        class Request:
+            sensitive = True
+
+        order = [name for name, _ in self._ladder()._ordered_tiers(Request())]
+        assert order[0] == TIER_LOCAL
+
+    def test_public_work_keeps_the_original_ladder(self):
+        """Order is capability, not privacy -- the Broker already refuses to
+        send sensitive work anywhere non-private. Forcing every request
+        through the local runtime would buy no privacy and cost a quarter
+        of an hour per planning call."""
+        class Request:
+            sensitive = False
+
+        order = [name for name, _ in self._ladder()._ordered_tiers(Request())]
+        assert order[:3] == ["gemini", "desktop", "browser"]
+        assert order[-1] == "local", "the local runtime should remain a fallback"
+
+    def test_a_request_that_says_nothing_is_treated_as_public(self):
+        """`sensitive` is absent on some request objects; the ladder must
+        not crash, and reasoning defaults to sensitive at its own layer."""
+        order = [name for name, _ in self._ladder()._ordered_tiers(object())]
+        assert order[0] == "gemini"
 
     def test_existing_ladders_are_unchanged_without_a_local_tier(self):
         """Additive: a caller that names no local provider keeps exactly

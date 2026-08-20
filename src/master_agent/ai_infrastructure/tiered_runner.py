@@ -93,14 +93,25 @@ class TieredPromptRunner:
         local_provider_ids: frozenset[str] = frozenset(),
     ) -> None:
         self._executor = prompt_executor
-        # Local first. Additive and defaulted empty, so every existing
-        # caller keeps the exact ladder it had; a deployment with a local
-        # runtime gets to try it before anything leaves the machine.
+        # Additive and defaulted empty, so every existing caller keeps the
+        # exact ladder it had.
+        #
+        # Order is by capability, NOT by privacy. Privacy is already
+        # guaranteed one layer down: `approval_needed()` refuses to send
+        # sensitive work to a provider whose `privacy` is not PRIVATE
+        # without a founder's yes, so a private document cannot reach a
+        # cloud model whatever order these tiers are in.
+        #
+        # Putting local first for everything therefore buys no privacy and
+        # costs a great deal: on this machine a planning-sized prompt takes
+        # a local model about a quarter of an hour, and planning carries no
+        # private data at all -- it is the objective plus the capability
+        # catalogue. `_ordered_tiers()` is where the distinction is made.
         self._tiers: tuple[tuple[str, frozenset[str]], ...] = (
-            (TIER_LOCAL, frozenset(local_provider_ids)),
             (TIER_GEMINI, frozenset(gemini_provider_ids)),
             (TIER_DESKTOP, frozenset(desktop_provider_ids)),
             (TIER_BROWSER, frozenset(browser_provider_ids)),
+            (TIER_LOCAL, frozenset(local_provider_ids)),
         )
         tiered_ids = frozenset().union(
             local_provider_ids, gemini_provider_ids, desktop_provider_ids,
@@ -133,11 +144,29 @@ class TieredPromptRunner:
         #: "the system reports which tier actually handled the request."
         self.last_attempts: list[TierAttempt] = []
 
+    def _ordered_tiers(self, request: Any) -> tuple[tuple[str, frozenset[str]], ...]:
+        """The tiers to try, in order, for this particular request.
+
+        Sensitive work goes to the machine's own runtime first. Not as a
+        second privacy mechanism -- the Broker already refuses to send it
+        anywhere else -- but so that the request does not first walk a
+        ladder of providers that are all going to be refused, one of which
+        scans the machine for desktop applications on the way past.
+
+        Everything else keeps the ladder exactly as it was, with the local
+        runtime as a final fallback rather than a toll gate.
+        """
+        if not getattr(request, "sensitive", False):
+            return self._tiers
+        local = [tier for tier in self._tiers if tier[0] == TIER_LOCAL]
+        rest = [tier for tier in self._tiers if tier[0] != TIER_LOCAL]
+        return tuple(local + rest)
+
     def run(self, prompt: str, request: Any, **kwargs: Any) -> Any:
         self.last_attempts = []
         last_outcome = None
 
-        for tier_name, tier_ids in self._tiers:
+        for tier_name, tier_ids in self._ordered_tiers(request):
             if not tier_ids:
                 self.last_attempts.append(TierAttempt(tier_name, False, (), None))
                 continue
