@@ -338,6 +338,61 @@ workload `INTERACTIVE`) — reuse that seam, do not invent a second one.
 
 ## KNOWN_BLOCKERS
 
+### B0 · Two findings recorded rather than acted on — both need a decision
+
+#### B0a · `src/master_agent/founder_edition/ai_client.py` — an **untracked** second provider path
+
+A 90-line module inside the shipped package directory that:
+
+- calls **OpenRouter/DeepSeek directly over `urllib.request`**, bypassing Model
+  Router and Broker entirely — the "second provider path or client that bypasses
+  the Broker" ADR-0024 Decision 7 names as forbidden, and against Vision §5.7's
+  "no other component may decide";
+- carries **its own `SYSTEM_PROMPT` defining Somesh** — a second persona;
+- reads `OPENROUTER_API_KEY`, **which is set on this machine**, so anything that
+  imported it would spend the founder's money with no approval gate (§10: *"Do not
+  silently spend money"*);
+- is the reason `urllib` and `os` appear in the `founder_edition` import set that
+  `TestNothingExecutesOrCallsAI` guards.
+
+**It is untracked** (`git ls-files` does not know it) and has **zero references**
+anywhere — source, tests, packaging spec, JS. It is *not* in
+`packaging/kalpavriksha.spec`'s `hiddenimports` and nothing imports it, so **it
+does not ship today**. It is a loaded trap, not a live wound.
+
+**Not deleted, deliberately.** Untracked means git holds no copy, so deletion is
+unrecoverable — and the founder's standing instruction is to classify inherited
+untracked work, not remove it.
+
+**Recommendation: delete it.** OpenRouter is already a legitimate provider *through
+the Broker* (`ai_infrastructure/catalog.py:404`, `provider_id="openrouter.api"`),
+so nothing is lost. If it is wanted, it belongs behind the Broker like every other
+provider. **Founder's call.**
+
+#### B0b · `founder_edition` imports `os` and `socket` — a real, tracked guard breach
+
+`tests/test_founder_edition_boot.py::TestNothingExecutesOrCallsAI` fails on two
+assertions, and **these are not stale tests**. The guard's own comment states its
+purpose: *"`subprocess`, `socket`, and `ctypes` are what this guard actually exists
+to keep out."*
+
+The cause is `desktop_shell.py`'s embedded `FixedBottleServer` (~120 lines) — a
+genuine workaround for a pywebview 6.x bug where `@app.route('/')` and
+`@app.route('/<file:path>')` both call `asset(file)`. Serving the local UI needs a
+socket and filesystem paths, so the class cannot avoid them.
+
+**Canonical fix, not applied:** move `FixedBottleServer` into
+`kalpavriksha_desktop.py`. The composition root is the layer that *is* allowed to
+own the environment — the same rule already stated for `record_interaction`, mode,
+and machine scanning — and `create_window` already receives it as
+`server=FixedBottleServer`, so the seam exists.
+
+**Why it was not done today:** it changes what PyInstaller packages and how the
+native window starts, and a packaged rebuild cannot be safely verified at this hour
+(a locked-file build failure silently leaves the OLD exe). Breaking the founder's
+desktop shell to satisfy a guard test is the wrong trade. **This is the single
+clearest remaining piece of tracked implementation drift.**
+
 ### B1 · Gemini free-tier daily quota exhausted (external)
 
 ```
