@@ -347,6 +347,32 @@ Founder Edition does not ship" are very different facts.
 | `FounderConsole` has no `memory=` parameter and no `replay`/`remember` commands | `test_missions_console.py`, `test_memory_integration.py` | **43** | **NO** |
 | Everything else | assorted | remainder | mixed — untriaged |
 
+### A lead worth someone's attention — `test_verified_execution.py` (4)
+
+Not chased, because it is Broker-internal and could not be validated live with the
+quota spent. **Pre-existing** — nothing this session touched `broker/` or `policy.py`.
+
+The harness builds a system with an installed local provider (`InstalledProbe
+("ollama")`) and fakes *that* provider's transport. The Broker nevertheless selects
+**`gemini.api`**, so the fake is never reached and the test fails.
+
+Two things about that are worth a look, and they are separable:
+
+1. **Cloud selected over an installed local provider.** ADR-0017 Decision 3 walks
+   local first. If the harness's policy legitimately differs, the tests are stale;
+   if it does not, this is the same drift class the baseline commit fixed in the
+   runner, one layer down in the Broker.
+2. **A provider with no credentials was still selected.** With `GEMINI_API_KEY`
+   cleared the same selection happens and fails with *"no GEMINI_API_KEY
+   configured"*. Vision §3.3 Amendment 2 is explicit that a preference *"can never
+   select a Provider that is unavailable, licence-barred, privacy-barred, or
+   paid-without-approval"* — an unconfigured provider surviving the hard-constraint
+   filter is worth confirming against `broker/decision.py`.
+
+Neither is a Founder Edition blocker: the shipped composition pins its own ladder
+and B/D/F all passed live through it. Recorded so it is triaged rather than
+rediscovered.
+
 ### The 43 — one unbuilt feature, in an excluded component
 
 `master_agent.launcher.console.FounderConsole.__init__()` takes no `memory`
