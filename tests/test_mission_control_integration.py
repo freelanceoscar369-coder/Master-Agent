@@ -77,7 +77,11 @@ def test_the_real_unmodified_browser_plugin_registers_the_same_way():
     register_plugin_as_executive(mc, plugin)
 
     record = mc.executives.get("browser")
-    assert len(record.capabilities) == 9
+    # Ten, not nine: the Browser Executive gained `read_page_text` and
+    # `wait_for_selector` since this was written. The count is asserted
+    # rather than a lower bound because a capability arriving unnoticed on
+    # the founder-facing Executive is the thing worth catching.
+    assert len(record.capabilities) == 10
     assert "Browser.Navigate" in mc.capabilities.names()
     assert "Browser.ObserveBrowser" in mc.capabilities.names()
 
@@ -92,7 +96,7 @@ def test_two_executives_coexist_without_capability_collisions():
     register_plugin_as_executive(mc, BrowserPlugin(executor, BrowserSessionManager()))
 
     assert len(mc.executives) == 2
-    assert len(mc.capabilities) == 23  # 14 filesystem + 9 browser
+    assert len(mc.capabilities) == 24  # 14 filesystem + 10 browser
 
 
 def test_describe_plugin_capabilities_reads_only_the_public_plugin_contract():

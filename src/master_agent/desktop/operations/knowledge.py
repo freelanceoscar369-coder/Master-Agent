@@ -502,6 +502,28 @@ _CLI_RECOVERY_PLANS: tuple[ApplicationRecoveryPlan, ...] = (
 
 _BESPOKE_RECOVERY_PLANS: tuple[ApplicationRecoveryPlan, ...] = (
     ApplicationRecoveryPlan(
+        key="notepad",
+        # The catalog gained `notepad` and an ApplicationOperationProfile
+        # for it, and no recovery plan followed -- an application the
+        # Executive knows about and could not recover.
+        # `test_every_catalog_key_has_a_recovery_plan` was reporting a
+        # real gap rather than being stale.
+        #
+        # The guidance follows the profile already written for it: always
+        # present on Windows, near-instant, multi-window, and with exactly
+        # one thing that can lose the founder's work.
+        guidance=(
+            (FailureMode.NOT_RUNNING, RecoveryGuidance("No Notepad process is present.", ("launch it; it is always available on Windows",))),
+            (FailureMode.WINDOW_HIDDEN, RecoveryGuidance("The process is running but no window is visible (minimized or on another virtual desktop).", ("bring it to the front", "check other virtual desktops/monitors"))),
+            (FailureMode.LOADING, _na("it opens near-instantly; there is no workspace or extension load to wait for.")),
+            (FailureMode.HUNG, RecoveryGuidance("The window is present but not responding, which for Notepad usually means a very large file is being opened or saved.", ("wait briefly if a large file is genuinely in progress", "otherwise end the process and relaunch -- unsaved text is lost, so prefer waiting"))),
+            (FailureMode.MULTIPLE_INSTANCES, RecoveryGuidance("More than one window is open, each with its own document -- ordinary, and a second launch opens a new window rather than focusing an existing one.", ("identify the window needed by its title, which is the file name",))),
+            (FailureMode.LOGIN_REQUIRED, _na("Notepad has no account and no sign-in gate.")),
+            (FailureMode.UNEXPECTED_POPUP, RecoveryGuidance("A dialog is blocking interaction -- almost always the save prompt raised by closing a document with unsaved text.", ("read it before dismissing: this is the one dialog here that loses the founder's work if answered the wrong way",))),
+            (FailureMode.NETWORK_FAILURE, _na("Notepad is entirely local and needs no network.")),
+        ),
+    ),
+    ApplicationRecoveryPlan(
         key="vscode",
         guidance=(
             (FailureMode.NOT_RUNNING, RecoveryGuidance("No VS Code process is present.", ("launch it with the folder that was open, if known",))),

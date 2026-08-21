@@ -414,7 +414,15 @@ class TestEnvironmentIntegration:
 
 
 class TestUnknownApplications:
-    @pytest.mark.parametrize("key", ["notepad", "photoshop", "slack", "", "CHROME", "chrome "])
+    # `notepad` was on this list as an example of an application the
+    # catalog did not know. It knows it now (`catalog.py`, with a profile
+    # and a recovery plan), so using it here would assert the opposite of
+    # what the catalog says. The remaining five still stand: two genuinely
+    # absent applications, an empty key, and two mistyped forms of a key
+    # that IS known -- wrong case and a trailing space -- which is the
+    # part of this test that matters, since a fuzzy match would "helpfully"
+    # resolve both.
+    @pytest.mark.parametrize("key", ["photoshop", "slack", "", "CHROME", "chrome "])
     def test_an_unknown_or_mistyped_key_returns_nothing_rather_than_guessing(self, key):
         ex = DesktopExecutiveV2()
         assert ex.profile(key) is None
