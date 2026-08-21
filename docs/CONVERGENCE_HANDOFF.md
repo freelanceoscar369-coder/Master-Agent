@@ -327,12 +327,29 @@ where a wrong answer currently costs the founder most.
 
 ## NEXT_EXACT_ACTION
 
-Give `IntentLayer` a Model-Router-backed path for the residual case where
-`role_of()`'s structural signals cannot decide, keeping deterministic parsing in
-front of it so the ordinary path neither slows down nor starts costing tokens.
-`brain/advisory.py` already shows the in-repo shape of a Brain component making a
-routed call (`RoutingContext`, `SelectionRequest`, `BudgetedSelectionRequest`,
-workload `INTERACTIVE`) — reuse that seam, do not invent a second one.
+In priority order. The first two need no quota; the third needs the daily Gemini
+free tier to have reset.
+
+1. **Move `FixedBottleServer` out of `founder_edition/desktop_shell.py` into
+   `kalpavriksha_desktop.py`** (blocker B0b). This is the clearest remaining piece
+   of tracked drift: it is what makes `os` and `socket` appear inside a package
+   architecture-guarded against exactly those, and the guard's own comment names
+   `socket` as one of the three things it exists to keep out. The seam already
+   exists — `create_window()` passes the class to `webview.start(server=...)`, and
+   a test already asserts that. **Verify by launching the app in dev mode**
+   (`python kalpavriksha_desktop.py`) and confirming the window renders, not by
+   unit tests alone: they use a fake webview and would not catch a real pywebview
+   integration break. Deliberately not attempted at the end of a session because a
+   packaged rebuild could not be safely verified.
+2. **Decide on `founder_edition/ai_client.py`** (blocker B0a) — recommended
+   deletion. Founder's call; it is untracked, so git holds no copy.
+3. **Run `scripts/live_acceptance/c_founder_checkpoint.py`** once the Gemini free
+   tier resets, to close the one Live Acceptance still blocked (C end-to-end, the
+   Planner actually marking a checkpoint from the founder's own sentence). The
+   mechanism below it is already proven by `c2_checkpoint_mechanism.py`.
+
+**Do not** treat the 43 `FounderConsole` failures as convergence work — see THE
+FAILING SUITE, CLASSIFIED. They belong to a component this product excludes.
 
 ---
 
@@ -673,15 +690,25 @@ Acceptance D (permission) is still unproven — see below.
 
 ## UNCOMMITTED_WORK_STATUS
 
-- `src/master_agent/providers/gemini.py` — T2 above. Coherent, non-regressive,
-  untested. Intact.
-- `tests/test_desktop_executive.py`, `tests/test_desktop_shell.py`,
-  `tests/test_founder_edition_assembly.py`, `tests/test_founder_edition_boot.py` —
-  T1 above. Net +34 repaired failures, two known-wrong assertions. Intact.
-- ~118 untracked paths — T3 above. Untouched.
-- `docs/CONVERGENCE_HANDOFF.md` — this file, new, uncommitted.
+**All inherited tracked work from T1 and T2 has been proven and committed.** The
+working tree carries no uncommitted source or test changes from this session.
 
-**Nothing has been discarded.**
+What remains uncommitted is untracked and was untracked before this session began:
+
+- **~118 untracked paths** (T3) — root-level status files, `.bak`/`.backup` copies
+  under `src/`, Hyperagent UI assets, audit documents. **Untouched. Nothing
+  deleted.** 17 of the 18 under `src/` are `.bak`-style copies that Python cannot
+  import and that therefore cannot affect runtime.
+- **`src/master_agent/founder_edition/ai_client.py`** — the exception, and the one
+  that matters. Untracked but a real `.py` inside the shipped package. See blocker
+  B0a. **Left in place deliberately: untracked means git holds no copy.**
+- **3 untracked test files** — `test_fire_and_forget_contract.py` (four of whose
+  tests say **"CHARACTERIZATION — expected to FAIL today"** in their own
+  docstrings), `test_launch_rescue_provider_hygiene.py`, and
+  `test_golden_path_visible_chrome.py`. They run and mostly pass; they distort
+  worktree comparisons, which is why the method note above exists.
+
+**Nothing has been discarded at any point in this session.**
 
 ---
 
