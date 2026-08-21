@@ -51,8 +51,8 @@ looking for "where Founder Edition is assembled" should start there.
 |---|---|---|---|---|---|
 | 1 | Founder Surface → Conversation | Brain-adjacent surface | Vision §3, §13 | `founder_edition/desktop_shell.py`, `kalpavriksha_desktop.py` | **COMPLIANT_AND_WIRED** |
 | 2 | Conversational answer layer | Brain | Vision §3.1 | `conversation_engine/` | **COMPLIANT_AND_WIRED** |
-| 3 | **Utterance-role understanding** | **Brain / Intent Layer** | **Brief §11, §12; Vision §3.1** | **absent** | **SPECIFIED_BUT_MISSING** |
-| 4 | Intent Layer semantic understanding | Brain | Vision §3.1; ADR-0024 D3 (proposed) | `brain/intent.py` — 903 lines, 12 regex parsers, no reasoning call | **IMPLEMENTATION_DRIFT** |
+| 3 | **Utterance-role understanding** | **Brain / Intent Layer** | **Brief §11, §12; Vision §3.1** | `brain/utterance.py`, consulted via `IntentLayer.decide_role()` | **WAS SPECIFIED_BUT_MISSING — now COMPLIANT_AND_WIRED** (Slice 1). All six §12 regressions live-proven |
+| 4 | Intent Layer semantic understanding | Brain | Vision §3.1; ADR-0024 D7 | `IntentLayer(reasoner=...)` — the Model Router door, opened for one undecidable shape | **WAS DRIFT — now COMPLIANT_AND_WIRED** (Slice 4). Structure still settles the ordinary path at no cost |
 | 5 | Clarification round trip | Brain | Vision §3.1; ADR-0024 Gap 1 | `brain/intent.py::clarify` + `kalpavriksha_desktop.py:787` | **COMPLIANT_AND_WIRED** (ADR-0024 Gap 1 is **STALE**) |
 | 6 | Intent → Planner admission | Brain | ADR-0024 D1 (proposed) | `kalpavriksha_desktop.py:751-851` | **COMPLIANT_AND_WIRED** |
 | 7 | Planner → MissionPlan | Brain | Vision §3.2 | `planner/planner.py` | **COMPLIANT_AND_WIRED** |
@@ -61,14 +61,14 @@ looking for "where Founder Edition is assembled" should start there.
 | 10 | Broker never discovers / executes / retries / approves | Shared Infra | Vision §5.7, §5.8 | `broker/` — no execution, no probing, no retry | **COMPLIANT_AND_WIRED** |
 | 11 | ADR-0017 tier ladder preserved | Shared Infra | ADR-0017 (ratified) | `broker/policy.py` locality ordering | **COMPLIANT_AND_WIRED** |
 | 12 | Duck.ai excluded from Founder Edition | Founder decision | Brief §3 | `kalpavriksha_desktop.py:483-491` — `browser_free_ai` never registered | **COMPLIANT_AND_WIRED** |
-| 13 | Retry owned by its canonical layer | Provider | Brief §9; MB033 Rule 4 | `providers/gemini.py` (**uncommitted**, untested) | **BUILT_BUT_UNWIRED** (uncommitted; see handoff T2) |
+| 13 | Retry owned by its canonical layer | Provider | Brief §9; MB033 Rule 4 | `providers/gemini.py`, committed with 18 tests | **WAS BUILT_BUT_UNWIRED — now COMPLIANT_AND_WIRED** (Slice 2). Retry stays in the provider; the Broker still retries nothing |
 | 14 | Mission Control lifecycle | Shared Infra | Vision §5.3; ADR-0021 | `mission_control/` | **COMPLIANT_AND_WIRED** |
 | 15 | Runtime → Executive/Worker | Operator | Vision §4.1, §12 | `runtime/`, `executor/`, `desktop/` | **COMPLIANT_AND_WIRED** |
 | 16 | Verification structurally independent | Operator-adjacent | Vision §10; ADR-0011 | `verification/`, gateway `.verify()` | **COMPLIANT_AND_WIRED** |
 | 17 | Evidence → Memory | Shared Infra | Vision §5.4, §9.2 | `memory/`, `persistence/` | **COMPLIANT_AND_WIRED** |
 | 18 | Reporter | Brain | Vision §3.4, §16 | `brain/reporter.py` (566 lines), wired at `kalpavriksha_desktop.py:621,691` | **COMPLIANT_AND_WIRED** (Vision §3.4 "not yet built" is **STALE**) |
-| 19 | Permission / approval | Shared Infra | Vision §5.2, §15; ADR-0019, ADR-0020 | `permissions/`, `mission_control/approvals.py` | **COMPLIANT_AND_WIRED** (live proof pending) |
-| 20 | Founder checkpoint distinct from permission | Shared Infra | Brief §14; ADR-0020 | `mission_control/completion.py`, `confirm_completion` bridge | **COMPLIANT_AND_WIRED** (live proof pending) |
+| 19 | Permission / approval | Shared Infra | Vision §5.2, §15; ADR-0019, ADR-0020 | `permissions/`, `mission_control/approvals.py` | **COMPLIANT_AND_WIRED** — **live-proven** (Acceptance D), after Rows 26/27 were fixed |
+| 20 | Founder checkpoint distinct from permission | Shared Infra | Brief §14; ADR-0020 | `runtime/engine.py` `FOUNDER_CHECKPOINT`, `confirm_completion` bridge | **COMPLIANT_AND_WIRED** — **live-proven** (Acceptance C mechanism): `kind='founder_checkpoint'`, and Stop performs no mutation |
 | 21a | Persistence — **recording** | Shared Infra | Vision §11.2; ADR-0015 | `PersistenceService` + `PlanHistory`, wired at `kalpavriksha_desktop.py:614` | **COMPLIANT_AND_WIRED** — live-proven |
 | 21b | Persistence — **resume after restart** | Shared Infra | Vision §11.1; ADR-0015 | `persistence/recovery.py::recover()` built; called by `launcher/boot.py:380` **only** | **BUILT_BUT_UNWIRED** — deliberate, see below |
 | 22 | Founder interaction audit trail | Shared Infra | ADR-0025 (**PROPOSED**) | `_audit()` in `desktop_shell.py` | **COMPLIANT_AND_WIRED** — note it implements a *Proposed* ADR |
