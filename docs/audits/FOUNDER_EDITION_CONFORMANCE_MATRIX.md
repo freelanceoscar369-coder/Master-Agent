@@ -78,7 +78,7 @@ looking for "where Founder Edition is assembled" should start there.
 | 26 | Founder approval reaches the grant ledger | Shared Infra | Vision §5.2, §15.1 | `decide_approval` in `kalpavriksha_desktop.py` | **WAS BROKEN — now COMPLIANT_AND_WIRED** (Slice 5) |
 | 27 | Approval resumes the work it authorised | Operator | Vision §15.1 | `_drive_until_settled` + `decide_approval` | **WAS BROKEN — now COMPLIANT_AND_WIRED** (Slice 6) |
 | 28 | Founder Surface does not reach the Mission OS | Brain-adjacent | `TestOnlyComposition` guard | `desktop_shell.py` imported `planner.modes` | **WAS DRIFT — now COMPLIANT_AND_WIRED** |
-| 29 | Founder Surface holds no environment door | Brain-adjacent | `TestNothingExecutesOrCallsAI` guard | `desktop_shell.py` embeds `FixedBottleServer` (`os`, `socket`) | **IMPLEMENTATION_DRIFT — open** |
+| 29 | Founder Surface holds no environment door | Brain-adjacent | `TestNothingExecutesOrCallsAI` guard | vendored server moved to the composition root; `create_window(server=...)` | **WAS DRIFT — now COMPLIANT_AND_WIRED.** `socket`/`bottle`/`wsgiref` gone from the package; the only `os` left is Row 30's untracked file, proven by parking it |
 | 30 | No second provider path | Shared Infra | Vision §5.7; ADR-0024 D7 | **untracked** `founder_edition/ai_client.py` — direct OpenRouter over `urllib` | **IMPLEMENTATION_DRIFT — open, founder's call** |
 | 31 | Declared boot order matches actual boot | Brain-adjacent | `boot.py` own contract | `STEP_NAMES` contradicted the sequence | **WAS DRIFT — now COMPLIANT_AND_WIRED** |
 
