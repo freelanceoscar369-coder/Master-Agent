@@ -81,6 +81,15 @@ class FakeProbe:
             raise RuntimeError("the probe is unreachable")
         return []
 
+    def get_store_apps(self) -> list[dict]:
+        return []
+
+    def get_uninstall_apps(self) -> list[dict]:
+        return []
+
+    def get_start_apps(self) -> list[dict]:
+        return []
+
 
 class StubState:
     """Something with an `as_dict()`. `DesktopLayer.readiness` asks a

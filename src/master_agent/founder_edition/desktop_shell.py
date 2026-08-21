@@ -4,8 +4,10 @@
 PACKAGE.\"* This module is the wiring: it opens one native window (via
 `pywebview`, wrapping the OS's own WebView2/WebKit engine — already
 declared as an optional dependency, `pyproject.toml`'s `ui` extra) that
-hosts `desktop_app/web/index.html`, and exposes exactly nine methods to
-that page's JavaScript. Every one of them is a thin call onto
+hosts `desktop_app/web/index.html`, and exposes exactly fifteen methods to
+that page's JavaScript (nine when this was written; the approval,
+completion, execution-status and mode contracts have been wired through
+the same bridge since). Every one of them is a thin call onto
 `FounderEditionApp` (C24/C30) and the pieces it already wires (C29 Identity,
 C31 Conversation Engine, C32 Communication Layer) — this module composes
 no reply, plans no mission, and derives no fact the backend did not

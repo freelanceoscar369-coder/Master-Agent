@@ -97,6 +97,15 @@ class FakeProbe:
             raise RuntimeError("the probe is unreachable")
         return list(self._running)
 
+    def get_store_apps(self) -> list[dict]:
+        return []
+
+    def get_uninstall_apps(self) -> list[dict]:
+        return []
+
+    def get_start_apps(self) -> list[dict]:
+        return []
+
 
 def machine(**kwargs) -> FakeProbe:
     defaults = {

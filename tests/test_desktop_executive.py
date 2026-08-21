@@ -66,6 +66,9 @@ class FakeProbe:
         versions: dict[str, str] | None = None,
         running: list[ProcessInfo] | None = None,
         fail: set[str] | None = None,
+        start_apps: list[dict] | None = None,
+        store_apps: list[dict] | None = None,
+        uninstall_apps: list[dict] | None = None,
     ) -> None:
         self.platform = platform
         self._on_path = on_path or {}
@@ -73,6 +76,9 @@ class FakeProbe:
         self._versions = versions or {}
         self._running = running or []
         self._fail = fail or set()
+        self._start_apps = start_apps or []
+        self._store_apps = store_apps or []
+        self._uninstall_apps = uninstall_apps or []
         self.started: list[list[str]] = []
         self.ran: list[list[str]] = []
 
@@ -99,6 +105,15 @@ class FakeProbe:
 
     def processes(self) -> list[ProcessInfo]:
         return list(self._running)
+
+    def get_store_apps(self) -> list[dict]:
+        return list(self._store_apps)
+
+    def get_uninstall_apps(self) -> list[dict]:
+        return list(self._uninstall_apps)
+
+    def get_start_apps(self) -> list[dict]:
+        return list(self._start_apps)
 
 
 def machine(**kwargs) -> FakeProbe:
@@ -129,9 +144,19 @@ def test_the_catalogue_is_not_empty():
 
 @pytest.mark.parametrize("spec", catalog.CATALOG, ids=lambda s: s.key)
 def test_every_catalogue_entry_is_findable_somehow(spec):
-    """An entry with no executable and no known path can never be found,
-    which makes it a permanent 'missing' the founder cannot act on."""
-    assert spec.executables or spec.windows_paths or spec.posix_paths
+    """An entry with no `label`, no executable, and no known path could
+    never be found, which would make it a permanent 'missing' the founder
+    cannot act on.
+
+    `executables`/`windows_paths`/`posix_paths` are no longer the only
+    way — Universal Windows Environment Discovery's `discover()` also
+    matches every spec's `label` against live Start Menu/MSIX/registry
+    entries (`inventory.py::_claim_match`), confirmed live for real,
+    genuinely path-less catalogue entries (Perplexity, Kimi) this
+    session. `label` is therefore the one thing every entry actually
+    needs; declared paths/executables are enrichment for apps whose
+    location is already known, not a requirement."""
+    assert spec.label or spec.executables or spec.windows_paths or spec.posix_paths
 
 
 @pytest.mark.parametrize("spec", catalog.CATALOG, ids=lambda s: s.key)
@@ -1242,3 +1267,284 @@ def test_the_real_probe_returns_none_for_an_unknown_executable():
 
 def test_the_real_probe_handles_a_bad_path():
     assert RealSystemProbe().exists("\x00not-a-path") is False
+
+
+# ═══════════════ Universal Windows Environment Discovery ═══════════════
+#
+# The catalog is not the source of truth; the Windows machine is
+# (Kalpavriksha — Critical Desktop Executive Repair, Section 1). These
+# tests exercise `discover()`'s merge across every real evidence source
+# `RealSystemProbe` can supply — `Get-StartApps`, `Get-AppxPackage`, the
+# registry uninstall keys, and running processes — entirely through
+# `FakeProbe`, so nothing here shells out.
+
+
+def test_running_process_alone_proves_installed():
+    """Section 8: a real running process, with nothing else matching it,
+    must still resolve the application as installed — the exact Claude
+    Desktop case (a catalog path that was simply wrong)."""
+    probe = machine(on_path={}, running=[ProcessInfo(pid=1, name="git.exe", owner="git")])
+
+    found = discover(probe).get("git")
+
+    assert found.installed is True
+    assert found.running is True
+    assert found.install_source == "running_process"
+    assert found.launch_target is None  # honestly: nothing to launch it with
+
+
+def test_msix_discovery_resolves_a_catalog_application():
+    """Section 2B/5: an application with no PATH/known-path match is
+    still found via `Get-AppxPackage`, with a real launch target."""
+    probe = machine(store_apps=[{
+        "Name": "Cursor", "PackageFullName": "Cursor_1.0.0_x64__abc",
+        "PackageFamilyName": "Cursor_abc", "Publisher": "CN=Cursor",
+        "Version": "1.0.0", "InstallLocation": None,
+        "AppUserModelID": "Cursor_abc!App",
+    }])
+
+    found = discover(probe).get("cursor")
+
+    assert found.installed is True
+    assert found.install_source == "msix"
+    assert found.launch_target == "shell:AppsFolder\\Cursor_abc!App"
+    assert found.package_family == "Cursor_abc"
+
+
+def test_start_menu_discovery_resolves_a_catalog_application():
+    """Section 2B/5: `Get-StartApps` is the strongest static source —
+    resolves an application even when neither PATH nor Store/AppX
+    enumeration found it."""
+    probe = machine(start_apps=[{"Name": "Claude", "AppID": "Claude_pzs8sxrjxfjjc!Claude"}])
+
+    found = discover(probe).get("claude_desktop")
+
+    assert found.installed is True
+    assert found.install_source == "start_menu"
+    assert found.launch_target == "shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude"
+    assert found.app_user_model_id == "Claude_pzs8sxrjxfjjc!Claude"
+
+
+def test_start_menu_raw_path_entry_launches_directly_not_via_appsfolder():
+    """Section 7: some legacy shortcuts report a raw file path instead of
+    a real AppUserModelID (observed live: Ollama) — `shell:AppsFolder`
+    cannot resolve that, so the launch target must be the path itself."""
+    probe = machine(start_apps=[{
+        "Name": "Ollama", "AppID": r"C:\Users\Founder\AppData\Local\Programs\Ollama\ollama app.exe",
+    }])
+
+    found = discover(probe).get("ollama")
+
+    assert found.install_source == "start_menu"
+    assert found.launch_target == r"C:\Users\Founder\AppData\Local\Programs\Ollama\ollama app.exe"
+    assert found.app_user_model_id is None  # it was never a real AppUserModelID
+
+
+def test_registry_discovery_resolves_a_catalog_application_hklm_and_hkcu_alike():
+    """Sections 2D/15.4/15.5: `discover()` treats every registry hive
+    `get_uninstall_apps()` already merges (HKLM, HKLM\\WOW6432Node, HKCU)
+    identically — a hive distinction that lives in `RealSystemProbe`'s own
+    three separate queries (see `test_registry_probe_queries_both_hives`
+    below), not in the merge logic under test here."""
+    probe = machine(uninstall_apps=[{
+        "DisplayName": "Docker Desktop", "Publisher": "Docker Inc.",
+        "DisplayVersion": "4.74.0", "InstallLocation": r"C:\Program Files\Docker\Docker",
+        "UninstallString": "...",
+    }])
+
+    found = discover(probe).get("docker")
+
+    assert found.installed is True
+    assert found.install_source == "registry"
+    assert found.version == "4.74.0"
+    # Honest: an uninstall entry's `UninstallString` is for removing
+    # software, not launching it — no launch target is fabricated.
+    assert found.launch_target is None
+    assert found.launchable is False
+
+
+def test_registry_probe_queries_both_hives():
+    """Sections 2D/15.4/15.5, at the probe level: `get_uninstall_apps()`
+    genuinely queries HKLM (both 64- and 32-bit views) and HKCU, not just
+    one hive — regression coverage for the missing-quote/missing-backslash
+    bugs found live in this method (fixed this session)."""
+    probe = RealSystemProbe.__new__(RealSystemProbe)
+    probe._timeout = 5.0  # platform is a read-only property (real sys.platform)
+    queried_paths: list[str] = []
+
+    def _fake_run(command, timeout=None):
+        queried_paths.append(command[3])
+        return CommandResult(ok=True, output="[]")
+
+    probe._run = _fake_run
+    probe.get_uninstall_apps()
+
+    assert any("HKLM:\\SOFTWARE\\Microsoft" in p and "WOW6432Node" not in p for p in queried_paths)
+    assert any("WOW6432Node" in p for p in queried_paths)
+    assert any("HKCU:\\SOFTWARE\\Microsoft" in p for p in queried_paths)
+    # The exact bug found live: a missing `\` before the wildcard meant
+    # `Uninstall*` (matches nothing) instead of `Uninstall\*` (every
+    # child key) — assert the fix, not just that a query happened.
+    assert all("Uninstall\\*'" in p for p in queried_paths)
+
+
+def test_evidence_precedence_start_menu_outranks_registry_and_running_alone():
+    """Section 4: when multiple sources agree on the same application,
+    the strongest wins the launch target, and every corroborating source
+    still appears in `discovery_sources`."""
+    probe = machine(
+        running=[ProcessInfo(pid=1, name="git.exe", owner="git")],
+        start_apps=[{"Name": "Git", "AppID": "Git.Bash"}],
+        uninstall_apps=[{
+            "DisplayName": "Git", "Publisher": "Git", "DisplayVersion": "2.44.0",
+            "InstallLocation": None, "UninstallString": "...",
+        }],
+    )
+
+    found = discover(probe).get("git")
+
+    assert found.install_source == "start_menu"  # not "registry", not bare "running_process"
+    assert found.running is True
+    assert "running_process" in found.discovery_sources
+    assert "start_menu" in found.discovery_sources
+
+
+def test_catalog_path_still_wins_when_nothing_else_matches():
+    """Section 4: a verified PATH/known-path resolution — the pre-
+    existing mechanism — is still honoured when no Windows-wide source
+    corroborates it, so this mission adds discovery, it does not remove
+    any that already worked."""
+    probe = machine(on_path={"git": "/usr/bin/git"}, versions={"git": "git version 2.44.0"})
+
+    found = discover(probe).get("git")
+
+    assert found.install_source == "catalog_path"
+    assert found.launch_target == "/usr/bin/git"
+
+
+def test_a_catalog_path_conflict_is_resolved_in_favour_of_windows_evidence():
+    """Section 4's own worked example: a wrong/stale catalog path must
+    never override real Start Menu evidence that a matching, different
+    install exists."""
+    probe = machine(
+        on_path={},  # the catalog's own PATH guess finds nothing
+        start_apps=[{"Name": "Chrome", "AppID": "Chrome"}],
+    )
+
+    found = discover(probe).get("chrome")
+
+    assert found.installed is True
+    assert found.install_source == "start_menu"
+
+
+def test_unknown_application_with_no_catalog_entry_is_still_discovered():
+    """Section 6 — the core universality claim: an application no
+    developer anticipated must still appear, distinctly flagged as
+    catalog-free."""
+    probe = machine(start_apps=[{"Name": "MyCoolApp", "AppID": "MyCoolApp.Vendor!App"}])
+
+    inventory = discover(probe)
+
+    assert inventory.get("mycoolapp") is None  # no catalog key claims it
+    matches = inventory.get_unknown("MyCoolApp")
+    assert len(matches) == 1
+    assert matches[0].catalog_metadata_present is False
+    assert matches[0].launch_target == "shell:AppsFolder\\MyCoolApp.Vendor!App"
+    assert matches[0].installed is True
+
+
+def test_running_process_with_no_catalog_entry_at_all_does_not_crash():
+    """Section 8's principle taken to its edge: `attribute_processes()`
+    already leaves a truly unrecognised process `owner=None` rather than
+    guessing — `discover()` must not choke on that, only catalog-known
+    running processes become `RUNNING_PROCESS`-sourced records."""
+    probe = machine(running=[ProcessInfo(pid=99, name="totally_unknown.exe", owner=None)])
+
+    inventory = discover(probe)
+
+    assert all(p.owner is not None or p.name == "totally_unknown.exe" for p in inventory.processes)
+    assert inventory.get("git").running is False  # unaffected
+
+
+def test_launch_target_resolution_prefers_appsfolder_for_true_app_ids():
+    """Section 7's launch-order claim, at the unit level: a real
+    AppUserModelID resolves to `shell:AppsFolder`, never treated as a
+    raw path."""
+    from master_agent.desktop.inventory import _start_app_launch_target, _is_raw_path
+
+    assert _is_raw_path("Claude_pzs8sxrjxfjjc!Claude") is False
+    assert _start_app_launch_target("Claude_pzs8sxrjxfjjc!Claude") == "shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude"
+    assert _is_raw_path(r"C:\Program Files\App\app.exe") is True
+    assert _start_app_launch_target(r"C:\Program Files\App\app.exe") == r"C:\Program Files\App\app.exe"
+
+
+def test_deep_scan_is_skipped_on_the_fast_path():
+    """Section 9's FAST PATH: `deep=False` must not call any of the
+    three Windows-wide sources — asserted by making each one raise if
+    called, not merely by asserting on the result."""
+    class ExplodingProbe(FakeProbe):
+        def get_start_apps(self):
+            raise AssertionError("get_start_apps() must not run on the fast path")
+
+        def get_store_apps(self):
+            raise AssertionError("get_store_apps() must not run on the fast path")
+
+        def get_uninstall_apps(self):
+            raise AssertionError("get_uninstall_apps() must not run on the fast path")
+
+    probe = ExplodingProbe(on_path={"git": "/usr/bin/git"}, versions={"git": "git version 2.44.0"})
+
+    inventory = discover(probe, deep=False)
+
+    assert inventory.get("git").installed is True
+    assert inventory.unknown_applications == []
+
+
+def test_context_cache_upgrades_from_shallow_to_deep_on_demand():
+    """Section 9/12's cache-coherence requirement: a fast `refresh()`
+    must not silently strand a later `inventory(deep=True)` caller with
+    stale, shallow data — the exact bug that would have made `execute()`
+    miss Claude Desktop's Start Menu match after any interaction action's
+    own fast `refresh()` ran first."""
+    probe = machine(start_apps=[{"Name": "Claude", "AppID": "Claude_pzs8sxrjxfjjc!Claude"}])
+    context = DesktopContext(probe)
+
+    context.refresh(deep=False)  # e.g. `focus()`'s own fast-path refresh
+    assert context.cached.get("claude_desktop").install_source != "start_menu"
+
+    deep = context.inventory(deep=True)  # e.g. `execute()`'s own call
+
+    assert deep.get("claude_desktop").install_source == "start_menu"
+
+
+def test_context_cache_is_not_rescanned_once_deep():
+    """The other half of Section 9: once deep data is cached, a further
+    `inventory(deep=True)` call must be free — asserted the same way the
+    fast-path test above is, by making the expensive sources explode if
+    called again."""
+    probe = machine(start_apps=[{"Name": "Claude", "AppID": "Claude_pzs8sxrjxfjjc!Claude"}])
+    context = DesktopContext(probe)
+    context.inventory(deep=True)
+
+    def _explode():
+        raise AssertionError("a cached deep inventory must not be re-scanned")
+
+    probe.get_start_apps = _explode  # type: ignore[method-assign]
+
+    again = context.inventory(deep=True)
+    assert again.get("claude_desktop").install_source == "start_menu"
+
+
+def test_installed_running_visible_are_distinguishable_states():
+    """Section 11: NOT_FOUND / INSTALLED / RUNNING must not collapse
+    into one `installed=True/False` boolean."""
+    not_found = discover(machine()).get("lm_studio")
+    installed_not_running = discover(machine(on_path={"git": "/usr/bin/git"})).get("git")
+    installed_and_running = discover(machine(
+        on_path={"git": "/usr/bin/git"},
+        running=[ProcessInfo(pid=1, name="git.exe", owner="git")],
+    )).get("git")
+
+    assert not_found.status == MISSING and not_found.running is False
+    assert installed_not_running.installed is True and installed_not_running.running is False
+    assert installed_and_running.installed is True and installed_and_running.running is True

@@ -168,6 +168,38 @@ class TestSendMessage:
         assert len(dashboard["conversation"]["entries"]) == 2
 
 
+class TestSendMessageObjectiveDispatch:
+    """Founder Task 2 integration: `submit_objective` is only ever reached
+    through ConversationEngine's own "I don't recognise this" signal —
+    no new classifier, and ordinary conversation must be completely
+    unaffected."""
+
+    def test_recognised_conversation_never_reaches_submit_objective(self):
+        calls = []
+        instance = DesktopShellApi(
+            app(), submit_objective=lambda text: calls.append(text) or {"reply": "should not happen"},
+        )
+        result = instance.send_message("Continue", "text")
+        assert result["reply"] == "Continuing."
+        assert calls == []
+
+    def test_an_unrecognised_message_falls_through_to_submit_objective(self):
+        calls = []
+        instance = DesktopShellApi(
+            app(),
+            submit_objective=lambda text: calls.append(text) or {"reply": f"planned: {text}"},
+        )
+        result = instance.send_message("open chrome and go to example.com", "text")
+        assert calls == ["open chrome and go to example.com"]
+        assert result == {"reply": "planned: open chrome and go to example.com"}
+
+    def test_without_submit_objective_unrecognised_message_is_still_honestly_silent(self):
+        """The existing, pre-Task-2 fallback — proven unchanged."""
+        instance = DesktopShellApi(app(), submit_objective=None)
+        result = instance.send_message("asdkjhasdkjh nonsense", "text")
+        assert result == {"reply": None}
+
+
 class _RecordingVoice:
     def __init__(self) -> None:
         self.spoken: list[str] = []
@@ -186,6 +218,14 @@ class _RecordingVoice:
 
     def abandon_capture(self) -> None:
         self.abandon_calls += 1
+
+    stt_ready = True
+    tts_ready = True
+    # The startup-diagnostics overlay asks the pipeline three separate
+    # questions, and `mic_live` is the one that is not implied by the other
+    # two: a model can be loaded (stt_ready) while no real input stream is
+    # open (see VoicePipeline.mic_live's own docstring).
+    mic_live = True
 
 
 class TestSendMessageSpeaksThroughVoice:
@@ -241,6 +281,43 @@ class TestAbandonVoiceCapture:
 
     def test_without_a_voice_pipeline_does_nothing(self):
         api().abandon_voice_capture()  # must not raise
+
+
+class TestStartupDiagnostics:
+    def test_all_true_when_everything_is_wired(self):
+        voice = _RecordingVoice()
+        instance = DesktopShellApi(app(), voice=voice)
+        diag = instance.get_startup_diagnostics()
+        assert diag == {
+            "webview_loaded": True,
+            "conversation_engine_ready": True,
+            "voice_initialized": True,
+            "stt_loaded": True,
+            "tts_loaded": True,
+            # The check that is not implied by the other two: a model can
+            # be loaded while no real input stream is open. The fake above
+            # already answers it; only this expectation was missing.
+            "mic_live": True,
+            "dashboard_ready": True,
+        }
+
+    def test_voice_checks_false_without_a_voice_pipeline(self):
+        instance = api()
+        diag = instance.get_startup_diagnostics()
+        assert diag["voice_initialized"] is False
+        assert diag["stt_loaded"] is False
+        assert diag["tts_loaded"] is False
+        assert diag["webview_loaded"] is True
+        assert diag["conversation_engine_ready"] is True
+
+    def test_reflects_a_model_that_failed_to_load(self):
+        voice = _RecordingVoice()
+        voice.stt_ready = False
+        instance = DesktopShellApi(app(), voice=voice)
+        diag = instance.get_startup_diagnostics()
+        assert diag["voice_initialized"] is True
+        assert diag["stt_loaded"] is False
+        assert diag["tts_loaded"] is True
 
 
 class TestOpenMicrophoneSettings:
@@ -352,12 +429,40 @@ class TestCreateWindow:
         assert len(windows) == 1
         window = windows[0]
         assert window.title == "Kalpavriksha"
-        assert window.kwargs["url"] == "/tmp/web/index.html"
+        # `?debug=1` is how the page learns it was started with --debug,
+        # and this call passes `debug=True`. The assertion used to expect
+        # the bare path, from before the page could be told.
+        assert window.kwargs["url"] == "/tmp/web/index.html?debug=1"
         assert window.kwargs["background_color"] == "#05070A"
-        assert starts == {"debug": True, "called": True}
+        assert starts == {"debug": True, "called": True,
+                          "server": shell_module.FixedBottleServer}
         assert returned.identity.founder_name == "Onkar"
 
-    def test_exposes_exactly_the_eight_bridge_methods(self, monkeypatch):
+    def test_an_ordinary_launch_tells_the_page_nothing_about_debugging(self, monkeypatch):
+        """The half that matters for a founder: `?debug=1` is conditional,
+        so a normal launch loads the plain page."""
+        from master_agent.founder_edition import desktop_shell as shell_module
+
+        windows, starts = _install_fake_webview(monkeypatch)
+
+        shell_module.create_window(founder_name="Onkar", web_dir="/tmp/web")
+
+        assert windows[0].kwargs["url"] == "/tmp/web/index.html"
+        assert starts == {"debug": False, "called": True,
+                          "server": shell_module.FixedBottleServer}
+
+    def test_exposes_exactly_the_fifteen_bridge_methods(self, monkeypatch):
+        """The count is asserted because the bridge is the founder-facing
+        surface: a method appearing here is a new thing the page can ask
+        the backend to do, and it should never arrive unnoticed.
+
+        Nine was right when voice was the newest thing on it. Since then
+        the approval, completion, execution-status and mode contracts were
+        wired through the same bridge -- `decide_approval`,
+        `confirm_completion`, `get_execution_status`, `get_mode`/`set_mode`
+        -- plus `debug_log`. Read from `create_window()`, which is the
+        only place the list actually exists.
+        """
         from master_agent.founder_edition import desktop_shell as shell_module
 
         windows, _ = _install_fake_webview(monkeypatch)
@@ -366,6 +471,8 @@ class TestCreateWindow:
         assert set(windows[0].exposed) == {
             "get_founder_seed", "greet", "send_message", "get_dashboard", "toggle_mute",
             "open_microphone_settings", "interrupt_speech", "abandon_voice_capture",
+            "get_startup_diagnostics", "debug_log", "get_execution_status",
+            "confirm_completion", "decide_approval", "set_mode", "get_mode",
         }
 
     def test_voice_starts_only_after_the_window_is_shown(self, monkeypatch):
