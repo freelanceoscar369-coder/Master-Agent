@@ -116,6 +116,10 @@ def task_from_step(step: Any) -> Task:
         # evaluated here, and no dynamic value exists yet. The Runtime
         # resolves them immediately before execution.
         input_bindings=dict(getattr(step, "input_bindings", None) or {}),
+        # What the founder asked to see before this step runs. Copied,
+        # never inferred: a checkpoint exists because an objective
+        # asked for one.
+        founder_checkpoint=str(getattr(step, "founder_checkpoint", "") or ""),
         task_id=step.step_id,
     )
 

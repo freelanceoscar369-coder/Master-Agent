@@ -59,6 +59,10 @@ class Task:
     #: putting `${step_3.url}` placeholders inside one would force every
     #: Action to understand references it has no business knowing about.
     input_bindings: dict[str, Any] = field(default_factory=dict)
+    #: A pause the FOUNDER asked for in their objective, carried from
+    #: the Step. Empty for almost every task. Never a permission
+    #: concept -- satisfying it grants no capability authority.
+    founder_checkpoint: str = ""
     #: The canonical Evidence projection Verification produced for THIS
     #: task, stored by Mission Control when it transports the verification
     #: event.
@@ -90,6 +94,7 @@ class Task:
             "depends_on": list(self.depends_on),
             "evidence_id": self.evidence_id,
             "input_bindings": dict(self.input_bindings),
+            "founder_checkpoint": self.founder_checkpoint,
             "evidence": self.evidence,
             "errors": list(self.errors),
             "duration_seconds": self.duration_seconds,

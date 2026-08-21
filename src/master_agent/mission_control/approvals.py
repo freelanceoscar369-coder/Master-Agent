@@ -51,6 +51,22 @@ class ApprovalAlreadyDecided(Exception):
     make the ledger a lie about what the founder actually said."""
 
 
+#: Why a founder is being asked. Two different questions that happen to
+#: need the same waiting machinery.
+#:
+#: `PERMISSION` is policy: may the system do something the rules gate --
+#: destructive, costly, or private material leaving the machine. Answering
+#: yes can create real Permission System authority.
+#:
+#: `FOUNDER_CHECKPOINT` is not policy at all. The objective said "show me
+#: this before you continue", so the founder is looking at what the work
+#: produced. Answering Continue satisfies THAT REQUEST and nothing else --
+#: it grants no capability authority, changes no risk tier, and would be
+#: wrong to treat as permission for anything.
+PERMISSION = "permission"
+FOUNDER_CHECKPOINT = "founder_checkpoint"
+
+
 @dataclass
 class PendingApproval:
     """One unanswered question, carrying everything Deliverable 1 names.
@@ -72,6 +88,9 @@ class PendingApproval:
     requested_by: str = "runtime"
     requested_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     approval_id: str = field(default_factory=lambda: uuid4().hex[:8])
+    #: `PERMISSION` or `FOUNDER_CHECKPOINT`. Defaults to permission, so
+    #: every existing caller keeps exactly the semantics it had.
+    kind: str = PERMISSION
     state: ApprovalState = ApprovalState.PENDING
     decided_by: str | None = None
     decided_at: datetime | None = None
@@ -95,6 +114,7 @@ class PendingApproval:
             "local_capability": self.local_capability,
             "risk_tier": self.risk_tier,
             "reason": self.reason,
+            "kind": self.kind,
             "impact": self.impact,
             "requested_at": self.requested_at.isoformat(),
             "requested_by": self.requested_by,
@@ -117,6 +137,9 @@ class PendingApproval:
             objective_id=data.get("objective_id"),
             objective=data.get("objective"),
             impact=data.get("impact", "unknown"),
+            # A record written before this field existed is a permission
+            # question -- that is what everything was.
+            kind=data.get("kind", PERMISSION),
             requested_by=data.get("requested_by", "runtime"),
             requested_at=datetime.fromisoformat(data["requested_at"]),
             approval_id=data["approval_id"],

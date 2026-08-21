@@ -95,6 +95,7 @@ class StepRecord:
     #: from?" alongside `input_provenance`'s "where did it actually come
     #: from?".
     input_bindings: dict[str, Any] = field(default_factory=dict)
+    founder_checkpoint: str = ""
     #: Which step and field actually supplied each bound input, and under
     #: which Evidence, recorded when the step started.
     input_provenance: list[dict[str, Any]] = field(default_factory=list)
@@ -123,6 +124,7 @@ class StepRecord:
             "evidence_id": self.evidence_id,
             "evidence": self.evidence,
             "input_bindings": dict(self.input_bindings),
+            "founder_checkpoint": self.founder_checkpoint,
             "input_provenance": list(self.input_provenance),
             "errors": list(self.errors),
             "started_at": self.started_at,
@@ -148,6 +150,7 @@ class StepRecord:
             # never synthesised from `evidence_id` -- an id is not evidence.
             evidence=document.get("evidence"),
             input_bindings=document.get("input_bindings") or {},
+            founder_checkpoint=document.get("founder_checkpoint") or "",
             input_provenance=document.get("input_provenance") or [],
             errors=list(document.get("errors") or []),
             started_at=document.get("started_at"),
@@ -649,6 +652,7 @@ def _step_record(step: Any) -> StepRecord:
         payload=dict(step.payload),
         depends_on=list(step.depends_on),
         input_bindings=dict(getattr(step, "input_bindings", None) or {}),
+        founder_checkpoint=str(getattr(step, "founder_checkpoint", "") or ""),
         expectation=getattr(expected, "description", "") or "",
         checks=[check.description for check in getattr(expected, "checks", ())],
         priority=getattr(step, "priority", "normal"),

@@ -36,6 +36,11 @@ from master_agent.runtime.approval import (
     ApprovalRequest,
 )
 from master_agent.runtime.checkpoint import CheckpointSink, RuntimeCheckpoint
+from master_agent.runtime.founder_review import (
+    ReviewPending,
+    ReviewStopped,
+    preview_of,
+)
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.gateway import ExecutiveGateway, GatewayResult
 from master_agent.runtime.input_resolution import (
@@ -417,6 +422,32 @@ class RuntimeEngine:
             self._report_failure(task, str(exc))
             return
 
+        # ---- THE FOUNDER'S OWN CHECKPOINT -----------------------------
+        # Placed HERE, after resolution and before anything executes,
+        # because the whole point is that the founder sees what the
+        # mission actually produced. Ask before `resolved` exists and they
+        # would be reading the Planner's guess about a document nobody had
+        # written yet.
+        #
+        # This is not the approval boundary below and must never be
+        # mistaken for it. That one asks whether policy permits an action;
+        # this one exists because the objective said "show me this before
+        # you continue". Continue satisfies THAT REQUEST -- it grants no
+        # capability authority, touches no PermissionSystem, and changes
+        # no risk tier. A step that is also policy-gated still meets the
+        # boundary below on its own terms.
+        if getattr(task, "founder_checkpoint", ""):
+            try:
+                self._require_checkpoint(
+                    task, local_capability, objective_id, resolved.payload,
+                )
+            except ReviewPending as waiting:
+                self._await_checkpoint(task, waiting)
+                return
+            except ReviewStopped as stopped:
+                self._stop_at_checkpoint(task, stopped)
+                return
+
         # ---- THE APPROVAL BOUNDARY (MB028.0, ADR-0019) ----------------
         # Everything below this line executes. Nothing above it does. This
         # is the only place in the Runtime where a gateway is reached, so
@@ -588,6 +619,94 @@ class RuntimeEngine:
         return evidence
 
     # ---- failure handling -------------------------------------------
+
+
+    def _require_checkpoint(
+        self, task: Task, local_capability: str, objective_id: str | None,
+        payload: dict[str, Any],
+    ) -> None:
+        """Open (or re-read) the founder's own review of this step.
+
+        Idempotent per task, exactly as the approval boundary is, because
+        the Runtime re-consults this every cycle while a task waits.
+
+        Deliberately never touches the Permission System. Continue means
+        "I have seen this", not "you may do things of this kind".
+        """
+        from master_agent.mission_control.approvals import (
+            FOUNDER_CHECKPOINT,
+            ApprovalState,
+            PendingApproval,
+        )
+
+        approvals = getattr(self._mc, "approvals", None)
+        if approvals is None:
+            # Nothing can ask, so nothing may quietly proceed: the founder
+            # asked to see this first, and running anyway would ignore the
+            # objective.
+            raise ReviewStopped(
+                task.task_id, "", "no way to ask the founder for their review"
+            )
+
+        existing = approvals.find_open(task.task_id, task.capability)
+        if existing is not None and existing.kind == FOUNDER_CHECKPOINT:
+            raise ReviewPending(
+                task.task_id, existing.approval_id, existing.reason
+            )
+
+        decided = next(
+            (
+                approval for approval in approvals.all()
+                if approval.task_id == task.task_id
+                and approval.capability == task.capability
+                and approval.kind == FOUNDER_CHECKPOINT
+            ),
+            None,
+        )
+        if decided is not None:
+            if decided.state is ApprovalState.APPROVED:
+                return  # Continue. The same resolved payload now executes.
+            raise ReviewStopped(
+                task.task_id, decided.approval_id, decided.note
+            )
+
+        pending = PendingApproval(
+            capability=task.capability,
+            local_capability=local_capability,
+            executive_id=task.assigned_executive or "",
+            risk_tier="",  # not a risk question; leaving this blank is the point
+            # WHAT the founder reads: the resolved values, not the
+            # Planner's literals and not the checkpoint's own description.
+            reason=preview_of(payload),
+            task_id=task.task_id,
+            objective_id=objective_id,
+            objective=task.founder_checkpoint,
+            impact="review requested by the founder",
+            requested_by="founder_checkpoint",
+            kind=FOUNDER_CHECKPOINT,
+        )
+        opened, _is_new = self._mc.request_approval(pending)
+        raise ReviewPending(task.task_id, opened.approval_id, opened.reason)
+
+    def _await_checkpoint(self, task: Task, waiting: ReviewPending) -> None:
+        """Hold. The task keeps its state, so Continue resumes this same
+        work rather than starting it again."""
+        self._awaiting_approval[task.task_id] = task
+        self._go_idle(reason=f"awaiting founder review ({waiting.approval_id})")
+
+    def _stop_at_checkpoint(self, task: Task, stopped: ReviewStopped) -> None:
+        """The founder looked and said Stop.
+
+        Reported through the existing failure path because that is the
+        honest terminal state available: the step did not run and the
+        mission does not continue past it. The message says who decided
+        and why, so nobody reads it later as the work having gone wrong.
+        """
+        note = f": {stopped.note}" if stopped.note else ""
+        self._report_failure(
+            task,
+            f"stopped by the founder at the review they asked for{note}",
+        )
 
     def _require_approval(
         self, task: Task, local_capability: str,
