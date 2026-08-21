@@ -10,6 +10,28 @@ Last updated: 2026-08-21, end of session.
 
 ---
 
+## SUCCEEDED BY A LATER SWEEP — read that too
+
+A follow-on mission (**`docs/audits/CAPABILITY_WIRING_AND_LIVE_PROOF.md`**) asked a
+different question of the same system: not *"is it built"* but *"can the Runtime
+actually reach it"*. It found and fixed one real defect this ledger did not:
+
+**`Document` and `Reasoning` were registered, Planner-visible and
+permission-granted — with no gateway.** The Runtime does not fall back; it fails the
+task. Three capabilities could be planned and approved and could never run.
+
+That lands directly on Slice 9 below. Slice 9 added `document` and `reasoning` to
+the founder-facing capability answer, so Kalpavriksha began telling the founder it
+could do two things that would have failed. **The answer was right; the wiring was
+not.** Both are now wired and live-proven — a real 35 KB `.docx`, and a real model
+reply through the Model Router.
+
+That sweep also corrects two things recorded here: Reasoning's earlier refusal was
+the **privacy boundary working**, not a provider defect, and the Desktop
+verification surface is **four** capabilities, not the five a comment claimed.
+
+---
+
 ## READ THIS FIRST — what happened in one page
 
 **Three real founder-facing defects were found and fixed. None was caught by the
