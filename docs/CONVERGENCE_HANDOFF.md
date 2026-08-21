@@ -338,7 +338,40 @@ workload `INTERACTIVE`) — reuse that seam, do not invent a second one.
 
 ## KNOWN_BLOCKERS
 
-None yet.
+### B1 · Gemini free-tier daily quota exhausted (external)
+
+```
+HTTP 429: Quota exceeded for metric:
+generativelanguage.googleapis.com/generate_content_free_tier_requests,
+limit: 20, model: gemini-3.6-flash
+```
+
+Spent legitimately on Live Acceptance B and D, which both passed. **No new
+objective can be planned today** — the Planner is the only component that needs a
+provider, so anything requiring a fresh MissionPlan is blocked until the quota
+resets.
+
+**The system behaved correctly under exhaustion, which is worth recording as its
+own evidence:** it refused honestly, told the founder *"My reasoning service is
+temporarily busy. Please try again in a moment."*, created nothing on disk, and
+manufactured no success. Two independent runs, identical behaviour.
+
+**Why the ladder did not fall through to the desktop AI applications.** The
+acceptance runners pin `KALPAVRIKSHA_FMEA_REASONING_TIER=gemini` deliberately. In
+a real founder launch the ladder is unpinned and a 429 *would* fall through to
+ChatGPT/Kimi/Perplexity desktop — which is ADR-0017's ladder working as designed
+and §10's free-first philosophy.
+
+**A deliberate decision not to force that fall-through today.** Both ChatGPT and
+Claude are currently running on this machine, and driving a desktop provider means
+UI automation typing into the founder's live windows — several of the running
+`claude` processes are plausibly Claude Code sessions, including the one doing
+this work. Hijacking an unattended desktop to close out a test is not a trade
+worth making. **The desktop-provider rung is therefore NOT live-proven.**
+
+**To finish C:** rerun `scripts/live_acceptance/c_founder_checkpoint.py` after the
+quota resets, or run it with the ladder unpinned while the founder is watching
+their screen.
 
 **Observation, not a blocker:** the backend suite is broadly red independent of
 this mission. 16 failures remain on the four inherited test files even with the
@@ -372,7 +405,7 @@ None recorded yet.
 |---|---|
 | A. Intent / conversation regressions (§12) | **LIVE_PROVEN through the real assembled surface** — `tests/test_live_acceptance_intent.py`, 9 passed. Enters at `DesktopShellApi.send_message()` on an app built by the real `boot_founder_edition()` (real Identity, ConversationEngine, CommunicationEngine, `IntentLayer`). **Planner deliberately spied** — `GEMINI_API_KEY` is set on this machine and a real call would spend founder quota and launch a browser on a synthetic probe (§32). For five of the six exchanges the required behaviour *is* that the Planner is never reached, which a spy proves better than a live call. Not yet clicked through the packaged .exe. |
 | B. Medium golden mission | **LIVE_PROVEN — PASS, 2026-08-21 15:38.** Real Gemini planning, real visible Chrome, real folder on the founder's Desktop. Runner: `scripts/live_acceptance/b_medium_golden_mission.py`. See below. |
-| C. Founder checkpoint | NOT RUN |
+| C. Founder checkpoint | **BLOCKED — external.** Gemini free tier exhausted (20 requests/day, `generate_content_free_tier_requests`) by acceptances B and D. Runner written and ready: `scripts/live_acceptance/c_founder_checkpoint.py`. See KNOWN_BLOCKERS. |
 | D. Permission | **LIVE_PROVEN — PASS, 2026-08-21 15:48**, after fixing two real defects it exposed. Runner: `scripts/live_acceptance/d_permission_gate.py`. See Slice 6. |
 | E. Persistence / recovery | NOT RUN |
 | F. Real intelligence route | **LIVE_PROVEN as a side effect of B** — B's plan was produced by a real Gemini call through Planner → Model Router → Broker → provider, with the ladder pinned to Gemini. `broker_decisions.json` holds the decision trail. **No Duck.ai** (`browser_free_ai` is never registered in this composition). Not separately scripted. |
