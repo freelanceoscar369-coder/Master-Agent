@@ -479,6 +479,36 @@ removed. **Not touched here:** deleting or rewriting 15 tests is a decision abou
 whether the advisory path should return in some form, which belongs to whoever
 owns that call — not to a convergence pass.
 
+### A second lead, and this one touches Rule 2 — frozen components edited without an ADR
+
+`test_dashboard_architecture.py::test_no_frozen_component_was_modified_without_a_ratified_adr`
+fails, naming seven files:
+
+```
+src/master_agent/executor/action.py
+src/master_agent/executor/actions/browser/observe.py
+src/master_agent/executor/actions/browser/open_session.py
+src/master_agent/executor/actions/browser/read_page_text.py
+src/master_agent/executor/actions/create_folder.py
+src/master_agent/executor/actions/document/__init__.py
+src/master_agent/executor/actions/document/extract_text.py
+```
+
+**None of them was touched this session** — verified against
+`git diff --name-only 1743a53..HEAD`, which has zero overlap with that list. This
+is pre-existing.
+
+It matters because it is not a stale-count or renamed-symbol failure; it is a guard
+reporting that **frozen components changed without the ratified ADR the amendment
+process requires** (Constitution Rule 2, and §4a's *"a structural amendment is
+proposed by a Mission Brief and applied only after founder ratification"*).
+
+Either those edits were legitimate and an ADR was never written, or the guard's
+notion of "frozen" has drifted from what the Constitution freezes. **Both readings
+need a human**, and neither is a convergence action — writing an ADR to retrofit
+approval for edits already made would be exactly the silent amendment §4a exists to
+prevent.
+
 ### A lead worth someone's attention — `test_verified_execution.py` (4)
 
 Not chased, because it is Broker-internal and could not be validated live with the

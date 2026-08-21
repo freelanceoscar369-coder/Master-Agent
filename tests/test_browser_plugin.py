@@ -6,6 +6,7 @@ grant relay to the Executor's own gate (docs/adr/0005-executor-permission-relay.
 from __future__ import annotations
 
 from master_agent.plugins.base import PermissionCategory, RiskTier
+from master_agent.executor.actions.browser.read_page_text import READ_PAGE_TEXT
 from master_agent.plugins.browser_plugin import (
     CLICK,
     CLOSE_BROWSER_SESSION,
@@ -26,7 +27,11 @@ def make_plugin():
     return BrowserPlugin(executor, sessions), executor, sessions
 
 
-def test_manifest_declares_all_nine_capabilities():
+def test_manifest_declares_all_ten_capabilities():
+    """Ten, not nine: `read_page_text` joined the Browser Executive after
+    this was written. The set is asserted rather than the count alone, so
+    a capability arriving unnoticed on the founder-facing Executive fails
+    here rather than being discovered in a mission."""
     plugin, _, _ = make_plugin()
     names = {cap.name for cap in plugin.manifest.capabilities}
     assert names == {
@@ -39,6 +44,7 @@ def test_manifest_declares_all_nine_capabilities():
         SCROLL,
         WAIT_FOR_SELECTOR,
         OBSERVE_BROWSER,
+        READ_PAGE_TEXT,
     }
 
 
