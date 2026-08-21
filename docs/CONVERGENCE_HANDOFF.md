@@ -491,6 +491,39 @@ removed. **Not touched here:** deleting or rewriting 15 tests is a decision abou
 whether the advisory path should return in some form, which belongs to whoever
 owns that call — not to a convergence pass.
 
+### A fifth — the ladder's tier is named after a product, not after its rung
+
+`test_broker_integration.py::test_only_the_catalogue_names_a_provider[gemini]` fails
+with *"'gemini' appears in tiered_runner.py"*, and it is right.
+
+`ai_infrastructure/tiered_runner.py:62` declares `TIER_GEMINI = "gemini"`, with a
+matching `gemini_provider_ids` constructor argument threaded through the
+composition root. **ADR-0017 Decision 3 has no rung called "gemini".** Its six are
+`local · desktop app · free cloud · free aggregator · existing subscription · paid
+API`. The rung this tier implements is **free cloud**; Gemini is merely who
+currently fills it.
+
+The baseline commit reconciled the ladder's **order** to ADR-0017 and said so at
+`tiered_runner.py:115` — *"This read `gemini -> desktop -> browser -> local` until
+now"* — but left the tier **named** after the product that happened to occupy it.
+So the ordering drift was fixed and the naming drift was not, and a guard that
+exists to keep provider names in the catalogue has been reporting it since.
+
+This matters beyond tidiness: a tier named for its occupant invites the next
+provider swap to be a rename across three files instead of a catalogue entry, which
+is the coupling §14 and Rule 3 exist to prevent.
+
+**Fix, not applied:** rename `TIER_GEMINI` → `TIER_FREE_CLOUD` and
+`gemini_provider_ids` → `free_cloud_provider_ids`, in `tiered_runner.py` and at its
+one call site in `kalpavriksha_desktop.py`. Mechanical, and it touches the reasoning
+ladder — the component that decides where every founder request goes — so it wants a
+deliberate run of the ladder suite plus Acceptance B behind it, not an end-of-session
+rename. Two of the remaining `test_broker_wiring.py` failures sit in the same area
+and should be triaged with it.
+
+**Not this session's doing:** `git diff 1743a53..HEAD` touches neither
+`tiered_runner.py`, `broker/`, nor `ai_infrastructure/`.
+
 ### A third and fourth, from the last 18 — both Constitution-level, both pre-existing
 
 Neither file involved was touched this session (`git diff 1743a53..HEAD` confirms).
