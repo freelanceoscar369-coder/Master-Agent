@@ -593,10 +593,18 @@ def _build_mission_pipeline():
     # only `verify()`, so `invoke()` is inherited verbatim and the Desktop
     # execution path -- DesktopPlugin -> registered Action ->
     # DesktopExecutor / DesktopExecutiveV2 -> Process/Window/UIA -- is
-    # unchanged. It adds canonical Evidence for the five capabilities with
-    # a read-only postcondition (launch/close application, focus,
-    # bring-to-front, close window) and returns None for the rest, which
-    # is what the old gateway did for all of them.
+    # unchanged. It adds canonical Evidence for the FOUR capabilities with
+    # a read-only postcondition -- LaunchApplication, CloseApplication,
+    # FocusWindow, BringToFront -- and returns None for the rest, which is
+    # what the old gateway did for all of them.
+    #
+    # This said "five ... (launch/close application, focus, bring-to-front,
+    # close window)". `gateway.supports()` disagrees, and it is the
+    # authority: CloseWindow is NOT generically verifiable, because a
+    # closed window leaves a running process that still owns other windows,
+    # and a verdict from process presence would be right by accident for
+    # single-window applications and silently wrong otherwise. The comment
+    # overclaimed by one; the code never did.
     from master_agent.desktop.gateway import DesktopGateway  # noqa: PLC0415
 
     runtime.register_gateway(desktop_plugin.manifest.name, DesktopGateway(desktop_plugin))
@@ -607,6 +615,28 @@ def _build_mission_pipeline():
             permissions,
             executor.name,
         ),
+    )
+
+    # Document and Reasoning had NO gateway at all, and the Runtime does
+    # not fall back when one is missing -- `engine.py` fails the task with
+    # "no gateway registered for executive '<id>'". So all three of
+    # `Document.ExtractText`, `Document.WriteDocument` and
+    # `Reasoning.Transform` were registered, Planner-visible and
+    # permission-granted, and could not run. Proven by planning each one
+    # and watching the task fail, not inferred from the code path.
+    #
+    # `PluginGateway` is the same generic seam Browser and Filesystem used
+    # before they earned verifying gateways of their own, and the one
+    # Desktop's non-verifiable capabilities still take. It executes and
+    # returns no Evidence, which is the truthful shape here: neither
+    # writing a document nor transforming text has a generic read-only
+    # postcondition this layer could re-observe, and inventing one would
+    # be manufacturing Evidence.
+    runtime.register_gateway(
+        document_plugin.manifest.name, PluginGateway(document_plugin),
+    )
+    runtime.register_gateway(
+        reasoning_plugin.manifest.name, PluginGateway(reasoning_plugin),
     )
 
     # No Ollama: matches every prior Gemini mission this build carries.
