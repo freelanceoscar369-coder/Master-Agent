@@ -231,7 +231,6 @@ def _build_mission_pipeline():
     from master_agent.providers.gemini import GeminiProvider
     from master_agent.providers.desktop_app import build_desktop_providers
     from master_agent.providers.browser_free_ai import (
-        BrowserFreeAiReasoningProvider,
         BROWSER_FREE_AI_SPEC,
         PROVIDER_ID as BROWSER_FREE_AI_ID,
     )
@@ -481,8 +480,15 @@ def _build_mission_pipeline():
     # `providers/desktop_app.py`'s own module docstring.
     for desktop_provider in build_desktop_providers(desktop_plugin._context):
         provider_registry.register(desktop_provider)
-    # Tier 3 — the final, last-resort fallback.
-    provider_registry.register(BrowserFreeAiReasoningProvider())
+    # NO DUCK.AI IN FOUNDER EDITION. A founder decision about this
+    # product, not a judgement on the provider: `browser.free-ai` drives
+    # Duck.ai through a real browser session, and Founder Edition does not
+    # use it.
+    #
+    # `providers/browser_free_ai.py` is untouched and stays a generic
+    # browser-backed Reasoning Provider -- ADR-0017's ladder still has a
+    # free-aggregator rung, and another deployment may fill it. This
+    # composition simply does not.
     prompt_executor = PromptExecutor(
         service=intelligence, providers=provider_registry, ledger=ledger,
     )
@@ -512,7 +518,9 @@ def _build_mission_pipeline():
         desktop_provider_ids=frozenset() if _gemini_only else frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
         ),
-        browser_provider_ids=frozenset() if _gemini_only else frozenset({BROWSER_FREE_AI_ID}),
+        # The free-aggregator rung exists in the ladder and is empty in
+        # this deployment. An empty tier is skipped, not an error.
+        browser_provider_ids=frozenset(),
         desktop_context=desktop_plugin._context,
         # The Broker sees every spec in `providers_source`'s own `specs`
         # tuple (`PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)` — Ollama,
@@ -523,6 +531,9 @@ def _build_mission_pipeline():
         # because nothing had told this ladder they existed to exclude.
         all_known_provider_ids=frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG
+        # `browser.free-ai` stays in this set precisely BECAUSE it is
+        # not in any tier: every tier attempt excludes it, so the
+        # Broker cannot select it by ranking either.
         ) | {BROWSER_FREE_AI_ID},
     )
     # The Reasoning Executive delegates to this same ladder -- one

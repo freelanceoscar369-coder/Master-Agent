@@ -132,20 +132,24 @@ class TestNormalFounderLaunchIsUnchanged:
         )
         by_keyword = {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
 
-        for tier in ("desktop_provider_ids", "browser_provider_ids"):
-            rendered = by_keyword[tier]
-            assert "_gemini_only" in rendered, (
-                f"{tier} does not depend on the FMEA switch"
-            )
-            assert "if _gemini_only else" in rendered, (
-                f"{tier} is not a conditional -- the normal ladder may be gone"
-            )
-
-        assert "PROVIDER_CATALOG" in by_keyword["desktop_provider_ids"], (
+        rendered = by_keyword["desktop_provider_ids"]
+        assert "_gemini_only" in rendered, (
+            "the desktop tier does not depend on the FMEA switch"
+        )
+        assert "if _gemini_only else" in rendered, (
+            "the desktop tier is not a conditional -- the normal ladder may be gone"
+        )
+        assert "PROVIDER_CATALOG" in rendered, (
             "the normal desktop tier no longer draws from the provider catalogue"
         )
-        assert "BROWSER_FREE_AI_ID" in by_keyword["browser_provider_ids"], (
-            "the normal browser tier no longer includes the free-AI provider"
+
+        # The browser tier is no longer governed by this switch, and that is
+        # a founder decision rather than drift: `browser.free-ai` drives
+        # Duck.ai, and Founder Edition does not use it at all. Empty always,
+        # switch or no switch -- so there is nothing here for the FMEA scope
+        # to protect.
+        assert by_keyword["browser_provider_ids"] == "frozenset()", (
+            "Duck.ai is back in the Founder Edition ladder"
         )
 
     @pytest.mark.parametrize("value", ["", "   ", "off", "no", "desktop"])

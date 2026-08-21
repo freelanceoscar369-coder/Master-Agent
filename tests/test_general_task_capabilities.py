@@ -399,46 +399,51 @@ class TestPrivacy:
             browser_provider_ids=frozenset({"browser.free-ai"}),
         )
 
-    def test_sensitive_work_goes_to_the_machines_own_runtime_first(self):
-        from master_agent.ai_infrastructure.tiered_runner import TIER_LOCAL
+    def test_the_ladder_is_adr_0017s_frozen_order(self):
+        """local -> desktop app -> free cloud -> free aggregator.
 
-        class Request:
-            sensitive = True
+        These tests previously asserted a sensitivity-dependent ordering I
+        introduced, and both the ordering and the tests were drift. The
+        Broker's own rule is what keeps private work private; the ladder's
+        job is cost, cheapest rung first, and ADR-0017 froze it.
+        """
+        assert [name for name, _ in self._ladder()._tiers] == [
+            "local", "desktop", "gemini", "browser",
+        ]
 
-        order = [name for name, _ in self._ladder()._ordered_tiers(Request())]
-        assert order[0] == TIER_LOCAL
+    def test_the_runner_holds_no_routing_policy_of_its_own(self):
+        """Ranking belongs to the Broker. A second policy here is how the
+        ladder came to disagree with the ADR in the first place."""
+        runner = self._ladder()
+        assert not hasattr(runner, "_ordered_tiers")
 
-    def test_public_work_keeps_the_original_ladder(self):
-        """Order is capability, not privacy -- the Broker already refuses to
-        send sensitive work anywhere non-private. Forcing every request
-        through the local runtime would buy no privacy and cost a quarter
-        of an hour per planning call."""
-        class Request:
-            sensitive = False
+    def test_the_order_does_not_depend_on_the_request(self):
+        import inspect
 
-        order = [name for name, _ in self._ladder()._ordered_tiers(Request())]
-        assert order[:3] == ["gemini", "desktop", "browser"]
-        assert order[-1] == "local", "the local runtime should remain a fallback"
-
-    def test_a_request_that_says_nothing_is_treated_as_public(self):
-        """`sensitive` is absent on some request objects; the ladder must
-        not crash, and reasoning defaults to sensitive at its own layer."""
-        order = [name for name, _ in self._ladder()._ordered_tiers(object())]
-        assert order[0] == "gemini"
-
-    def test_existing_ladders_are_unchanged_without_a_local_tier(self):
-        """Additive: a caller that names no local provider keeps exactly
-        the ladder it had."""
         from master_agent.ai_infrastructure.tiered_runner import TieredPromptRunner
 
-        runner = TieredPromptRunner(
-            object(),
-            gemini_provider_ids=frozenset({"gemini.api"}),
-            desktop_provider_ids=frozenset({"chatgpt-desktop"}),
-            browser_provider_ids=frozenset({"browser.free-ai"}),
+        source = inspect.getsource(TieredPromptRunner.run)
+        assert "for tier_name, tier_ids in self._tiers:" in source
+
+    def test_privacy_is_still_the_brokers_rule_not_the_ladders(self):
+        """Restoring the frozen order changes nothing about privacy:
+        sensitive work still cannot reach a non-private provider."""
+        from dataclasses import dataclass
+
+        from master_agent.ai_infrastructure.approval import (
+            SENSITIVE_THIRD_PARTY,
+            approval_needed,
         )
-        populated = [name for name, ids in runner._tiers if ids]
-        assert populated == ["gemini", "desktop", "browser"]
+
+        @dataclass
+        class Profile:
+            cost: float
+            privacy: str
+
+        assert approval_needed(Profile(cost=0.0, privacy="cloud"),
+                               "sensitive") == SENSITIVE_THIRD_PARTY
+        assert approval_needed(Profile(cost=0.0, privacy="private"),
+                               "sensitive") is None
 
 
 class TestChangingSomethingRequiresAYes:
