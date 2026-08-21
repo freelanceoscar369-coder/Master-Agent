@@ -1503,6 +1503,18 @@ _EXECUTIVE_DOMAINS: dict[str, str] = {
     "browser": "your browser — opening pages, reading what is there, and acting on them",
     "desktop": "your desktop — opening your applications, reading what is on screen, and operating them",
     "filesystem": "your files and folders — creating, reading, renaming, moving and organising them",
+    # `document` and `reasoning` are registered executives the founder was
+    # never told about: the map omitted them, so asking "what can you do"
+    # answered with three domains while five were wired.
+    #
+    # Omission is the right default -- the docstring below is explicit that
+    # inventing words for an executive is worse than leaving it out -- but
+    # these two have plain, truthful domains rather than missing ones.
+    # `Document.ExtractText`/`WriteDocument` and `Reasoning.Transform` are
+    # what each actually registers, described here at founder level rather
+    # than by their verbs.
+    "document": "documents — reading what is inside a PDF or Word file, and writing new ones",
+    "reasoning": "thinking a piece of work through — reading something and turning it into what you asked for",
 }
 
 
