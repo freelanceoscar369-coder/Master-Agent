@@ -29,6 +29,9 @@ They also set `KALPAVRIKSHA_DISABLE_MIC=1` so a harness never listens to the roo
 | Runner | Brief § | Proves |
 |---|---|---|
 | `b_medium_golden_mission.py` | §30 B | Founder → Intent → Planner → Mission Control → Runtime → Worker → Verification → Evidence → Reporter → Founder, with a real browser observation binding into a later step |
+| `c_founder_checkpoint.py` | §30 C | The founder's own "show me before you write it", planned by Gemini. **Needs quota.** |
+| `c2_checkpoint_mechanism.py` | §30 C | The checkpoint *mechanism*, on a hand-authored plan — no quota. Continue resumes the same payload; Stop does not execute the mutation. |
+| `d_permission_gate.py` | §30 D | An irreversible capability holds at the boundary, executes nothing before approval, and really happens afterwards. |
 
 ## Reading the result
 
