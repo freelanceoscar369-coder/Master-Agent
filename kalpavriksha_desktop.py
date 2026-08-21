@@ -646,8 +646,47 @@ def _build_mission_pipeline():
     def _set_mode(mode: str) -> None:
         mode_cell["mode"] = _normalise_mode(mode)
 
+    def decide_approval(approval_id, approved, note=""):
+        """Carry the founder's decision to Mission Control -- and, on
+        approval, into the grant ledger that the permission boundary
+        actually reads.
+
+        Both steps are required, and the second is not a workaround.
+        `ApprovalQueue.find_open` is scoped to *undecided* requests by
+        design ("an approved one does not silently authorise a repeat"),
+        so an answered approval does not by itself let the held task
+        through -- the next boundary check would open a fresh question and
+        the task would wait forever. `GrantScope.ONCE` is the existing
+        mechanism for exactly this: it authorises this one execution and
+        is consumed by it, which preserves the no-silent-repeat property
+        the queue is protecting.
+
+        ## Why this lives here and not in `main()`
+
+        It used to be defined inside `main()`, where `permissions` and
+        `GrantScope` are not in scope -- both are local to THIS function.
+        Python compiled them as global lookups, and neither name exists at
+        module level, so the first time a founder pressed Approve the
+        bridge raised `NameError` instead of granting anything. Nothing
+        caught it because the closure was unreachable without running
+        `main()`, which opens a real window.
+
+        Defined here, next to the `PermissionSystem` it needs, it is in
+        the same place and the same shape as `_set_mode` above, and
+        `tests/test_founder_approval_path.py` can call it directly.
+        """
+        if approved:
+            approval = mission_control.approvals.get(approval_id)
+            if approval is not None:
+                permissions.grant(
+                    approval.executive_id, approval.local_capability,
+                    GrantScope.ONCE,
+                )
+            return mission_control.approve(approval_id, "founder", note).as_dict()
+        return mission_control.reject(approval_id, "founder", note).as_dict()
+
     return (mission_service, runtime, mission_control, status, tiered_runner,
-            _set_mode, interactions)
+            _set_mode, interactions, decide_approval)
 
 
 def _founder_reply(status, reply: str, *, interaction_type: str = "") -> dict:
@@ -1307,7 +1346,7 @@ def main(argv: list[str] | None = None) -> int:
     decide_approval = None
     if pipeline is not None:
         (mission_service, runtime, mission_control, status, _reasoning_runner,
-         set_mode, interactions) = pipeline
+         set_mode, interactions, decide_approval) = pipeline
         submit_objective = lambda text: _submit_objective(  # noqa: E731
             mission_service, runtime, mission_control, status, text,
         )
@@ -1322,34 +1361,6 @@ def main(argv: list[str] | None = None) -> int:
         confirm_completion = lambda completion_id: (  # noqa: E731
             mission_control.confirm_completion(completion_id).as_dict()
         )
-        # The founder's decision on an open approval. Mission Control's
-        # own approve/reject -- this composition root decides nothing
-        # about whether the decision is allowed, it only carries it.
-        def decide_approval(approval_id, approved, note=""):
-            """Carry the founder's decision to Mission Control -- and, on
-            approval, into the grant ledger that the permission boundary
-            actually reads.
-
-            Both steps are required, and the second is not a workaround.
-            `ApprovalQueue.find_open` is scoped to *undecided* requests by
-            design ("an approved one does not silently authorise a
-            repeat"), so an answered approval does not by itself let the
-            held task through -- the next boundary check would open a
-            fresh question and the task would wait forever. `GrantScope
-            .ONCE` is the existing mechanism for exactly this: it
-            authorises this one execution and is consumed by it, which
-            preserves the no-silent-repeat property the queue is
-            protecting.
-            """
-            if approved:
-                approval = mission_control.approvals.get(approval_id)
-                if approval is not None:
-                    permissions.grant(
-                        approval.executive_id, approval.local_capability,
-                        GrantScope.ONCE,
-                    )
-                return mission_control.approve(approval_id, "founder", note).as_dict()
-            return mission_control.reject(approval_id, "founder", note).as_dict()
         # The Brain's window onto what this machine can actually act on.
         # It hands over founder-level DOMAINS derived from the same live
         # registry the Planner plans against -- never the Operator's own

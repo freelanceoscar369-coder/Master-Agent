@@ -222,6 +222,39 @@ assertions corrected against source (7-key diagnostics, 15 bridge methods,
 
 ---
 
+### Slice 5 — the founder could not approve anything
+
+**A real, live, founder-facing crash, found while preparing Live Acceptance D.**
+
+`decide_approval` was a closure defined inside `main()`. `permissions` and
+`GrantScope` are **not in scope there** — both are local to
+`_build_mission_pipeline()`. Python compiled them as global lookups; neither name
+exists at module level. **The first time a founder pressed Approve in the packaged
+app, the bridge raised `NameError` instead of granting anything.**
+
+Confirmed three ways before touching it: AST scope analysis, `dis` on the compiled
+closure (`co_names` carries `permissions`/`GrantScope` as globals, `co_freevars`
+carries only `mission_control`), and the new guard failing on the pre-fix commit
+with exactly `decide_approval() -> GrantScope, decide_approval() -> permissions`.
+
+Nothing caught it because every approval test either injected a fake
+`decide_approval` or asserted only that `create_window` *received* one. The closure
+was unreachable without running `main()`, which opens a real window.
+
+- **Fix:** `decide_approval` moved into `_build_mission_pipeline()`, beside the
+  `PermissionSystem` it grants through — the same shape as `_set_mode`, which was
+  already defined and returned there. Returned as the tuple's 8th element.
+- **Tests:** `tests/test_founder_approval_path.py` — a specific test that calls the
+  **real** `decide_approval`, and a general guard that walks every code object in
+  the module and asserts every `LOAD_GLOBAL` resolves. **The guard was verified to
+  fail on the pre-fix commit**, which is the only thing that makes it worth having.
+- Five test unpackings updated for the 8-tuple. Zero new failures (20 = 20).
+
+**This is why §30 says unit tests are not enough.** Everything about approval was
+green; the one path a founder actually takes was a crash.
+
+---
+
 ## CURRENT_SLICE
 
 **Objective:** none in flight. Next candidate is the stale

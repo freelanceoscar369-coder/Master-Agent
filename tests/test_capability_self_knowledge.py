@@ -71,7 +71,7 @@ class TestTheAnswerComesFromTheLiveRegistry:
         pipeline = kd._build_mission_pipeline()
         if pipeline is None:
             pytest.skip("no reasoning provider configured; pipeline not built")
-        _, _, mission_control, _, _, _, _ = pipeline
+        _, _, mission_control, *_rest = pipeline
 
         registered = {c.executive_id for c in mission_control.capabilities.all()}
         undescribed = sorted(registered - set(kd._EXECUTIVE_DOMAINS))
@@ -90,7 +90,7 @@ class TestTheAnswerComesFromTheLiveRegistry:
         pipeline = kd._build_mission_pipeline()
         if pipeline is None:
             pytest.skip("no reasoning provider configured; pipeline not built")
-        _, _, mission_control, _, _, _, _ = pipeline
+        _, _, mission_control, *_rest = pipeline
 
         domains = kd._capability_domains(mission_control)
         spoken = ResponseComposer(capability_domains=lambda: domains).capabilities(None)

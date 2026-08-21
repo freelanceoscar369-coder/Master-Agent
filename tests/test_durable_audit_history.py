@@ -89,7 +89,7 @@ class TestPersistedHistoryIsSufficientToReconstructASession:
     def test_three_missions_persist_as_three_distinct_records(self, session):
         """Guards `0c34a7c` in the durable data, not only in memory: three
         folder missions of identical shape must not collapse into one."""
-        (ms, rt, mc, st, _runner, set_mode, _log), state = session
+        (ms, rt, mc, st, _runner, set_mode, _log, _approve), state = session
         set_mode("local")
         for tag in ("A", "B", "C"):
             kd._submit_objective(
@@ -108,7 +108,7 @@ class TestPersistedHistoryIsSufficientToReconstructASession:
         assert len(step_ids) == 3, "two missions share a task identity"
 
     def test_the_record_answers_what_ran_and_whether_it_finished(self, session):
-        (ms, rt, mc, st, _runner, set_mode, _log), state = session
+        (ms, rt, mc, st, _runner, set_mode, _log, _approve), state = session
         set_mode("local")
         kd._submit_objective(
             ms, rt, mc, st, "Create a folder called KVHistOne in Documents",
@@ -124,7 +124,7 @@ class TestPersistedHistoryIsSufficientToReconstructASession:
         assert record.steps[0].capability == "Filesystem.CreateFolder"
 
     def test_the_event_log_carries_the_whole_lifecycle_with_correlation(self, session):
-        (ms, rt, mc, st, _runner, set_mode, _log), state = session
+        (ms, rt, mc, st, _runner, set_mode, _log, _approve), state = session
         set_mode("local")
         kd._submit_objective(
             ms, rt, mc, st, "Create a folder called KVHistTwo in Documents",
@@ -149,7 +149,7 @@ class TestPersistedHistoryIsSufficientToReconstructASession:
     def test_no_secret_is_written_to_history(self, session):
         """§20 -- the store must not become a convenient place for a key
         to end up."""
-        (ms, rt, mc, st, _runner, set_mode, _log), state = session
+        (ms, rt, mc, st, _runner, set_mode, _log, _approve), state = session
         set_mode("local")
         kd._submit_objective(
             ms, rt, mc, st, "Create a folder called KVHistSafe in Documents",
