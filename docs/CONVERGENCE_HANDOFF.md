@@ -49,11 +49,11 @@ files went from **50 failures to 0**.
 | Field | Value |
 |---|---|
 | CURRENT_BASELINE_SHA | `1743a53b585036cc872a409c2820bedf8cc4f316` |
-| LATEST_VERIFIED_SHA | `eb17ce4071d8fec193c88a8c33803b5580cb937e` — **the parent of the commit that writes this line.** A file cannot record its own SHA; `git rev-parse HEAD` is authoritative. |
+| LATEST_VERIFIED_SHA | `3366eadb863a7b2b79f4cb00fa54e54e54e934ef` — **the parent of the commit that writes this line.** A file cannot record its own SHA; `git rev-parse HEAD` is authoritative. |
 | REMOTE_SHA (origin/main) | equal to LOCAL, verified after every push |
-| LOCAL_REMOTE_SYNC | **IN SYNC — 0 ahead, 0 behind**, verified after every one of the 31 commits |
+| LOCAL_REMOTE_SYNC | **IN SYNC — 0 ahead, 0 behind**, verified after every one of the ~39 commits |
 | Branch | `main` |
-| Commits this session | **31** |
+| Commits this session | **~39** (`git rev-list --count 1743a53..HEAD` is exact) |
 | Tracked working tree | **clean** |
 
 Baseline matched the SHA named in the convergence brief. No divergence at any point,
