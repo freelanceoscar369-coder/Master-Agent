@@ -595,12 +595,18 @@ class TestThePlaybookIsGeneric:
         assert "what the founder asked for out loud" in text
         assert "part of the outcome, not a policy matter" in text
 
-    def test_it_teaches_preserving_originals(self):
+    def test_it_teaches_following_the_objective_about_originals(self):
+        """This asserted a universal "never overwrite" rule, which came
+        from one objective that happened to say so. Kalpavriksha follows
+        what was asked: preserve when a copy was requested, replace when
+        replacement was requested, and never infer replacement from
+        silence."""
         from master_agent.planner.task_playbook import playbook_lines
 
         text = " ".join(playbook_lines()).lower()
-        assert "never modify or overwrite" in text
-        assert "proposal and a fait accompli" in text
+        assert "do not decide it for them" in text
+        assert "leave the original where it is" in text
+        assert "not a detail to infer" in text
 
     def test_it_requires_the_answer_to_be_delivered_somewhere(self):
         """A step that works the answer out and hands it to nobody has not

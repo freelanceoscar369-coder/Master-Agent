@@ -194,3 +194,133 @@ class TestTheStepCarriesIt:
         from master_agent.planner.plan import Step
 
         assert not Step(step_id="s", capability="X", payload={}).founder_checkpoint
+
+
+class TestOneFieldOneMeaningEndToEnd:
+    """`founder_checkpoint` must be the same field everywhere it appears.
+
+    The canonical JSON shape omitted it while the prose taught it, which
+    left the Planner with two instructions and no way to reconcile them.
+    """
+
+    def test_the_canonical_shape_declares_it(self):
+        from master_agent.planner.prompting import PLAN_SHAPE
+
+        assert '"founder_checkpoint": ""' in PLAN_SHAPE
+
+    def test_the_shape_and_the_step_agree(self):
+        import json
+
+        from master_agent.planner.plan import Step
+        from master_agent.planner.prompting import PLAN_SHAPE
+
+        # The shape is an example, not schema, so its placeholders are
+        # prose; the keys are what must line up.
+        shape_keys = set(
+            json.loads(
+                PLAN_SHAPE.replace(
+                    '"<exactly one name from the catalogue above>"', '"X"'
+                ).replace('{"<argument>": "<value>"}', "{}")
+                .replace('"low | normal | high | critical"', '"normal"')
+                .replace('"trivial | small | moderate | large"', '"moderate"')
+            )["steps"][0]
+        )
+        assert "founder_checkpoint" in shape_keys
+        assert hasattr(Step(step_id="s", capability="X", payload={}),
+                       "founder_checkpoint")
+
+    def test_parsing_reads_the_same_field(self):
+        from master_agent.planner.catalogue import CapabilityOption
+        from master_agent.planner.parsing import validate
+
+        catalogue = (CapabilityOption(name="Document.WriteDocument",
+                                      required_args=("path", "content"),
+                                      args_complete=True),)
+        plan, refusal = validate({"steps": [{
+            "id": "s", "capability": "Document.WriteDocument",
+            "payload": {"path": "a.txt", "content": "x"}, "depends_on": [],
+            "founder_checkpoint": "the changes, before writing",
+            "success": {"description": "written"},
+        }]}, catalogue)
+
+        assert refusal is None
+        assert plan.steps[0].founder_checkpoint == "the changes, before writing"
+
+    def test_empty_means_no_checkpoint_everywhere(self):
+        from master_agent.planner.catalogue import CapabilityOption
+        from master_agent.planner.parsing import validate
+        from master_agent.planner.plan import Step
+        from master_agent.planner.prompting import PLAN_SHAPE
+
+        assert '"founder_checkpoint": ""' in PLAN_SHAPE
+        assert Step(step_id="s", capability="X", payload={}).founder_checkpoint == ""
+
+        catalogue = (CapabilityOption(name="Document.WriteDocument",
+                                      required_args=("path", "content"),
+                                      args_complete=True),)
+        plan, _ = validate({"steps": [{
+            "id": "s", "capability": "Document.WriteDocument",
+            "payload": {"path": "a.txt", "content": "x"}, "depends_on": [],
+            "founder_checkpoint": "",
+            "success": {"description": "written"},
+        }]}, catalogue)
+        assert plan.steps[0].founder_checkpoint == ""
+
+    def test_there_is_no_second_representation(self):
+        """One field, one meaning. A parallel spelling would let two parts
+        of the system disagree about whether a founder is waiting."""
+        import pathlib
+
+        planner = pathlib.Path("src/master_agent/planner")
+        for rival in ("checkpoint_required", "needs_review", "pause_before",
+                      "founder_review", "requires_checkpoint"):
+            for module in planner.glob("*.py"):
+                assert rival not in module.read_text(encoding="utf-8"), (
+                    f"{module.name} introduces a second spelling: {rival}"
+                )
+
+
+class TestMutationFollowsTheObjective:
+    """The "never overwrite" rule came from one objective and must not
+    become a universal law. Kalpavriksha follows what was asked."""
+
+    @staticmethod
+    def _text():
+        from master_agent.planner.task_playbook import playbook_lines
+
+        return " ".join(playbook_lines()).lower()
+
+    def test_the_universal_prohibition_is_gone(self):
+        assert "never modify or overwrite something the founder already has"             not in self._text()
+
+    def test_a_requested_new_copy_preserves_the_original(self):
+        text = self._text()
+        assert "asked for a new or revised copy, leave the original where it is"             in text
+
+    def test_a_requested_replacement_is_not_forbidden(self):
+        """"Edit this and replace the current version" is a legitimate
+        instruction, not something to refuse or quietly reinterpret."""
+        text = self._text()
+        assert "asked to edit or replace what is there, plan that" in text
+        assert "it was requested" in text
+
+    def test_silence_is_not_permission_to_replace(self):
+        text = self._text()
+        assert "said nothing either way, write something new" in text
+        assert "not a detail to infer" in text
+
+    def test_the_guidance_names_no_document_type(self):
+        """Generic: it must read the same for a CV, a contract or a
+        spreadsheet."""
+        import re
+
+        text = self._text()
+        for word in ("cv", "resume", "curriculum", "docx"):
+            assert not re.search(rf"(?<![a-z]){word}(?![a-z])", text)
+
+    def test_summarising_implies_no_write_rule_at_all(self):
+        """A read-only objective is untouched by any of this -- the
+        guidance is about what to do WHEN writing, not an instruction to
+        write."""
+        text = self._text()
+        assert "ordinary work runs on its own" in text

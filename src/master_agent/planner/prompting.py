@@ -33,6 +33,7 @@ PLAN_SHAPE = """{
       "payload": {"<argument>": "<value>"},
       "input_bindings": {},
       "depends_on": [],
+      "founder_checkpoint": "",
       "priority": "low | normal | high | critical",
       "complexity": "trivial | small | moderate | large",
       "success": {
@@ -198,6 +199,11 @@ _RULES = (
         "material to an outside service are each held by their own "
         "existing boundary, automatically, whether or not you mention "
         "them. Plan the work itself."
+    ),
+    (
+        "4e. `founder_checkpoint` is empty on almost every step, and empty "
+        "means there is no checkpoint. Leave it empty unless rule 12b "
+        "applies."
     ),
     (
         "12b. One thing is yours, and it is different from all of that: "

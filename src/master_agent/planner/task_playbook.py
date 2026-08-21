@@ -90,9 +90,14 @@ CHANGE = (
         "has to carry it -- see rule 12b."
     ),
     (
-        "Never modify or overwrite something the founder already has. "
-        "Write a new file alongside it. An original that still exists is "
-        "the difference between a proposal and a fait accompli."
+        "Follow what the objective actually said about the founder's "
+        "existing things, and do not decide it for them. Asked for a new "
+        "or revised copy, leave the original where it is. Asked to edit or "
+        "replace what is there, plan that -- it was requested, and the "
+        "usual execution policy still applies to it. Said nothing either "
+        "way, write something new rather than helping yourself to a "
+        "replacement: quietly changing what somebody already has is not a "
+        "detail to infer."
     ),
 )
 
