@@ -6,7 +6,40 @@ truth.** Canonical truth lives in `docs/architecture/KALPAVRIKSHA_VISION_V2.md`,
 under `docs/adr/`. Nothing here overrides those. When this file and canonical
 sources disagree, canonical sources win and this file is stale.
 
-Last updated: 2026-08-21 17:05 local.
+Last updated: 2026-08-21, end of session.
+
+---
+
+## READ THIS FIRST — what happened in one page
+
+**Three real founder-facing defects were found and fixed. None was caught by the
+test suite. All three surfaced by attempting live acceptance rather than by reading
+code.**
+
+1. **The founder could not approve anything.** `decide_approval` read `permissions`
+   and `GrantScope` as module globals that do not exist — the first press of
+   Approve raised `NameError`. Every approval test either injected a fake or
+   asserted only that the bridge *received* one.
+2. **Approving did not resume the work.** Nothing drove the Runtime after the
+   founder decided, so an authorised task waited forever. Proven by approving and
+   then simply waiting: the file the founder had just authorised deleting was still
+   there.
+3. **A pending clarification owned the founder's next utterance.** Asked *"Which
+   file should I read?"*, a founder answering *"nothing thanks"* had that taken as
+   a filename and was asked again, with no way out of the loop.
+
+**Live acceptance: A, B, C(mechanism), D, E, F all pass.** The Medium Golden
+Mission ran for real — Gemini planned it, a real browser observed
+`https://example.com/`, six steps verified independently, and a real file landed on
+the Desktop containing the observed title and final URL.
+
+**One thing is genuinely blocked** (Gemini free tier, 20/day, spent on B and D) and
+**two need the founder's decision** (FD1: what status follows Stop — already
+ADR-0021's own open item; FD2: delete the untracked rogue provider client).
+
+**Full suite: 119 → 99 failures.** 43 of what remains is one unbuilt feature in a
+component Founder Edition explicitly excludes — see THE FAILING SUITE, CLASSIFIED
+before treating that number as debt.
 
 ---
 

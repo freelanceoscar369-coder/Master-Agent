@@ -346,7 +346,15 @@ class TestNoDuplicatedLogic:
         text_output = app.communication._text_output
         process_line(app, "Good morning Somesh", out=io.StringIO())
         assert text_output.received
-        assert "Good morning" in text_output.received[-1].display
+        # NOT "Good morning": the greeting is banded by the REAL local
+        # clock, and `process_line` takes no moment, so asserting a band
+        # made this test pass only in the morning -- it had been failing
+        # every afternoon. What is actually under test is that the string
+        # came from C31 rather than a second copy assembled by the
+        # console, so assert what C31 alone puts in it.
+        greeting = text_output.received[-1].display
+        assert greeting.startswith(("Good morning", "Good afternoon", "Good evening"))
+        assert "Onkar" in greeting and "Somesh here" in greeting
 
 
 # ═════════════════ G · the console/REPL layer itself ════════════════════
@@ -508,7 +516,13 @@ class TestRunReplAndMain:
         script = "Good morning Somesh\nContinue\nHow's the system?\nquit\n"
         run_repl(app, input_stream=io.StringIO(script), output_stream=out)
         rendered = out.getvalue()
-        assert "Somesh: Good morning" in rendered
+        # Time-agnostic for the same reason as above: the REPL greets off
+        # the real clock, so pinning the band made this pass before noon
+        # and fail after it.
+        assert any(
+            f"Somesh: Good {band}" in rendered
+            for band in ("morning", "afternoon", "evening")
+        ), rendered
         assert "Somesh: Continuing." in rendered
         assert "Stopping" in rendered
 
