@@ -78,6 +78,38 @@ def python_sources() -> list[Path]:
     return sorted(SRC.rglob("*.py"))
 
 
+#: Who may construct a `MissionPlan` or a `Step`.
+#:
+#: `planner/parsing.py` builds them from a reasoning provider's answer.
+#: `planner/direct.py` builds them WITHOUT asking a model at all -- its
+#: own docstring records the defect it exists to remove, where a founder
+#: asking for a folder sent a planning prompt down the whole reasoning
+#: ladder and opened browser windows for an objective that needed no
+#: reasoning. Both are the Planner; the allowlist named only one because
+#: `direct.py` did not exist when it was written. Admitting it is not a
+#: widening of who may plan.
+#:
+#: `cli.py` is deliberately NOT here, though it does construct both and
+#: therefore keeps these two tests red. It is the legacy demo entry point
+#: (`master-agent-demo` in pyproject) and a genuine second planner -- the
+#: exact duplication this guard exists against. MB037's cleanup of it
+#: never landed, which is also why
+#: `test_the_demo_cli_no_longer_imports_plan_vocabulary` and
+#: `test_the_demo_cli_has_no_build_plan_left` fail beside these.
+#:
+#: Adding it here was tried and reverted: it would have made two guards
+#: pass on a fact two other guards still correctly report, which is
+#: papering over rather than fixing. Four tests reporting one real thing
+#: is the honest state. `cli.py` is not shipped in Founder Edition -- it
+#: appears nowhere in `packaging/kalpavriksha.spec` and nothing in the
+#: composition root imports it -- so removing it is its own decision,
+#: outside this convergence mission.
+_ALLOWED_PLAN_BUILDERS = {
+    "planner/parsing.py",
+    "planner/direct.py",
+}
+
+
 def test_only_the_planner_constructs_a_mission_plan():
     """"Planner becomes the single producer of MissionPlans. No duplicate
     planning logic may exist." Before MB037 `cli.py` built one too."""
@@ -91,7 +123,7 @@ def test_only_the_planner_constructs_a_mission_plan():
             ):
                 builders.append(path.relative_to(SRC).as_posix())
 
-    assert set(builders) <= {"planner/parsing.py"}, builders
+    assert set(builders) <= _ALLOWED_PLAN_BUILDERS, builders
 
 
 def test_only_the_planner_constructs_a_step():
@@ -105,7 +137,7 @@ def test_only_the_planner_constructs_a_step():
             ):
                 steps.append(path.relative_to(SRC).as_posix())
 
-    assert set(steps) <= {"planner/parsing.py"}, steps
+    assert set(steps) <= _ALLOWED_PLAN_BUILDERS, steps
 
 
 def test_the_demo_cli_no_longer_imports_plan_vocabulary():
