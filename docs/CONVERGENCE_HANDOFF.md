@@ -388,6 +388,34 @@ None of these were cosmetic; each was a test asserting a superseded architecture
   catalog knew an application the Executive could not recover. Written.
 - Capability counts, `?debug=1`, greeting wording, boot-step positions.
 
+### Slice 9 — the founder was never told about two of their own executives
+
+Asking *"what can you do"* answered with **three** domains while **five** executives
+were wired. `document` and `reasoning` were registered, planned against and
+executable, but absent from `_EXECUTIVE_DOMAINS`, so they were silently dropped
+from the answer.
+
+Omission is the correct default there and the docstring says why — inventing words
+for an executive is worse than leaving it out. These two were not missing
+descriptions, only missing entries. Added at founder level (*"reading what is inside
+a PDF or Word file"*), never as execution verbs, which is the whole reason that map
+exists. Both `test_capability_self_knowledge` failures were right and now pass.
+
+### Remaining unclassified failures — ~9, triaged by area
+
+After the classification above, these are what is left. None is in the canonical
+loop; several point at the excluded launcher.
+
+| Test | What it says | Note |
+|---|---|---|
+| `test_broker_wiring.py` (2) | cloud providers on before enabling; providers available before scan | Same area as the Broker lead. **Not env-driven** — verified with `GEMINI_API_KEY` cleared |
+| `test_broker_integration.py` (1) | the Desktop Executive still decides nothing | Broker area; triage with the above |
+| `test_provider_execution.py` (2) | a real answer vs a model's prose; `rejected` vs `succeeded` | Provider execution |
+| `test_founder_dashboard_v2.py` (1) | *"browser is not wired by the launcher yet"* | **launcher** — excluded component |
+| `test_founder_approval_workflow.py` (1) | *"no planner is wired"* vs `unknown command 'aprove'` | **launcher** console |
+| `test_capability_registry.py` (1) | the prompt shows the signature, not only the description | Planner prompt shape |
+| `test_filesystem_plugin.py` (1) | manifest capabilities carry output schema from contracts | Contract plumbing |
+
 ---
 
 ## CURRENT_SLICE
