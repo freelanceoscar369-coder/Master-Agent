@@ -325,6 +325,45 @@ the first contains four tests whose own docstrings say **"CHARACTERIZATION —
 expected to FAIL today."** Always `cp` the untracked test files into the worktree
 before trusting a comparison.
 
+### Slice 7 — the founder-facing surface stops holding doors it should not
+
+Three separate breaches of two architecture guards, closed:
+
+- **`planner.modes` import removed** from `desktop_shell.py`. It put the
+  founder-facing package inside the Mission OS namespace `TestOnlyComposition`
+  forbids, to read two constants the composition root already owned. Mode is now
+  injected and the root returns what it resolved, so there is one normalisation in
+  the process.
+- **`STEP_NAMES` corrected.** The package published a boot order that contradicted
+  its own sequence — three tests across three files were right and the constant was
+  wrong. Step 5 constructs `FounderRuntime(..., conversation=...)`, so conversation
+  cannot follow it.
+- **The vendored pywebview server moved to the composition root** (~170 lines,
+  three classes). This is what made `os` and `socket` appear inside a package
+  guarded against exactly those. Verified live afterwards by
+  `scripts/live_acceptance/f_vendored_server.py` — it really serves `index.html` on
+  `/`, which is the pywebview 6.x bug the class exists to fix, and which the unit
+  tests could never have caught because they install a fake webview.
+
+### Slice 8 — stale tests reconciled to decisions that had already been made
+
+None of these were cosmetic; each was a test asserting a superseded architecture.
+
+- **Desktop Executive (5).** MB030's Deliverable 7 held click/type/keyboard
+  deliberately absent *and named its own successor*. That brief landed. Twelve
+  capabilities became nineteen, and the automation ban now asserts both halves —
+  interaction present, perception (OCR/vision/screenshot) still absent — because
+  the old single loop could only be deleted wholesale, taking the perception ban
+  with it.
+- **The reasoning ladder (3).** Tests asserted cloud-before-desktop, which the
+  baseline commit had already reconciled to ADR-0017's cheapest-first order. §9 says
+  preserve that reconciliation, so the tests moved, not the source. The CRITICAL
+  test is renamed for the property it protects rather than for Gemini.
+- **Two clock-dependent console tests** that passed only before noon.
+- **`Notepad` had no recovery plan** — a real source gap, not a stale test: the
+  catalog knew an application the Executive could not recover. Written.
+- Capability counts, `?debug=1`, greeting wording, boot-step positions.
+
 ---
 
 ## CURRENT_SLICE
