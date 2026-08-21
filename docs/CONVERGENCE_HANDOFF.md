@@ -37,7 +37,7 @@ the Desktop containing the observed title and final URL.
 **two need the founder's decision** (FD1: what status follows Stop — already
 ADR-0021's own open item; FD2: delete the untracked rogue provider client).
 
-**Full suite: 119 → 98 failures, 7691 → 7712 passing.** And 63 of the 98 that
+**Full suite: 119 → 95 failures, 7691 → 7715 passing.** And 63 of the 95 that
 remain are classified as out-of-scope, superseded, or intentional — see THE FAILING
 SUITE, CLASSIFIED before treating the raw number as debt. The four inherited test
 files went from **50 failures to 0**.
@@ -455,7 +455,7 @@ A bare failure count is not information. The pre-existing red was triaged by cau
 because "119 failures" and "43 of them are one unbuilt feature in a component
 Founder Edition does not ship" are very different facts.
 
-**Final measurement: 98 failed, 7712 passed, 2 skipped** (complete list captured, not
+**Final measurement: 95 failed, 7715 passed, 2 skipped** (complete list captured, not
 a truncated tail — see the method note). Session start was **119 failed, 7691
 passed**.
 
@@ -471,7 +471,7 @@ passed**.
 | Everything else | assorted | 23 | Untriaged |
 
 **63 of 98 (64%) are explained above as out-of-scope, superseded, or intentional.**
-That is the number worth carrying forward, not the raw 98.
+That is the number worth carrying forward, not the raw 95.
 
 ### The 15 — tests for a path that was deliberately removed
 
