@@ -158,8 +158,17 @@ STEP_NAMES: tuple[str, ...] = (
     "desktop_executive",
     "desktop_perception",
     "desktop_operator",
-    "connect_founder_runtime",
+    # `conversation` BEFORE `connect_founder_runtime`, because step 5
+    # constructs `FounderRuntime(..., conversation=conversation, ...)` --
+    # it consumes the session memory step 4 produces and cannot precede
+    # it. This constant declared the opposite while the boot sequence did
+    # the right thing, so the package's published contract disagreed with
+    # its own behaviour and three tests across three files failed on the
+    # difference. The implementation was correct; this list was not.
+    # Ordering by real dependency is exactly the rule the docstring above
+    # states for every other entry.
     "conversation",
+    "connect_founder_runtime",
     "founder_identity",
     "conversation_engine",
     "communication",
