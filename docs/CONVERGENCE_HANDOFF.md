@@ -332,11 +332,56 @@ None recorded yet.
 | Proof | Status |
 |---|---|
 | A. Intent / conversation regressions (§12) | **LIVE_PROVEN through the real assembled surface** — `tests/test_live_acceptance_intent.py`, 9 passed. Enters at `DesktopShellApi.send_message()` on an app built by the real `boot_founder_edition()` (real Identity, ConversationEngine, CommunicationEngine, `IntentLayer`). **Planner deliberately spied** — `GEMINI_API_KEY` is set on this machine and a real call would spend founder quota and launch a browser on a synthetic probe (§32). For five of the six exchanges the required behaviour *is* that the Planner is never reached, which a spy proves better than a live call. Not yet clicked through the packaged .exe. |
-| B. Medium golden mission | NOT RUN |
+| B. Medium golden mission | **LIVE_PROVEN — PASS, 2026-08-21 15:38.** Real Gemini planning, real visible Chrome, real folder on the founder's Desktop. Runner: `scripts/live_acceptance/b_medium_golden_mission.py`. See below. |
 | C. Founder checkpoint | NOT RUN |
 | D. Permission | NOT RUN |
 | E. Persistence / recovery | NOT RUN |
-| F. Real intelligence route | NOT RUN |
+| F. Real intelligence route | **LIVE_PROVEN as a side effect of B** — B's plan was produced by a real Gemini call through Planner → Model Router → Broker → provider, with the ladder pinned to Gemini. `broker_decisions.json` holds the decision trail. **No Duck.ai** (`browser_free_ai` is never registered in this composition). Not separately scripted. |
+
+### Live Acceptance B — the record
+
+Objective given verbatim to the pipeline:
+
+> Open a browser, go to https://example.com, and note the page's actual title and
+> final URL. Then create a folder called `KV_Golden_153713` on the Desktop and write
+> the observed title and final URL into a file called `page_info.txt` inside it.
+> Then close the browser.
+
+**Plan record — 6 steps, every one independently verified:**
+
+| Step | Capability | Verdict |
+|---|---|---|
+| 1 | `Browser.OpenBrowserSession` | matched |
+| 2 | `Filesystem.CreateFolder` | matched |
+| 3 | `Browser.Navigate` | matched |
+| 4 | `Browser.ObserveBrowser` | matched |
+| 5 | `Filesystem.WriteFile` | matched |
+| 6 | `Browser.CloseBrowserSession` | matched |
+
+**Independent verification, read off disk after the mission claimed to be done:**
+
+```
+Title: Example Domain
+URL: https://example.com/
+```
+
+**The observation is genuinely observed, not guessed.** The objective said
+`https://example.com`; the file says `https://example.com/`. The trailing slash
+exists only because a real browser resolved a real navigation — a Planner echoing
+the objective could not have produced it. Step 4's observation bound into step 5's
+write through canonical bindings.
+
+**Mission truth held.** The first return was `awaiting_founder_completion`, not
+`completed` — *"Work finished. All 6 executed step(s) were independently
+verified."* Six verified steps did **not** self-promote to a verified Founder
+outcome; it took an explicit `confirm_completion` to reach `completed`. That is
+`STEP VERIFIED != FOUNDER OUTCOME VERIFIED` observed live rather than asserted.
+
+**Artifact left in place as evidence:** `C:\Users\DELL\Desktop\KV_Golden_153713\`.
+Founder can delete it once seen.
+
+**What B did NOT exercise:** no `AWAITING_APPROVAL` gate was reached, so Live
+Acceptance D (permission) is still unproven — see below.
 
 ---
 
