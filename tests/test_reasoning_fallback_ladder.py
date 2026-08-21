@@ -151,7 +151,21 @@ def _request() -> SelectionRequest:
 # ═══════════════════════ Section 12 test matrix ═══════════════════════
 
 
-def test_a_gemini_succeeds_desktop_and_chrome_not_touched():
+def test_a_desktop_succeeds_and_the_cloud_is_never_asked():
+    """ADR-0017 Decision 3 walks six rungs cheapest-first: local, desktop
+    app, free cloud, free aggregator, existing subscription, paid API. A
+    desktop application already running on the founder's machine is
+    cheaper than a cloud call, so it is tried first and the cloud is never
+    reached.
+
+    This test previously asserted the opposite -- Gemini first, desktop
+    untouched -- from when the runner read `gemini, desktop, browser,
+    local`. Commit 1743a53 reconciled that to the ADR and said so: *"A
+    frozen decision is not mine to re-derive because a local model takes
+    fifteen minutes."* The invariant being protected is unchanged and is
+    the whole point: **a tier that succeeds must never cause a lower one
+    to be touched.** Only which tier is higher has moved.
+    """
     gemini = FakeProvider("gemini.api", [_success("gemini.api")])
     desktop = FakeProvider("claude-desktop", [_success("claude-desktop")])
     browser = FakeProvider("browser.free-ai", [_success("browser.free-ai")])
@@ -159,12 +173,20 @@ def test_a_gemini_succeeds_desktop_and_chrome_not_touched():
 
     outcome = runner.run("hello", _request())
 
-    assert outcome.ok and outcome.provider_id == "gemini.api"
-    assert desktop.complete_calls == 0, "desktop tier must never be touched when Gemini succeeds"
-    assert browser.complete_calls == 0, "browser tier must never be touched when Gemini succeeds"
+    assert outcome.ok and outcome.provider_id == "claude-desktop"
+    assert gemini.complete_calls == 0, "the cloud must not be paid for when a desktop app answers"
+    assert browser.complete_calls == 0, "browser tier must never be touched when desktop succeeds"
 
 
-def test_b_gemini_fails_claude_desktop_available_chrome_not_touched():
+def test_b_desktop_answers_before_the_cloud_is_reached_at_all():
+    """The same rung order from the other side: with the desktop tier
+    healthy, a failing cloud provider is never even consulted, because
+    the ladder never gets that far down.
+
+    This asserted `gemini.complete_calls == 1` when the cloud sat above
+    desktop. Under ADR-0017's order that call does not happen, and not
+    making it is the saving the ladder exists for.
+    """
     gemini = FakeProvider("gemini.api", [_failure("gemini.api")])
     claude = FakeProvider("claude-desktop", [_success("claude-desktop")])
     browser = FakeProvider("browser.free-ai", [_success("browser.free-ai")])
@@ -173,7 +195,7 @@ def test_b_gemini_fails_claude_desktop_available_chrome_not_touched():
     outcome = runner.run("hello", _request())
 
     assert outcome.ok and outcome.provider_id == "claude-desktop"
-    assert gemini.complete_calls == 1
+    assert gemini.complete_calls == 0, "the ladder never descended to the cloud"
     assert browser.complete_calls == 0, "browser tier must not be touched once desktop succeeds"
 
 
@@ -295,10 +317,16 @@ def test_unrelated_catalog_providers_never_leak_into_any_tier():
 # ═══════════════════════ Section 13 — the two failure-proof tests ═══════════════════════
 
 
-def test_CRITICAL_gemini_success_must_never_touch_any_lower_tier():
-    """The exact previous failure mode this mission exists to prevent:
-    Gemini succeeds, but the system nevertheless calls a desktop or
-    browser provider anyway. This test must fail loudly if that regresses."""
+def test_CRITICAL_a_successful_tier_must_never_touch_any_lower_tier():
+    """The failure mode this file exists to prevent, stated in ADR-0017's
+    own rung order: something succeeds, and the system nevertheless calls
+    a cheaper-than-it rung anyway. Must fail loudly if that regresses.
+
+    Named for the property rather than for Gemini, because naming a
+    provider is what tied the previous version to a rung order the ADR
+    does not have. The property survives any reordering; the name now
+    does too.
+    """
     gemini = FakeProvider("gemini.api", [_success("gemini.api")])
     desktop = FakeProvider("claude-desktop", [_success("claude-desktop")])
     browser = FakeProvider("browser.free-ai", [_success("browser.free-ai")])
@@ -306,8 +334,10 @@ def test_CRITICAL_gemini_success_must_never_touch_any_lower_tier():
 
     outcome = runner.run("hello", _request())
 
-    assert outcome.provider_id == "gemini.api"
-    assert desktop.complete_calls == 0
+    # Desktop is the highest configured rung here, so it answers and
+    # nothing below it is consulted.
+    assert outcome.provider_id == "claude-desktop"
+    assert gemini.complete_calls == 0
     assert browser.complete_calls == 0
 
 
