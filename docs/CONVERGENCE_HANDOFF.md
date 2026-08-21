@@ -139,8 +139,10 @@ of the HEAD failures were a single stale fixture (`FakeProbe` missing
    `decide_approval`, `get_execution_status`, `confirm_completion`, `get_mode`,
    `set_mode`, `debug_log`.
 
-**Action taken: none. Left intact.** Do not commit T1 until items 1 and 2 are
-corrected against source.
+**RESOLVED (Slice 3, commit `a1a0a86`).** Both wrong assertions were corrected
+against source, plus a third found afterwards (`create_window` asserted a bare page
+URL while passing `debug=True`). 50 failures at HEAD → 13. `test_desktop_shell.py`
+went fully green, and the rest followed in Slice 8. **Committed, not discarded.**
 
 ### T2 — `src/master_agent/providers/gemini.py`
 
@@ -160,7 +162,17 @@ outcomes return on the first pass, so the ordinary path is unchanged.
   `sleep` injection seam with a comment saying a test "must not actually sleep",
   then was interrupted before writing that test.
 
-**Action taken: none. Left intact.** Needs a retry-policy test before commit.
+**RESOLVED (Slice 2, commit `fd707cc`).** 18 tests written using the author's own
+`sleep` seam — every transient status retried and recovering, the cap holding at
+three attempts total, the documented delays asserted as values, and the larger
+negative half: no retry on a non-429 4xx, on a malformed body, or on a timeout.
+**Committed.**
+
+**Found while proving it:** an untracked companion test file
+`tests/test_launch_rescue_provider_hygiene.py` (it imports `DEFAULT_MAX_ATTEMPTS`),
+so T2 *did* have tests — just untracked. 22 of its 23 pass; the one failure was
+verified to fail identically at pristine `1743a53`, so it is pre-existing and
+concerns the Reporter path, not retry. Left untracked and uncommitted.
 
 ### T3 — ~118 untracked paths at repo root and under `VEDRA_PROJECT/`, `docs/audits/`, `Engineering/`
 
