@@ -721,6 +721,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     """
     import time as _time
     from master_agent.brain.intent import ClarificationQuestion
+    from master_agent.brain.utterance import UtteranceRole, role_of
     from master_agent.missions.execution_status import (
         AWAITING_APPROVAL,
         AWAITING_CLARIFICATION,
@@ -735,8 +736,91 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # answer arrives as the next message, so the turn that resolves a
     # clarification is the same turn that would otherwise reset it.
     pending = status.pending_clarification
+    # The mission this founder turn FOLLOWS, for the same reason -- a
+    # question about what just happened is answered from the record of
+    # what just happened, and `begin()` is about to clear the pointer.
+    previous_objective_id = getattr(status, "objective_id", None)
+
+    # What ROLE this utterance plays. Asked of the Brain, and asked BEFORE
+    # anything is done with the utterance -- this root still decides
+    # nothing, it just no longer assumes.
+    #
+    # The assumption it replaces was written here in as many words: "a
+    # question was asked last turn, so this message is its answer." A
+    # pending clarification is CONTEXT -- it says a question is open. It
+    # does not own whatever the founder says next, which is why
+    # `awaiting_answer` is passed as one input among several rather than
+    # used as the branch it used to be.
+    role = role_of(
+        text,
+        awaiting_answer=pending is not None,
+        options=tuple(pending.options) if pending is not None else (),
+    )
 
     status.begin(text, timeout_seconds=timeout_seconds)
+
+    if role is UtteranceRole.CANCEL_OR_STOP:
+        # Nothing failed and nothing completed, so neither terminal status
+        # is truthful -- and there is no Objective to terminate either:
+        # clarification happens BEFORE `mission_service.start()`, so a
+        # question abandoned here never became a mission. `begin()` has
+        # already cleared the pending question; the honest record of this
+        # turn is that no mission ran, which is exactly `status = None`.
+        #
+        # (ADR-0021 Open Item O1 asks the founder whether the Objective
+        # vocabulary needs a seventh `CANCELLED` state. It is not needed
+        # here and this deliberately does not pre-empt that decision --
+        # nothing in this branch creates an Objective to put in one.)
+        if pending is not None:
+            reply = (
+                f"Alright, I've dropped that. Nothing is waiting on you.\n\n"
+                f"(I was asking about: {pending.objective})"
+            )
+        else:
+            reply = "Nothing was waiting, so there's nothing to stop."
+        status.message = reply
+        return _founder_reply(status, reply, interaction_type="cancelled")
+
+    if role is UtteranceRole.FOLLOW_UP:
+        # A question, not an instruction and not field data. Two shapes,
+        # and neither may consume the open question as an answer.
+        if pending is not None:
+            # They asked about the question itself. Answer that, and put
+            # the question back exactly as it was -- `begin()` cleared it
+            # a moment ago, and losing it here would abandon the founder's
+            # own request because they asked us why we were asking.
+            status.status = AWAITING_CLARIFICATION
+            status.objective = pending.objective
+            status.pending_clarification = pending
+            reply = (
+                f"Because I can't start \"{pending.objective}\" until I know "
+                f"one more thing.\n\n{pending.question}"
+            )
+            status.message = reply
+            return _founder_reply(status, reply,
+                                  interaction_type="clarification_question")
+        # A question about what just happened. The Reporter is the layer
+        # that explains a mission from its record and Evidence, so it
+        # answers here rather than this surface composing a second account
+        # -- and when there is no record it says so plainly instead of
+        # inventing mission work out of a question.
+        told = _mission_report(mission_service, previous_objective_id)
+        reply = told or "Nothing has run yet, so there's nothing to report on."
+        status.message = reply
+        return _founder_reply(status, reply, interaction_type="follow_up")
+
+    if role is UtteranceRole.MODIFY_OR_REDIRECT and pending is not None:
+        # The founder changed what they want while a question was open.
+        # The old question yields -- `begin()` already cleared it -- and
+        # the new sentence is parsed as what it is, a fresh objective,
+        # rather than being fed to `clarify()` as the answer to a question
+        # about something else. Falling through with `pending` dropped is
+        # exactly that.
+        logging.info(
+            "founder redirected while a clarification was open; abandoning %r",
+            pending.objective,
+        )
+        pending = None
 
     # NOTE: the capability-question shortcut that used to sit here is
     # gone. It was a phrase list consulted by this composition root
@@ -763,7 +847,9 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # request is understood, and it is `mission_service`'s OWN instance --
     # there is one Intent Layer in this process, not a second one wired
     # up here.
-    # A question was asked last turn, so this message is its answer.
+    # A question was asked last turn AND the Brain read this message as its
+    # answer -- both, now, where this used to assume the second from the
+    # first.
     #
     # The founder's words are clarification DATA, not a new objective:
     # "Research" is not a mission, it is the name of the folder they
@@ -776,13 +862,17 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # judgement made here: the Conversation Engine runs first, so a
     # greeting or a capability question is HANDLED and never reaches this
     # function at all. Only input the engine escalates -- input it takes
-    # to be work -- can land on an open question. STATED LIMIT: an
-    # unrelated escalated request typed while a question is open ("what's
-    # the weather today?") is taken as the answer, because nothing in
-    # this architecture can tell an odd folder name from a change of
-    # subject without guessing, and guessing is what the standing rule
-    # forbids. Deterministic and documented, per ADR-0024's discipline of
-    # stating a boundary rather than papering over it.
+    # to be work -- can land on an open question, and `role_of()` above
+    # has already separated an answer from a refusal, a question back, and
+    # a change of subject.
+    #
+    # STATED LIMIT (narrowed, not removed): a value genuinely
+    # indistinguishable from a refusal -- a folder the founder really
+    # wants called `nothing` -- is still read as a refusal when the open
+    # question offered no `options`. That is the residual case; it is
+    # asserted in `tests/test_utterance_role.py` rather than left to be
+    # rediscovered, and populating `options` removes it wherever a
+    # producer can enumerate the choices.
     if pending is not None:
         intent_result = mission_service.intent_layer.clarify(
             pending.objective,

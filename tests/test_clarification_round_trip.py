@@ -545,24 +545,34 @@ class TestPendingConversationPolicy:
                      "What are you doing?", "What should I work on?"):
             assert engine().reply(text, moment=T0).disposition is Disposition.HANDLED, text
 
-    def test_an_unrelated_escalated_message_IS_taken_as_the_answer(self):
-        """STATED LIMITATION, asserted so it cannot change silently.
+    def test_an_unrelated_escalated_question_is_NOT_taken_as_the_answer(self):
+        """The limitation this used to assert is gone, and this is the
+        test that was nominated to fail when it went.
 
-        Nothing in this architecture can distinguish an odd folder name
-        from a change of subject without guessing, and guessing is what
-        the standing rule forbids. So an escalated message lands on the
-        open question. If this ever becomes wrong for the founder, this
-        test is the place the decision gets revisited -- it fails loudly
-        rather than drifting.
+        Its previous form pinned the opposite behaviour -- "What's the
+        weather today?" became the folder's name -- and said so, adding:
+        *"If this ever becomes wrong for the founder, this test is the
+        place the decision gets revisited."* The founder's convergence
+        brief revisited it: a pending clarification is CONTEXT and does
+        not own the next utterance.
+
+        A question is now read as a question. The open request is not
+        abandoned and not answered with nonsense -- it is put back,
+        intact, and the founder can still finish it.
         """
         surface = Surface()
         surface.say("Create a folder")
-        surface.say("What's the weather today?")
-        surface.say("Desktop")
+        reply = surface.say("What's the weather today?")
 
+        assert "What should the folder be called?" in reply
+        assert surface.pending is not None, "the open request was abandoned"
+        assert surface.admissions == [], "a question was admitted as a mission"
+
+        # And the original request is still finishable afterwards.
+        surface.say("Research")
+        surface.say("Desktop")
         assert len(surface.admissions) == 1
-        assert surface.admissions[0].context["folder_name"] == "What's the weather today?"
-        assert surface.pending is None
+        assert surface.admissions[0].context["folder_name"] == "Research"
 
     def test_the_founder_is_never_trapped(self):
         """The failure this replaces was a loop with no exit: the rejoin

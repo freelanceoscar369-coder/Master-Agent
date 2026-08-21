@@ -6,7 +6,7 @@ truth.** Canonical truth lives in `docs/architecture/KALPAVRIKSHA_VISION_V2.md`,
 under `docs/adr/`. Nothing here overrides those. When this file and canonical
 sources disagree, canonical sources win and this file is stale.
 
-Last updated: 2026-08-21 14:20 local.
+Last updated: 2026-08-21 17:05 local.
 
 ---
 
@@ -15,9 +15,9 @@ Last updated: 2026-08-21 14:20 local.
 | Field | Value |
 |---|---|
 | CURRENT_BASELINE_SHA | `1743a53b585036cc872a409c2820bedf8cc4f316` |
-| LATEST_VERIFIED_SHA | `1743a53b585036cc872a409c2820bedf8cc4f316` |
-| REMOTE_SHA (origin/main) | `1743a53b585036cc872a409c2820bedf8cc4f316` |
-| LOCAL_REMOTE_SYNC | IN SYNC — 0 ahead, 0 behind |
+| LATEST_VERIFIED_SHA | see COMPLETED_SLICES — latest is Slice 1 |
+| REMOTE_SHA (origin/main) | verified equal at each checkpoint |
+| LOCAL_REMOTE_SYNC | IN SYNC after every checkpoint below |
 | Branch | `main` |
 
 Baseline matches the SHA named in the convergence brief. No divergence to reconcile.
@@ -26,15 +26,20 @@ Baseline matches the SHA named in the convergence brief. No divergence to reconc
 
 ## MISSION_STATUS
 
-Phase: **canonical read → conformance matrix**. No convergence implementation has
-begun. No commits made this session yet.
+Phase: **convergence implementation, in dependency order.** Canonical read done,
+matrix built and source-reconciled twice, Slice 1 landed.
 
 ---
 
 ## CONFORMANCE_MATRIX_STATUS
 
-**NOT YET BUILT.** This is the first deliverable and blocks implementation.
-Target location: `docs/audits/FOUNDER_EDITION_CONFORMANCE_MATRIX.md`.
+**BUILT and reconciled against source twice** —
+`docs/audits/FOUNDER_EDITION_CONFORMANCE_MATRIX.md` (commit `01dda78`).
+
+25 responsibilities classified. Not COMPLIANT_AND_WIRED: 1 SPECIFIED_BUT_MISSING
+(utterance roles — now closed by Slice 1), 1 IMPLEMENTATION_DRIFT (Intent has no
+reasoning door), 1 BUILT_BUT_UNWIRED (provider retry, uncommitted), 3
+DELIBERATELY_FUTURE. **No FOUNDER_DECISION_REQUIRED rows.**
 
 ---
 
@@ -135,17 +140,57 @@ for cleanliness. They do not block source analysis.
 
 ## COMPLETED_SLICES
 
-None yet this session.
+### Slice 0 — ledger + matrix (`c56b9d1`, `01dda78`)
+
+Git truth, inherited-work classification, conformance matrix. No source touched.
+
+### Slice 1 — utterance roles: a pending question is context, not ownership
+
+- **Canonical requirement:** convergence brief §11 CRITICAL INVARIANT and the six
+  §12 regressions; Constitution §3.1 (Intent Layer owns clarification).
+- **Source changed:**
+  - `src/master_agent/brain/utterance.py` — **new.** `UtteranceRole` (6 members),
+    `role_of()`, plus `clauses()`/`opens_an_instruction()`.
+  - `kalpavriksha_desktop.py` — `_submit_objective()` now asks the Brain for the
+    utterance's role *before* acting, and handles `CANCEL_OR_STOP`, `FOLLOW_UP`
+    and `MODIFY_OR_REDIRECT` instead of routing everything into `clarify()`.
+  - `tests/test_clarification_round_trip.py` — one test inverted (see below).
+- **Tests:** `tests/test_utterance_role.py` (44, new),
+  `tests/test_founder_intent_regressions.py` (14, new).
+- **Regression proof:** the failure set for
+  `-k "intent or clarif or brain or conversation or founder_chief or capability_self"`
+  is **byte-identical** to the same selection at clean HEAD (20 failures both
+  sides, `comm` diff empty in both directions), with **+22 newly passing**. Zero
+  regressions introduced.
+- **Live proof status:** unit + composition-root proven. **Not yet live-proven in
+  the running desktop app** (Live Acceptance A).
+
+**One inherited test was deliberately inverted.**
+`test_an_unrelated_escalated_message_IS_taken_as_the_answer` asserted the old
+defect as intended behaviour and its own docstring nominated itself as the place
+the decision would be revisited if it ever became wrong for the founder. §11
+revisited it. It is now
+`test_an_unrelated_escalated_question_is_NOT_taken_as_the_answer`.
+
+**One thing tried and correctly abandoned:** sharing `opens_an_instruction`
+between `brain/utterance.py` and `conversation_engine/intent.py`.
+`tests/test_conversation_engine.py::TestBoundaries` walks that package's imports
+by AST and allows only four `master_agent` roots — the Conversation Engine may not
+import the Brain. The edit was reverted, the duplication kept, and it is named in
+`brain/utterance.py`'s docstring rather than hidden.
 
 ---
 
 ## CURRENT_SLICE
 
-**Objective:** Read canonical sources in authority order, then build the
-source-reconciled Founder Edition conformance matrix.
+**Objective:** Slice 2 — give the Intent Layer a reasoning door through the Model
+Router (matrix Row 4, IMPLEMENTATION_DRIFT).
 
-**Canonical source:** `docs/architecture/KALPAVRIKSHA_VISION_V2.md`,
-`docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`, `docs/adr/*.md`.
+**Canonical source:** Vision §3.3 (Model Router is the Brain's single reasoning
+door) and ADR-0024 Decision 7, which is normative on exactly this point: *every*
+reasoning call the Brain makes goes through the Model Router, whatever it is
+reasoning about — not only the Planner's. ADR-0024 is **PROPOSED**, so it is design
+evidence; the binding requirement is Vision §3.3, which says the same thing.
 
 **ADR ratification status recorded (matters — Proposed ADRs are design evidence
 only, never binding):**
@@ -157,17 +202,20 @@ only, never binding):**
   design evidence, not as a binding contract.
 - **0025 founder-interaction-audit-trail — PROPOSED** (2026-08-15).
 
-**State:** Git truth established, inherited work classified, ledger created.
-Canonical read not yet started.
+**State:** not started. Slice 1 established the seam it will use — `role_of()` is
+the first place a Brain-side reasoning call becomes worth making, because it is
+where a wrong answer currently costs the founder most.
 
 ---
 
 ## NEXT_EXACT_ACTION
 
-Read `docs/architecture/KALPAVRIKSHA_VISION_V2.md` and
-`docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md` in full, then the accepted
-ADRs, then reconcile against current source to produce
-`docs/audits/FOUNDER_EDITION_CONFORMANCE_MATRIX.md`.
+Give `IntentLayer` a Model-Router-backed path for the residual case where
+`role_of()`'s structural signals cannot decide, keeping deterministic parsing in
+front of it so the ordinary path neither slows down nor starts costing tokens.
+`brain/advisory.py` already shows the in-repo shape of a Brain component making a
+routed call (`RoutingContext`, `SelectionRequest`, `BudgetedSelectionRequest`,
+workload `INTERACTIVE`) — reuse that seam, do not invent a second one.
 
 ---
 
@@ -205,7 +253,7 @@ None recorded yet.
 
 | Proof | Status |
 |---|---|
-| A. Intent / conversation regressions (§12) | NOT RUN |
+| A. Intent / conversation regressions (§12) | **BUILT + INTEGRATED** — all six exchanges pass through the real composition root (`tests/test_founder_intent_regressions.py`). **NOT yet LIVE_PROVEN in the running app.** |
 | B. Medium golden mission | NOT RUN |
 | C. Founder checkpoint | NOT RUN |
 | D. Permission | NOT RUN |
