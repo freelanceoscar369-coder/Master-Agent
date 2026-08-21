@@ -37,9 +37,10 @@ the Desktop containing the observed title and final URL.
 **two need the founder's decision** (FD1: what status follows Stop — already
 ADR-0021's own open item; FD2: delete the untracked rogue provider client).
 
-**Full suite: 119 → 99 failures.** 43 of what remains is one unbuilt feature in a
-component Founder Edition explicitly excludes — see THE FAILING SUITE, CLASSIFIED
-before treating that number as debt.
+**Full suite: 119 → 98 failures, 7691 → 7712 passing.** And 63 of the 98 that
+remain are classified as out-of-scope, superseded, or intentional — see THE FAILING
+SUITE, CLASSIFIED before treating the raw number as debt. The four inherited test
+files went from **50 failures to 0**.
 
 ---
 
@@ -431,10 +432,41 @@ A bare failure count is not information. The pre-existing red was triaged by cau
 because "119 failures" and "43 of them are one unbuilt feature in a component
 Founder Edition does not ship" are very different facts.
 
-| Cause | Files | Count | In Founder Edition scope? |
+**Final measurement: 98 failed, 7712 passed, 2 skipped** (complete list captured, not
+a truncated tail — see the method note). Session start was **119 failed, 7691
+passed**.
+
+| Cause | Files | Count | Verdict |
 |---|---|---|---|
-| `FounderConsole` has no `memory=` parameter and no `replay`/`remember` commands | `test_missions_console.py`, `test_memory_integration.py` | **43** | **NO** |
-| Everything else | assorted | remainder | mixed — untriaged |
+| `FounderConsole` has no `memory=` parameter and no `replay`/`remember` commands | `test_missions_console.py`, `test_memory_integration.py` | **43** | Unbuilt feature in an **excluded** component |
+| `_submit_objective()` no longer takes `reasoning_runner` | `test_brain_non_execution_routing.py` | **15** | Tests for a **deliberately removed** path |
+| `cli.py` still constructs `MissionPlan`/`Step` | `test_missions_architecture.py` | **5** | Real: MB037's cleanup never landed. Out of Founder Edition scope |
+| Broker selects cloud over an installed local provider | `test_verified_execution.py` | **4** | **Lead — see above** |
+| Ollama provider | `test_ollama_provider.py` | **4** | Policy-banned component |
+| Untracked `ai_client.py` keeps `os` in the package | `test_founder_edition_boot.py` | **1** | **Blocker B0a — one decision away** |
+| Characterization tests, docstrings say *expected to FAIL today* | `test_fire_and_forget_contract.py` | **3** | Intentional |
+| Everything else | assorted | 23 | Untriaged |
+
+**63 of 98 (64%) are explained above as out-of-scope, superseded, or intentional.**
+That is the number worth carrying forward, not the raw 98.
+
+### The 15 — tests for a path that was deliberately removed
+
+Every one fails with `_submit_objective() got an unexpected keyword argument
+'reasoning_runner'`. That parameter existed to pass a runner to
+`brain/advisory.py::advise()`, and the composition root records why it went, in
+detail:
+
+> *"This used to ask `brain/advisory.py::advise()` what to say and then record the
+> turn as COMPLETED. Both halves were wrong, and the live CV mission showed exactly
+> how wrong: the founder was told 'I am taking full responsibility for evaluating
+> all your resume files… Shall I start cataloging those files now?' over a mission
+> that had no plan, no tasks, and nothing waiting on an answer."*
+
+So this is a deliberate quality fix, and 15 tests still assert the behaviour it
+removed. **Not touched here:** deleting or rewriting 15 tests is a decision about
+whether the advisory path should return in some form, which belongs to whoever
+owns that call — not to a convergence pass.
 
 ### A lead worth someone's attention — `test_verified_execution.py` (4)
 
