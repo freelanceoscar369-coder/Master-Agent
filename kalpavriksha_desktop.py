@@ -643,8 +643,19 @@ def _build_mission_pipeline():
     # only one of the things the Brain reasons about. Returning the same
     # instance is what keeps `brain/advisory.py` from needing a provider
     # path of its own -- one ladder, one Broker, one decision trail.
-    def _set_mode(mode: str) -> None:
-        mode_cell["mode"] = _normalise_mode(mode)
+    def _set_mode(mode: str) -> str:
+        """Normalise and store, and RETURN what was resolved.
+
+        The surface used to import `planner.modes` and normalise its own
+        copy -- putting the founder-facing package inside the Planner's
+        namespace to read two constants, which
+        `TestOnlyComposition::test_no_mission_os_surface_is_reachable`
+        forbids. The vocabulary lives here, so the answer travels back
+        the same way every other fact does.
+        """
+        resolved = _normalise_mode(mode)
+        mode_cell["mode"] = resolved
+        return resolved
 
     def decide_approval(approval_id, approved, note=""):
         """Carry the founder's decision to Mission Control -- and, on
@@ -1393,6 +1404,22 @@ def _describe_result(result, objective: str = "") -> str:
     return text
 
 
+def _default_mode() -> str:
+    """LOCAL / AI MODE / BOTH's default, read from the one module that
+    owns the vocabulary.
+
+    A function rather than a module-level constant because every import
+    in this composition root is deliberately lazy, and a bare
+    `DEFAULT_MODE` in `main()` would be read as a global that
+    `_build_mission_pipeline`'s own local import never provides -- the
+    exact NameError shape `tests/test_founder_approval_path.py` exists to
+    catch, which is how this was caught.
+    """
+    from master_agent.planner.modes import DEFAULT_MODE
+
+    return DEFAULT_MODE
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, format='[%(levelname)s] %(name)s: %(message)s')
     parser = argparse.ArgumentParser(prog='kalpavriksha', description='Kalpavriksha Founder Edition')
@@ -1450,6 +1477,7 @@ def main(argv: list[str] | None = None) -> int:
         capability_domains=capability_domains,
         decide_approval=decide_approval,
         set_mode=set_mode,
+        default_mode=_default_mode(),
         # The composition root owns the environment; `founder_edition` is
         # guarded against reading it. An automated validation run sets
         # KALPAVRIKSHA_DISABLE_MIC so the harness cannot listen to the

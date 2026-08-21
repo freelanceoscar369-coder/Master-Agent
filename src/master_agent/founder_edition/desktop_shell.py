@@ -89,7 +89,6 @@ from master_agent.communication import (
 )
 from master_agent.founder_edition.boot import FounderEditionApp, boot_founder_edition
 from master_agent.founder_edition.voice_pipeline import VoicePipeline
-from master_agent.planner.modes import DEFAULT_MODE, normalise as normalise_mode
 from master_agent.founder_identity import FounderContext, greet
 
 # Custom BottleServer that fixes the pywebview 6.x asset() signature issue
@@ -295,6 +294,7 @@ class DesktopShellApi:
         self, app: FounderEditionApp, voice: VoicePipeline | None = None,
         open_settings: Callable[[], None] | None = None,
         submit_objective: Callable[[str], dict[str, Any]] | None = None,
+        default_mode: str = "",
         get_execution_status: Callable[[], dict[str, Any]] | None = None,
         confirm_completion: Callable[[str], dict[str, Any]] | None = None,
         decide_approval: Callable[..., dict[str, Any]] | None = None,
@@ -329,9 +329,16 @@ class DesktopShellApi:
         #: architecture-guarded against reaching into the runtime, and an
         #: audit trail must never be able to break the product it observes.
         self._record_interaction = record_interaction
-        #: LOCAL / AI MODE / BOTH. BOTH by default, matching both the
-        #: historical shell and the button the page marks active at boot.
-        self._mode: str = DEFAULT_MODE
+        #: LOCAL / AI MODE / BOTH. Injected, not imported, for the same
+        #: reason `record_interaction` above is: this package is
+        #: architecture-guarded against reaching into the Mission OS
+        #: (`tests/test_founder_edition_assembly.py::TestOnlyComposition`),
+        #: and `master_agent.planner.modes` is on the far side of that
+        #: line. The composition root owns the vocabulary and already
+        #: normalises with it; importing a second copy here put the
+        #: surface package inside the Planner's namespace to read two
+        #: constants.
+        self._mode: str = default_mode or "both"
         self._confirm_completion = confirm_completion
 
     def get_founder_seed(self) -> int:
@@ -506,11 +513,16 @@ class DesktopShellApi:
         The mode is *stored* here and *read* by the Planner, which is the
         component that can act on it. This method decides nothing.
         """
-        resolved = normalise_mode(mode)
-        self._mode = resolved
+        # The root normalises -- it holds the vocabulary -- and returns
+        # what it resolved. This surface stores the answer rather than
+        # deriving it, so there is one normalisation in the process.
+        resolved = mode
         if self._set_mode is not None:
             with contextlib.suppress(Exception):
-                self._set_mode(resolved)
+                returned = self._set_mode(mode)
+                if isinstance(returned, str) and returned:
+                    resolved = returned
+        self._mode = resolved
         return {"mode": resolved}
 
     def get_mode(self) -> dict[str, Any]:
@@ -649,6 +661,7 @@ def create_window(
     output_device_resolver: Callable[[], str | None] | None = None,
     microphone_enabled: bool = True,
     submit_objective: Callable[[str], dict[str, Any]] | None = None,
+    default_mode: str = "",
     get_execution_status: Callable[[], dict[str, Any]] | None = None,
     confirm_completion: Callable[[str], dict[str, Any]] | None = None,
     capability_domains: Callable[[], Any] | None = None,
@@ -711,6 +724,7 @@ def create_window(
     api = DesktopShellApi(
         app, voice=voice, open_settings=open_settings,
         submit_objective=submit_objective,
+        default_mode=default_mode,
         get_execution_status=get_execution_status,
         confirm_completion=confirm_completion,
         decide_approval=decide_approval,

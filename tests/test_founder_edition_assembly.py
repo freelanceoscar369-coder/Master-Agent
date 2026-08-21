@@ -190,10 +190,19 @@ class TestStartup:
 
 class TestConversation:
     def test_the_briefs_own_example_end_to_end(self):
-        """Founder: *"Good morning Somesh"* → Somesh replies naturally."""
+        """Founder: *"Good morning Somesh"* → Somesh replies naturally.
+
+        The expected sentence is the founder's own, quoted verbatim in the
+        canonical convergence brief §12: *"Good morning, Onkar. Somesh
+        here. Everything is ready."* This asserted an earlier wording --
+        *"Good morning. I'm awake."* -- from before the Founder Identity
+        layer gave Somesh a name and the founder one. Naming both is the
+        whole point of C29, so the newer sentence is the correct one and
+        this assertion was simply behind it.
+        """
         app = booted()
         result = app.say("Good morning Somesh")
-        assert result["reply"] == "Good morning. I'm awake. Everything is ready."
+        assert result["reply"] == "Good morning, Onkar. Somesh here. Everything is ready."
 
     def test_somesh_never_says_it_is_an_ai(self):
         app = booted()
@@ -542,6 +551,10 @@ class TestEveryC30LayerReportsItsOwnFailure:
 
         monkeypatch.setattr(boot_module, "ConversationMemory", FlakyMemory)
         report = booted().report
+
+        # The property that matters, and the one the docstring above
+        # states: nothing is silently OMITTED. Every layer is named
+        # whether or not the boot got to it.
         for name in (
             "founder_identity",
             "desktop_executive",
@@ -549,7 +562,23 @@ class TestEveryC30LayerReportsItsOwnFailure:
             "desktop_operator",
             "dashboard",
         ):
-            assert report.step(name).status == UNAVAILABLE, name
+            assert report.step(name) is not None, f"{name} vanished from the report"
+
+        # The three desktop layers now run BEFORE `conversation`, so a
+        # boot that dies at conversation has genuinely already wired them
+        # and reporting them as unavailable would be a lie. `boot.py`'s
+        # own docstring carries both the old claim ("C30's five are
+        # inserted after connect_founder_runtime") and the correction
+        # underneath it ("C30 inserts desktop layer before
+        # connect_founder_runtime, because the FounderRuntime now requires
+        # the desktop layer"). This assertion was written against the
+        # first and is now read against the second.
+        for reached in ("desktop_executive", "desktop_perception", "desktop_operator"):
+            assert report.step(reached).ok, f"{reached} runs before the failure"
+
+        # What the abort never reached still says so.
+        for unreached in ("founder_identity", "dashboard"):
+            assert report.step(unreached).status == UNAVAILABLE, unreached
         assert report.steps[-1].name == "ready"
 
 

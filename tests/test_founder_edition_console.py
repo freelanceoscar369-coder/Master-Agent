@@ -78,11 +78,26 @@ class TestBootWiresConversationAndCommunication:
         assert app.report.step("communication") is not None
         assert app.report.step("communication").ok
 
-    def test_the_two_new_steps_are_between_identity_and_desktop(self):
+    def test_the_two_new_steps_follow_identity_in_dependency_order(self):
+        """C33's two steps sit immediately after `founder_identity`,
+        because `conversation_engine` needs the runtime, the identity and
+        the session that step produced, and `communication` needs that
+        engine.
+
+        This used to end with `communication < desktop_executive`, from
+        when the desktop layer was wired late. It is wired early now, and
+        deliberately: `boot.py`'s docstring says *"C30 inserts desktop
+        layer before connect_founder_runtime, because the FounderRuntime
+        now requires the desktop layer to be wired for application
+        execution."* So the two steps are no longer *between* identity and
+        desktop, and the surviving invariant is the dependency chain
+        itself, which is what the name now says.
+        """
         names = [s.name for s in booted().report.steps]
         assert names.index("founder_identity") < names.index("conversation_engine")
         assert names.index("conversation_engine") < names.index("communication")
-        assert names.index("communication") < names.index("desktop_executive")
+        # And the desktop layer really is early, by design.
+        assert names.index("desktop_executive") < names.index("founder_identity")
 
     def test_step_names_constant_matches_the_real_report(self):
         assert tuple(s.name for s in booted().report.steps) == STEP_NAMES
