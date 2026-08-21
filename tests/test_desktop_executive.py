@@ -14,6 +14,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from master_agent.desktop import actions_interaction as interaction
+
 import pytest
 
 from master_agent.desktop import catalog
@@ -69,6 +71,7 @@ class FakeProbe:
         start_apps: list[dict] | None = None,
         store_apps: list[dict] | None = None,
         uninstall_apps: list[dict] | None = None,
+        appears_when_started: bool = True,
     ) -> None:
         self.platform = platform
         self._on_path = on_path or {}
@@ -81,6 +84,7 @@ class FakeProbe:
         self._uninstall_apps = uninstall_apps or []
         self.started: list[list[str]] = []
         self.ran: list[list[str]] = []
+        self._appears_when_started = appears_when_started
 
     def which(self, executable: str) -> str | None:
         return self._on_path.get(executable)
@@ -101,6 +105,17 @@ class FakeProbe:
         self.started.append(command)
         if command[0] in self._fail:
             return CommandResult(ok=False, error=f"cannot start {command[0]}")
+        # A started process becomes observable, because launching now
+        # VERIFIES rather than assuming: the Desktop Interaction brief's
+        # shape is act, observe again, compare. A fake whose `start()`
+        # changed nothing made the real implementation poll for a process
+        # that would never appear, and the test spent its full 30-second
+        # wait before failing.
+        if self._appears_when_started:
+            name = Path(command[0]).name or command[0]
+            self._running.append(
+                ProcessInfo(pid=4242, name=name, owner=name.split(".")[0])
+            )
         return CommandResult(ok=True)
 
     def processes(self) -> list[ProcessInfo]:
@@ -465,10 +480,16 @@ def test_observations_never_give_advice(advice_word):
 # ---- the Executive contract ----------------------------------------------
 
 
-def test_the_executive_registers_twelve_capabilities():
+def test_the_executive_registers_nineteen_capabilities():
+    """Twelve was right under Mission Brief 030, whose Deliverable 7 held
+    click/type/keyboard deliberately absent and said "a later Desktop
+    Interaction brief owns this". That brief was delivered:
+    `desktop/actions_interaction.py` registers the already-built
+    `execution/` machinery as real Actions, and its own docstring records
+    exactly that. Seven interaction capabilities is the difference."""
     plugin, _ = plugin_for(machine())
 
-    assert len(plugin.manifest.capabilities) == 12
+    assert len(plugin.manifest.capabilities) == 19
 
 
 def test_the_executive_is_named_desktop():
@@ -677,14 +698,44 @@ def test_is_running_is_false_when_nothing_matches():
 # ---- launching -----------------------------------------------------------
 
 
-def test_launching_starts_the_resolved_path():
+def test_launching_starts_the_resolved_path(monkeypatch):
+    """The original assertion -- that it starts the RESOLVED path rather
+    than the bare name -- still holds and is still the point.
+
+    What changed is what happens next. Launching now verifies: the Desktop
+    Interaction brief made it wait for the process AND a visible top-level
+    window before believing itself. A `FakeProbe` can report a process; it
+    cannot own a window, so the honest outcome here is a truthful failure
+    naming exactly what was missing, not a success. `success is True` is
+    proven against a real desktop, not a fake -- which is what
+    `test_the_real_probe_*` and the live acceptance runners are for.
+
+    The wait is shortened from 30 real seconds to 0.1 so the suite does
+    not spend half a minute confirming a fake has no windows."""
+    monkeypatch.setattr(interaction, "_LAUNCH_WAIT_TIMEOUT_SECONDS", 0.1)
     probe = machine()
     plugin, _ = plugin_for(probe)
 
     result = invoke(plugin, "launch_application", {"application": "git"})
 
-    assert result.success is True
-    assert probe.started == [["/usr/bin/git"]]
+    assert probe.started == [["/usr/bin/git"]], "the resolved path, not the name"
+    assert result.success is False
+    assert "no visible top-level window" in (result.error or "")
+
+
+def test_launching_is_not_believed_until_the_process_is_observed(monkeypatch):
+    """The Desktop Interaction brief's whole shape: act, observe again,
+    compare. "The function returned" is never "the application started",
+    so a launch whose process never appears must fail rather than report
+    success -- proven with a probe that starts things silently."""
+    probe = machine(appears_when_started=False)
+    plugin, _ = plugin_for(probe)
+
+    result = invoke(plugin, "launch_application", {"application": "git"})
+
+    assert probe.started == [["/usr/bin/git"]], "it did try to start it"
+    assert result.success is False
+    assert "did not report running" in (result.error or "")
 
 
 def test_launching_something_absent_fails_cleanly():
@@ -747,18 +798,22 @@ def test_open_folder_shares_the_open_file_behaviour():
     assert invoke(plugin, "open_folder", {"path": "/tmp/dir"}).success is True
 
 
-# ---- focus, which is deliberately not built ------------------------------
+# ---- focus, which is built now -------------------------------------------
 
 
-def test_bringing_to_front_reports_that_it_is_not_built():
-    """Deliverable 7 excludes window automation. Saying so beats silently
-    doing nothing."""
+def test_bringing_to_front_reports_what_it_actually_observed():
+    """This used to assert `"Deliverable 7" in result.error` -- Mission
+    Brief 030's stub, which said window automation was deliberately absent.
+    The Desktop Interaction brief built it, so the honest failure is no
+    longer "not built" but what was actually observed: this process has no
+    visible window to raise. A real answer, not a placeholder."""
     plugin, _ = plugin_for(machine(running=[ProcessInfo(pid=3, name="chrome.exe")]))
 
     result = invoke(plugin, "bring_to_front", {"application": "chrome"})
 
     assert result.success is False
-    assert "Deliverable 7" in result.error
+    assert "Deliverable 7" not in (result.error or ""), "still the old stub"
+    assert "no visible window" in (result.error or "")
 
 
 def test_focusing_something_not_running_says_so_first():
@@ -896,10 +951,13 @@ def test_its_capabilities_reach_mission_control_qualified():
     assert "Desktop.ListInstalledSoftware" in mc.capabilities.names()
 
 
-def test_all_twelve_capabilities_are_registered():
+def test_all_nineteen_capabilities_are_registered():
+    """Whatever the Executive's manifest declares reaches Mission Control
+    -- the count is asserted in both places so a capability cannot exist
+    on one side and not the other."""
     mc, _, _, _ = registered_world()
 
-    assert len(mc.capabilities.for_executive(DESKTOP_EXECUTIVE_ID)) == 12
+    assert len(mc.capabilities.for_executive(DESKTOP_EXECUTIVE_ID)) == 19
 
 
 def test_discovery_needs_no_special_casing():
@@ -1220,13 +1278,28 @@ def test_the_desktop_package_imports_no_ai_machinery():
             assert "providers" not in module
 
 
-def test_no_automation_capability_exists():
-    """Deliverable 7: no click, type, mouse, OCR, vision, or keyboard."""
+def test_window_interaction_exists_and_perception_still_does_not():
+    """Mission Brief 030's Deliverable 7 held click/type/keyboard
+    deliberately absent and named its own successor: "a later Desktop
+    Interaction brief owns this". That brief landed, so the ban is
+    superseded for INTERACTION -- and only for interaction.
+
+    The half of Deliverable 7 that still stands is perception: no OCR, no
+    vision, no screenshotting. Kalpavriksha acts on windows it can address,
+    it does not look at the screen. Asserting both halves in one test is
+    the point -- the previous form banned all seven words together, so
+    when interaction arrived the test could only be deleted or inverted
+    wholesale, taking the perception ban with it."""
     plugin, _ = plugin_for(machine())
     names = " ".join(c.name for c in plugin.manifest.capabilities)
 
-    for banned in ("click", "type_", "mouse", "ocr", "vision", "keyboard", "screenshot"):
-        assert banned not in names
+    # Delivered by the Desktop Interaction brief.
+    for expected in ("desktop_click", "desktop_type_text", "desktop_press_key"):
+        assert expected in names, f"{expected} is registered in actions_interaction.py"
+
+    # Still deliberately absent.
+    for banned in ("ocr", "vision", "screenshot"):
+        assert banned not in names, f"{banned} is still outside this Executive"
 
 
 # ---- the null and real probes --------------------------------------------
