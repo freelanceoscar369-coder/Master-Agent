@@ -915,6 +915,12 @@ What remains uncommitted is untracked and was untracked before this session bega
   touched. `git worktree list` shows them.
 - **No background processes are left running.** Every test run, acceptance runner
   and suite completed before this was written.
+- **Desktop artifacts.** `Desktop\KV_Golden_153713\page_info.txt` is left on
+  purpose — it is Live Acceptance B's evidence, holding the title and final URL a
+  real browser observed. Delete it once seen. This session's own throwaway
+  (`KV_PermD_154144`, from the first D run that failed on an absolute path) has
+  been removed. `KV_VISIBLE_MEDIUM_093017` is dated **20 August** and is not this
+  session's — left untouched.
 - Tests require `PYTHONPATH=src`. There is no pytest config in `pyproject.toml`,
   so a bare `pytest` run will not resolve imports.
 - Python 3.14.5.
