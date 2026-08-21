@@ -75,6 +75,12 @@ looking for "where Founder Edition is assembled" should start there.
 | 23 | Multi-Operator concurrency | — | Vision §8.5 | not built | **DELIBERATELY_FUTURE** |
 | 24 | Knowledge promotion review | Brain + gate | Vision §9.3–9.5 | `mission_control/knowledge_queue.py` partial | **DELIBERATELY_FUTURE** for this mission |
 | 25 | Stateful Environment Sessions | Operator | Vision §8.3, Freeze §3 item 2 | one-shot Action contract | **DELIBERATELY_FUTURE** |
+| 26 | Founder approval reaches the grant ledger | Shared Infra | Vision §5.2, §15.1 | `decide_approval` in `kalpavriksha_desktop.py` | **WAS BROKEN — now COMPLIANT_AND_WIRED** (Slice 5) |
+| 27 | Approval resumes the work it authorised | Operator | Vision §15.1 | `_drive_until_settled` + `decide_approval` | **WAS BROKEN — now COMPLIANT_AND_WIRED** (Slice 6) |
+| 28 | Founder Surface does not reach the Mission OS | Brain-adjacent | `TestOnlyComposition` guard | `desktop_shell.py` imported `planner.modes` | **WAS DRIFT — now COMPLIANT_AND_WIRED** |
+| 29 | Founder Surface holds no environment door | Brain-adjacent | `TestNothingExecutesOrCallsAI` guard | `desktop_shell.py` embeds `FixedBottleServer` (`os`, `socket`) | **IMPLEMENTATION_DRIFT — open** |
+| 30 | No second provider path | Shared Infra | Vision §5.7; ADR-0024 D7 | **untracked** `founder_edition/ai_client.py` — direct OpenRouter over `urllib` | **IMPLEMENTATION_DRIFT — open, founder's call** |
+| 31 | Declared boot order matches actual boot | Brain-adjacent | `boot.py` own contract | `STEP_NAMES` contradicted the sequence | **WAS DRIFT — now COMPLIANT_AND_WIRED** |
 
 ---
 
@@ -209,5 +215,47 @@ Recorded so a future session does not rebuild working components:
 
 ## Founder decisions required
 
-**None.** No canonical conflict was found. Every convergence action above is
-implementable inside frozen architecture without amending the Constitution.
+Two, both recorded rather than guessed. Neither blocks the canonical loop.
+
+1. **FD1 — what status follows a founder's Stop?** Observed live: a declined
+   checkpoint correctly performs no mutation and leaves `status.status ==
+   awaiting_approval`, so the surface reads as waiting on someone who has already
+   answered. There is no truthful state to move it to — `FAILED` is untrue,
+   `COMPLETED` is untrue, `SUPERSEDED` implies a replacement. **This is precisely
+   ADR-0021 Open Item O1**, which already records that the ratified vocabulary has
+   no `CANCELLED` and that the choice is the founder's. Inventing a seventh state
+   here would pre-empt it.
+2. **FD2 — delete the untracked `founder_edition/ai_client.py`?** Row 30. It is a
+   direct, unbrokered, paid provider path with zero callers. Recommended for
+   deletion; untracked means git holds no copy, so it is not removed unilaterally.
+
+**No canonical *conflict* was found.** Both are open questions the architecture
+already anticipated, not contradictions between canonical sources. Everything else
+in this matrix is implementable inside frozen architecture without amending the
+Constitution.
+
+---
+
+## What this session changed
+
+Recorded so a later reader can tell findings from repairs.
+
+**Real founder-facing defects found and fixed** (none were caught by the existing
+suite, all three found by attempting live acceptance):
+
+1. **The founder could not approve anything.** `decide_approval` read `permissions`
+   and `GrantScope` as globals that do not exist — `NameError` on the first
+   Approve. Rows 26.
+2. **Approval never resumed the work.** Nothing drove the Runtime after the founder
+   decided, so an authorised task waited forever. Row 27.
+3. **A pending clarification owned the founder's next utterance.** "nothing thanks"
+   became a filename. Row 3.
+
+**Drift closed:** Rows 28 (surface reaching into the Planner) and 31 (declared boot
+order contradicting the sequence).
+
+**Drift found and left open, with the fix written down:** Rows 29 and 30.
+
+**Stale claims corrected in this matrix itself:** Row 21 (recording ≠ recovery) —
+see Row 21b. Getting that wrong is the same class of error this matrix exists to
+catch and does not get a pass for being ours.
