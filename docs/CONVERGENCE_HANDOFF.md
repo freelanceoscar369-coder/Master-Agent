@@ -491,6 +491,54 @@ removed. **Not touched here:** deleting or rewriting 15 tests is a decision abou
 whether the advisory path should return in some form, which belongs to whoever
 owns that call — not to a convergence pass.
 
+### A third and fourth, from the last 18 — both Constitution-level, both pre-existing
+
+Neither file involved was touched this session (`git diff 1743a53..HEAD` confirms).
+
+#### `chrome` in Browser source vs MB022's categorical product-name ban
+
+`test_browser_constitution_compliance.py` fails on two files. Its own docstring
+cites *"Mission Brief 022's explicit 'if a product name appears anywhere… treat it
+as an architectural violation' rule"*, and the matches are real:
+`environment/browser_session.py` and `executor/actions/browser/open_session.py`.
+
+**But look at what the matches are.** Both are Playwright's own `channel`
+parameter — its first-class API value meaning *"drive a browser already installed
+on this machine rather than the bundled build"* — plus the founder-facing
+description of that argument. The source already confines it deliberately:
+*"It stays confined to this one function for exactly the reason above."*
+
+**And a later Founder requirement makes it necessary.** *"Open Chrome"* must drive
+the founder's installed, **visible** Chrome rather than a bundled headless
+renderer — recorded in tracked source at
+`Engineering/REPORT_FIRST_VISIBLE_MEDIUM_SUCCESS.md` and
+`docs/audits/DESKTOP_EXECUTIVE_FOUNDATION_1.md`. Playwright's `channel="chrome"`
+is the mechanism that satisfies it. Remove the string and the requirement breaks.
+
+**Convergence brief §2 resolves this on its face:** explicit later Founder
+decisions rank *above* Mission Briefs. So the later visible-Chrome requirement
+supersedes MB022's categorical ban for this one parameter value, and the guard's
+regex — which cannot tell a branded product in core prose from an API argument in a
+Worker — is what has drifted.
+
+**Not changed here, deliberately.** Editing a Constitution-compliance guard is
+exactly the kind of change that should be made in daylight with the reasoning
+visible, not at the end of a session. The argument is written out above so the
+decision takes a minute rather than a re-investigation. **Recommended:** exempt
+Playwright's `channel` value specifically — not the whole file, and not the whole
+name list.
+
+#### `datetime.now()` read outside the clock module
+
+`test_foundation_clock.py::test_only_the_clock_module_reads_the_machines_wall_clock`
+names several `ai_infrastructure/` modules reading ambient wall-clock time directly
+(`cache.py:71`, `execution.py:178`, `executive/actions.py:162`, and more).
+
+That guard exists so time is injectable and therefore testable — the same seam
+`clock`, `sleep` and `transport` already are elsewhere in this codebase, and the
+same discipline that let the provider-retry tests run without waiting. Pre-existing
+drift; genuine; not in the canonical loop; recorded for triage.
+
 ### A second lead, and this one touches Rule 2 — frozen components edited without an ADR
 
 `test_dashboard_architecture.py::test_no_frozen_component_was_modified_without_a_ratified_adr`
