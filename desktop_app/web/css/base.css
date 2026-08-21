@@ -49,8 +49,29 @@ body {
 
 /* 10.9 — cursor rules */
 input, textarea, [contenteditable],
+/* Hyperagent's SELECTION_CONTRACT, applied in full. `user-select: text`
+   was already here and selection still failed in the packaged app, which
+   is why the other three are not decoration:
+
+   `-webkit-app-region: no-drag` — a drag region swallows mousedown, so a
+   selection never begins. Nothing in this stylesheet sets `drag`, but the
+   shell can, and `no-drag` on the text is the only place that wins.
+   `pointer-events: auto` — the conversation sits under two full-viewport
+   overlays; if either ever loses its `none`, this keeps the text reachable.
+   `cursor: text` — not cosmetic: `default` over selectable prose tells the
+   founder it cannot be selected, which is how a working selection still
+   reads as broken. */
 .conversation, .conversation *, .founder-message, .founder-message *,
-.somesh-message, .somesh-message * { cursor: default; user-select: text; }
+.somesh-message, .somesh-message * {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+/* Controls inside a message keep their own affordance. */
+.conversation button, .conversation [role="button"], .conversation a,
+.somesh-message button, .somesh-message a { cursor: pointer; }
 .conversation a, .conversation a * { cursor: pointer; }
 button, [role="button"], .clickable { cursor: pointer; }
 button:disabled, [aria-disabled="true"] { cursor: not-allowed; }

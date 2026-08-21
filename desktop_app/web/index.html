@@ -111,6 +111,10 @@
   </div>
 </div>
 
+<!-- Hyperagent's renderer. A module because it is an ES module and
+     stays one: it publishes onto `window` so the classic scripts
+     below use the SAME implementation rather than a rewritten twin. -->
+<script type="module" src="js/messageRender.js"></script>
 <script src="js/tree.js"></script>
 <script src="js/prominence.js"></script>
 <script src="js/workState.js"></script>

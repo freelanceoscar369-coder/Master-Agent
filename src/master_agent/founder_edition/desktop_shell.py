@@ -686,6 +686,17 @@ def create_window(
         width=1440, height=900,
         min_size=(1180, 760),
         background_color="#05070A",
+        # pywebview defaults `text_select` to False and, when it is False,
+        # injects `body { user-select: none; cursor: default }` into the
+        # document at runtime. The founder could not select or copy a word
+        # Somesh had said -- proven in the packaged application with a real
+        # mouse drag and a real Ctrl+C, not from reading CSS.
+        #
+        # Our own stylesheet already granted `user-select: text` on the
+        # conversation and out-specifies that injected rule, which is
+        # exactly why the CSS looked correct while the behaviour was not.
+        # This is the switch that actually governs it.
+        text_select=True,
     )
 
     voice = _build_voice(

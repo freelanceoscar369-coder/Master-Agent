@@ -670,7 +670,19 @@ function appendSomeshMessage(text) {
   const length = text.length > 240 ? 'long' : 'short';
   wrap.innerHTML = `<div class="somesh-message__hairline"></div>
     <div class="somesh-message__body" data-length="${length}"></div>`;
-  wrap.querySelector('.somesh-message__body').textContent = text;
+  // Somesh's own words, through Hyperagent's renderer: headings, lists,
+  // tables, code and http/https links. It escapes every byte BEFORE
+  // building markup, so nothing the model emits can become a tag -- which
+  // is why this is `innerHTML` of a value we constructed rather than of
+  // model output. A bare path stays prose; only an explicit Mission
+  // deliverable may ever become a file card.
+  //
+  // If the module has not published yet, plain text -- degraded, never
+  // unsafe. An integration test asserts it is actually there.
+  const body = wrap.querySelector('.somesh-message__body');
+  const renderer = window.KalpavrikshaMessageRender;
+  if (renderer) body.innerHTML = renderer.renderMessage(text);
+  else body.textContent = text;
   els.conversation.appendChild(wrap);
   lastSomeshMessageEl = wrap;
   scrollToBottom();
@@ -1215,6 +1227,14 @@ function renderCompletionRequest(exec) {
       completionCountdownTimer = null;
     }
     lastCompletionRenderedFor = exec.completion_id;
+  } else if (els.conversation.querySelector(
+    `[data-interaction="completion"][data-interaction-id="${exec.completion_id || ''}"]`
+  )) {
+    // Already asked. This is re-entered on every poll, which was harmless
+    // while the card replaced a slot's contents and is not harmless now
+    // that it appends to the conversation: without this the founder would
+    // watch the same question stack up once a second.
+    return;
   }
 
   const root = document.createElement('div');
@@ -1337,8 +1357,21 @@ function renderCompletionRequest(exec) {
     root.appendChild(actions);
   }
 
-  els.workRegionSlot.innerHTML = '';
-  els.workRegionSlot.appendChild(root);
+  // Chronological, like every other thing the founder is asked. It sat in
+  // the Work Region above the conversation, which is where ambient status
+  // belongs and where an actionable card does not: the founder had to
+  // look away from the thread to answer something the thread produced.
+  const card = document.createElement('div');
+  card.className = 'somesh-message kv-interaction';
+  card.dataset.interaction = 'completion';
+  card.dataset.interactionId = exec.completion_id || '';
+  card.innerHTML = '<div class="somesh-message__hairline"></div>';
+  const body = document.createElement('div');
+  body.className = 'somesh-message__body kv-interaction__body';
+  body.appendChild(root);
+  card.appendChild(body);
+  els.conversation.appendChild(card);
+  scrollToBottom();
 }
 
 // Renders the founder's decision on an open approval.
@@ -1355,54 +1388,136 @@ function renderCompletionRequest(exec) {
 // list, so the honest surface is the decision the data model actually
 // supports -- proceed or decline, with the reason shown.
 let lastApprovalRenderedFor;
-function renderApprovalRequest(exec) {
+
+// A question the founder answers belongs where the conversation is, in the
+// order it happened. It used to be written into `.work-region-slot`, which
+// put the only actionable thing in the room above the conversation and
+// outside its chronology -- so an answer given at 14:02 appeared to have
+// been asked before everything the founder had said since.
+//
+// The Work Region keeps saying WHAT IS HAPPENING. This says WHAT IS BEING
+// ASKED, and it is a message like any other.
+function appendInteractionCard({ id, kind, summary, preview, context, actions }) {
+  const wrap = document.createElement('div');
+  wrap.className = 'somesh-message kv-interaction';
+  wrap.dataset.interaction = kind;
+  wrap.dataset.interactionId = id || '';
+  wrap.innerHTML = `<div class="somesh-message__hairline"></div>
+    <div class="somesh-message__body kv-interaction__body">
+      <p class="kv-interaction__summary"></p>
+      <div class="kv-interaction__preview" hidden></div>
+      <p class="kv-interaction__consequence"></p>
+      <div class="kv-interaction__actions"></div>
+      <p class="kv-interaction__decided" hidden></p>
+    </div>`;
+
+  wrap.querySelector('.kv-interaction__summary').textContent = summary;
+
+  if (preview) {
+    const box = wrap.querySelector('.kv-interaction__preview');
+    box.hidden = false;
+    // The proposal the founder asked to see. Rendered through the same
+    // escape-first renderer as any other Somesh output -- it is model text
+    // that reached us through a resolved payload, and gets no more trust
+    // for having travelled.
+    const renderer = window.KalpavrikshaMessageRender;
+    if (renderer) box.innerHTML = renderer.renderMessage(preview);
+    else box.textContent = preview;
+  }
+
+  if (context) wrap.querySelector('.kv-interaction__consequence').textContent = context;
+
+  const row = wrap.querySelector('.kv-interaction__actions');
+  const decided = wrap.querySelector('.kv-interaction__decided');
+  const buttons = [];
+
+  actions.forEach((action, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = index === 0
+      ? 'kv-completion__action-primary'
+      : 'kv-completion__action-secondary';
+    button.textContent = action.label;
+    button.addEventListener('click', async () => {
+      // Disable every button before awaiting: a second click while the
+      // bridge call is in flight would send a second decision for a
+      // question that already has one.
+      buttons.forEach((b) => { b.disabled = true; });
+      await action.run().catch(() => {});
+      row.hidden = true;
+      decided.hidden = false;
+      decided.textContent = action.decided;
+      wrap.dataset.decided = 'true';
+    });
+    buttons.push(button);
+    row.appendChild(button);
+  });
+
+  els.conversation.appendChild(wrap);
+  scrollToBottom();
+  return wrap;
+}
+
+// The founder's own review, which their objective asked for. NOT a
+// permission decision: Continue means "I have seen this", and the backend
+// grants no capability authority for it.
+function renderFounderReview(exec) {
   if (exec.approval_id === lastApprovalRenderedFor) return;
   lastApprovalRenderedFor = exec.approval_id;
 
-  const root = document.createElement('div');
-  root.className = 'kv-completion';
-  root.dataset.tone = 'attend';
-
-  const summary = document.createElement('p');
-  summary.className = 'kv-completion__summary';
-  summary.textContent = exec.message || 'This needs your approval before I go ahead.';
-  root.appendChild(summary);
-
-  // What it costs and what happens if nothing is done -- stated, not implied.
-  const consequence = document.createElement('p');
-  consequence.className = 'kv-completion__consequence';
-  consequence.textContent =
-    'Nothing has run yet. If you decline, I will stop here and change nothing.';
-  root.appendChild(consequence);
-
-  const actions = document.createElement('div');
-  actions.className = 'kv-completion__actions';
-
-  const approve = document.createElement('button');
-  approve.type = 'button';
-  approve.className = 'kv-completion__action-primary';
-  approve.textContent = 'Approve';
-  approve.addEventListener('click', async () => {
-    approve.disabled = true;
-    await Bridge.call('decide_approval', exec.approval_id, true, '').catch(() => {});
+  appendInteractionCard({
+    id: exec.approval_id,
+    kind: 'founder_checkpoint',
+    summary: 'You asked me to show you this before I continue.',
+    preview: exec.approval_preview,
+    context: exec.approval_context
+      ? `You asked to see ${exec.approval_context}.`
+      : 'Nothing has been changed yet.',
+    actions: [
+      {
+        label: 'Continue',
+        decided: 'Continued ✓',
+        run: () => Bridge.call('decide_approval', exec.approval_id, true, ''),
+      },
+      {
+        label: 'Stop',
+        decided: 'Stopped',
+        run: () => Bridge.call('decide_approval', exec.approval_id, false, ''),
+      },
+    ],
   });
+}
 
-  const reject = document.createElement('button');
-  reject.type = 'button';
-  reject.className = 'kv-completion__action-secondary';
-  reject.textContent = 'Decline';
-  reject.disabled = false;
-  reject.addEventListener('click', async () => {
-    reject.disabled = true;
-    await Bridge.call('decide_approval', exec.approval_id, false, '').catch(() => {});
+// A policy decision: something destructive, costly, or private leaving the
+// machine. Different words, deliberately -- the founder is permitting
+// something here, which is not what a review asks of them.
+function renderApprovalRequest(exec) {
+  if (exec.approval_kind === 'founder_checkpoint') {
+    renderFounderReview(exec);
+    return;
+  }
+  if (exec.approval_id === lastApprovalRenderedFor) return;
+  lastApprovalRenderedFor = exec.approval_id;
+
+  appendInteractionCard({
+    id: exec.approval_id,
+    kind: 'permission',
+    summary: exec.message || 'This needs your approval before I go ahead.',
+    preview: exec.approval_preview,
+    context: 'Nothing has run yet. If you decline, I will stop here and change nothing.',
+    actions: [
+      {
+        label: 'Approve',
+        decided: 'Approved ✓',
+        run: () => Bridge.call('decide_approval', exec.approval_id, true, ''),
+      },
+      {
+        label: 'Decline',
+        decided: 'Declined',
+        run: () => Bridge.call('decide_approval', exec.approval_id, false, ''),
+      },
+    ],
   });
-
-  actions.appendChild(approve);
-  actions.appendChild(reject);
-  root.appendChild(actions);
-
-  els.workRegionSlot.innerHTML = '';
-  els.workRegionSlot.appendChild(root);
 }
 
 function applyExecutionStatus(exec) {
@@ -1432,12 +1547,16 @@ function applyExecutionStatus(exec) {
   const decision = window.KalpavrikshaProminence.deriveProminence(prominenceInput);
   applyProminence(decision.level);
 
+  // The Work Region always shows ambient state now -- "Waiting for your
+  // review", "Waiting for approval" -- because the question itself has
+  // moved into the conversation. Two different jobs, both done, neither
+  // pretending to be the other.
+  renderWorkRegion(presentation, timing);
+
   if (window.KalpavrikshaWorkState.isAwaitingApproval(exec)) {
     renderApprovalRequest(exec);
   } else if (window.KalpavrikshaWorkState.isAwaitingCompletion(exec)) {
     renderCompletionRequest(exec);
-  } else {
-    renderWorkRegion(presentation, timing);
   }
 
   // Drive the tree's own character state from this same poll -- resultAcknowledged

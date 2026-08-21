@@ -195,6 +195,17 @@ class ExecutionStatus:
     #: Founder Surface can offer the decision rather than only report
     #: that a decision is needed.
     approval_id: str | None = None
+    #: Which KIND of question is open: a permission decision, or the
+    #: review the founder asked for in their own objective. Carried so
+    #: the surface can put the right words on the buttons -- Continue
+    #: and Stop are not Approve and Decline, and a founder should not
+    #: be taught that the two are the same thing.
+    approval_kind: str = ""
+    #: What the founder is being shown. For a review this is the
+    #: RESOLVED proposal the earlier steps actually produced.
+    approval_preview: str = ""
+    #: Why they were asked -- the objective's own words.
+    approval_context: str = ""
     #: The open founder question, when one is waiting. Same shape of fact
     #: as `approval_id` above: the objective is paused and a specific
     #: founder response resumes it. `None` whenever nothing is pending.
@@ -235,6 +246,9 @@ class ExecutionStatus:
         self.requires_founder_completion = False
         self.completion_id = None
         self.approval_id = None
+        self.approval_kind = ""
+        self.approval_preview = ""
+        self.approval_context = ""
         # A new objective inherits no question. The founder surface reads
         # any pending clarification BEFORE calling this, precisely because
         # the message that answers one arrives as the next objective.
@@ -292,12 +306,19 @@ class ExecutionStatus:
         if event.event_type in (
             EventType.APPROVAL_REQUESTED, EventType.APPROVAL_REQUIRED,
         ):
-            self.approval_id = (event.payload or {}).get("approval_id")
+            payload = event.payload or {}
+            self.approval_id = payload.get("approval_id")
+            self.approval_kind = payload.get("kind") or "permission"
+            self.approval_preview = payload.get("reason") or ""
+            self.approval_context = payload.get("objective") or ""
         elif event.event_type in (
             EventType.APPROVAL_GRANTED, EventType.APPROVAL_DENIED,
         ):
             # Answered -- the question is no longer open.
             self.approval_id = None
+            self.approval_kind = ""
+            self.approval_preview = ""
+            self.approval_context = ""
 
         if event.event_type is EventType.FOUNDER_COMPLETION_REQUESTED:
             self.requires_founder_completion = True
@@ -352,6 +373,9 @@ class ExecutionStatus:
             "requires_founder_completion": self.requires_founder_completion,
             "completion_id": self.completion_id,
             "approval_id": self.approval_id,
+            "approval_kind": self.approval_kind,
+            "approval_preview": self.approval_preview,
+            "approval_context": self.approval_context,
             "pending_clarification": (
                 self.pending_clarification.as_dict()
                 if self.pending_clarification is not None else None
