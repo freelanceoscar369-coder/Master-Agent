@@ -503,7 +503,19 @@ reporting that **frozen components changed without the ratified ADR the amendmen
 process requires** (Constitution Rule 2, and §4a's *"a structural amendment is
 proposed by a Mission Brief and applied only after founder ratification"*).
 
-Either those edits were legitimate and an ADR was never written, or the guard's
+**A second guard reports the same thing independently:**
+`test_mit_001_browser_integration.py::test_7_browser_executive_source_is_untouched_since_mission_brief_022`
+— *"the Browser Executive was modified since MB022"*. Two guards, written for
+different missions, both saying frozen source moved. That agreement is what makes
+this worth a human rather than a shrug.
+
+Everything else in both files is now green: the surrounding failures were the
+`read_page_text` capability arriving (nine → ten), which is *itself* one of the
+modifications the guards are objecting to. **The count was updated; the question of
+whether the capability should have been added without an ADR is left open, because
+that is the actual question.**
+
+Either those edits were legitimate and an ADR was never written, or the guards'
 notion of "frozen" has drifted from what the Constitution freezes. **Both readings
 need a human**, and neither is a convergence action — writing an ADR to retrofit
 approval for edits already made would be exactly the silent amendment §4a exists to

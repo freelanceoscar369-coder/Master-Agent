@@ -100,7 +100,10 @@ def test_1_discovered_executive_is_registered_ready_with_its_capabilities(harnes
     record = harness.mission_control.executives.get("browser")
     assert record.state is WorkerState.READY
     assert record.version == "0.1.0"
-    assert len(record.capabilities) == 9
+    # Ten since `read_page_text` joined the Browser Executive; nine was
+    # right at MB022. See MIT-001 Test 7 below, which is the guard that
+    # actually cares whether that addition was sanctioned.
+    assert len(record.capabilities) == 10
 
 
 def test_1_discovery_names_no_specific_plugin_and_is_idempotent(harness):
@@ -137,7 +140,7 @@ def test_2_capabilities_are_registered_automatically_from_the_manifest(harness):
     assert "Browser.Click" in names
     assert "Browser.ObserveBrowser" in names
     assert "Browser.TypeText" in names  # MIT-001 calls this "Fill"
-    assert len(names) == 9
+    assert len(names) == 10
 
 
 def test_2_every_registered_capability_points_back_at_its_executive(harness):
