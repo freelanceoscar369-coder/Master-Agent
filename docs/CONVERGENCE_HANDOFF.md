@@ -426,7 +426,71 @@ covers both.
 
 ## HYPERAGENT_UI_WORK_REQUIRED
 
-None recorded yet.
+§19 inspected rather than assumed. Three of the five named areas are **already
+built and wired**; two are genuinely absent and are recorded here without
+inventing a design.
+
+### Already built — no work required
+
+| Area | Status | Evidence |
+|---|---|---|
+| Founder/Somesh text select & copy | **BUILT + WIRED** | `desktop_app/web/css/base.css:52-71` applies Hyperagent's `SELECTION_CONTRACT` in full — `user-select: text`, plus `-webkit-app-region: no-drag` (a drag region swallows mousedown so a selection never begins), `pointer-events: auto`, and `cursor: text`. Controls inside a message keep `cursor: pointer`. Founder should confirm on the packaged build. |
+| Safe HTTP/HTTPS link click | **BUILT + WIRED** | `desktop_app/web/js/messageRender.js` — `http:`/`https:` only; `javascript:`, `data:`, `vbscript:`, `file:` rejected. Emits `target="_blank" rel="noopener noreferrer"`. Loaded by `index.html:117` as a module. |
+| Attachments never inferred from prose | **CORRECT BY CONSTRUCTION** | `app.js:678` — *"A bare path stays prose; only an explicit Mission deliverable may ever become a file card."* This is exactly what §19 forbids inferring, and the UI does not. |
+
+### UI-1 · Mission deliverable / artifact contract — **ABSENT, both sides**
+
+There is no file-card component (no CSS class, no JS) and **no backend contract
+publishing what a mission produced**. Verified by search across
+`desktop_app/web/` and `src/master_agent/missions|mission_control`; the
+"Deliverable N" hits in source are Mission Brief numbering, unrelated.
+
+**Not blocking.** Live Acceptance B produced a real file and the founder was told
+where it is, in prose, by the Reporter. The canonical loop closes without this.
+
+**The backend data already exists** — this is a contract to expose, not a
+capability to build:
+
+- `PlanRecord.steps[]` carries `capability`, `payload`, `state`, `verdict`,
+  `evidence_id` (`missions/history.py`). A verified `Filesystem.WriteFile` step's
+  payload holds `location` (a named root: `desktop`/`documents`/`downloads`) and
+  `path` (relative to it) — exactly enough to name a produced file.
+- `verdict == "matched"` is what distinguishes a file that *exists* from one a plan
+  merely intended.
+- Named locations resolve through `executor/action.default_locations()`.
+
+**Exact backend contract that would need adding** (Claude can build this once the
+shape is agreed):
+
+```
+deliverables(objective_id) -> [
+    { "location": "desktop",              # named root, never an absolute path
+      "path": "KV_Golden_153713/page_info.txt",
+      "capability": "Filesystem.WriteFile",
+      "verdict": "matched",               # only verified steps qualify
+      "step_id": "step_5" }
+]
+```
+
+**What remains a Hyperagent UI decision:** whether a deliverable renders as a card
+or a line; where it sits relative to Somesh's message; what a founder sees for a
+folder versus a file; and whether an unverified step ever appears at all
+(recommendation: no).
+
+### UI-2 · Open / Save As — **ABSENT**
+
+No opener and no save affordance in the page or the bridge. The bridge exposes 15
+methods; none of them opens or saves a file.
+
+**Backend capability already exists** — `Desktop.OpenFile` and `Desktop.OpenFolder`
+are registered capabilities at `reversible_write` tier, so "Open" is a bridge
+method away rather than new machinery. **Save As has no equivalent** and would need
+a real decision: the sandbox resolves *named locations plus relative paths* and
+refuses absolute ones, so a native Save-As dialog returning an arbitrary path does
+not fit the current filesystem contract without widening it.
+
+**Founder decision embedded here, flagged not answered:** whether Save As is worth
+widening the filesystem sandbox for. **Not blocking Founder Edition.**
 
 ---
 
