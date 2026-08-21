@@ -32,6 +32,7 @@ They also set `KALPAVRIKSHA_DISABLE_MIC=1` so a harness never listens to the roo
 | `c_founder_checkpoint.py` | §30 C | The founder's own "show me before you write it", planned by Gemini. **Needs quota.** |
 | `c2_checkpoint_mechanism.py` | §30 C | The checkpoint *mechanism*, on a hand-authored plan — no quota. Continue resumes the same payload; Stop does not execute the mutation. |
 | `e_persistence_recovery.py` | §30 E | That the record survives the process that wrote it, and that the audit is truthful. Reports resume-after-restart as unwired rather than claiming it. No quota needed. |
+| `f_vendored_server.py` | — | That the pywebview server moved out of the guarded package still serves the founder's page. Binds a real port, which is why it is not a unit test. |
 | `d_permission_gate.py` | §30 D | An irreversible capability holds at the boundary, executes nothing before approval, and really happens afterwards. |
 
 ## Reading the result
