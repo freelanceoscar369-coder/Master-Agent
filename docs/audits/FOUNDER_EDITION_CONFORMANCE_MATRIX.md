@@ -69,7 +69,8 @@ looking for "where Founder Edition is assembled" should start there.
 | 18 | Reporter | Brain | Vision §3.4, §16 | `brain/reporter.py` (566 lines), wired at `kalpavriksha_desktop.py:621,691` | **COMPLIANT_AND_WIRED** (Vision §3.4 "not yet built" is **STALE**) |
 | 19 | Permission / approval | Shared Infra | Vision §5.2, §15; ADR-0019, ADR-0020 | `permissions/`, `mission_control/approvals.py` | **COMPLIANT_AND_WIRED** (live proof pending) |
 | 20 | Founder checkpoint distinct from permission | Shared Infra | Brief §14; ADR-0020 | `mission_control/completion.py`, `confirm_completion` bridge | **COMPLIANT_AND_WIRED** (live proof pending) |
-| 21 | Persistence / recovery | Shared Infra | Vision §11.2; ADR-0015 | `persistence/` | **COMPLIANT_AND_WIRED** (live proof pending) |
+| 21a | Persistence — **recording** | Shared Infra | Vision §11.2; ADR-0015 | `PersistenceService` + `PlanHistory`, wired at `kalpavriksha_desktop.py:614` | **COMPLIANT_AND_WIRED** — live-proven |
+| 21b | Persistence — **resume after restart** | Shared Infra | Vision §11.1; ADR-0015 | `persistence/recovery.py::recover()` built; called by `launcher/boot.py:380` **only** | **BUILT_BUT_UNWIRED** — deliberate, see below |
 | 22 | Founder interaction audit trail | Shared Infra | ADR-0025 (**PROPOSED**) | `_audit()` in `desktop_shell.py` | **COMPLIANT_AND_WIRED** — note it implements a *Proposed* ADR |
 | 23 | Multi-Operator concurrency | — | Vision §8.5 | not built | **DELIBERATELY_FUTURE** |
 | 24 | Knowledge promotion review | Brain + gate | Vision §9.3–9.5 | `mission_control/knowledge_queue.py` partial | **DELIBERATELY_FUTURE** for this mission |
@@ -133,6 +134,37 @@ looking for "where Founder Edition is assembled" should start there.
 - **Would frozen architecture need modifying?** No — Vision §3.3 and ADR-0024 D7
   already require exactly this door.
 - **Founder decision required?** No.
+
+### Row 21b — Resume after restart · BUILT_BUT_UNWIRED (corrected 2026-08-21 16:10)
+
+**This row was wrong in the first version of this matrix**, which recorded a single
+"Persistence / recovery — COMPLIANT_AND_WIRED" row. Two different things travel
+under that word and Founder Edition wires exactly one. Corrected here rather than
+quietly amended, because getting it wrong is the same class of error this matrix
+exists to catch.
+
+The composition root states the boundary itself, at the line that would have
+called it:
+
+> `# Deliberately NOT restored into the runtime. This mission is about being able`
+> `# to reconstruct what happened, not about resuming interrupted missions after a`
+> `# restart; recovery semantics are their own decision and restore_into() is left`
+> `# uncalled.`
+
+Verified by AST rather than by grep — the root *mentions* `restore_into()` in the
+comment explaining why it does not call it, so a text search finds the explanation
+and concludes the opposite. No `Call` node for `restore_into` or `recover` exists
+in `kalpavriksha_desktop.py`.
+
+`recover()` is fully built (`persistence/recovery.py`, with `RecoveryReport`,
+quarantine of interrupted tasks, snapshot-vs-replay) and **is** wired by
+`launcher/boot.py:380` — but `master_agent.launcher` is deliberately excluded from
+the Founder Edition build (`packaging/kalpavriksha.spec`).
+
+**Convergence action: none, and deliberately so.** This is a scope decision the
+source records explicitly, not drift. Wiring `recover()` into Founder Edition
+would be building something the founder has not asked for, against §20. It is
+listed under DELIBERATELY_FUTURE below.
 
 ### Row 13 — Provider retry · BUILT_BUT_UNWIRED
 
