@@ -46,8 +46,8 @@ The governing question was not "does it exist" but **"can the Runtime reach it"*
 | `browser` | `BrowserGateway` | YES | **FULLY_WIRED_AND_LIVE_PROVEN** |
 | `filesystem` | `FilesystemGateway` | YES | **FULLY_WIRED_AND_LIVE_PROVEN** |
 | `desktop` | `DesktopGateway` | YES | **FULLY_WIRED_AND_LIVE_PROVEN** |
-| `document` | **was NONE → now `PluginGateway`** | **was NO → now YES** | **WIRING DEFECT — FIXED, LIVE_PROVEN** |
-| `reasoning` | **was NONE → now `PluginGateway`** | **was NO → now YES** | **WIRING DEFECT — FIXED, LIVE_PROVEN** |
+| `document` | **was NONE → now `PluginGateway`** | **was NO → now YES** | **WIRING DEFECT — FIXED; live execution proven, no Evidence** |
+| `reasoning` | **was NONE → now `PluginGateway`** | **was NO → now YES** | **WIRING DEFECT — FIXED; live execution proven, no Evidence** |
 
 ### The defect, stated exactly
 
@@ -82,7 +82,7 @@ brief's instruction not to overclaim.
 |---|---|
 | **CAN VERIFY** (generic read-only postcondition) | `Desktop.LaunchApplication`, `Desktop.CloseApplication`, `Desktop.FocusWindow`, `Desktop.BringToFront` — **four**; plus Filesystem's disk re-observation and Browser's DOM/URL observation |
 | **CANNOT GENERICALLY VERIFY — and this is not a defect** | `Desktop.DesktopClick`, `DesktopTypeText`, `DesktopPressKey`, `CloseWindow`, `ExecuteCommand`, `OpenFile`, `OpenFolder`, and the read-only query capabilities |
-| **NOT REQUIRED** | `Document.*`, `Reasoning.Transform` — no generic read-only postcondition exists to re-observe |
+| **NO EVIDENCE PRODUCED** | `Document.*`, `Reasoning.Transform` — they run through the generic `PluginGateway`, whose `verify()` returns `None`. **Live execution is proven; canonical Verification Evidence is not produced.** Stated as a fact about the current wiring, not as a judgement that verification is unnecessary — whether either deserves a verifier is a separate adjudication and is explicitly not decided here |
 | **NOT WIRED** | none remaining |
 
 **A comment was overclaiming and is corrected.** `kalpavriksha_desktop.py` said the
@@ -106,8 +106,8 @@ intended observable outcome, not about the mouse. Saying so is the truthful answ
 | `browser` | OpenSession → Navigate → ObserveBrowser → Close | real visible Chrome reached `https://example.com/` | 6 steps `verdict=matched`; observed title + **trailing-slash** final URL the objective never contained | **LIVE_PROVEN** (golden mission) |
 | `filesystem` | CreateFolder, WriteFile, DeleteFile | real folder + file on Desktop; real deletion | disk re-observed after the mission claimed done | **LIVE_PROVEN** |
 | `desktop` | ListRunningProcesses, IsInstalled, IsRunning, ListInstalledSoftware | **298 real processes**; Chrome detected installed, not running; real software inventory | task `COMPLETED`, real machine data returned | **LIVE_PROVEN** (this sweep) |
-| `document` | `Document.WriteDocument` | **valid 35 KB `.docx` written to disk** (verified as a real zip container) | task `COMPLETED` | **LIVE_PROVEN** (this sweep, after the fix) |
-| `reasoning` | `Reasoning.Transform` | real model answered through Model Router → Broker → provider | `{'text': 'acknowledged'}`, task `COMPLETED` | **LIVE_PROVEN** (this sweep, after the fix) |
+| `document` | `Document.WriteDocument` | **valid 35 KB `.docx` written to disk** (verified as a real zip container) | task `COMPLETED` — **no canonical Evidence**, `PluginGateway.verify()` returns `None` | **LIVE EXECUTION PROVEN** (this sweep, after the fix) |
+| `reasoning` | `Reasoning.Transform` | real model answered through Model Router → Broker → provider | `{'text': 'acknowledged'}`, task `COMPLETED` — **no canonical Evidence** | **LIVE EXECUTION PROVEN** (this sweep, after the fix) |
 
 Not re-run: Browser and Filesystem were already proven by the preceding mission and
 were **cited rather than repeated**, per the instruction not to spend live calls on
@@ -158,6 +158,35 @@ Recorded so no future session rebuilds them.
 ---
 
 ## I · External blockers
+
+### Live Acceptance C — attempted once at `da9f8f9`, NOT EXECUTED
+
+Per the closing brief: attempt once, record the exact response, do not implement
+around an external quota. Both runs refused at the Planner, so **the checkpoint was
+never reached**.
+
+```
+HTTP 429: You exceeded your current quota ...
+* Quota exceeded for metric:
+  generativelanguage.googleapis.com/generate_content_free_tier_requests,
+  limit: 20, model: gemini-3.6-flash
+Please retry in 33.322775703s.   (CONTINUE run)
+Please retry in 30.669689260s.   (STOP run)
+```
+
+**The script printed two PASS lines that must not be read as evidence.**
+*"nothing was written while waiting"* and *"Stop did not execute the mutation"* are
+**vacuous here** — no plan existed, so no mutation was ever held and none could have
+escaped. They are true statements about an acceptance that did not run, not
+observations of checkpoint behaviour.
+
+**Correct verdict: `EXTERNAL BLOCKER — LIVE ACCEPTANCE C NOT EXECUTED`.** Not FAIL:
+nothing about the checkpoint was disproven. Its mechanism remains proven without
+quota by `c2_checkpoint_mechanism.py` (Continue writes the previewed payload; Stop
+performs no mutation).
+
+The script cleaned up its own disposable folders; both were removed by it.
+
 
 **Gemini free tier — 20 requests/day.** Refined this sweep: **small requests still
 succeed while planning-sized ones do not.** `Reasoning.Transform` completed; the

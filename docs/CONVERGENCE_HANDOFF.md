@@ -30,6 +30,21 @@ That sweep also corrects two things recorded here: Reasoning's earlier refusal w
 the **privacy boundary working**, not a provider defect, and the Desktop
 verification surface is **four** capabilities, not the five a comment claimed.
 
+**Evidence wording, stated precisely.** Document and Reasoning are **runtime-reachable
+and live-execution-proven**. They are **not** independently verified: both run through
+the generic `PluginGateway`, whose `verify()` returns `None`, so **no canonical
+Verification Evidence is produced** for either. That is a fact about the current
+wiring, recorded as a distinction — not a judgement that they need verifiers, and not
+authorisation to build any.
+
+**Live Acceptance C — attempted once at `da9f8f9`, NOT EXECUTED.** Both runs refused
+at the Planner with HTTP 429 (`limit: 20, model: gemini-3.6-flash`; retry-after
+33.3 s and 30.7 s). The checkpoint was never reached, so the run's own
+*"nothing was written"* / *"Stop did not execute the mutation"* lines are **vacuous**
+and are not evidence. Verdict: **EXTERNAL BLOCKER**, not FAIL — nothing about the
+checkpoint was disproven, and its mechanism stays proven without quota by
+`c2_checkpoint_mechanism.py`.
+
 ---
 
 ## READ THIS FIRST — what happened in one page
