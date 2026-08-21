@@ -181,10 +181,55 @@ import the Brain. The edit was reverted, the duplication kept, and it is named i
 
 ---
 
+### Slice 2 — provider retry proven (`fd707cc`)
+
+Inherited `gemini.py` retry committed with 18 new tests using its author's own
+`sleep` seam. Retry stays in the provider; the Broker still retries nothing.
+
+**Found while proving it:** the inherited work also included an untracked test file
+`tests/test_launch_rescue_provider_hygiene.py` (it imports `DEFAULT_MAX_ATTEMPTS`),
+so T2 did have tests — just untracked. 22 of its 23 pass. The one failure
+(`test_a_successful_mission_reply_is_unchanged_by_the_hygiene_layer`) was verified
+to fail **identically at pristine `1743a53`**, so it is pre-existing and is about
+the Reporter/`_mission_report` path, not retry. **Left untracked and uncommitted** —
+committing someone else's untracked test with a known red is a separate decision.
+It needs triage.
+
+### Slice 3 — inherited test fixtures caught up (`a1a0a86`)
+
+50 failures at HEAD → 13. `test_desktop_shell.py` fully green. Three inherited
+assertions corrected against source (7-key diagnostics, 15 bridge methods,
+`?debug=1`), plus the same stale "nine" in `desktop_shell.py`'s docstring.
+
+### Slice 4 — the Intent Layer's reasoning door (matrix Row 4)
+
+- **Canonical requirement:** Vision §3.3 — the Model Router is *"the Brain's single
+  door to reasoning"*; ADR-0024 D7 states normatively that this covers every Brain
+  reasoning call, not only the Planner's.
+- **Source changed:** `brain/utterance.py` gains `structural_role()` returning
+  `(role, confident)`; `brain/intent.py` gains `IntentLayer(reasoner=...)` and
+  `decide_role()`; `kalpavriksha_desktop.py` passes the **same `tiered_runner` the
+  Planner uses** and calls `mission_service.intent_layer.decide_role(...)`.
+- **The door opens for exactly one shape:** a longer statement arriving while a
+  question is open — neither question, instruction, offered option, nor short
+  enough (≤4 words) to read as a value. Everything else is settled by structure at
+  no cost, so the ordinary answer ("Research") pays nothing.
+- **Tests:** `tests/test_intent_reasoning_door.py` (26). Zero new failures vs
+  `5fd8abd` (21 both sides, `comm` empty both directions).
+- **Live proof status:** the routed seam is proven with a spy. **A real provider
+  call through this door has NOT been made** — it fires only on the ambiguous
+  shape, and firing it deliberately would be a synthetic probe (§32).
+
+---
+
 ## CURRENT_SLICE
 
-**Objective:** Slice 2 — give the Intent Layer a reasoning door through the Model
-Router (matrix Row 4, IMPLEMENTATION_DRIFT).
+**Objective:** none in flight. Next candidate is the stale
+`test_intent_layer_boundary.py::TestClarificationResolution::test_the_resolution_loop_has_no_production_caller_yet`,
+which asserts by `git grep` that `IntentLayer.clarify()` has no production caller.
+It has had one since before this session (`kalpavriksha_desktop.py`), so the test
+now asserts an absence that has been closed — the same staleness ADR-0024 Gap 1
+carries. Pre-existing failure, not caused by this session.
 
 **Canonical source:** Vision §3.3 (Model Router is the Brain's single reasoning
 door) and ADR-0024 Decision 7, which is normative on exactly this point: *every*

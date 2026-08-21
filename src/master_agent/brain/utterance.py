@@ -211,13 +211,75 @@ def _is_question(lowered: str) -> bool:
     return False
 
 
+#: How many words an answer can be before it stops looking like a value.
+#: "Quarterly Report", "the second one", "C:/Users/Onkar/Desktop" are all
+#: values; a sentence of eight words that is neither a question nor an
+#: instruction is something else, and that is the one case structure
+#: genuinely cannot settle on its own -- see `structural_role`.
+_VALUE_WORD_LIMIT = 4
+
+
+def structural_role(
+    text: str,
+    *,
+    awaiting_answer: bool = False,
+    options: Sequence[str] = (),
+) -> tuple[UtteranceRole, bool]:
+    """`(role, confident)` from sentence shape alone. No model call.
+
+    `confident` is False for exactly one shape: a longer statement
+    arriving while a question is open, which is neither a question, an
+    instruction, an offered option, nor short enough to read as a value.
+    That is the genuine ambiguity -- an odd multi-word folder name and a
+    change of subject look identical to structure -- and it is where the
+    Brain's reasoning door earns its keep (`IntentLayer.decide_role`).
+
+    Everything else is settled here and costs nothing. This matters: the
+    ordinary answer ("Research") must not acquire a model call's latency
+    or price just because a harder case exists.
+    """
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return UtteranceRole.ORDINARY_CONVERSATION, True
+
+    if awaiting_answer:
+        offered = {str(option).strip().lower() for option in options if str(option).strip()}
+        if lowered in offered:
+            return UtteranceRole.ANSWER_TO_CLARIFICATION, True
+        if _is_abandonment(lowered):
+            return UtteranceRole.CANCEL_OR_STOP, True
+        if _is_question(lowered):
+            return UtteranceRole.FOLLOW_UP, True
+        if any(opens_an_instruction(clause) for clause in clauses(lowered)):
+            return UtteranceRole.MODIFY_OR_REDIRECT, True
+        if len(_tokens(lowered)) <= _VALUE_WORD_LIMIT:
+            return UtteranceRole.ANSWER_TO_CLARIFICATION, True
+        # A long statement while a question is open. Structure is out of
+        # evidence; the default stays what it was, and the flag says it
+        # was a default rather than a finding.
+        return UtteranceRole.ANSWER_TO_CLARIFICATION, False
+
+    if _is_abandonment(lowered):
+        return UtteranceRole.CANCEL_OR_STOP, True
+    if any(opens_an_instruction(clause) for clause in clauses(lowered)):
+        return UtteranceRole.NEW_OBJECTIVE, True
+    if _is_question(lowered):
+        return UtteranceRole.FOLLOW_UP, True
+    return UtteranceRole.NEW_OBJECTIVE, True
+
+
 def role_of(
     text: str,
     *,
     awaiting_answer: bool = False,
     options: Sequence[str] = (),
 ) -> UtteranceRole:
-    """What role this utterance plays.
+    """What role this utterance plays, from structure alone.
+
+    The structural half of the decision, kept as its own callable so it
+    can be read and tested without a provider anywhere near it.
+    `IntentLayer.decide_role()` is what production calls -- it is this,
+    plus the Brain's reasoning door for the one shape this cannot settle.
 
     `awaiting_answer` says only that a question is open — it is context,
     and it is deliberately not enough on its own to claim the utterance.
@@ -234,35 +296,7 @@ def role_of(
     out of the question. Offering `options` removes the ambiguity wherever
     a producer can enumerate the choices.
     """
-    lowered = (text or "").strip().lower()
-    if not lowered:
-        return UtteranceRole.ORDINARY_CONVERSATION
-
-    if awaiting_answer:
-        offered = {str(option).strip().lower() for option in options if str(option).strip()}
-        if lowered in offered:
-            return UtteranceRole.ANSWER_TO_CLARIFICATION
-        if _is_abandonment(lowered):
-            return UtteranceRole.CANCEL_OR_STOP
-        if _is_question(lowered):
-            return UtteranceRole.FOLLOW_UP
-        # A fresh imperative while a question is open is the founder
-        # changing what they want, not naming a folder.
-        if any(opens_an_instruction(clause) for clause in clauses(lowered)):
-            return UtteranceRole.MODIFY_OR_REDIRECT
-        # Nothing above claimed it, and a question IS open: this is the
-        # answer. The default sits last on purpose -- it is what remains
-        # after every other reading has been ruled out, not the first
-        # guess.
-        return UtteranceRole.ANSWER_TO_CLARIFICATION
-
-    if _is_abandonment(lowered):
-        return UtteranceRole.CANCEL_OR_STOP
-    if any(opens_an_instruction(clause) for clause in clauses(lowered)):
-        return UtteranceRole.NEW_OBJECTIVE
-    if _is_question(lowered):
-        # A question with nothing pending is about something already said
-        # -- "what is ready?" after Somesh reported readiness. Answering it
-        # from context is right; manufacturing mission work from it is not.
-        return UtteranceRole.FOLLOW_UP
-    return UtteranceRole.NEW_OBJECTIVE
+    role, _confident = structural_role(
+        text, awaiting_answer=awaiting_answer, options=options,
+    )
+    return role

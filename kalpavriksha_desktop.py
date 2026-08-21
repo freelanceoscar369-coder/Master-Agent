@@ -618,7 +618,13 @@ def _build_mission_pipeline():
 
     mission_service = MissionService(
         planner=planner, mission_control=mission_control,
-        intent_layer=IntentLayer(), reporter=Reporter(),
+        # The SAME runner the Planner was given, not a second path to a
+        # provider: understanding what a founder's sentence is doing is
+        # something the Brain reasons about, and VISION_V2 §3.3 gives the
+        # Brain exactly one door for that. Consulted for one narrow
+        # decision only -- see `IntentLayer.decide_role` -- so the
+        # ordinary answer still costs nothing.
+        intent_layer=IntentLayer(reasoner=tiered_runner), reporter=Reporter(),
         history=plan_history,
     )
 
@@ -721,7 +727,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     """
     import time as _time
     from master_agent.brain.intent import ClarificationQuestion
-    from master_agent.brain.utterance import UtteranceRole, role_of
+    from master_agent.brain.utterance import UtteranceRole
     from master_agent.missions.execution_status import (
         AWAITING_APPROVAL,
         AWAITING_CLARIFICATION,
@@ -751,10 +757,16 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # does not own whatever the founder says next, which is why
     # `awaiting_answer` is passed as one input among several rather than
     # used as the branch it used to be.
-    role = role_of(
+    # `mission_service`'s OWN Intent Layer, the same instance that parses
+    # and clarifies below -- there is one Intent Layer in this process,
+    # not a second one wired up here.
+    role = mission_service.intent_layer.decide_role(
         text,
         awaiting_answer=pending is not None,
         options=tuple(pending.options) if pending is not None else (),
+        question=pending.question if pending is not None else "",
+        objective=pending.objective if pending is not None else "",
+        objective_id=getattr(status, "objective_id", None),
     )
 
     status.begin(text, timeout_seconds=timeout_seconds)

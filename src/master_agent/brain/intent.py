@@ -9,11 +9,12 @@ This replaces the regex-based parse_intent() stand-in from cli.py.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from master_agent.brain.agency import roles
+from master_agent.brain.utterance import UtteranceRole, structural_role
 from master_agent.planner.plan import Intent
 
 
@@ -117,16 +118,47 @@ def enumerates_multiple_requirements(text: str) -> bool:
     return any(c in lowered for c in _SEQUENCING_CONNECTIVES)
 
 
+#: The same AI Capability the Planner and `brain/advisory.py` ask for,
+#: named explicitly so a reader can see it is deliberately identical.
+#: One ladder, one Broker, one decision trail (VISION_V2 §3.3).
+REASONING_CAPABILITY = "reasoning"
+
+#: What the reasoner is allowed to answer. Anything else is treated as no
+#: answer at all and the structural default stands -- a provider inventing
+#: a seventh role must not be able to invent behaviour with it.
+_ROLE_BY_WORD = {
+    "answer": UtteranceRole.ANSWER_TO_CLARIFICATION,
+    "redirect": UtteranceRole.MODIFY_OR_REDIRECT,
+    "cancel": UtteranceRole.CANCEL_OR_STOP,
+    "question": UtteranceRole.FOLLOW_UP,
+}
+
+
 class IntentLayer:
     """Parses raw input into structured Intent.
 
-    Uses rule-based parsing with deterministic patterns. For ambiguous input
-    that could map to multiple valid intents, requests clarification from
-    the user rather than guessing. Never calls a model directly — the
-    Planner handles model calls.
+    Deterministic parsing first, for everything it can settle. For
+    ambiguous input that could map to multiple valid intents, it asks the
+    founder rather than guessing.
+
+    ## The one thing this layer reasons about
+
+    `reasoner` is the Brain's Model Router door (`VISION_V2` §3.3 — *"the
+    Brain's single door to reasoning"*, which ADR-0024 Decision 7 states
+    normatively is not the Planner's alone). It is optional: omitted, this
+    layer behaves exactly as it did before, entirely on structure.
+
+    It is consulted for **one** decision and one shape of it — see
+    `decide_role()`. Not for parsing, not for clarification wording, and
+    never on the ordinary path, so a founder answering "Research" pays no
+    latency and no tokens for a harder case existing elsewhere.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, reasoner: Any = None) -> None:
+        #: Injected, never constructed here: a second provider path is
+        #: exactly what ADR-0024 Decision 7 forbids. The composition root
+        #: hands in the SAME `TieredPromptRunner` the Planner uses.
+        self._reasoner = reasoner
         # Patterns are tried in order; first match wins
         # More specific patterns first
         self._patterns: list[tuple[str, type]] = [
@@ -197,6 +229,105 @@ class IntentLayer:
         if not lowered:
             return False
         return any(pattern in lowered for pattern in self._CAPABILITY_QUESTION_PATTERNS)
+
+    def decide_role(
+        self,
+        text: str,
+        *,
+        awaiting_answer: bool = False,
+        options: Sequence[str] = (),
+        question: str = "",
+        objective: str = "",
+        task_id: str = "",
+        objective_id: str | None = None,
+    ) -> UtteranceRole:
+        """What role the founder's utterance plays.
+
+        Structure decides first and decides most things, at no cost. The
+        reasoner is asked only when structure reports it was falling back
+        to a default rather than reading a signal — a longer statement
+        arriving while a question is open, which is the one shape where an
+        odd multi-word answer and a change of subject are genuinely
+        indistinguishable by shape.
+
+        Never raises. A dead ladder, a refused request, or an answer
+        outside the four permitted words all leave the structural default
+        standing, which is the behaviour that shipped before this door
+        existed. Reasoning here can only *improve* on structure; it can
+        never leave the founder worse off than no reasoning at all.
+        """
+        role, confident = structural_role(
+            text, awaiting_answer=awaiting_answer, options=options,
+        )
+        if confident or self._reasoner is None:
+            return role
+        reasoned = self._reasoned_role(
+            text, question=question, objective=objective,
+            task_id=task_id, objective_id=objective_id,
+        )
+        return reasoned if reasoned is not None else role
+
+    def _reasoned_role(
+        self,
+        text: str,
+        *,
+        question: str,
+        objective: str,
+        task_id: str,
+        objective_id: str | None,
+    ) -> UtteranceRole | None:
+        """Ask the Brain's one reasoning door. `None` means "no usable
+        answer" — never an exception, and never a guess."""
+        from master_agent.ai_infrastructure.budgeted_request import (
+            BudgetedSelectionRequest,
+        )
+        from master_agent.ai_infrastructure.workload import INTERACTIVE
+        from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+
+        prompt = (
+            "A founder is using an assistant. The assistant asked them a "
+            "question and is waiting for the answer.\n\n"
+            f"    The assistant is working on: {objective.strip()}\n"
+            f"    The assistant asked: {question.strip()}\n"
+            f"    The founder replied: {text.strip()}\n\n"
+            "Decide what the founder's reply is DOING. Answer with exactly "
+            "one of these four words and nothing else:\n\n"
+            "answer    - it supplies what the question asked for, even if "
+            "it is worded oddly\n"
+            "redirect  - it asks for something different instead\n"
+            "cancel    - it abandons the request without answering\n"
+            "question  - it asks the assistant something back\n\n"
+            "Reply with one word only. No punctuation, no explanation."
+        )
+        context = RoutingContext(
+            is_online=True,
+            # Deciding what a sentence is doing is a small judgement, not
+            # a hard one. Asking for strong reasoning here would push a
+            # cheap, latency-sensitive call up the ladder for no gain.
+            requires_strong_reasoning=False,
+            capability=REASONING_CAPABILITY,
+            task_id=task_id,
+            objective_id=objective_id,
+            requester="brain_intent_role",
+        )
+        request = BudgetedSelectionRequest(
+            **vars(SelectionRequest.from_context(context)),
+            request_class=INTERACTIVE,
+            prompt=prompt,
+        )
+        try:
+            outcome = self._reasoner.run(prompt, request)
+        except Exception:  # noqa: BLE001 -- a dead ladder is a default, not a crash
+            return None
+        if outcome is None or not getattr(outcome, "ok", False):
+            return None
+        answer = (getattr(outcome, "text", "") or "").strip().lower()
+        # First permitted word wins, so "answer." or "answer - it supplies"
+        # still resolve. An answer naming none of them returns None.
+        for word in answer.replace(".", " ").replace(",", " ").split():
+            if word in _ROLE_BY_WORD:
+                return _ROLE_BY_WORD[word]
+        return None
 
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         """Parse raw input into Intent or clarification request."""
