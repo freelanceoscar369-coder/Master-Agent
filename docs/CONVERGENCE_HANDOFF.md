@@ -49,8 +49,8 @@ files went from **50 failures to 0**.
 | Field | Value |
 |---|---|
 | CURRENT_BASELINE_SHA | `1743a53b585036cc872a409c2820bedf8cc4f316` |
-| LATEST_VERIFIED_SHA | `bb927fe5d523964073e06aa6e142647693d8a561` |
-| REMOTE_SHA (origin/main) | `bb927fe5d523964073e06aa6e142647693d8a561` |
+| LATEST_VERIFIED_SHA | `eb17ce4071d8fec193c88a8c33803b5580cb937e` — **the parent of the commit that writes this line.** A file cannot record its own SHA; `git rev-parse HEAD` is authoritative. |
+| REMOTE_SHA (origin/main) | equal to LOCAL, verified after every push |
 | LOCAL_REMOTE_SYNC | **IN SYNC — 0 ahead, 0 behind**, verified after every one of the 31 commits |
 | Branch | `main` |
 | Commits this session | **31** |
@@ -855,10 +855,12 @@ What remains uncommitted is untracked and was untracked before this session bega
 
 ## RUNNING PROCESSES / ENVIRONMENT NOTES
 
-- A git worktree for baseline comparison exists at
-  `C:\Users\DELL\AppData\Local\Temp\claude\D--MasterAgent\34a1e1b1-bd54-4720-9e2a-19b09325bb0f\scratchpad\wt-head`
-  (detached at `1743a53`). Remove with `git worktree remove` when done; it is
-  disposable and outside the repo.
+- **The comparison worktree this session created has been removed** and pruned.
+- **Three worktrees from EARLIER sessions remain and were left alone** — under
+  `%TEMP%\kv_arch`, `kv_b2`, `kv_ship2`, all detached. Not this session's, not
+  touched. `git worktree list` shows them.
+- **No background processes are left running.** Every test run, acceptance runner
+  and suite completed before this was written.
 - Tests require `PYTHONPATH=src`. There is no pytest config in `pyproject.toml`,
   so a bare `pytest` run will not resolve imports.
 - Python 3.14.5.
