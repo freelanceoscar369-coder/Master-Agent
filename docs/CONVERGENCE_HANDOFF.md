@@ -449,7 +449,33 @@ the Broker* (`ai_infrastructure/catalog.py:404`, `provider_id="openrouter.api"`)
 so nothing is lost. If it is wanted, it belongs behind the Broker like every other
 provider. **Founder's call.**
 
-#### B0b · `founder_edition` imports `os` and `socket` — a real, tracked guard breach
+#### B0b · **CLOSED** — the vendored server moved to the composition root
+
+**Done.** `FixedBottleServer`, `ThreadedAdapter` and `SSLWSGIRefServer` (~170 lines
+of vendored pywebview server) moved out of `founder_edition/desktop_shell.py` into
+`kalpavriksha_desktop.py`, and `create_window()` now takes `server=` instead of
+importing one. `socket`, `bottle`, `wsgiref` and `socketserver` are gone from the
+guarded package.
+
+**The remaining `os` import in `founder_edition` is `ai_client.py` and nothing
+else** — verified by search, and then proven: parking that one untracked file makes
+**all four** `TestNothingExecutesOrCallsAI` guards pass. It was restored
+immediately. So the tracked source is now fully compliant with the guard, and B0a
+is the only thing keeping it red.
+
+Packaging is unaffected: PyInstaller's `Analysis` entry script *is*
+`kalpavriksha_desktop.py`, so the imports are statically found exactly as they were
+when they lived in a `hiddenimports` module.
+
+Two things worth recording from doing it. The first extraction swept
+`CONVERSATION_ID` and `_SOURCE_BY_NAME` out with the server classes because they
+sit between them and `BridgeTextOutput` — caught immediately on import and put
+back. The second: the moved code reads `random` and `threading`, which the root did
+not import, and **the `LOAD_GLOBAL` guard added in Slice 5 caught both** before any
+test exercised those branches. That is twice in one session it has caught a live
+`NameError` in code that was about to be committed.
+
+#### B0b (original text) · `founder_edition` imports `os` and `socket`
 
 `tests/test_founder_edition_boot.py::TestNothingExecutesOrCallsAI` fails on two
 assertions, and **these are not stale tests**. The guard's own comment states its

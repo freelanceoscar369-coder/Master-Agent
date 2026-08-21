@@ -434,8 +434,12 @@ class TestCreateWindow:
         # the bare path, from before the page could be told.
         assert window.kwargs["url"] == "/tmp/web/index.html?debug=1"
         assert window.kwargs["background_color"] == "#05070A"
-        assert starts == {"debug": True, "called": True,
-                          "server": shell_module.FixedBottleServer}
+        # The server is INJECTED now, not imported by this package: serving
+        # the page needs a socket and filesystem paths, and
+        # `TestNothingExecutesOrCallsAI` names `socket` as one of the three
+        # things it keeps out. A caller with no opinion passes nothing and
+        # pywebview uses its own.
+        assert starts == {"debug": True, "called": True}
         assert returned.identity.founder_name == "Onkar"
 
     def test_an_ordinary_launch_tells_the_page_nothing_about_debugging(self, monkeypatch):
@@ -448,8 +452,7 @@ class TestCreateWindow:
         shell_module.create_window(founder_name="Onkar", web_dir="/tmp/web")
 
         assert windows[0].kwargs["url"] == "/tmp/web/index.html"
-        assert starts == {"debug": False, "called": True,
-                          "server": shell_module.FixedBottleServer}
+        assert starts == {"debug": False, "called": True}
 
     def test_exposes_exactly_the_fifteen_bridge_methods(self, monkeypatch):
         """The count is asserted because the bridge is the founder-facing

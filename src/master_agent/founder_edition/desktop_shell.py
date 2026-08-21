@@ -67,18 +67,12 @@ import contextlib
 import hashlib
 import json
 import logging
-import os
 import random
 import threading
-import uuid
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-import bottle
-from bottle import Bottle, static_file
-from wsgiref.simple_server import WSGIServer, WSGIRequestHandler, make_server
-from socketserver import ThreadingMixIn
 
 from master_agent.communication import (
     ChannelNotRegistered,
@@ -90,173 +84,6 @@ from master_agent.communication import (
 from master_agent.founder_edition.boot import FounderEditionApp, boot_founder_edition
 from master_agent.founder_edition.voice_pipeline import VoicePipeline
 from master_agent.founder_identity import FounderContext, greet
-
-# Custom BottleServer that fixes the pywebview 6.x asset() signature issue
-# where @app.route('/') and @app.route('/<file:path>') both call asset(file)
-# but '/' doesn't provide a 'file' parameter, causing TypeError.
-class FixedBottleServer:
-    def __init__(self) -> None:
-        self.root_path = '/'
-        self.running = False
-        self.address = None
-        self.js_callback = {}
-        self.js_api_endpoint = None
-        self.uid = str(uuid.uuid1())
-
-    @classmethod
-    def start_server(
-        cls, urls: list[str], http_port: int | None = None, keyfile: str | None = None, certfile: str | None = None
-    ) -> tuple[str, str | None, "FixedBottleServer"]:
-        from webview import _state
-        from webview.util import abspath, is_app, is_local_url
-
-        logger = logging.getLogger('pywebview')
-
-        apps = [u for u in urls if is_app(u)]
-        server = cls()
-
-        if len(apps) > 0:
-            app = apps[0]
-            common_path = '.'
-        else:
-            local_urls = [u.split('#')[0] for u in urls if is_local_url(u)]
-            common_path = os.path.commonpath(local_urls) if len(local_urls) > 0 else None
-            if common_path is not None and not os.path.isdir(abspath(common_path)):
-                common_path = os.path.dirname(common_path)
-            logger.debug(f'Common path for local URLs: {common_path}')
-            server.root_path = abspath(common_path) if common_path is not None else None
-            logger.debug(f'HTTP server root path: {server.root_path}')
-            app = Bottle()
-
-            @app.post(f'/js_api/{server.uid}')
-            def js_api():
-                bottle.response.headers['Access-Control-Allow-Origin'] = '*'
-                bottle.response.headers['Access-Control-Allow-Methods'] = (
-                    'PUT, GET, POST, DELETE, OPTIONS'
-                )
-                bottle.response.headers['Access-Control-Allow-Headers'] = (
-                    'Origin, Accept, Content-Type, X-Requested-With, X-CSRF-Token'
-                )
-
-                body = json.loads(bottle.request.body.read().decode('utf-8'))
-                if body['uid'] in server.js_callback:
-                    return json.dumps(server.js_callback[body['uid']](body))
-                else:
-                    logger.error(f'JS callback function is not set for window {body["uid"]}')
-
-            @app.route('/')
-            def index():
-                if not server.root_path:
-                    return ''
-                bottle.response.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-                bottle.response.set_header('Pragma', 'no-cache')
-                bottle.response.set_header('Expires', 0)
-                return static_file('index.html', root=server.root_path)
-
-            @app.route('/<file:path>')
-            def asset(file):
-                if not server.root_path:
-                    return ''
-                bottle.response.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-                bottle.response.set_header('Pragma', 'no-cache')
-                bottle.response.set_header('Expires', 0)
-                return static_file(file, root=server.root_path)
-
-        server.root_path = abspath(common_path) if common_path is not None else None
-        server.port = http_port or cls._get_random_port()
-        if keyfile and certfile:
-            server_adapter = SSLWSGIRefServer()
-            server_adapter.port = server.port
-            setattr(server_adapter, 'pywebview_keyfile', keyfile)
-            setattr(server_adapter, 'pywebview_certfile', certfile)
-        else:
-            server_adapter = ThreadedAdapter
-        server.thread = threading.Thread(
-            target=lambda: bottle.run(
-                app=app, server=server_adapter, port=server.port, quiet=not _state['debug']
-            ),
-            daemon=True,
-        )
-        server.thread.start()
-
-        server.running = True
-        protocol = 'https' if keyfile and certfile else 'http'
-        server.address = f'{protocol}://127.0.0.1:{server.port}/'
-        cls.common_path = common_path
-        server.js_api_endpoint = f'{server.address}js_api/{server.uid}'
-
-        return server.address, common_path, server
-
-    @staticmethod
-    def _get_random_port() -> int:
-        while True:
-            port = random.randint(1023, 65535)
-            import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                try:
-                    sock.bind(('localhost', port))
-                except OSError:
-                    continue
-                else:
-                    return port
-
-    @property
-    def is_running(self) -> bool:
-        return self.running
-
-
-class ThreadedAdapter(bottle.ServerAdapter):
-    def run(self, handler) -> None:
-        if self.quiet:
-            class QuietHandler(WSGIRequestHandler):
-                def log_request(*args, **_):
-                    pass
-            self.options['handler_class'] = QuietHandler
-
-        class ThreadAdapter(ThreadingMixIn, WSGIServer):
-            pass
-
-        server = make_server(
-            self.host, self.port, handler, server_class=ThreadAdapter, **self.options
-        )
-        server.serve_forever()
-
-
-class SSLWSGIRefServer(bottle.ServerAdapter):
-    def run(self, handler) -> None:
-        import ssl
-        import socket
-
-        class FixedHandler(WSGIRequestHandler):
-            def address_string(self) -> str:
-                return self.client_address[0]
-
-            def log_request(*args, **kw) -> None:
-                if not self.quiet:
-                    return WSGIRequestHandler.log_request(*args, **kw)
-
-        handler_cls = self.options.get('handler_class', FixedHandler)
-        server_cls = self.options.get('server_class', WSGIServer)
-
-        if ':' in self.host:
-            if server_cls.address_family == socket.AF_INET:
-                class server_cls(server_cls):
-                    address_family = socket.AF_INET6
-
-        ssl_context = ssl.SSLContext()
-        ssl_context.load_cert_chain(self.pywebview_certfile, self.pywebview_keyfile)
-        self.srv = make_server(self.host, self.port, handler, server_cls, handler_cls)
-        self.srv.socket = ssl_context.wrap_socket(self.srv.socket, server_side=True)
-        self.port = self.srv.server_port
-
-        if os.path.exists(self.pywebview_keyfile):
-            os.unlink(self.pywebview_keyfile)
-        try:
-            self.srv.serve_forever()
-        except KeyboardInterrupt:
-            self.srv.server_close()
-            raise
-
 
 CONVERSATION_ID = "founder-surface"
 
@@ -662,6 +489,7 @@ def create_window(
     microphone_enabled: bool = True,
     submit_objective: Callable[[str], dict[str, Any]] | None = None,
     default_mode: str = "",
+    server: Any = None,
     get_execution_status: Callable[[], dict[str, Any]] | None = None,
     confirm_completion: Callable[[str], dict[str, Any]] | None = None,
     capability_domains: Callable[[], Any] | None = None,
@@ -764,6 +592,15 @@ def create_window(
     else:
         logging.info("voice pipeline not built: microphone disabled for this session")
 
-    # Use FixedBottleServer to avoid pywebview 6.x asset() signature bug
-    webview.start(debug=debug, server=FixedBottleServer)
+    # The server is INJECTED, not imported. Serving the page needs a
+    # socket and filesystem paths, and this package is guarded against
+    # both -- `TestNothingExecutesOrCallsAI` names `socket` as one of
+    # the three things it exists to keep out. The composition root owns
+    # the environment, so it owns the server; passing `None` lets
+    # pywebview use its own, which is the honest default for a caller
+    # that has no opinion.
+    if server is not None:
+        webview.start(debug=debug, server=server)
+    else:
+        webview.start(debug=debug)
     return app
