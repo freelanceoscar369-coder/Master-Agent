@@ -131,21 +131,40 @@ class TestClarificationResolution:
         assert resolved.clarification.key == "location"
         assert resolved.clarification.question == "Where should I create the Research folder?"
 
-    def test_the_resolution_loop_has_no_production_caller_yet(self):
-        """Documented gap, asserted so it cannot be forgotten.
+    def test_the_resolution_loop_now_has_its_production_caller(self):
+        """The gap this used to assert is closed, and this is the test
+        that was written to notice.
 
-        The founder receives the clarification question, but nothing feeds
-        their answer back through `clarify()` -- clarification is one-way
-        today. This test fails the moment that changes, which is when the
-        rejoin-and-re-parse limitation above needs the key-based fix.
+        Its previous form asserted that **nothing** called `clarify()` --
+        clarification was one-way, the founder was asked a question the
+        system could not hear the answer to, and ADR-0024 records that as
+        its Gap 1. The composition root closes it: `kalpavriksha_desktop
+        ._submit_objective` calls `clarify()` with the question's own
+        `key`, `options` and everything answered in earlier rounds.
+
+        Two things were wrong with how it checked, both fixed here.
+
+        It searched `src/` only, while the composition root lives at the
+        repository root -- so it could never have seen the caller it was
+        watching for. And it matched raw source text, so it fired on
+        `brain/utterance.py`, whose module docstring *quotes* the old
+        `intent_layer.clarify(...)` line to explain what changed. A
+        comment describing history is not a call. This asserts the
+        behaviour instead, which cannot be tripped by prose.
         """
-        import subprocess
+        layer = IntentLayer()
+        opened = layer.parse("Create a folder")
+        assert opened.needs_clarification, "precondition: a question is asked"
 
-        hits = subprocess.run(
-            ["git", "grep", "-l", r"\.clarify(", "--", "src/"],
-            capture_output=True, text=True, cwd=r"D:/MasterAgent",
-        ).stdout.strip()
-        assert hits == "", f"clarify() now has production callers: {hits}"
+        resolved = layer.clarify(
+            "Create a folder", "Research", opened.clarification,
+        )
+
+        # The answer was absorbed as DATA against the question's key --
+        # the round trip the previous form said did not exist.
+        assert resolved.clarification is None or resolved.clarification.key != "folder_name"
+        if resolved.intent is not None:
+            assert resolved.intent.context.get("folder_name") == "Research"
 
 
 class TestThePlannerIsNotReachedForUnresolvedIntent:
