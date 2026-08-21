@@ -336,6 +336,43 @@ workload `INTERACTIVE`) — reuse that seam, do not invent a second one.
 
 ---
 
+## THE FAILING SUITE, CLASSIFIED
+
+A bare failure count is not information. The pre-existing red was triaged by cause,
+because "119 failures" and "43 of them are one unbuilt feature in a component
+Founder Edition does not ship" are very different facts.
+
+| Cause | Files | Count | In Founder Edition scope? |
+|---|---|---|---|
+| `FounderConsole` has no `memory=` parameter and no `replay`/`remember` commands | `test_missions_console.py`, `test_memory_integration.py` | **43** | **NO** |
+| Everything else | assorted | remainder | mixed — untriaged |
+
+### The 43 — one unbuilt feature, in an excluded component
+
+`master_agent.launcher.console.FounderConsole.__init__()` takes no `memory`
+argument, and the module contains no `replay` or `remember` command. `git log -S`
+shows **`replay` was never there** — these are tests written against a feature that
+was never built, not a regression that removed one.
+
+And the component is **explicitly excluded from the Founder Edition build**:
+
+```
+packaging/kalpavriksha.spec:128
+excludes=['master_agent.launcher', 'master_agent.dashboard'],
+```
+
+So this whole cluster is **SPECIFIED_BUT_MISSING for the CLI launcher and out of
+scope for this mission**. Building it would be building the future (§20) on the
+strength of tests that describe an intention. Recorded here so the next session
+does not spend an afternoon rediscovering that 36% of the red belongs to something
+Founder Edition does not ship.
+
+**Recommended:** these tests should be marked `xfail` with the reason, or the
+feature should get its own brief. Either is a founder/Hermes decision, not a
+convergence action.
+
+---
+
 ## KNOWN_BLOCKERS
 
 ### B0 · Two findings recorded rather than acted on — both need a decision
