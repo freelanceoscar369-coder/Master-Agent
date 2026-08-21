@@ -69,6 +69,30 @@ DEFAULT_MODEL = "gemini-3.6-flash"
 
 NO_API_KEY = "no GEMINI_API_KEY configured"
 
+#: HTTP statuses that mean *"ask again shortly"* rather than *"this request
+#: is wrong"*. 503 is the one a founder actually hit ("This model is
+#: currently experiencing high demand"); 429 is free-tier rate limiting;
+#: 500/502/504 are Google-side transients. A 4xx that is not 429 is never
+#: retried — repeating a malformed or unauthorised request cannot change
+#: its answer.
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+#: Total attempts, not extra ones: 3 means one call plus at most two
+#: retries. Bounded deliberately — MB033 Rule 4 puts retry policy in the
+#: provider, and `transport.py`'s own docstring is explicit that "burying a
+#: retry loop underneath a provider is how 'no retries beyond its own
+#: transport layer' quietly becomes six." This is that one policy, stated
+#: once, in the layer that owns it.
+DEFAULT_MAX_ATTEMPTS = 3
+
+#: Seconds to wait before each retry, indexed by the retry number. Fixed
+#: and short rather than exponential-with-jitter: the founder is sitting in
+#: front of a desktop app waiting for a reply, so the whole retry budget
+#: has to stay inside a few seconds of added latency, and a transient
+#: 503 from a large provider either clears quickly or is not clearing
+#: within any delay a founder would tolerate.
+RETRY_DELAYS_SECONDS = (0.6, 1.4)
+
 
 class GeminiProvider(ModelProvider):
     """A `ModelProvider` backed by the Gemini REST API.
@@ -86,6 +110,8 @@ class GeminiProvider(ModelProvider):
         transport: Transport | None = None,
         clock: Any = None,
         provider_id: str = GEMINI_PROVIDER_ID,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        sleep: Any = None,
     ) -> None:
         self._api_key = api_key or ""
         self._model = model
@@ -94,6 +120,11 @@ class GeminiProvider(ModelProvider):
         self._transport: Transport = transport or UrllibTransport()
         self._clock = clock or time.monotonic
         self._provider_id = provider_id
+        self._max_attempts = max(1, max_attempts)
+        # Injected for testability, the same seam `clock` and `transport`
+        # already are — a test proving the retry policy must not actually
+        # sleep for it.
+        self._sleep = sleep or time.sleep
 
     # ---- identity -------------------------------------------------------
 
@@ -176,26 +207,62 @@ class GeminiProvider(ModelProvider):
         if merged_options:
             payload["generationConfig"] = merged_options
 
-        try:
-            response = self._transport.post_json(url, payload, timeout)
-        except TransportTimeout as exc:
-            return failure(
-                self._provider_id,
-                TIMED_OUT,
-                str(exc),
-                latency_ms=self._elapsed_ms(started),
-                timeout_seconds=timeout,
-                url=self._base_url,
-            )
-        except TransportUnavailable as exc:
-            return failure(
-                self._provider_id,
-                UNAVAILABLE,
-                f"{exc} (could not reach {self._base_url})",
-                latency_ms=self._elapsed_ms(started),
-                url=self._base_url,
-            )
-        return self._read(response, started)
+        # Bounded retry on transient conditions only (see
+        # `TRANSIENT_STATUSES`/`DEFAULT_MAX_ATTEMPTS`). Every non-transient
+        # outcome — success, a 4xx that is not 429, malformed JSON —
+        # returns on the first pass exactly as before, so the ordinary
+        # path is unchanged in both behaviour and latency.
+        last: ProviderResult | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                response = self._transport.post_json(url, payload, timeout)
+            except TransportTimeout as exc:
+                # A timeout is not retried: the deadline that just expired
+                # is the caller's own budget, and spending it again would
+                # multiply the wait a founder already found too long.
+                return failure(
+                    self._provider_id,
+                    TIMED_OUT,
+                    str(exc),
+                    latency_ms=self._elapsed_ms(started),
+                    timeout_seconds=timeout,
+                    url=self._base_url,
+                )
+            except TransportUnavailable as exc:
+                last = failure(
+                    self._provider_id,
+                    UNAVAILABLE,
+                    f"{exc} (could not reach {self._base_url})",
+                    latency_ms=self._elapsed_ms(started),
+                    url=self._base_url,
+                )
+                if attempt >= self._max_attempts:
+                    return last
+                self._wait_before_retry(attempt)
+                continue
+
+            if response.ok or response.status not in TRANSIENT_STATUSES:
+                return self._read(response, started)
+
+            last = self._read(response, started)
+            if attempt >= self._max_attempts:
+                return last
+            self._wait_before_retry(attempt)
+
+        return last if last is not None else failure(
+            self._provider_id,
+            UNAVAILABLE,
+            "no attempt was made",
+            latency_ms=self._elapsed_ms(started),
+        )
+
+    def _wait_before_retry(self, attempt: int) -> None:
+        delay = (
+            RETRY_DELAYS_SECONDS[attempt - 1]
+            if attempt - 1 < len(RETRY_DELAYS_SECONDS)
+            else RETRY_DELAYS_SECONDS[-1]
+        )
+        self._sleep(delay)
 
     # ---- the ModelProvider contract -------------------------------------
 
