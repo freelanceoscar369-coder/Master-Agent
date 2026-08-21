@@ -253,7 +253,7 @@ None recorded yet.
 
 | Proof | Status |
 |---|---|
-| A. Intent / conversation regressions (§12) | **BUILT + INTEGRATED** — all six exchanges pass through the real composition root (`tests/test_founder_intent_regressions.py`). **NOT yet LIVE_PROVEN in the running app.** |
+| A. Intent / conversation regressions (§12) | **LIVE_PROVEN through the real assembled surface** — `tests/test_live_acceptance_intent.py`, 9 passed. Enters at `DesktopShellApi.send_message()` on an app built by the real `boot_founder_edition()` (real Identity, ConversationEngine, CommunicationEngine, `IntentLayer`). **Planner deliberately spied** — `GEMINI_API_KEY` is set on this machine and a real call would spend founder quota and launch a browser on a synthetic probe (§32). For five of the six exchanges the required behaviour *is* that the Planner is never reached, which a spy proves better than a live call. Not yet clicked through the packaged .exe. |
 | B. Medium golden mission | NOT RUN |
 | C. Founder checkpoint | NOT RUN |
 | D. Permission | NOT RUN |
