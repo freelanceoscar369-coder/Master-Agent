@@ -675,18 +675,98 @@ def _build_mission_pipeline():
         the same place and the same shape as `_set_mode` above, and
         `tests/test_founder_approval_path.py` can call it directly.
         """
-        if approved:
-            approval = mission_control.approvals.get(approval_id)
-            if approval is not None:
-                permissions.grant(
-                    approval.executive_id, approval.local_capability,
-                    GrantScope.ONCE,
+        if not approved:
+            return mission_control.reject(approval_id, "founder", note).as_dict()
+
+        approval = mission_control.approvals.get(approval_id)
+        if approval is not None:
+            permissions.grant(
+                approval.executive_id, approval.local_capability,
+                GrantScope.ONCE,
+            )
+        decision = mission_control.approve(approval_id, "founder", note).as_dict()
+
+        # AND THEN THE WORK ACTUALLY RUNS.
+        #
+        # Without this the founder pressed Approve, the grant was
+        # recorded, the approval was marked approved -- and nothing ever
+        # happened. `_submit_objective` is the only other thing that turns
+        # the Runtime, and it returned long before the founder decided, so
+        # the authorised task sat at `awaiting_approval` forever. Proven
+        # live: approve, then wait ten seconds with nobody turning the
+        # crank, and the file the founder had just authorised deleting was
+        # still there.
+        #
+        # A permission gate that holds work and never releases it is worse
+        # than no gate, because the founder is told their decision was
+        # recorded. This is the release.
+        objective_id = getattr(status, "objective_id", None)
+        if objective_id:
+            _drive_until_settled(runtime, mission_control, status,
+                                 objective_id, 180.0)
+            # What the founder is told next time the surface asks. The
+            # branches mirror `_submit_objective`'s own tail and reuse the
+            # same Reporter and the same sentence composers -- this root
+            # still writes no founder prose of its own.
+            state = mission_control.founder_state(objective_id)
+            if state.errors:
+                logging.warning("objective failed after approval: %s",
+                                "; ".join(state.errors))
+                status.message = _founder_failure_sentence("; ".join(state.errors))
+            elif state.progress >= 1.0:
+                status.result = state.result
+                status.message = _mission_report(mission_service, objective_id) or (
+                    "The work finished, but I can't reconstruct a verified "
+                    "mission summary."
                 )
-            return mission_control.approve(approval_id, "founder", note).as_dict()
-        return mission_control.reject(approval_id, "founder", note).as_dict()
+        return decision
 
     return (mission_service, runtime, mission_control, status, tiered_runner,
             _set_mode, interactions, decide_approval)
+
+
+def _drive_until_settled(runtime, mission_control, status, objective_id,
+                         timeout_seconds: float) -> None:
+    """Turn the Runtime until this objective settles or waits on a human.
+
+    The ONE place anything drives `run_once()`. It was inline in
+    `_submit_objective`, which meant the only moment work could progress
+    was the founder's own message -- and a founder answering a question
+    the mission had already asked was not that moment. See
+    `decide_approval` for what that cost.
+
+    Not a scheduler and not a second orchestration authority: the same
+    bounded loop as before, in a function, so that both callers share one
+    implementation rather than growing two that drift.
+
+    ## Why the break reads `approval_id` rather than the status string
+
+    `status.approval_id` is the authoritative "a question is open" fact --
+    its own docstring says `None` whenever nothing is pending, and
+    `APPROVAL_GRANTED`/`APPROVAL_DENIED` clear it. `status.status` is a
+    label that still reads `awaiting_approval` immediately after a founder
+    has answered, so breaking on it would stop the resume loop on its
+    first pass, before the newly-granted work ever ran. Same behaviour on
+    the original path, where both are set together.
+    """
+    import time as _time
+
+    deadline = _time.monotonic() + timeout_seconds
+    objective = mission_control.dispatcher.objective(objective_id)
+    while _time.monotonic() < deadline and not (
+        objective.is_complete or objective.has_failure
+    ):
+        runtime.run_once()
+        objective = mission_control.dispatcher.objective(objective_id)
+        # Waiting on the founder is a terminal state for THIS call. The
+        # work has run and been verified; nothing further will happen
+        # until a human answers, so spinning to the deadline only delays
+        # telling them so -- and, before this, ended in "that's taking
+        # longer than expected" about a mission that had already finished.
+        if status.requires_founder_completion or status.approval_id:
+            break
+        if not (objective.is_complete or objective.has_failure):
+            _time.sleep(0.2)
 
 
 def _founder_reply(status, reply: str, *, interaction_type: str = "") -> dict:
@@ -1054,22 +1134,8 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         return _founder_reply(status, status.message)
 
     objective_id = outcome.objective_id
-    deadline = _time.monotonic() + timeout_seconds
-    objective = mission_control.dispatcher.objective(objective_id)
-    while _time.monotonic() < deadline and not (objective.is_complete or objective.has_failure):
-        runtime.run_once()
-        objective = mission_control.dispatcher.objective(objective_id)
-        # Waiting on the founder is a terminal state for THIS call. The
-        # work has run and been verified; nothing further will happen
-        # until a human answers, so spinning to the deadline only delays
-        # telling them so -- and, before this, ended in "that's taking
-        # longer than expected" about a mission that had already finished.
-        if status.requires_founder_completion or status.status in (
-            AWAITING_APPROVAL, AWAITING_FOUNDER_COMPLETION
-        ):
-            break
-        if not (objective.is_complete or objective.has_failure):
-            _time.sleep(0.2)
+    _drive_until_settled(runtime, mission_control, status, objective_id,
+                         timeout_seconds)
 
     state = mission_control.founder_state(objective_id)
     if state.errors:

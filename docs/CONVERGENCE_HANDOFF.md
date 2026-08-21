@@ -253,6 +253,45 @@ was unreachable without running `main()`, which opens a real window.
 **This is why §30 says unit tests are not enough.** Everything about approval was
 green; the one path a founder actually takes was a crash.
 
+### Slice 6 — the founder approved and nothing happened
+
+**The second real founder-facing defect, and Live Acceptance D is what found it.**
+
+`_submit_objective` was the only thing in the process that ever called
+`runtime.run_once()`, and it returns long before the founder decides. So:
+founder asks for an irreversible action → gate holds → founder presses Approve →
+grant recorded, approval marked approved → **nothing ever resumes the work.** The
+mission sits at `awaiting_approval` forever.
+
+Proven live before fixing: approve, then wait ten seconds with nobody turning the
+crank — the file the founder had just authorised deleting was still there.
+*"STUCK -- approval does not resume execution."*
+
+- **Fix:** the runtime loop is extracted to `_drive_until_settled()` — one driver,
+  not two — and `decide_approval` calls it after granting, then refreshes the
+  founder-facing sentence through the existing Reporter.
+- **A second bug inside the first:** the loop's break condition read
+  `status.status in (AWAITING_APPROVAL, ...)`. That is a *label*, updated by a
+  later event, and it still reads `awaiting_approval` immediately after a founder
+  answers — so a resume loop would have broken on its first pass, before the
+  newly-authorised work ran. It now reads `status.approval_id`, which is the
+  authoritative "a question is open" fact and is cleared by `APPROVAL_GRANTED`.
+- **Also fixed by this:** the founder used to be left with the stale sentence
+  *"This needs your approval before I go ahead."* on a mission that had since
+  completed. It now reads *"Work finished. All 1 executed step(s) were
+  independently verified."*
+- **Tests:** 5 added to `tests/test_founder_approval_path.py`. Zero regressions
+  (11 = 11, with untracked test files synced into the baseline worktree — see
+  the note below).
+
+**Method note for future sessions:** comparing failure sets against a clean
+worktree produces *spurious* "new failures" for **untracked** test files, which
+simply do not exist in the worktree. `tests/test_fire_and_forget_contract.py`,
+`tests/test_launch_rescue_provider_hygiene.py` and one other are untracked, and
+the first contains four tests whose own docstrings say **"CHARACTERIZATION —
+expected to FAIL today."** Always `cp` the untracked test files into the worktree
+before trusting a comparison.
+
 ---
 
 ## CURRENT_SLICE
@@ -334,7 +373,7 @@ None recorded yet.
 | A. Intent / conversation regressions (§12) | **LIVE_PROVEN through the real assembled surface** — `tests/test_live_acceptance_intent.py`, 9 passed. Enters at `DesktopShellApi.send_message()` on an app built by the real `boot_founder_edition()` (real Identity, ConversationEngine, CommunicationEngine, `IntentLayer`). **Planner deliberately spied** — `GEMINI_API_KEY` is set on this machine and a real call would spend founder quota and launch a browser on a synthetic probe (§32). For five of the six exchanges the required behaviour *is* that the Planner is never reached, which a spy proves better than a live call. Not yet clicked through the packaged .exe. |
 | B. Medium golden mission | **LIVE_PROVEN — PASS, 2026-08-21 15:38.** Real Gemini planning, real visible Chrome, real folder on the founder's Desktop. Runner: `scripts/live_acceptance/b_medium_golden_mission.py`. See below. |
 | C. Founder checkpoint | NOT RUN |
-| D. Permission | NOT RUN |
+| D. Permission | **LIVE_PROVEN — PASS, 2026-08-21 15:48**, after fixing two real defects it exposed. Runner: `scripts/live_acceptance/d_permission_gate.py`. See Slice 6. |
 | E. Persistence / recovery | NOT RUN |
 | F. Real intelligence route | **LIVE_PROVEN as a side effect of B** — B's plan was produced by a real Gemini call through Planner → Model Router → Broker → provider, with the ladder pinned to Gemini. `broker_decisions.json` holds the decision trail. **No Duck.ai** (`browser_free_ai` is never registered in this composition). Not separately scripted. |
 

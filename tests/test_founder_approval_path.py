@@ -170,3 +170,142 @@ class TestTheRealDecideApprovalIsReachableAndWorks:
 
         assert isinstance(result, dict)
         assert "reject" not in str(result.get("state", result.get("status", ""))).lower()
+
+
+# =========================================================================
+# The second defect: approval granted, work never resumed
+# =========================================================================
+
+
+class _FakeObjective:
+    def __init__(self, completes_after=0):
+        self._left = completes_after
+        self.has_failure = False
+
+    @property
+    def is_complete(self):
+        return self._left <= 0
+
+    def tick(self):
+        self._left -= 1
+
+
+class _FakeDispatcher:
+    def __init__(self, objective):
+        self._objective = objective
+
+    def objective(self, objective_id):
+        return self._objective
+
+
+class _FakeMissionControl:
+    def __init__(self, objective):
+        self.dispatcher = _FakeDispatcher(objective)
+
+
+class _CountingRuntime:
+    def __init__(self, objective):
+        self.calls = 0
+        self._objective = objective
+
+    def run_once(self):
+        self.calls += 1
+        self._objective.tick()
+
+
+class _Status:
+    """Only the two fields the driver reads."""
+
+    def __init__(self, approval_id=None, requires_founder_completion=False):
+        self.approval_id = approval_id
+        self.requires_founder_completion = requires_founder_completion
+
+
+class TestTheRuntimeDriverIsShared:
+    """`_drive_until_settled` is the one place anything turns the Runtime.
+    It was inline in `_submit_objective`, which meant the only moment work
+    could progress was the founder's own message -- and a founder
+    answering a question the mission had already asked is not that
+    moment."""
+
+    def test_it_turns_the_runtime_until_the_objective_completes(self):
+        objective = _FakeObjective(completes_after=3)
+        runtime = _CountingRuntime(objective)
+
+        kd._drive_until_settled(
+            runtime, _FakeMissionControl(objective), _Status(), "obj-1", 5.0,
+        )
+
+        assert objective.is_complete
+        assert runtime.calls == 3
+
+    def test_it_stops_when_a_NEW_question_opens(self):
+        objective = _FakeObjective(completes_after=99)
+        runtime = _CountingRuntime(objective)
+        status = _Status()
+
+        original = runtime.run_once
+
+        def open_a_question():
+            original()
+            status.approval_id = "needs-a-human"
+
+        runtime.run_once = open_a_question
+        kd._drive_until_settled(
+            runtime, _FakeMissionControl(objective), status, "obj-1", 5.0,
+        )
+
+        assert runtime.calls == 1, "it kept running past an open question"
+
+    def test_it_stops_when_the_founder_must_confirm_completion(self):
+        objective = _FakeObjective(completes_after=99)
+        runtime = _CountingRuntime(objective)
+        status = _Status(requires_founder_completion=True)
+
+        kd._drive_until_settled(
+            runtime, _FakeMissionControl(objective), status, "obj-1", 5.0,
+        )
+
+        assert runtime.calls == 1
+
+    def test_an_already_answered_approval_does_not_stop_the_resume(self):
+        """THE REGRESSION. After a founder approves, `status.status` still
+        reads `awaiting_approval` -- it is a label, updated by a later
+        event. `approval_id` is the authoritative "a question is open"
+        fact and is cleared the moment the approval is granted. Breaking
+        on the label would stop the resume loop on its first pass, before
+        the newly-authorised work ever ran, which is exactly the bug:
+        the founder approved and nothing happened.
+        """
+        objective = _FakeObjective(completes_after=3)
+        runtime = _CountingRuntime(objective)
+        status = _Status(approval_id=None)      # answered: cleared
+        status.status = "awaiting_approval"     # label: still stale
+
+        kd._drive_until_settled(
+            runtime, _FakeMissionControl(objective), status, "obj-1", 5.0,
+        )
+
+        assert objective.is_complete, "the stale label stopped the resume"
+        assert runtime.calls == 3
+
+
+class TestApprovingActuallyReleasesTheWork:
+    def test_decide_approval_drives_the_runtime(self):
+        """A permission gate that holds work and never releases it is
+        worse than no gate, because the founder is told their decision was
+        recorded. Asserted on the source because the closure's own
+        Runtime is the real one -- the behaviour itself is proven live by
+        `scripts/live_acceptance/d_permission_gate.py`, which approves and
+        then only waits.
+        """
+        import inspect
+
+        source = inspect.getsource(kd._build_mission_pipeline)
+        start = source.index("def decide_approval")
+        body = source[start:]
+
+        assert "_drive_until_settled" in body, (
+            "decide_approval grants the permission but never resumes the "
+            "work it just authorised"
+        )
