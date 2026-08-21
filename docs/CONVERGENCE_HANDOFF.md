@@ -49,19 +49,27 @@ files went from **50 failures to 0**.
 | Field | Value |
 |---|---|
 | CURRENT_BASELINE_SHA | `1743a53b585036cc872a409c2820bedf8cc4f316` |
-| LATEST_VERIFIED_SHA | see COMPLETED_SLICES — latest is Slice 1 |
-| REMOTE_SHA (origin/main) | verified equal at each checkpoint |
-| LOCAL_REMOTE_SYNC | IN SYNC after every checkpoint below |
+| LATEST_VERIFIED_SHA | `bb927fe5d523964073e06aa6e142647693d8a561` |
+| REMOTE_SHA (origin/main) | `bb927fe5d523964073e06aa6e142647693d8a561` |
+| LOCAL_REMOTE_SYNC | **IN SYNC — 0 ahead, 0 behind**, verified after every one of the 31 commits |
 | Branch | `main` |
+| Commits this session | **31** |
+| Tracked working tree | **clean** |
 
-Baseline matches the SHA named in the convergence brief. No divergence to reconcile.
+Baseline matched the SHA named in the convergence brief. No divergence at any point,
+no force-push, no history rewritten, nothing discarded.
 
 ---
 
 ## MISSION_STATUS
 
-Phase: **convergence implementation, in dependency order.** Canonical read done,
-matrix built and source-reconciled twice, Slice 1 landed.
+Phase: **convergence implementation complete for this session.** Canonical read
+done, matrix built and source-reconciled twice, eight slices landed, six live
+acceptances run.
+
+**Not finished, and honestly so:** Live Acceptance C end-to-end is blocked on
+provider quota, two founder decisions are open, and one untracked file keeps an
+architecture guard red. See NEXT_EXACT_ACTION.
 
 ---
 
@@ -70,10 +78,13 @@ matrix built and source-reconciled twice, Slice 1 landed.
 **BUILT and reconciled against source twice** —
 `docs/audits/FOUNDER_EDITION_CONFORMANCE_MATRIX.md` (commit `01dda78`).
 
-25 responsibilities classified. Not COMPLIANT_AND_WIRED: 1 SPECIFIED_BUT_MISSING
-(utterance roles — now closed by Slice 1), 1 IMPLEMENTATION_DRIFT (Intent has no
-reasoning door), 1 BUILT_BUT_UNWIRED (provider retry, uncommitted), 3
-DELIBERATELY_FUTURE. **No FOUNDER_DECISION_REQUIRED rows.**
+**31 responsibilities** classified, and the matrix was itself corrected once during
+the session (Row 21 conflated persistence-recording with resume-after-restart).
+
+Still open after this session: **1 IMPLEMENTATION_DRIFT** (Row 30 — the untracked
+rogue provider client), **3 DELIBERATELY_FUTURE**, and **2 FOUNDER_DECISIONS**
+(FD1, FD2 below). Everything else is COMPLIANT_AND_WIRED, including three rows that
+were actively broken when the session began.
 
 ---
 
