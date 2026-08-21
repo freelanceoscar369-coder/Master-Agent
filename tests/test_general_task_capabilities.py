@@ -566,12 +566,34 @@ class TestThePlaybookIsGeneric:
         assert "several sources" in text
         assert "accident that looks like one" in text
 
-    def test_it_teaches_approval_at_the_right_moment(self):
+    def test_it_teaches_that_ordinary_work_runs_itself(self):
+        """This test used to assert the opposite, and was wrong. It pinned
+        "approval belongs immediately before the first step that actually
+        changes something" -- which is not Founder Edition's policy. A
+        reversible write is pre-granted and runs automatically; only
+        destructive, financial and privacy actions are held."""
         from master_agent.planner.task_playbook import playbook_lines
 
         text = " ".join(playbook_lines()).lower()
-        assert "need no permission" in text
-        assert "immediately before the first step that actually changes" in text
+        assert "ordinary work runs on its own" in text
+        assert "none of it waits for anyone" in text
+        assert "that is not the plan's job" in text
+
+    def test_it_does_not_teach_approval_before_every_change(self):
+        from master_agent.planner.task_playbook import playbook_lines
+
+        text = " ".join(playbook_lines()).lower()
+        assert "approval belongs" not in text
+        assert "get approval if the next step changes something" not in text
+
+    def test_it_keeps_the_founder_requested_exception(self):
+        """Asking to see something first is part of the objective, not a
+        policy matter."""
+        from master_agent.planner.task_playbook import playbook_lines
+
+        text = " ".join(playbook_lines()).lower()
+        assert "what the founder asked for out loud" in text
+        assert "part of the outcome, not a policy matter" in text
 
     def test_it_teaches_preserving_originals(self):
         from master_agent.planner.task_playbook import playbook_lines

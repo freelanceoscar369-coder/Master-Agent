@@ -163,6 +163,22 @@ class Step:
     #: `None` means nobody said -- which MB035's founder page renders as
     #: `not checked`, deliberately distinct from `not matched`.
     expected_outcome: ExpectedOutcome | None = None
+    #: A pause the FOUNDER asked for, in their own objective -- "show me
+    #: what you propose before you change it". Empty for almost every
+    #: step, because almost no objective asks.
+    #:
+    #: Deliberately not a permission concept. Destructive, financial and
+    #: privacy boundaries hold their own steps automatically and need no
+    #: help from a plan; this exists for the opposite case, where policy
+    #: would let the work run and the founder said they wanted to look
+    #: first. Conflating the two is what produced a planner rule claiming
+    #: every change pauses for approval, which was never the policy.
+    #:
+    #: The text is what the founder will be shown described, not the
+    #: content itself -- the content comes from the step's resolved inputs
+    #: at run time, so what they read is what the earlier steps actually
+    #: produced rather than what the plan predicted.
+    founder_checkpoint: str = ""
     #: MB037. **Descriptive, never directive.** Mission Control owns
     #: execution order and resolves it from `depends_on`; a Planner that
     #: could reorder execution by labelling a step `critical` would own

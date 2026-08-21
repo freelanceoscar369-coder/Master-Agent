@@ -38,8 +38,8 @@ COMPLEX = (
         "When later work depends on what earlier work found, plan it as "
         "phases rather than as one flat list: discover what sources exist, "
         "collect evidence from them, compare the evidence, reason over it, "
-        "identify the options or gaps, choose what to propose, get approval "
-        "if the next step changes something, carry out the approved change, "
+        "identify the options or gaps, choose what to propose, pause only "
+        "if the founder asked to see it first, carry out the change, "
         "verify it, continue any research that depended on it, and "
         "synthesise the final answer."
     ),
@@ -73,13 +73,21 @@ EVIDENCE = (
 )
 
 CHANGE = (
-    "Before changing anything of the founder's:",
+    "Changing the founder's things:",
     (
-        "Finding, reading, observing and reasoning change nothing, and "
-        "need no permission -- do not plan an approval before them. "
-        "Approval belongs immediately before the first step that actually "
-        "changes something, and by then the founder should already be able "
-        "to see what you found and what you propose to do about it."
+        "Ordinary work runs on its own. Reading, searching, browsing, "
+        "reasoning, making a folder, writing a new file -- none of it "
+        "waits for anyone, and planning a pause before it would be "
+        "ignoring an instruction the founder already gave. Actions that "
+        "destroy something, spend money, or send private material outside "
+        "this machine are held by their own boundaries whether or not the "
+        "plan mentions them; that is not the plan's job."
+    ),
+    (
+        "The exception is what the founder asked for out loud. If the "
+        "objective says to show them something before a later action, "
+        "that is part of the outcome, not a policy matter, and the plan "
+        "has to carry it -- see rule 12b."
     ),
     (
         "Never modify or overwrite something the founder already has. "

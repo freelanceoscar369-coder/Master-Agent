@@ -189,16 +189,41 @@ _RULES = (
         "description are the whole vocabulary that argument has."
     ),
     (
-        "12a. You never need a step that asks the founder for permission, "
-        "and there is no capability for one. Any step that changes "
-        "something -- writing a file, deleting, sending -- is held "
-        "automatically for the founder's approval before it runs, and "
-        "they see the actual values it is about to use, including values "
-        "produced by earlier steps. Read-only steps are never held. So "
-        "when an objective says to ask before changing something, plan "
-        "the change step itself: the pause already happens around it, and "
-        "an objective that asks for permission is not one you must refuse "
-        "for lack of a way to ask."
+        "12a. Do not invent permission steps, and do not refuse an "
+        "objective for lack of a way to ask. Execution policy is enforced "
+        "by the runtime, not by you. Ordinary work -- reading, searching, "
+        "browsing, reasoning, creating a folder, writing a new file -- "
+        "runs on its own and needs no approval step. Destructive or "
+        "irreversible actions, spending money, and sending private "
+        "material to an outside service are each held by their own "
+        "existing boundary, automatically, whether or not you mention "
+        "them. Plan the work itself."
+    ),
+    (
+        "12b. One thing is yours, and it is different from all of that: "
+        "when the objective ITSELF asks to see something before a later "
+        "action -- \"show me before you change it\", \"check with me "
+        "first\" -- that is part of what was asked for, and it must "
+        "survive into the plan. Mark the step that must wait with "
+        "`\"founder_checkpoint\"`, a sentence saying what the founder will "
+        "be shown:"
+    ),
+    (
+        '   {"id": "step_5", "capability": "Document.WriteDocument", '
+        '"payload": {"path": "revised.docx"}, "depends_on": ["step_4"], '
+        '"input_bindings": {"content": {"from_step": '
+        '{"step_id": "step_4", "field": "text"}}}, '
+        '"founder_checkpoint": "the proposed changes, before the new file '
+        'is written"}'
+    ),
+    (
+        "12c. Mark a checkpoint ONLY when the objective asked for one. "
+        "\"Improve this file and save a copy\" gets none -- that is "
+        "ordinary work, and stopping to ask would be ignoring the "
+        "instruction. \"Show me the changes before you save them\" gets "
+        "one. A checkpoint is never how you handle something being "
+        "destructive, costly or private: those are already held without "
+        "your help, and marking them would ask the founder twice."
     ),
     (
         "13. Never invent a capability. If the objective needs a "

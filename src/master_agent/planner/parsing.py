@@ -277,6 +277,11 @@ def _read_step(
             depends_on=depends_on,
             expected_outcome=spec.to_expected_outcome(),
             input_bindings={t: b.as_dict() for t, b in bindings.items()},
+            # What the founder asked to see before this step runs. Read as
+            # plain text and trimmed; absent for almost every step, which
+            # is the point -- a checkpoint exists only because an
+            # objective asked for one.
+            founder_checkpoint=str(entry.get("founder_checkpoint") or "").strip(),
             priority=priority,
             estimated_complexity=complexity,
         ),
