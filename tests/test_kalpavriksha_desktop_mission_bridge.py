@@ -23,9 +23,30 @@ from master_agent.missions.execution_status import ExecutionStatus  # noqa: E402
 # ---- _build_mission_pipeline() -------------------------------------------
 
 
-def test_returns_none_without_an_api_key(monkeypatch):
+def test_the_pipeline_still_builds_without_a_gemini_api_key(monkeypatch):
+    """This asserted `is None`, and that was right when Gemini was the
+    only rung on the ladder: no key meant no reasoning, so a mission
+    pipeline would have been a pipeline that could not plan.
+
+    It is not right now. The web rung is wired and the desktop AI
+    applications need no key of ours, so **no Gemini API key is not the
+    same fact as no reasoning capability**. Returning `None` here cost the
+    founder the Planner and all five Executives over a credential for one
+    rung out of four.
+
+    Credential handling is unchanged: `GeminiProvider` reports the missing
+    key as an ordinary provider failure, without a network call, and the
+    ladder walks past that rung.
+    """
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    assert kd._build_mission_pipeline() is None
+
+    pipeline = kd._build_mission_pipeline()
+
+    assert pipeline is not None, "a missing key for one rung disabled the whole product"
+    runtime = pipeline[1]
+    assert sorted(runtime._gateways) == [
+        "browser", "desktop", "document", "filesystem", "reasoning",
+    ]
 
 
 def test_builds_the_full_pipeline_with_a_key(monkeypatch):

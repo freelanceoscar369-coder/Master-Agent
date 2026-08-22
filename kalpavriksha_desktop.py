@@ -369,14 +369,23 @@ def _build_mission_pipeline():
     (`tests/test_founder_edition_boot.py::TestNothingExecutesOrCallsAI`).
     `desktop_shell.py` only ever receives the one callable this produces.
 
-    Returns `None` when no reasoning provider is configured — Founder
-    Edition then degrades to conversation-only, the same "construct
-    regardless, absence is a fact" posture the rest of this project
-    already takes with credentials (`GeminiConfig.api_key`).
+    Constructed whenever at least one reasoning route exists, which — now
+    that the web rung is wired — is always.
+
+    This used to read `if not api_key: return None`, so an absent Gemini
+    API key meant no mission pipeline at all: no Planner, no Executives,
+    conversation only. That was true when Gemini was the only rung. It is
+    not true now. **No Gemini API key is not the same fact as no reasoning
+    capability**, and the desktop AI applications and the browser rung
+    need no key of ours at all.
+
+    Credential handling itself is unchanged: `GeminiProvider` already
+    reports a missing key as an ordinary provider failure
+    (`NO_API_KEY`, and without making a network call), so the ladder
+    simply skips that rung and walks on. Only the composition's
+    assumption is repaired here.
     """
     api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        return None
 
     # Playwright's own PyInstaller/Nuitka detection
     # (`playwright/_impl/_transport.py::PipeTransport.connect`) defaults
