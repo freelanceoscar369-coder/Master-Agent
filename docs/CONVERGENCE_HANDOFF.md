@@ -1607,3 +1607,170 @@ STRUCTURED reply (a JSON plan arrived missing its opening `{"steps"`,
 rendered as sibling regions with no eligible container). Now largely
 moot -- with planning done locally, a 20k-character planning prompt
 should never be sent at all.
+
+---
+
+# PACKAGED FOUNDER ACCEPTANCE — 2026-08-22
+
+Driven through the **real packaged UI**: the founder window, its own
+pywebview/WebView2 bridge, real mouse and real keyboard via the project's
+own Win32/UIA mechanisms. No HTTP endpoint, no Runtime bypass, no
+`_submit_objective()` call, no import into the frozen process, no second
+bridge, no synthetic test interface.
+
+FINAL HEAD:  5f097218cfc1eff15ac667721427c282c9cb6383
+PACKAGE:     dist/Kalpavriksha/Kalpavriksha.exe, built 15:10 from that
+             production source (every production file predates the build;
+             only docs and tests changed after it)
+
+## Results
+
+| mission | through the packaged UI | outcome |
+|---|---|---|
+| A — deterministic local | "Create a folder called KV_PACKAGED_LIVE on the Desktop." | **PASS** — folder on disk, UI: "Work finished. All 1 executed step(s) were independently verified." |
+| B — reasoning to action | "Think of three short names for a gardening notes app and write them into packaged_names.txt on the Desktop." | **PASS** — `Sprout / Leaflet / Flora`, 105s |
+| C — cross-Executive golden | browser → observe → folder → file → close | **PASS** — 6 steps, all independently verified, 24s |
+| cold restart | closed, confirmed gone, cold launch, "Create a folder called KV_AFTER_RESTART on the Desktop." | **PASS** — folder on disk, UI reported verified completion, 14s |
+
+Mission C's file, off disk:
+
+    Title: Example Domain
+    URL: https://example.com/
+
+The founder's sentence said `https://example.com` **without** the
+trailing slash. The slash is therefore material evidence that the final
+URL flowed out of the page the browser actually resolved, rather than
+being copied from the instruction.
+
+Mission B's file holds three invented names -- not the founder's own
+prompt echoed back, not `Message ChatGPT`, not an error explanation, and
+not anything a planner could have predicted.
+
+## The defect this found, which source acceptance could not
+
+**`_drive_until_settled` abandoned a mission between its steps.**
+
+Mission B, first packaged run: the plan was right, `Reasoning.Transform`
+ran, produced real text, and its Evidence came back `matched` with the
+text in the observation -- and `Filesystem.WriteFile` was never
+dispatched at all. The runtime went idle holding a completed, verified
+dependency. The founder watched "that's taking longer than expected" for
+seven minutes about work that had already stopped.
+
+The loop bounded the mission by **elapsed time**, and `run_once()` blocks
+for the whole of the step it runs. A step that asks a desktop AI for an
+answer takes minutes; the packaged UI passes the 45-second default. So
+the deadline had *always* expired by the time control returned, and the
+loop exited between step one and step two. Nothing else drives the
+Runtime, so the mission stayed abandoned forever.
+
+Classification: **WIRED BUT RUNTIME/CONFIG BROKEN.** The architecture was
+right; the bound was measuring the wrong thing.
+
+Repair: the deadline now bounds **silence, not work**. Every observable
+step forward returns the full budget. The bound is still real -- a
+runtime reporting no progress is still cut off after one budget -- but it
+measures how long a mission has been silent rather than how long it has
+been running. Progress is read from Mission Control's own
+`founder_state()`, best-effort, so a Mission Control without it still
+drives. Both tests use real time rather than a stubbed clock, because the
+loop reads `time.monotonic()` itself, and the slow-step test was
+confirmed to fail with the fix reverted.
+
+Why source acceptance missed it: every source runner passed an explicit
+generous `timeout_seconds`. Only the packaged UI uses the default.
+
+### Also fixed, and honestly NOT the cause
+
+`_generate_then_write` emitted hard-coded `"step_1"`/`"step_2"`. Every
+other lane carries a per-mission mark, for the reason
+`_single_capability_plan` documents: a step id must be unique across
+every mission the process ever runs, because
+`RuntimeEngine._objective_of()` returns the FIRST objective holding a
+matching id, and the founder's own plan history already had **26**
+records colliding on those two names. This was my first hypothesis and it
+was **wrong** -- the mission stalled identically once ids were unique.
+It is a real latent defect that would eventually bind a live step to a
+long-finished mission, so it is fixed and pinned for every lane, but it
+did not cause this failure.
+
+## Founder UI behaviour, observed
+
+- Accepts typed input through the composer (`.composer-input`,
+  contenteditable); the window was confirmed to hold the text before
+  Enter was ever sent.
+- Progresses truthfully: `Working` → `Step 1 of 2` → `Checking the
+  result` → the verified terminal sentence.
+- Does **not** report completion before verification supports it -- every
+  completion sentence counted independently verified steps.
+- Shows the founder-completion state correctly, with the real path.
+- Remains responsive after a mission: B, C and the restart mission were
+  each submitted while a previous completion prompt was still pending,
+  and all three ran.
+- Greets with real temporal awareness ("Good afternoon, Onkar. Somesh
+  here. Everything is ready.").
+
+## Open observations — NOT acted on
+
+1. **"Mark complete" does not respond to synthetic clicks.** The button
+   is not exposed as its own UIA element (only its label is), and clicks
+   at its rendered position produce no `founder_completion_confirmed`
+   event, while composer clicks at the same scale work. The backend
+   genuinely holds a pending completion (`completion_id 19d0f661`), so
+   this is *not* stale UI. Whether a physical human click behaves
+   differently could not be determined from here. It does not block: three
+   missions ran with a completion pending. Left for the founder to try.
+
+2. **The window restores off-screen.** After a minimise/restore it was
+   placed at (190,190)-(2136,1296) on a 1920x1080 screen, putting the
+   composer below the visible area. Maximising fixed it. Worth a look
+   before release.
+
+3. **Driving the UI needs DPI awareness.** UIA reports logical
+   coordinates in a DPI-unaware process while SendInput uses physical
+   ones; on this 150% display that puts every click at two thirds of its
+   intended position. Recorded because the product's own
+   `Desktop.DesktopClick` takes coordinates and could meet the same trap.
+
+4. `15/19` Desktop capabilities still carry `args_complete=False`. No
+   packaged mission was blocked by it. Still post-release.
+
+## Tests
+
+Focused, all passing: `test_deterministic_planning.py` 49,
+`test_founder_approval_path.py` 12, `test_reasoning_gateway.py` 10,
+`test_desktop_uia.py` 67.
+
+Targeted regression across every area these two fixes could touch --
+deterministic planning, the founder/approval drive path, the reasoning
+gateway, text verification, cross-step binding, binding isolation,
+reasoning role separation and fallback, filesystem, executive
+reachability, verified execution:
+
+    429 passed, 3 failed, 1 skipped
+
+All three failures are in the inherited baseline -- each appears in both
+the 95-failure and 94-failure lists recorded earlier today. **Zero new
+failures.**
+
+### The full suite could not complete in this environment
+
+`tests/test_desktop_shell.py` **hangs**, at
+`TestGreet::test_greeting_names_no_internal_component`. Verified in a
+clean worktree that it hangs **identically at `f756685`, before either of
+today's fixes** -- `timeout` exit 124 both times, same eleven dots. It is
+pre-existing and environmental, not a regression. I said the opposite
+before checking; the worktree comparison corrected it.
+
+It sits in the greeting/temporal-awareness path, which the packaged
+application performs correctly ("Good afternoon, Onkar. Somesh here.
+Everything is ready."), so nothing founder-facing is blocked. Per the
+instruction not to open environment work that no packaged mission proves
+is blocking, it was left alone and is recorded here instead.
+
+With that file deselected the suite progresses past it but runs at
+roughly one test per 45 seconds -- real browser and UIA tests against a
+machine carrying ~25 provider windows left open by this session's own
+reasoning attempts, plus the packaged app. That is an environment cost,
+not a code one, and it is why the targeted regression above is what was
+run to completion.
