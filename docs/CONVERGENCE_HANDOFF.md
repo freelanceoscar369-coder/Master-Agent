@@ -1072,3 +1072,364 @@ What remains uncommitted is untracked and was untracked before this session bega
 - Python 3.14.5.
 - The four-file test run takes ~4 minutes; the full suite is slower. Prefer
   targeted `-k` runs during implementation.
+
+---
+
+# PAUSE CHECKPOINT — 2026-08-22 (laptop shutdown)
+
+HEAD:        58c41fdcbbbb3ea6c2f9910c0a44f2153f60d9fd
+BRANCH:      main
+REMOTE SYNC: origin/main == HEAD, 0 ahead / 0 behind (verified by
+             `git rev-list --left-right --count origin/main...HEAD` -> `0  0`)
+
+Written at the Founder's pause instruction. Work stopped mid-repair on
+purpose. Everything below is separated into **PROVEN**, **IN PROGRESS**
+and **UNPROVEN**, and nothing is concluded that was not observed.
+
+## CURRENT OPERATIONALIZATION STATE
+
+The deterministic planning lane and the live acceptances are green and
+committed. An active repair — giving `Reasoning.Transform` output a way
+to reach `Filesystem.WriteFile` — is **written but never executed**. It
+sits uncommitted in the working tree.
+
+## COMPLETED AND CLOSED — PROVEN
+
+Each of these was observed live, not inferred.
+
+- **Deterministic local planning repair.** A fully dictated objective
+  compiles with zero provider calls.
+- **Acceptance C (founder checkpoint), Continue and Stop.** Both paths
+  PASS. The preview is resolved, the payload written is the payload
+  previewed, and Stop executes nothing.
+- **Acceptance C2 (checkpoint mechanism).** PASS, both paths.
+- **Acceptance D (permission gate).** PASS. The gate holds, the file
+  survives until approval, and is really gone afterwards. Required
+  repairs: a `_DELETE` recogniser, and `delete_file.py` publishing its
+  `location` optional parameter (it always accepted it, never advertised
+  it). Commit `d681fa6`.
+- **Acceptance E (persistence/recovery).** PASS for what it claims.
+- **Acceptance F (vendored server).** PASS.
+- **Acceptance B (medium golden mission).** PASS — six steps executed,
+  all six independently verified, `page_info.txt` holding
+  `Title: Example Domain` / `URL: https://example.com/`. The trailing
+  slash is the proof: that is the final URL as the browser resolved it,
+  not the string in the objective.
+- **Two planner guards, from a defect I introduced and then found.**
+  `_explicit_workflow` had claimed the golden objective and compiled a
+  TWO-step plan for a SIX-step instruction, writing the literal phrase
+  "the observed title and final URL" to the Desktop. Now: an objective
+  naming an operation this lane cannot compile is refused outright, and
+  a phrase referring to a produced value is never treated as a literal.
+  Commit `c86a6f0`.
+- **Either voice, one instruction.** "a file containing X" and
+  "write X into a file" state the same relation; only the first was
+  recognised, so the golden objective got no local plan and died when no
+  model was reachable. Commit `58c41fd`.
+- **Packaged self-check.** `--self-check` runs inside the frozen process
+  and reports 46 capabilities, five executives all runtime-reachable, the
+  four-rung ladder, and deterministic planning. Commit `81b342b`.
+
+### PROVEN this session, not previously recorded
+
+- **Reasoning is alive on this machine.** ChatGPT Desktop answered a
+  short prompt in ~35s through the `desktop` rung. The ladder is
+  `local(0) -> desktop(4) -> gemini(1) -> browser(1)`; `local` is empty
+  by deliberate policy (Ollama, 16GB RAM). So a reasoning failure is NOT
+  "no provider is reachable" — that diagnosis is wrong and should not be
+  repeated.
+- **`gemini.api` is out of quota:** HTTP 429, "You exceeded your current
+  quota". **`browser.free-ai` (Gemini web)** returns "sign-in required
+  for this session, not usable anonymously". Both observed directly.
+
+## CURRENT ACTIVE PROBLEM
+
+The Founder objective:
+
+    Think of three short names for a gardening notes app and write them
+    into names.txt on the Desktop.
+
+### The finding to preserve
+
+    The mission appears structurally to require:
+
+    Reasoning.Transform
+    -> produced text
+    -> Filesystem.WriteFile
+
+    The Founder objective requires reasoning for generating the names,
+    but should not automatically require an external AI Planner to
+    rediscover the two-step capability composition.
+
+### The unresolved constraint to preserve
+
+    Cross-step bindings currently require canonical matched Evidence.
+    Reasoning.Transform currently needs its existing verification/
+    generated-text architecture inspected before changing this path.
+
+## EXACT SYMPTOM — PROVEN
+
+Before any of today's uncommitted work, the objective failed with:
+
+    no plan: the provider could not answer
+    (Gemini (web): sign-in required for this session, not usable anonymously)
+
+The Planner sent a **20,869-character** prompt (the whole 46-capability
+catalogue) to the reasoning ladder purely to be told that producing text
+then writing it is `Transform -> WriteFile`.
+
+## ROOT CAUSE PROVEN SO FAR
+
+Two separate causes, both observed, neither previously known.
+
+**1. The planning prompt should never have been sent.** Nothing in that
+objective needs a model to choose the composition. Required, per the
+Founder: `Planner provider calls = 0`, with AI used *inside*
+`Reasoning.Transform` only.
+
+**2. `PluginGateway.verify()` returns `None` by contract**, and the
+Reasoning Executive was registered through it.
+`runtime/input_resolution.py` resolves a bound value only from a source
+carrying canonical Evidence whose verdict is `matched` and whose
+*observation* holds the field. So **no binding out of
+`Reasoning.Transform` could ever resolve.** The two halves were never
+joined; nothing was broken.
+
+Classification, using the Founder's own categories:
+**2 — EXISTING CONTRACT SUPPORTS IT BUT CURRENT COMPOSITION MISSES THE
+SEAM.** Evidence for that classification, all read from current source:
+
+- `ai_infrastructure/text_verifier.py` (MB035) already exists and
+  produces canonical `Evidence`.
+- Its `observe()` already publishes a **`text`** field — exactly what
+  `Filesystem.WriteFile.content` needs to bind to.
+- `planner/outcomes.py::SuccessSpec` already emits text-shaped checks
+  built from `text_verifier.expect`, so a Reasoning step's
+  `ExpectedOutcome` is already the right shape.
+- `ai_infrastructure/execution.py:330` already calls
+  `verify_text(result.text, expected)`.
+- `PluginGateway`'s own docstring names the sanctioned join: *"an
+  Executive with a Verifier supplies a gateway that pairs the two"* —
+  which is exactly what `FilesystemGateway` already does.
+
+No second verifier is needed. No second Reasoning capability is needed.
+
+### A third defect, found on the way — PROVEN, and worth keeping
+
+While diagnosing, the desktop rung was caught **fabricating answers**.
+Twice, with different causes:
+
+1. It returned the composer's own placeholder, "Message ChatGPT", as
+   the model's reply — `ok=True`, fifteen words, to a twenty-thousand
+   character question.
+2. After that was fixed, it returned " Browser.OpenBrowserSession |
+   args: session_id" — a fragment of **the founder's own prompt**,
+   echoed back in the transcript.
+
+Cause of (2): `find_new_content()` anchored its floor by finding a region
+whose text *equals* the submitted prompt. A long prompt is never one
+region — a chat UI splits it into one block per line — so nothing
+matched, the floor collapsed to the window top, and the prompt's own
+rendered lines became candidates.
+
+Both reached no one only because a downstream expectation happened to
+reject them. **A wrong answer caught by luck downstream is still a wrong
+answer**, and this is the reason the strict Evidence rule above must not
+be weakened to get the objective passing.
+
+## SOURCE FILES CURRENTLY INVOLVED
+
+Dirty tracked (3), all intentionally uncommitted:
+
+- `kalpavriksha_desktop.py` — registers `ReasoningGateway` in place of
+  `PluginGateway` for the reasoning plugin, plus its import.
+- `src/master_agent/desktop/execution/uia_control.py` — the two
+  fabrication fixes above.
+- `src/master_agent/planner/direct.py` — the `_generate_then_write` lane.
+
+Untracked new source (3):
+
+- `src/master_agent/plugins/reasoning_gateway.py` — **new file**, the seam.
+- `scripts/live_acceptance/g_reasoning_required.py` — probe: an objective
+  that genuinely needs a model; separates ladder behaviour from mission
+  outcome so an external outage is never reported as a code failure.
+- `scripts/live_acceptance/h_generate_then_write.py` — **the acceptance
+  for this repair. Written, never run.** It counts provider calls by
+  requester, so "Planner provider calls = 0" is measured, not asserted.
+
+## CHANGES ALREADY MADE — IN PROGRESS, NOT PROVEN
+
+Note for the record: the Founder's pause message said *"Do not implement
+that repair now."* That message arrived after the code below had already
+been written. It is left in place, uncommitted and unproven, exactly as
+the pause instruction requires for mid-repair work — not committed, not
+reverted, not tidied.
+
+1. **`ReasoningGateway`** (new). Pairs the reasoning plugin with
+   `TextVerifier`. `invoke()` keeps the produced text keyed by the call
+   that produced it; `verify()` measures **that artefact** with
+   `verify_text(text, expected)` and returns canonical `Evidence`, or
+   `None` when the artefact cannot be identified with certainty.
+
+   Why measuring the produced text is not "verifying from the result":
+   `text_verifier.py`'s own docstring already settled this for this
+   medium — for a disk you stat the path, for a page you re-read the DOM,
+   and for generated text **the answer is the artefact**. The observation
+   is re-derived deterministically every time and the provider is never
+   asked to grade itself.
+
+2. **`_generate_then_write` lane in `direct.py`.** Recognises a verb of
+   origination ("think of", "come up with", "generate", ...) plus a named
+   file and a named place, and refuses on any doubt — including
+   `_FOREIGN_OPERATION`, and any sentence also naming a folder, a URL or
+   a deletion, since other lanes own those.
+
+3. **Two `uia_control.py` fixes** for the fabrications described above.
+
+## TESTS ALREADY RUN — with results
+
+- `tests/test_deterministic_planning.py` — **38 passed** (28 before this
+  session's additions).
+- UIA/desktop subset (`-k "uia or desktop_exec or find_new"`) — **454
+  passed, 2 failed**. Both failures are
+  `test_the_desktop_executive_still_decides_nothing` and
+  `test_the_broker_reads_the_estate_from_the_desktop_executive`, which
+  assert the estate is `['ollama.local']` and got
+  `['ollama.local', 'gemini.api']`. **Environment-dependent** — a
+  `GEMINI_API_KEY` is present in that shell — and unrelated to any change
+  here. Not yet triaged.
+- **Full suite: 95 failed, 7769 passed, 2 skipped** (15m36s). Previous
+  recorded baseline: 93 failed / 7722 passed. The +47 passing are this
+  session's new tests; the +2 failures are the two environment-dependent
+  broker tests above. **No test that passed before this session fails
+  now.** The full list is in the session scratchpad, not the repo.
+
+  This suite ran **before** the three dirty files reached their current
+  state, so it does not cover the uncommitted repair.
+
+## LIVE EVIDENCE
+
+- `Desktop\KV_Golden_102901\page_info.txt` — Acceptance B's evidence.
+  Left on purpose.
+- Acceptance D and C2 folders (`KV_PermD_102935`, `KV_C2_STOP_102934`)
+  and the C/G run folders are left as run evidence.
+- `Desktop\names.txt` — **does not exist.** The objective has never
+  completed. Acceptance H deletes any stale copy first, so its existence
+  will always prove the run that created it.
+
+## UNCOMMITTED WORK — and why it is uncommitted
+
+All six files listed above. They are coherent and they compile — the
+two-step plan was verified to build with the correct binding:
+
+    step_1 Reasoning.Transform   payload={'instruction': 'Think of three
+                                 short names for a gardening notes app...'}
+    step_2 Filesystem.WriteFile  bindings={'content': {'from_step':
+                                 {'step_id': 'step_1', 'field': 'text'}}}
+
+**But not one line of it has ever executed against the live pipeline.**
+The gateway has never produced Evidence, no binding has ever resolved
+through it, and `names.txt` has never been written. Committing this as
+though it were finished would be a claim I have not earned, so it stays
+dirty, per the Founder's instruction.
+
+## UNPROVEN — explicitly
+
+- That `ReasoningGateway` produces Evidence the Runtime accepts.
+- That `input_resolution` resolves `content` from that Evidence.
+- That the whole objective completes end to end.
+- That planner provider calls are actually zero at runtime (compiling the
+  plan locally strongly implies it, but implication is not measurement —
+  that is what acceptance H exists to settle).
+- That the two `uia_control.py` fixes hold under a live desktop run; the
+  second has no dedicated regression test yet.
+- Whether the desktop rung can return a **whole** structured reply. Last
+  observed, it returned real plan JSON missing its opening `{"steps"` —
+  the reply renders as sibling regions and no container was eligible.
+  **Unresolved, and now lower priority**: with planning done locally, a
+  20k-char planning prompt should never be sent at all.
+
+## IMPORTANT ARCHITECTURAL CONSTRAINTS
+
+- Do not send deterministic planning work to external AI.
+- Local deterministic work => zero provider calls.
+- A deterministic workflow containing `Reasoning.Transform` => AI belongs
+  in the execution step, not automatically in the Planner.
+- Do not weaken verified input-binding trust.
+- Do not trust raw `ExecutionResult` for cross-step bindings.
+- Inspect/reuse the existing generated-text/`TextVerifier` work before
+  designing any Reasoning verification. **(Done — see the classification
+  above. It already supplies what is needed.)**
+- Ollama remains disabled (16GB RAM).
+- Duck.ai remains excluded from Founder Edition.
+- No second Planner / Browser / Desktop / Reasoning architecture.
+
+## EXACT NEXT INVESTIGATION
+
+Run the repair that is already written, and find out whether the Evidence
+it produces actually satisfies `input_resolution`. Specifically: does
+`verify_text` return verdict `matched` for a `SuccessSpec(min_words=1)`
+expectation over the produced text, and does `_verified_value()` find
+`text` in that Evidence's observation.
+
+## EXACT NEXT FILES TO INSPECT
+
+1. `src/master_agent/plugins/reasoning_gateway.py` (new, unexecuted)
+2. `src/master_agent/runtime/input_resolution.py` — `_verified_value()`,
+   the seven conditions at the top of the module docstring
+3. `src/master_agent/runtime/engine.py:577` — `_verify()`, how Evidence
+   reaches Mission Control
+4. `src/master_agent/ai_infrastructure/text_verifier.py` — `observe()`
+   and `verify_text()`
+5. `src/master_agent/planner/direct.py` — `_generate_then_write`
+
+## EXACT NEXT TEST TO RUN
+
+    python scripts/live_acceptance/h_generate_then_write.py
+
+It prints exactly the record the Founder asked for: Planner provider
+calls, Reasoning provider calls, planned steps, reasoning output, binding
+Evidence, `names.txt` exists, `names.txt` contents. Required:
+
+    Planner provider calls = 0
+    Reasoning.Transform actually executes = YES
+    WriteFile receives produced text, not predicted text = YES
+    final Desktop file = YES
+
+Then, before anything is committed:
+
+    PYTHONPATH=src python -m pytest tests/test_deterministic_planning.py -q
+    PYTHONPATH=src python -m pytest tests/ -q -p no:randomly --tb=no
+
+and add regression tests for the two `uia_control.py` fixes and the
+`_generate_then_write` lane, which have none yet.
+
+## DO NOT REOPEN
+
+- Acceptance C, unless a later packaged regression proves failure.
+- The completed provider-web wiring.
+- The completed deterministic local-planning repair.
+- "No reasoning provider is reachable" as a diagnosis — disproven above.
+
+## FINAL RELEASE GOAL
+
+Build and prove the packaged Founder Edition from final HEAD, perform the
+restart smoke test, then launch the final production application and
+leave it open and running for the Founder. **Not done — the package must
+be rebuilt from final HEAD, because production source has changed since
+the last build.**
+
+## PROCESS STATE AT PAUSE
+
+- **No Kalpavriksha instance is running.** The packaged instance launched
+  earlier this session (PID 7972) had already exited before the pause.
+- **No test, build or acceptance process of mine is running.** All
+  completed; both background suite runs exited.
+- **No browser session survived.** Acceptance B's own final verified step
+  closes the browser.
+- **Two `python.exe` processes belong to Hermes**
+  (`hermes_cli.main gateway run`) and were deliberately left alone.
+- `msedgewebview2` processes remain from earlier in the day with no
+  parent Kalpavriksha process; not started by this session's tooling and
+  not touched.
+- Nothing was killed, and no evidence or log was deleted.
