@@ -157,6 +157,47 @@ Recorded so no future session rebuilds them.
 
 ---
 
+## H2 · Deterministic planning — the routing defect behind "Acceptance C is blocked"
+
+Acceptance C was blocked for days on provider availability. It was never a provider
+problem.
+
+Its objective states everything: both operations, the folder name, the location, the
+file, the literal content, the ordering ("then") and the checkpoint ("show me …
+before"). **It requires zero reasoning.** `direct_plan()` recognised only two shapes
+— one typed action, and one narrowly dictated browser workflow — so it fell through
+to the AI Planner, which sent the whole 46-capability catalogue to a model to ask
+which capability creates a folder. Gemini's quota was spent, so the ladder walked
+ChatGPT Desktop, Perplexity, Kimi and Gemini web before reporting failure.
+
+**The deterministic lane is now general**, not special-cased: it compiles an
+explicitly dictated sequence when every operation, argument and ordering can be
+proven from the founder's words and the registered contracts, and returns `None` on
+any doubt — an unnamed place, a file with no stated contents, a pronoun pointing at
+a value something else produces. Judgement work still goes to the ladder.
+
+### Evidence — the decisive operational property
+
+Real production pipeline, `GEMINI_API_KEY` cleared, Planner's runner replaced with
+one that raises on contact:
+
+```
+GEMINI_API_KEY present: False
+PROVIDER CALLS:         0
+status:                 awaiting_approval
+approval kind:          founder_checkpoint
+preview:                content: Kalpavriksha checkpoint acceptance. | location: desktop | path: …/notes.txt
+MISSION PLAN:           create_folder-… → write_file-…
+```
+
+**LIVE ACCEPTANCE C: PASS — CONTINUE and STOP.** Checkpoint held with a resolved
+preview, nothing written while waiting, Continue wrote the previewed payload
+("All 2 executed step(s) were independently verified"), Stop performed no mutation.
+
+It needs no Gemini key, no quota, no desktop application and no browser.
+
+---
+
 ## I · External blockers
 
 ### Live Acceptance C — attempted once at `da9f8f9`, NOT EXECUTED
