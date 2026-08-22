@@ -312,3 +312,52 @@ class TestNoPlanningPromptIsBuiltForADeterministicObjective:
         assert [s.capability for s in outcome.plan.steps] == [
             "Filesystem.CreateFolder", "Filesystem.WriteFile",
         ]
+
+
+class TestADictatedDeletionIsAlsoDeterministic:
+    """Acceptance D's objective. The founder named the operation, the file,
+    the folder and the place; nothing is inferred from argument shape, and
+    the permission boundary still holds it at the irreversible tier — which
+    is what makes planning it locally safe as well as correct.
+
+    It was going to the reasoning ladder, so with quota spent the founder
+    was told "I couldn't plan that just now" about deleting a file they had
+    named exactly.
+    """
+
+    OBJECTIVE = ("Delete the file delete_me.txt inside the folder "
+                 "KV_PermD_101648 on the Desktop")
+
+    def test_it_plans_without_a_model(self, options):
+        plan = direct_plan(Intent(goal=self.OBJECTIVE), options)
+
+        assert plan is not None
+        assert capabilities_of(plan) == ["Filesystem.DeleteFile"]
+
+    def test_the_target_is_the_founders_own_file(self, options):
+        step = step_named(direct_plan(Intent(goal=self.OBJECTIVE), options),
+                          "Filesystem.DeleteFile")
+
+        assert step.payload["path"] == "KV_PermD_101648/delete_me.txt"
+        assert step.payload["location"] == "desktop"
+
+    @pytest.mark.parametrize("goal", [
+        "Delete the old stuff.",
+        "Remove everything in the folder on the Desktop",
+        "Delete that file.",
+    ])
+    def test_a_vague_deletion_is_never_compiled(self, goal, options):
+        """The irreversible tier is exactly where a guess is least
+        acceptable. Without a named file, a named folder and a named place,
+        this refuses and the objective goes where uncertainty belongs."""
+        assert direct_plan(Intent(goal=goal), options) is None, goal
+
+    def test_the_planner_reaches_no_provider_for_it(self, options):
+        from master_agent.planner.planner import Planner
+
+        runner = ForbiddenRunner()
+        outcome = Planner(runner=runner, catalogue=options).plan(
+            Intent(goal=self.OBJECTIVE), task_id="t", objective_id="o")
+
+        assert runner.calls == 0
+        assert outcome.planned

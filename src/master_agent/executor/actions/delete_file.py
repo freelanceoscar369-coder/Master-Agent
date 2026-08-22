@@ -35,6 +35,42 @@ class DeleteFileAction(Action):
     def required_parameters(self) -> list[str]:
         return ["path"]
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """Publishes `location`, which this action has always accepted and
+        never advertised.
+
+        `validate()` below reads `parameters.get("location")` and resolves
+        it against the known base directories; the contract said nothing
+        about it. So the extracted capability carried an unclosed argument
+        roster -- "optional arguments exist and are not listed" -- and no
+        planner could use `location` from a published contract. An AI
+        planner filled it anyway, from the shape of the objective, and the
+        deterministic planner correctly refused to, because passing an
+        argument a contract does not publish is exactly the guessing that
+        module exists to prevent.
+
+        `write_file.py` and `create_folder.py` already carry this same
+        declaration for the same reason. This one was missed, and the
+        consequence was that a founder saying "delete the file X inside
+        folder Y on the Desktop" -- every part of it named -- could not be
+        planned without a model.
+
+        Nothing new is introduced: this states what the action already does.
+        """
+        return [
+            {
+                "name": "location",
+                "type": "string",
+                "description": (
+                    "Which known base directory the path is relative to: "
+                    + ", ".join(sorted(self._locations))
+                    + ". Omit it to use the default. Do not repeat this "
+                    "name at the start of 'path'."
+                ),
+                "default": "desktop",
+            },
+        ]
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors: list[str] = []
 

@@ -445,6 +445,31 @@ _FILE_TARGET = re.compile(
     re.I,
 )
 
+#: A folder named without "called"/"named" -- "inside the folder Research",
+#: "in folder KV_Test". `_FOLDER` above covers the explicit form; this
+#: covers the one founders write just as often.
+#:
+#: The name must look like a name: no spaces, and not one of the ordinary
+#: words that follow "folder" in a sentence. Without that guard "inside the
+#: folder on the Desktop" would yield a folder called "on".
+_FOLDER_BARE = re.compile(r"\bfolder\s+[`'\"]?([A-Za-z0-9_\-.]+)", re.I)
+
+#: A file named without "called"/"named" -- "the file delete_me.txt". An
+#: extension is still required, so an ordinary noun after "file" is never
+#: taken for a filename.
+_FILE_BARE = re.compile(r"\bfile\s+[`'\"]?([^\s`'\"]+\.[A-Za-z0-9]+)", re.I)
+_NOT_A_NAME = frozenset({
+    "on", "in", "at", "to", "of", "the", "a", "an", "and", "or", "then",
+    "inside", "into", "from", "with", "for", "is", "it", "that", "this",
+})
+
+#: The founder asking for something to be removed. Their own word, never
+#: inferred from argument shape: "delete"/"remove" said outright is a
+#: statement of intent, and the permission boundary still holds the action
+#: at the irreversible tier regardless of how the plan was produced.
+_DELETE = re.compile(r"\b(?:delete|remove)\b", re.I)
+_DELETE_FILE = "delete_file"
+
 #: Words that point at a value stated elsewhere rather than supplying one.
 #: "write it into notes.txt" has named no content, and treating the
 #: pronoun as the text is exactly the kind of guess this lane refuses.
@@ -495,8 +520,27 @@ def _read_explicit_workflow(goal: str) -> list[_Operation] | None:
         return None
 
     folder = _FOLDER.search(text)
-    filename = _FILE.search(text) or _FILE_TARGET.search(text)
+    if folder is None:
+        bare = _FOLDER_BARE.search(text)
+        if bare is not None and bare.group(1).lower() not in _NOT_A_NAME:
+            folder = bare
+    filename = _FILE.search(text) or _FILE_BARE.search(text) or _FILE_TARGET.search(text)
     place = _PLACE.search(text)
+
+    # A dictated deletion: the founder named the operation, the file, the
+    # folder and the place. Nothing here is inferred from argument shape --
+    # `delete` is their own word -- and the permission boundary still holds
+    # it at the irreversible tier, which is what makes planning it locally
+    # safe as well as correct.
+    if _DELETE.search(text) and folder is not None and filename is not None and place is not None:
+        return [_Operation(
+            kind=_DELETE_FILE,
+            payload={
+                "path": f"{folder.group(1).strip()}/{filename.group(1)}",
+                "location": place.group(1).strip().lower(),
+            },
+        )]
+
     if folder is None or place is None:
         # No named folder, or no founder-stated place. Choosing a location
         # because none was given is precisely the guess the create-folder
@@ -557,6 +601,9 @@ def _explicit_workflow(intent: Intent, options) -> MissionPlan | None:
         _WRITE_FILE: lambda op: (
             f"{op.payload['path']} exists in {op.payload['location']} and contains "
             f"the text the founder supplied."
+        ),
+        _DELETE_FILE: lambda op: (
+            f"{op.payload['path']} no longer exists in {op.payload['location']}."
         ),
     }
 
