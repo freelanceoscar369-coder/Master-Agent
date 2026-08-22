@@ -197,6 +197,25 @@ _CLOSE = "close_browser_session"
 _TITLE = "title"
 _URL_FIELD = "url"
 
+#: The founder saying that the file holds what the browser saw.
+#:
+#: Two voices say the identical thing. As a modifier -- "a file called
+#: page_info.txt CONTAINING the title and URL you observed" -- and in the
+#: active voice -- "WRITE the observed title and final URL INTO a file
+#: called page_info.txt". Only the first was recognised, so a founder who
+#: phrased the same instruction the second way got no local plan and was
+#: sent to a model to be told what they had already said.
+#:
+#: This widens how the relation may be phrased. It does not weaken what
+#: must be present: the sentence must still name the page, the folder, the
+#: place and the file, still ask for the page to be observed, and still
+#: name both facts. A file whose content the founder never tied to the
+#: browser remains unplannable here.
+_CONTAINMENT = re.compile(
+    r"contain(?:s|ing)\b|with\s+the\b|writ(?:e|es|ing)\b[^.]{0,80}?\b(?:in|into|to)\b",
+    re.I,
+)
+
 
 @dataclass(frozen=True)
 class _CaptureRequest:
@@ -232,7 +251,7 @@ def _read_capture_request(goal: str) -> _CaptureRequest | None:
     # is not derivable from the browser and this shape does not apply.
     if "observ" not in lowered:
         return None
-    if not any(word in lowered for word in ("containing", "contains", "with the")):
+    if not _CONTAINMENT.search(text):
         return None
     if _TITLE not in lowered or _URL_FIELD not in lowered:
         return None

@@ -428,3 +428,56 @@ class TestTheLaneRefusesWhatItCannotFullyCompile:
         assert step_named(plan, "Filesystem.WriteFile").input_bindings, (
             "the observed values must arrive by binding"
         )
+
+
+class TestTheSameInstructionInEitherVoice:
+    """"A file containing X" and "write X into a file" say one thing.
+
+    Only the modifier form was recognised. A founder who phrased the
+    identical instruction in the active voice got no local plan and was
+    sent to a model to be told what they had already fully stated -- and
+    when no model was reachable, the mission simply failed.
+    """
+
+    MODIFIER = (
+        "Open a browser and navigate to https://example.com. Observe the page's "
+        "actual title and final URL. Create a folder called KV_V on Desktop. "
+        "Inside that folder create a text file called page_info.txt containing "
+        "the title and URL you actually observed. Then close the browser."
+    )
+    ACTIVE = (
+        "Open a browser, go to https://example.com, and note the page's actual "
+        "title and final URL. Then create a folder called KV_V on the Desktop "
+        "and write the observed title and final URL into a file called "
+        "page_info.txt inside it. Then close the browser."
+    )
+
+    def test_both_voices_compile_to_the_same_plan(self, options):
+        a = direct_plan(Intent(goal=self.MODIFIER), options)
+        b = direct_plan(Intent(goal=self.ACTIVE), options)
+
+        assert a is not None and b is not None
+        assert [s.capability for s in a.steps] == [s.capability for s in b.steps]
+        assert len(b.steps) == 6
+
+    def test_the_active_voice_still_binds_rather_than_predicts(self, options):
+        plan = direct_plan(Intent(goal=self.ACTIVE), options)
+        write = step_named(plan, "Filesystem.WriteFile")
+
+        assert write.input_bindings, "observed values must arrive by binding"
+        assert "observed title" not in str(write.payload).lower(), (
+            "the founder's phrase was written to disk instead of the page's values"
+        )
+
+    @pytest.mark.parametrize("goal", [
+        # Observed, but the file's content was never tied to the page.
+        "Open a browser, go to https://example.com and observe the title and url. "
+        "Create a folder called A on Desktop with a file called n.txt. Close it.",
+        # A containment phrase, but nothing observed.
+        "Create a folder called A on the Desktop and write hello into a file "
+        "called n.txt inside it. Then close the browser.",
+    ])
+    def test_widening_the_voice_did_not_widen_what_must_be_present(self, goal, options):
+        from master_agent.planner.direct import _read_capture_request
+
+        assert _read_capture_request(goal) is None, goal
