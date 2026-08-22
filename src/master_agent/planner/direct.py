@@ -390,15 +390,210 @@ def _local_capture_workflow(intent: Intent, options) -> MissionPlan | None:
     return MissionPlan(steps=steps, objective=intent.goal)
 
 
+# ─────────────────── deterministic explicit workflows ───────────────────
+#
+# `_local_capture_workflow` above compiles ONE dictated workflow. That was
+# the right size for the mission that produced it and the wrong size for
+# the general case: a founder who says
+#
+#     Create a folder called X on the Desktop. Then show me the text
+#     before you write it into notes.txt inside that folder. The text
+#     should be: Kalpavriksha checkpoint acceptance.
+#
+# has supplied both operations, the name, the place, the file, the literal
+# content, the ordering and the checkpoint. Nothing is left to judgement.
+# It fell through to the AI Planner anyway, which sent the whole
+# capability catalogue to a model to ask which capability creates a
+# folder — and, with Gemini's quota spent, walked ChatGPT Desktop,
+# Perplexity, Kimi and Gemini web before telling the founder it could not
+# plan at all.
+#
+# Reasoning is for work that REQUIRES reasoning. Having more than one step
+# is not that. What follows compiles an explicitly specified sequence when
+# every part of it can be proven from the founder's own words and the
+# registered contracts, and returns `None` the moment anything would have
+# to be guessed — so uncertainty still falls through to the ladder, which
+# is unchanged.
+
+#: "show me ... before" / "before you write" — the founder asking to see a
+#: payload before it is committed. `Step.founder_checkpoint` already exists
+#: for exactly this; noticing a request the founder stated outright needs
+#: no model.
+_CHECKPOINT = re.compile(
+    r"\b(?:show|check)\s+(?:me|with\s+me)\b[^.]*?\bbefore\b|\bbefore\s+you\s+write\b",
+    re.I,
+)
+
+#: The literal the founder supplied for a file's contents, in the two
+#: shapes they actually write.
+_CONTENT_TRAILING = re.compile(
+    r"\bthe\s+(?:text|content|contents)\s+(?:should\s+be|is)\s*:?\s*(.+)$",
+    re.I | re.S,
+)
+_CONTENT_INLINE = re.compile(
+    r"\bwrite\s+(.+?)\s+(?:in|into|to)\s+(?:a\s+file\s+called\s+)?"
+    r"([^\s`'\"]+\.[A-Za-z0-9]+)",
+    re.I,
+)
+
+#: The destination file when the founder names it plainly -- "write it
+#: into notes.txt", "save that to report.md" -- rather than in the
+#: "file called X" shape `_FILE` above already covers. An extension is
+#: still required, so an ordinary noun is never mistaken for a filename.
+_FILE_TARGET = re.compile(
+    r"\b(?:in|into|to)\s+[`'\"]?([^\s`'\"]+\.[A-Za-z0-9]+)",
+    re.I,
+)
+
+#: Words that point at a value stated elsewhere rather than supplying one.
+#: "write it into notes.txt" has named no content, and treating the
+#: pronoun as the text is exactly the kind of guess this lane refuses.
+_PRONOUNS = frozenset({"it", "that", "this", "them", "the text", "the content"})
+
+
+@dataclass(frozen=True)
+class _Operation:
+    """One operation the founder dictated, already proven complete."""
+
+    kind: str
+    payload: dict[str, Any]
+    checkpoint: str = ""
+
+
+def _literal_content(goal: str) -> str | None:
+    """The founder's own words for what to write, or `None`.
+
+    Never a guess, and never a value an earlier step is supposed to
+    produce: `_local_capture_workflow` binds an observed title because
+    nobody has looked at the page yet, and that stays true. This only ever
+    returns something the founder actually typed.
+    """
+    trailing = _CONTENT_TRAILING.search(goal)
+    if trailing:
+        text = trailing.group(1).strip().strip("`'\"")
+        return text or None
+    inline = _CONTENT_INLINE.search(goal)
+    if inline:
+        text = inline.group(1).strip().strip("`'\"")
+        if text.lower() in _PRONOUNS:
+            return None
+        return text or None
+    return None
+
+
+def _read_explicit_workflow(goal: str) -> list[_Operation] | None:
+    """The dictated operations, in order, or `None` if anything is unclear.
+
+    Deliberately narrow. It recognises the two filesystem operations whose
+    arguments a founder routinely states in full, and refuses everything
+    else — anything needing discovery, comparison, judgement, or a value
+    nobody supplied. Widening this means adding a recogniser here, never
+    loosening the proof below.
+    """
+    text = (goal or "").strip()
+    if not text:
+        return None
+
+    folder = _FOLDER.search(text)
+    filename = _FILE.search(text) or _FILE_TARGET.search(text)
+    place = _PLACE.search(text)
+    if folder is None or place is None:
+        # No named folder, or no founder-stated place. Choosing a location
+        # because none was given is precisely the guess the create-folder
+        # completeness repair removed.
+        return None
+    if filename is None:
+        # A folder on its own is already the single-capability path's job;
+        # there is no second operation to compile here.
+        return None
+
+    content = _literal_content(text)
+    if content is None:
+        # A file was named but not its contents, or the sentence pointed at
+        # a value something else produces. Either way the dictation is
+        # incomplete, and the ladder is the honest next step.
+        return None
+
+    folder_name = folder.group(1).strip()
+    location = place.group(1).strip().lower()
+    target = f"{folder_name}/{filename.group(1)}"
+
+    checkpoint = ""
+    if _CHECKPOINT.search(text):
+        checkpoint = f"About to write this into {target}:\n\n{content}"
+
+    return [
+        _Operation(kind=_CREATE_FOLDER,
+                   payload={"name": folder_name, "location": location}),
+        _Operation(kind=_WRITE_FILE,
+                   payload={"path": target, "location": location, "content": content},
+                   checkpoint=checkpoint),
+    ]
+
+
+def _explicit_workflow(intent: Intent, options) -> MissionPlan | None:
+    """A dictated multi-step plan compiled from the founder's own words."""
+    operations = _read_explicit_workflow(getattr(intent, "goal", "") or "")
+    if operations is None:
+        return None
+
+    found = {op.kind: find_option(op.kind, options) for op in operations}
+    if any(option is None for option in found.values()):
+        return None
+
+    # Every payload key checked against what the capability actually
+    # publishes, exactly as the one-step path does. A key the contract does
+    # not name is a planning error, not something to send anyway.
+    if any(not _usable(found[op.kind], op.payload) for op in operations):
+        return None
+
+    mark = uuid4().hex[:8]
+    ids = [f"{op.kind}-{mark}" for op in operations]
+
+    descriptions = {
+        _CREATE_FOLDER: lambda op: (
+            f"The folder {op.payload['name']} exists in {op.payload['location']}."
+        ),
+        _WRITE_FILE: lambda op: (
+            f"{op.payload['path']} exists in {op.payload['location']} and contains "
+            f"the text the founder supplied."
+        ),
+    }
+
+    return MissionPlan(
+        steps=[
+            Step(
+                step_id=ids[position],
+                capability=found[op.kind].name,
+                payload=op.payload,
+                # The founder's own "then". Each step waits for the one
+                # before it, and `depends_on` stays the single ordering
+                # authority.
+                depends_on=ids[:position][-1:],
+                expected_outcome=SuccessSpec(
+                    description=descriptions[op.kind](op)
+                ).to_expected_outcome(),
+                founder_checkpoint=op.checkpoint,
+            )
+            for position, op in enumerate(operations)
+        ],
+        objective=intent.goal,
+    )
+
+
 def direct_plan(intent: Intent, options) -> MissionPlan | None:
     """A plan written without a model, or `None` when one is genuinely needed.
 
-    Two shapes qualify: a single capability the Intent Layer already named,
-    and the explicitly dictated local browser-observe-write workflow. Both
-    answer `None` on any doubt, and the Planner then asks a provider
-    exactly as it always has.
+    Three shapes qualify: a single capability the Intent Layer already
+    named, the dictated browser-observe-write workflow, and any explicitly
+    dictated sequence whose operations, arguments and ordering the founder
+    has already supplied in full. All three answer `None` on any doubt, and
+    the Planner then asks a provider exactly as it always has.
     """
     plan = _single_capability_plan(intent, options)
     if plan is not None:
         return plan
-    return _local_capture_workflow(intent, options)
+    plan = _local_capture_workflow(intent, options)
+    if plan is not None:
+        return plan
+    return _explicit_workflow(intent, options)
