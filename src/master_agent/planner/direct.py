@@ -475,6 +475,37 @@ _DELETE_FILE = "delete_file"
 #: pronoun as the text is exactly the kind of guess this lane refuses.
 _PRONOUNS = frozenset({"it", "that", "this", "them", "the text", "the content"})
 
+#: A phrase that REFERS to a value some earlier step is supposed to
+#: produce, rather than supplying one.
+#:
+#: Caught live and badly: "write the observed title and final URL into
+#: page_info.txt" was compiled with the literal string "the observed title
+#: and final URL" as the file's contents, and that sentence was duly
+#: written to the founder's Desktop instead of what the browser actually
+#: saw. A value another step produces must arrive by binding or not at
+#: all -- predicting it is the one thing this lane must never do.
+_REFERENCE = re.compile(
+    r"\b(?:observed|actual|you\s+(?:saw|observed|found|read)|the\s+(?:title|url|"
+    r"result|output|response|answer|contents?\s+of))\b",
+    re.I,
+)
+
+#: Operations this lane knows how to compile. Anything else in the
+#: objective means it is not ours to claim.
+#:
+#: The same live failure showed why: an objective that also said "open a
+#: browser… navigate… note the title… close the browser" was compiled into
+#: a two-step filesystem plan, silently dropping four steps the founder had
+#: asked for. Recognising part of a sentence is not understanding it, and a
+#: partial plan is worse than no plan -- it runs.
+_FOREIGN_OPERATION = re.compile(
+    r"\b(?:browser|browse|navigate|open\s+(?:a\s+)?(?:browser|chrome|page|url)|"
+    r"observe|screenshot|search|download|upload|email|send|move|copy|rename|"
+    r"launch|focus|click|type|scroll|read\s+(?:the\s+)?file|extract|summari[sz]e|"
+    r"compare|research|recommend)\b",
+    re.I,
+)
+
 
 @dataclass(frozen=True)
 class _Operation:
@@ -496,11 +527,13 @@ def _literal_content(goal: str) -> str | None:
     trailing = _CONTENT_TRAILING.search(goal)
     if trailing:
         text = trailing.group(1).strip().strip("`'\"")
-        return text or None
+        if not text or _REFERENCE.search(text):
+            return None
+        return text
     inline = _CONTENT_INLINE.search(goal)
     if inline:
         text = inline.group(1).strip().strip("`'\"")
-        if text.lower() in _PRONOUNS:
+        if text.lower() in _PRONOUNS or _REFERENCE.search(text):
             return None
         return text or None
     return None
@@ -517,6 +550,12 @@ def _read_explicit_workflow(goal: str) -> list[_Operation] | None:
     """
     text = (goal or "").strip()
     if not text:
+        return None
+
+    # An objective naming work this lane cannot compile is not this lane's
+    # to claim. Compiling the part it recognises would drop the rest, and a
+    # partial plan is worse than none because it runs.
+    if _FOREIGN_OPERATION.search(text):
         return None
 
     folder = _FOLDER.search(text)

@@ -361,3 +361,70 @@ class TestADictatedDeletionIsAlsoDeterministic:
 
         assert runner.calls == 0
         assert outcome.planned
+
+
+class TestTheLaneRefusesWhatItCannotFullyCompile:
+    """Two guards, both from one live failure.
+
+    The golden mission's objective — open a browser, note the page's actual
+    title and final URL, create a folder, write the observed values into a
+    file, close the browser — was claimed by this lane and compiled into a
+    TWO-step filesystem plan. Four steps the founder asked for were
+    silently dropped, and the literal sentence "the observed title and
+    final URL" was written to their Desktop instead of what the browser
+    saw.
+
+    Recognising part of a sentence is not understanding it, and a partial
+    plan is worse than no plan because it runs.
+    """
+
+    GOLDEN = (
+        "Open a browser, go to https://example.com, and note the page's actual "
+        "title and final URL. Then create a folder called KV_G on the Desktop "
+        "and write the observed title and final URL into a file called "
+        "page_info.txt inside it. Then close the browser."
+    )
+
+    def test_an_objective_naming_foreign_work_is_not_claimed(self, options):
+        from master_agent.planner.direct import _read_explicit_workflow
+
+        assert _read_explicit_workflow(self.GOLDEN) is None, (
+            "the lane claimed an objective containing operations it cannot compile"
+        )
+
+    def test_a_value_another_step_produces_is_never_treated_as_a_literal(self, options):
+        from master_agent.planner.direct import _literal_content
+
+        for referring in (
+            "the observed title and final URL",
+            "the title you actually observed",
+            "the result",
+            "the contents of that file",
+        ):
+            assert _literal_content(f"write {referring} into out.txt") is None, referring
+
+    @pytest.mark.parametrize("goal", [
+        "Create a folder called X on Desktop then read the file a.txt inside it.",
+        "Create a folder called X on Desktop then summarise report.pdf into out.txt.",
+        "Create a folder called X on Desktop then email me the results.",
+    ])
+    def test_mixed_objectives_fall_through_to_the_planner(self, goal, options):
+        assert direct_plan(Intent(goal=goal), options) is None, goal
+
+    def test_the_dictated_capture_workflow_is_still_reached(self, options):
+        """The guard must not starve the lane that DOES compile browser
+        work. `_local_capture_workflow` runs before this one and still
+        claims its own shape."""
+        goal = (
+            "Open a browser and navigate to https://example.com. Observe the page's "
+            "actual title and final URL. Create a folder called KV_X on Desktop. "
+            "Inside that folder create a text file called page_info.txt containing "
+            "the title and URL you actually observed. Then close the browser."
+        )
+        plan = direct_plan(Intent(goal=goal), options)
+
+        assert plan is not None
+        assert len(plan.steps) == 6
+        assert step_named(plan, "Filesystem.WriteFile").input_bindings, (
+            "the observed values must arrive by binding"
+        )
