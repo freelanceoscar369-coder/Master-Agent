@@ -1663,6 +1663,93 @@ def _describe_result(result, objective: str = "") -> str:
     return text
 
 
+def _self_check() -> int:
+    """What this build actually assembled — printed, then exit.
+
+    A packaged application can differ from its source in exactly the ways
+    that matter here: a module the bundler did not collect, an asset path
+    that only resolves in a checkout, an environment the frozen process
+    does not inherit. "It launched" does not answer any of those, and the
+    Founder Surface is a native window, so there is nowhere for an
+    operator to read the answer from outside.
+
+    So the build reports on itself. This constructs the real production
+    composition — the same `_build_mission_pipeline()` a launch uses — and
+    prints what came back. Nothing is mocked and nothing is inferred from
+    the source tree; if a capability is missing from the package it is
+    missing from this output too.
+
+    No window opens, nothing is executed against the machine, and no
+    provider is contacted: constructing the pipeline is free of launch and
+    scan by design.
+    """
+    import sys
+
+    frozen = getattr(sys, "frozen", False)
+    print(f"Kalpavriksha Founder Edition — self check")
+    print(f"  packaged: {bool(frozen)}")
+    print(f"  running from: {_bundled_dir('web')}")
+
+    pipeline = _build_mission_pipeline()
+    if pipeline is None:
+        print("  FAIL: no mission pipeline was assembled")
+        return 1
+
+    (mission_service, runtime, mission_control, _status, runner,
+     _set_mode, _interactions, decide_approval) = pipeline
+
+    capabilities = list(mission_control.capabilities.all())
+    executives = sorted({str(c.executive_id) for c in capabilities})
+    reachable = sorted(runtime._gateways)
+    unreachable = sorted(set(executives) - set(reachable))
+
+    print(f"  capabilities registered: {len(capabilities)}")
+    print(f"  executives:              {', '.join(executives)}")
+    print(f"  runtime-reachable:       {', '.join(reachable)}")
+
+    tiers = getattr(runner, "_tiers", ())
+    for name, ids in tiers:
+        print(f"  reasoning tier {name:<9} {', '.join(sorted(ids)) or '(empty)'}")
+
+    print(f"  approval wired:          {callable(decide_approval)}")
+
+    # Deterministic planning, proven rather than assumed: a fully dictated
+    # objective must compile without any provider being reachable.
+    from master_agent.planner.direct import direct_plan
+    from master_agent.planner.plan import Intent
+
+    dictated = (
+        "Create a folder called KV_SelfCheck on the Desktop. Then show me the "
+        "text before you write it into notes.txt inside that folder. The text "
+        "should be: self check."
+    )
+    # The Planner's own view of the catalogue, via its own accessor --
+    # never a second derivation of what capabilities exist.
+    plan = direct_plan(Intent(goal=dictated), mission_service.planner.options())
+    steps = [s.capability for s in plan.steps] if plan is not None else []
+    checkpoint = bool(plan and any(s.founder_checkpoint for s in plan.steps))
+    print(f"  deterministic planning:  {' -> '.join(steps) or 'FAILED'}")
+    print(f"  founder checkpoint:      {checkpoint}")
+
+    problems = []
+    if unreachable:
+        problems.append(f"executives with no gateway: {', '.join(unreachable)}")
+    if len(steps) != 2:
+        problems.append("a fully dictated objective did not compile locally")
+    if not checkpoint:
+        problems.append("the founder's checkpoint was not compiled")
+    if not callable(decide_approval):
+        problems.append("approval is not wired")
+
+    if problems:
+        print("  RESULT: FAIL")
+        for problem in problems:
+            print(f"    - {problem}")
+        return 1
+    print("  RESULT: OK")
+    return 0
+
+
 def _default_mode() -> str:
     """LOCAL / AI MODE / BOTH's default, read from the one module that
     owns the vocabulary.
@@ -1684,7 +1771,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='kalpavriksha', description='Kalpavriksha Founder Edition')
     parser.add_argument("--founder-name", default=None)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument(
+        "--self-check", action="store_true",
+        help="Report what this build actually assembled, then exit without "
+             "opening a window.",
+    )
     args = parser.parse_args(argv)
+
+    if args.self_check:
+        return _self_check()
 
     from master_agent.founder_edition.boot import DEFAULT_FOUNDER_NAME
     from master_agent.founder_edition.desktop_shell import create_window
