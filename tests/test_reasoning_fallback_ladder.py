@@ -522,3 +522,102 @@ def test_the_real_catalog_never_ranks_the_statically_unsafe_claude_desktop_entry
 
     assert available is False
     assert "AUTONOMOUS_REASONING_UNSAFE" in detail
+
+
+# ═══════════ Founder Edition: the web rung, and quota is not the end ═══════════
+#
+# The web tier used to be constructed empty in `kalpavriksha_desktop.py`
+# (`browser_provider_ids=frozenset()`), so an exhausted Gemini API quota
+# could end a founder's request outright once the desktop tier was also
+# unavailable. The provider existed and knew how to drive a real visible
+# browser; only the wiring was missing.
+#
+# These prove the *ladder* behaviour deterministically, against fakes, so
+# no real quota is spent and no browser opens. The live proof that the web
+# provider really drives Chrome is a separate acceptance runner.
+
+
+def test_a_dead_gemini_api_is_not_the_end_of_reasoning():
+    """The whole point of filling the rung. Gemini fails finally, the
+    desktop tier has nothing installed, and the request still succeeds —
+    through the browser rung rather than through a 429 special case."""
+    gemini = FakeProvider("gemini.api", [_failure("gemini.api")])
+    browser = FakeProvider("browser.free-ai", [_success("browser.free-ai")])
+    runner = _build_system(gemini=gemini, desktops=[], browser=browser)
+
+    outcome = runner.run("hello", _request())
+
+    assert outcome.ok
+    assert outcome.provider_id == "browser.free-ai"
+    assert gemini.complete_calls == 1, "the cheaper rung was still tried first"
+
+
+def test_the_web_rung_is_last_not_a_shortcut():
+    """Ordering, not opportunism. With a desktop application available the
+    browser is never opened, because ADR-0017 walks desktop before the web
+    aggregator — and because there is deliberately no `if status == 429`
+    anywhere in this path."""
+    gemini = FakeProvider("gemini.api", [_failure("gemini.api")])
+    desktop = FakeProvider("claude-desktop", [_success("claude-desktop")])
+    browser = FakeProvider("browser.free-ai", [_success("browser.free-ai")])
+    runner = _build_system(gemini=gemini, desktops=[desktop], browser=browser)
+
+    outcome = runner.run("hello", _request())
+
+    assert outcome.provider_id == "claude-desktop"
+    assert browser.complete_calls == 0, "the web rung was opened before it was needed"
+
+
+def test_a_healthy_upper_rung_never_opens_a_browser():
+    """The founder's machine must not sprout a Chrome window because
+    something further down the ladder happened to be configured."""
+    desktop = FakeProvider("claude-desktop", [_success("claude-desktop")])
+    browser = FakeProvider("browser.free-ai", [_success("browser.free-ai")])
+    runner = _build_system(gemini=None, desktops=[desktop], browser=browser)
+
+    outcome = runner.run("hello", _request())
+
+    assert outcome.ok and outcome.provider_id == "claude-desktop"
+    assert browser.complete_calls == 0
+
+
+def test_when_every_rung_fails_the_answer_is_a_truthful_failure():
+    """No fabricated text, and no endless retry. Provider retry belongs to
+    the provider; tier progression belongs to the runner; neither invents
+    an answer when the ladder runs out."""
+    gemini = FakeProvider("gemini.api", [_failure("gemini.api")])
+    desktop = FakeProvider("claude-desktop", [_failure("claude-desktop")])
+    browser = FakeProvider("browser.free-ai", [_failure("browser.free-ai")])
+    runner = _build_system(gemini=gemini, desktops=[desktop], browser=browser)
+
+    outcome = runner.run("hello", _request())
+
+    assert not outcome.ok
+    assert outcome.text == "", "a failed ladder must never carry fabricated text"
+    assert gemini.complete_calls == 1
+    assert desktop.complete_calls == 1
+    assert browser.complete_calls == 1
+
+
+def test_founder_edition_web_rung_is_gemini_only():
+    """Enabling the provider must not quietly re-enable Duck.ai. The site
+    list is configuration on the one existing provider, not a second
+    provider class."""
+    from master_agent.providers.browser_free_ai import (
+        CANDIDATE_SITES,
+        FOUNDER_EDITION_SITES,
+        BrowserFreeAiReasoningProvider,
+    )
+
+    labels = [s.label for s in FOUNDER_EDITION_SITES]
+    assert labels == ["Gemini (web)"]
+    assert not any("duck" in s.label.lower() for s in FOUNDER_EDITION_SITES)
+
+    configured = BrowserFreeAiReasoningProvider(sites=FOUNDER_EDITION_SITES)
+    assert [s.label for s in configured._sites] == ["Gemini (web)"]
+
+    # The generic provider is untouched: another deployment still gets both.
+    assert any("duck" in s.label.lower() for s in CANDIDATE_SITES)
+    assert [s.label for s in BrowserFreeAiReasoningProvider()._sites] == [
+        s.label for s in CANDIDATE_SITES
+    ]

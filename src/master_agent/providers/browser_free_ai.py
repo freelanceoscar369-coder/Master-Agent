@@ -106,6 +106,19 @@ CANDIDATE_SITES: tuple[_Site, ...] = (
     _Site("Duck.ai", "https://duck.ai/chat", 'textarea[name="user-prompt"]'),
 )
 
+#: Founder Edition's web rung, and the reason this provider takes a `sites`
+#: argument at all.
+#:
+#: Duck.ai is excluded from this product by an explicit founder decision,
+#: and the exclusion has to survive *enabling* the provider — otherwise
+#: wiring the web tier on would quietly switch Duck.ai back on as the
+#: fall-through, which is exactly what the decision forbids. Selecting the
+#: site list is configuration, so it is passed in rather than cloned: one
+#: provider, two deployments, no `GeminiWebProvider2`.
+FOUNDER_EDITION_SITES: tuple[_Site, ...] = (
+    _Site("Gemini (web)", "https://gemini.google.com/app", "rich-textarea .ql-editor", sign_in_markers=("Sign in",)),
+)
+
 BROWSER_UNAVAILABLE = "the Browser Worker's dependency (Playwright) is not available"
 NAVIGATE_FAILED = "could not reach the free AI chat site"
 COMPOSER_NOT_FOUND = "the composer input did not appear"
@@ -132,9 +145,18 @@ class BrowserFreeAiReasoningProvider(ModelProvider):
 
     CAPABILITY_NAME = "generate_text"
 
-    def __init__(self, provider_id: str = PROVIDER_ID, session_id: str = "reasoning_fallback") -> None:
+    def __init__(
+        self,
+        provider_id: str = PROVIDER_ID,
+        session_id: str = "reasoning_fallback",
+        sites: tuple[_Site, ...] = CANDIDATE_SITES,
+    ) -> None:
         self._provider_id = provider_id
         self._session_id = session_id
+        #: Which sites this deployment may drive, in order. Defaults to the
+        #: full generic list so existing callers are unchanged; Founder
+        #: Edition passes `FOUNDER_EDITION_SITES` to keep Duck.ai out.
+        self._sites = tuple(sites)
         self._manager = None  # never constructed until complete() — see module docstring
 
     # ---- identity ---------------------------------------------------------
@@ -205,7 +227,7 @@ class BrowserFreeAiReasoningProvider(ModelProvider):
                             latency_ms=self._elapsed_ms(started))
 
         last_error = NAVIGATE_FAILED
-        for site in CANDIDATE_SITES:
+        for site in self._sites:
             outcome = self._try_site(manager, site, prompt, started)
             if isinstance(outcome, ProviderResult):
                 self._cleanup(manager)

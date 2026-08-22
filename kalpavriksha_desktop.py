@@ -424,6 +424,8 @@ def _build_mission_pipeline():
     from master_agent.providers.desktop_app import build_desktop_providers
     from master_agent.providers.browser_free_ai import (
         BROWSER_FREE_AI_SPEC,
+        FOUNDER_EDITION_SITES,
+        BrowserFreeAiReasoningProvider,
         PROVIDER_ID as BROWSER_FREE_AI_ID,
     )
     from master_agent.brain import IntentLayer, Reporter
@@ -702,15 +704,24 @@ def _build_mission_pipeline():
     # `providers/desktop_app.py`'s own module docstring.
     for desktop_provider in build_desktop_providers(desktop_plugin._context):
         provider_registry.register(desktop_provider)
-    # NO DUCK.AI IN FOUNDER EDITION. A founder decision about this
-    # product, not a judgement on the provider: `browser.free-ai` drives
-    # Duck.ai through a real browser session, and Founder Edition does not
-    # use it.
+    # NO DUCK.AI IN FOUNDER EDITION -- unchanged, and now enforced by
+    # configuration rather than by leaving the whole rung empty.
     #
-    # `providers/browser_free_ai.py` is untouched and stays a generic
-    # browser-backed Reasoning Provider -- ADR-0017's ladder still has a
-    # free-aggregator rung, and another deployment may fill it. This
-    # composition simply does not.
+    # The web rung used to be empty here, which meant an exhausted Gemini
+    # API quota could end a founder's request outright once the desktop
+    # tier was also unavailable. ADR-0017's ladder already has this rung
+    # and this provider already knows how to drive a real visible browser,
+    # so the gap was wiring, not capability.
+    #
+    # `sites=FOUNDER_EDITION_SITES` is the whole of the founder decision:
+    # Gemini web only. Enabling the provider without it would have quietly
+    # switched Duck.ai back on as the fall-through, which is precisely
+    # what the decision forbids. `providers/browser_free_ai.py` stays
+    # generic -- its default list is unchanged and another deployment may
+    # still use it -- and there is no second provider class.
+    provider_registry.register(
+        BrowserFreeAiReasoningProvider(sites=FOUNDER_EDITION_SITES),
+    )
     prompt_executor = PromptExecutor(
         service=intelligence, providers=provider_registry, ledger=ledger,
     )
@@ -740,9 +751,11 @@ def _build_mission_pipeline():
         desktop_provider_ids=frozenset() if _gemini_only else frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
         ),
-        # The free-aggregator rung exists in the ladder and is empty in
-        # this deployment. An empty tier is skipped, not an error.
-        browser_provider_ids=frozenset(),
+        # The web rung, now filled. Reached only after Gemini API and the
+        # desktop AI applications have both been tried and failed, which
+        # is ADR-0017's order and not a special case for 429 -- there is
+        # deliberately no `if status == 429` anywhere near this.
+        browser_provider_ids=frozenset({BROWSER_FREE_AI_ID}),
         desktop_context=desktop_plugin._context,
         # The Broker sees every spec in `providers_source`'s own `specs`
         # tuple (`PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)` — Ollama,
@@ -751,11 +764,14 @@ def _build_mission_pipeline():
         # scoped Broker call by ranking (Ollama notably — this codebase's
         # own repeated "never enable/query Ollama" constraint) purely
         # because nothing had told this ladder they existed to exclude.
+        # `browser.free-ai` is now IN a tier, so it no longer needs to be
+        # named here to keep the Broker from ranking it into one -- the
+        # web tier names it directly. It stays in the exclusion set anyway
+        # so that the Gemini and desktop tier attempts still exclude it
+        # explicitly, which is what keeps the ladder ordered rather than
+        # letting a lower rung win an upper rung's Broker call.
         all_known_provider_ids=frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG
-        # `browser.free-ai` stays in this set precisely BECAUSE it is
-        # not in any tier: every tier attempt excludes it, so the
-        # Broker cannot select it by ranking either.
         ) | {BROWSER_FREE_AI_ID},
     )
     # The Reasoning Executive delegates to this same ladder -- one
