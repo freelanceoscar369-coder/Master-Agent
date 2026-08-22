@@ -1328,3 +1328,52 @@ def test_click_falls_back_to_the_elements_own_bounding_rect_center():
 
     assert ok is True
     assert mouse.clicks == [(200, 220)]  # the element's own reported center, not a guess
+
+
+def test_find_new_content_returns_the_whole_structured_reply_not_its_first_line():
+    """The live truncation this preference exists for.
+
+    A structured reply — a JSON block, a numbered list, a table — is
+    exposed by UIA as one region per line PLUS an enclosing region holding
+    all of them, and every one of those is new. "Smallest wins" then
+    returns the first line.
+
+    Confirmed live against ChatGPT Desktop asked for a MissionPlan: this
+    method returned `{"steps"` — eight characters — and the Planner
+    refused the founder's whole objective as "not a plan document". The
+    text was perfectly stable, so no amount of settle-polling could have
+    helped: it was complete-looking and incomplete.
+    """
+    plan = '{"steps": [\n  {"capability": "Filesystem.CreateFolder"},\n  {"capability": "Filesystem.WriteFile"}\n]}'
+    block = FakeUiaElement(name="Reply", has_text=True, rect=(0, 400, 400, 600), text="")
+    line1 = FakeUiaElement(name="L1", has_text=True, rect=(0, 400, 400, 450), text="")
+    line2 = FakeUiaElement(name="L2", has_text=True, rect=(0, 450, 400, 500), text="")
+    line3 = FakeUiaElement(name="L3", has_text=True, rect=(0, 500, 400, 550), text="")
+    bridge = _bridge_with_elements([block, line1, line2, line3], window_rect=(0, 0, 400, 800))
+    baseline = bridge.snapshot_text_regions(1, min_height=20)
+
+    block.set_text(plan)
+    line1.set_text('{"steps": [')
+    line2.set_text('{"capability": "Filesystem.CreateFolder"},')
+    line3.set_text('{"capability": "Filesystem.WriteFile"}')
+
+    found = bridge.find_new_content(1, baseline, min_height=20)
+
+    assert found is block, "returned a fragment of the reply instead of the reply"
+    assert bridge.read_text(found) == plan
+
+
+def test_a_single_new_fragment_still_prefers_the_smallest_region():
+    """The guard on the guard. One contained fragment is the ordinary
+    conversation-pane case, where the enclosing region is prior transcript
+    plus the reply and the smallest region is still correct. Only two or
+    more contained fragments mean 'this container IS the assembled
+    reply'."""
+    pane = FakeUiaElement(name="Conversation", has_text=True, rect=(0, 0, 400, 800), text="")
+    reply = FakeUiaElement(name="Reply", has_text=True, rect=(0, 700, 400, 750), text="")
+    bridge = _bridge_with_elements([pane, reply], window_rect=(0, 0, 400, 800))
+    baseline = bridge.snapshot_text_regions(1, min_height=20)
+    pane.set_text("a long prior transcript\n\nthe real answer")
+    reply.set_text("the real answer")
+
+    assert bridge.find_new_content(1, baseline, min_height=20) is reply

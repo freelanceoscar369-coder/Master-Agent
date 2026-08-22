@@ -709,10 +709,49 @@ class UiaAutomationBridge:
             if text_norm in baseline_texts:
                 continue  # this exact text already existed somewhere in the window before submission
             height = key[3] - key[1]
-            candidates.append((element, height))
+            candidates.append((element, height, text_norm))
         if not candidates:
             return None
-        candidates.sort(key=lambda pair: pair[1])
+
+        # **Whole reply before smallest region -- a third fix, for a real,
+        # live-found truncation.** "Smallest wins" is right when the choice
+        # is a short answer versus a big enclosing scrollable pane, and
+        # wrong when the reply is STRUCTURED: a JSON block, a numbered
+        # list or a table is exposed by UIA as one region per line *plus*
+        # an enclosing region holding all of them, and every one of those
+        # is new. Smallest then returns the first line.
+        #
+        # Confirmed live against ChatGPT Desktop asked for a MissionPlan:
+        # this method returned `{"steps"` -- eight characters, the opening
+        # line of a pretty-printed JSON reply -- and the Planner refused
+        # the founder's whole objective as "not a plan document". The text
+        # was perfectly stable, so no amount of settle-polling could have
+        # helped; it was complete-looking and incomplete.
+        #
+        # The structural signal is containment, not size: if one candidate
+        # holds every other candidate's text inside its own, it IS the
+        # whole reply and the others are its fragments. Nothing else
+        # changes -- persistent chrome is still excluded by the baseline
+        # content-set, an older reply is still excluded by the
+        # prompt-anchored floor, and when no candidate contains the rest
+        # (the ordinary single-region answer, or two genuinely unrelated
+        # new regions) the original smallest-wins choice still stands.
+        # The discriminator is *how many* fragments a candidate holds, not
+        # merely that it holds one. An enclosing conversation pane also
+        # contains the new reply -- together with prior transcript -- and
+        # for that case the smallest region is still the right answer, as
+        # `test_find_new_content_prefers_the_smallest_changed_region`
+        # requires. A structured reply is different in kind: its container
+        # holds SEVERAL new sibling regions, one per line, and nothing
+        # else that is new. Requiring two or more contained candidates
+        # separates the two without a size ratio or any guess about
+        # wording.
+        candidates.sort(key=lambda triple: triple[1])
+        texts = [text for _element, _height, text in candidates]
+        for element, _height, text in sorted(candidates, key=lambda c: -len(c[2])):
+            contained = [other for other in texts if other != text and other in text]
+            if len(contained) >= 2:
+                return element
         return candidates[0][0]
 
     def describe(self, element) -> UiaElementInfo:
