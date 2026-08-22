@@ -160,6 +160,16 @@ _PASTE_THRESHOLD_CHARS = 200
 #: exact same threshold philosophy `reasoning_session.py`'s own
 #: `_MAX_FRESH_COMPOSER_CHARS` already uses for the identical judgment.
 _MAX_CLEARED_CHARS = 80
+#: How much rendered text must match the submitted prompt verbatim before
+#: `find_new_content()` treats a region as part of that prompt's own echo
+#: rather than as a reply. A genuine answer may well repeat a word, a
+#: capability name or a short phrase from the question, and excluding it
+#: for that would throw away real replies. A block this long appearing
+#: verbatim inside the prompt is not a coincidence: it is the prompt,
+#: rendered as one of the many blocks a chat UI splits a long message
+#: into. Sits just above the two real placeholder lengths recorded above
+#: (17 and 20 characters), so composer chrome cannot reach it either.
+_PROMPT_FRAGMENT_MIN_CHARS = 24
 _CLEAR_VERIFY_ATTEMPTS = 4
 _CLEAR_VERIFY_DELAY_SECONDS = 0.25
 #: Bounded — the clear *action* itself (`ctrl+a`+`delete`) is retried at
@@ -691,21 +701,107 @@ class UiaAutomationBridge:
         baseline_texts = {_normalize_whitespace(t) for t in baseline.values() if t and t.strip()}
         all_regions = self._text_region_candidates(root, win_rect, min_height)
 
+        # **A long prompt is not one region -- a fourth fix, for a real,
+        # live-found fabrication.**
+        #
+        # The floor below was anchored by finding a region whose text
+        # EQUALS the submitted prompt. That holds for a one-line question.
+        # It fails completely for a long one: a chat UI renders a large
+        # message as many separate blocks -- one per line, per paragraph,
+        # per table row -- and not one of them equals the whole.
+        #
+        # Confirmed live against ChatGPT Desktop with a 20,869-character
+        # planning prompt, which carries the whole capability catalogue.
+        # Every catalogue line came back as its own region. None equalled
+        # `exclude_text`, so the floor fell back to the window top; none
+        # was in `baseline`, because the prompt had only just been sent;
+        # so the founder's own question became the candidate set, and the
+        # shortest line of it -- `" Browser.OpenBrowserSession | args:
+        # session_id"` -- was returned as the model's reply.
+        #
+        # The runner recorded that as a successful answer. It reached no
+        # one only because a downstream expectation rejected it, and a
+        # wrong answer caught by luck downstream is still a wrong answer.
+        #
+        # The rule that holds for any length: nothing that is literally a
+        # piece of the question can be the answer to it. A region whose
+        # text appears verbatim inside the submitted prompt is part of
+        # this call's own echo -- it anchors the floor, and it can never
+        # be a candidate. Short matches are ignored (a real reply may
+        # legitimately repeat a word or a capability name); a fragment
+        # long enough to be a rendered block of the prompt is not a
+        # coincidence.
         prompt_floor = win_rect.top
+        prompt_echo: set[str] = set()
         if exclude_norm:
             for key, (_element, text) in all_regions.items():
-                if text and _normalize_whitespace(text) == exclude_norm:
+                if not text or not text.strip():
+                    continue
+                norm = _normalize_whitespace(text)
+                if norm == exclude_norm or (
+                    len(norm) >= _PROMPT_FRAGMENT_MIN_CHARS and norm in exclude_norm
+                ):
                     prompt_floor = max(prompt_floor, key[3])
+                    prompt_echo.add(norm)
+
+        # **Nothing drawn on the composer is ever an answer -- a fourth
+        # fix, for a real, live-found fabrication.**
+        #
+        # `_text_region_candidates()` already drops keyboard-focusable
+        # elements precisely to keep a composer's empty-state placeholder
+        # out of this set. That is necessary and it is not sufficient: a
+        # real app draws that placeholder as a SEPARATE, non-focusable
+        # label sitting on top of the focusable input, so it survives the
+        # filter. The prompt-anchored floor normally buries it anyway --
+        # the composer sits below the transcript, but so does the reply.
+        #
+        # Confirmed live against ChatGPT Desktop with a 20,869-character
+        # planning prompt: a prompt that large never renders as one
+        # locatable region in the transcript, so `exclude_norm` matched
+        # nothing, the floor fell back to the window top, and the
+        # placeholder "Message ChatGPT" -- newly visible the instant the
+        # composer cleared, therefore absent from baseline, and the
+        # smallest changed region in the window -- was returned as the
+        # model's reply. The runner recorded ok=True and a fifteen-word
+        # answer to a twenty-thousand-character question.
+        #
+        # It reached no one only because a downstream expectation happened
+        # to reject it, and a guess that is caught by luck downstream is
+        # still a guess. The structural rule is that the composer is the
+        # place the FOUNDER's words go: nothing rendered inside its
+        # rectangle is ever the model's. Best-effort by design -- if the
+        # composer cannot be located, every check above still stands.
+        composer_rect = None
+        try:
+            composer = self.find_composer(window_handle, retries=0)
+            if composer is not None:
+                box = composer.CurrentBoundingRectangle
+                composer_rect = (box.left, box.top, box.right, box.bottom)
+        except Exception:  # noqa: BLE001
+            composer_rect = None
+
+        def _on_the_composer(key: tuple[int, int, int, int]) -> bool:
+            if composer_rect is None:
+                return False
+            left, top, right, bottom = key
+            return (
+                left >= composer_rect[0] - 2
+                and top >= composer_rect[1] - 2
+                and right <= composer_rect[2] + 2
+                and bottom <= composer_rect[3] + 2
+            )
 
         candidates: list[tuple[Any, int]] = []
         for key, (element, text) in all_regions.items():
             if key[1] < prompt_floor:
                 continue  # positioned at/above this call's own prompt -- cannot be its response
+            if _on_the_composer(key):
+                continue  # chrome drawn on the input box, not the model's words
             if not text or not text.strip():
                 continue
             text_norm = _normalize_whitespace(text)
-            if text_norm == exclude_norm:
-                continue
+            if text_norm == exclude_norm or text_norm in prompt_echo:
+                continue  # a rendered block of this call's own question
             if text_norm in baseline_texts:
                 continue  # this exact text already existed somewhere in the window before submission
             height = key[3] - key[1]

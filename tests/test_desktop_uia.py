@@ -1377,3 +1377,114 @@ def test_a_single_new_fragment_still_prefers_the_smallest_region():
     reply.set_text("the real answer")
 
     assert bridge.find_new_content(1, baseline, min_height=20) is reply
+
+
+# ═══════════ the response reader must never invent an answer ═══════════
+#
+# Two live-found fabrications, both against ChatGPT Desktop, both of which
+# the runner recorded as SUCCESSFUL answers. Neither reached the founder,
+# and only because a downstream expectation happened to reject the text.
+# A wrong answer caught by luck downstream is still a wrong answer, so
+# each one is pinned here.
+
+
+def test_find_new_content_never_returns_chrome_drawn_on_the_composer():
+    """Live: a 20,869-character planning prompt was sent, and this method
+    returned the composer's own placeholder — "Message ChatGPT" — as the
+    model's reply. Fifteen words, answering a twenty-thousand character
+    question, reported ok=True.
+
+    Focusable elements were already excluded to stop exactly this, and
+    that was not enough: a real app draws the placeholder as a SEPARATE,
+    non-focusable label sitting on top of the focusable input, so it
+    survived the filter. The structural rule is ownership, not
+    focusability — the composer is where the FOUNDER's words go, and
+    nothing rendered inside its rectangle is ever the model's."""
+    composer_rect = (0, 700, 400, 780)
+    composer = FakeUiaElement(
+        name="Composer", has_text=True, is_focusable=True,
+        rect=composer_rect, text="the submitted prompt",
+    )
+    # The placeholder: non-focusable, so the existing filter lets it past,
+    # and drawn inside the composer's own bounds.
+    placeholder = FakeUiaElement(
+        name="Placeholder", has_text=True, is_focusable=False,
+        rect=(4, 704, 396, 776), text="",
+    )
+    bridge = _bridge_with_elements([composer, placeholder], window_rect=(0, 0, 400, 800))
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    placeholder.set_text("Message ChatGPT")  # appears the moment the prompt clears
+
+    assert bridge.find_new_content(1, baseline, min_height=8) is None
+
+
+def test_find_new_content_never_returns_a_block_of_the_founders_own_prompt():
+    """Live: after the placeholder was excluded, this method returned
+
+        " Browser.OpenBrowserSession | args: session_id"
+
+    as the model's reply — a fragment of the founder's OWN prompt, echoed
+    back in the transcript.
+
+    The floor that exists to bury the prompt was anchored by finding a
+    region whose text EQUALS the whole submitted prompt. A long prompt is
+    never one region: a chat UI splits a large message into one block per
+    line. Nothing equalled it, the floor fell back to the window top, and
+    the question became the candidate set for its own answer.
+
+    The rule that holds at any length: nothing that is literally a piece
+    of the question can be the answer to it."""
+    prompt = (
+        "Plan this objective using the registered capabilities. "
+        "Browser.OpenBrowserSession | args: session_id | optional: headless. "
+        "Filesystem.WriteFile | args: path, content | optional: location."
+    )
+    # The transcript renders that one message as three separate blocks --
+    # which do not exist yet when the baseline is taken.
+    fragments = [
+        "Plan this objective using the registered capabilities.",
+        "Browser.OpenBrowserSession | args: session_id | optional: headless.",
+        "Filesystem.WriteFile | args: path, content | optional: location.",
+    ]
+    blocks = [
+        FakeUiaElement(name=f"line{i}", has_text=True,
+                       rect=(0, 100 + i * 30, 400, 125 + i * 30), text="")
+        for i in range(len(fragments))
+    ]
+    bridge = _bridge_with_elements(blocks, window_rect=(0, 0, 400, 800))
+    baseline = bridge.snapshot_text_regions(1, min_height=8)  # nothing sent yet
+    for block, fragment in zip(blocks, fragments):
+        block.set_text(fragment)  # the prompt lands in the transcript
+
+    found = bridge.find_new_content(1, baseline, exclude_text=prompt, min_height=8)
+
+    assert found is None, (
+        "a rendered block of the founder's own prompt was returned as the reply"
+    )
+
+
+def test_a_real_reply_below_the_echoed_prompt_is_still_found():
+    """The guard above must not starve the reader. A genuine answer,
+    rendered below the prompt's own blocks, is still the answer — proving
+    the prompt-echo rule excludes the question without excluding the
+    response it produced."""
+    prompt = (
+        "Plan this objective using the registered capabilities. "
+        "Filesystem.WriteFile | args: path, content | optional: location."
+    )
+    echoed = [
+        FakeUiaElement(name="p0", has_text=True, rect=(0, 100, 400, 125), text=""),
+        FakeUiaElement(name="p1", has_text=True, rect=(0, 130, 400, 155), text=""),
+    ]
+    reply = FakeUiaElement(name="reply", has_text=True, rect=(0, 200, 400, 230), text="")
+    bridge = _bridge_with_elements(echoed + [reply], window_rect=(0, 0, 400, 800))
+    baseline = bridge.snapshot_text_regions(1, min_height=8)  # nothing sent yet
+
+    echoed[0].set_text("Plan this objective using the registered capabilities.")
+    echoed[1].set_text("Filesystem.WriteFile | args: path, content | optional: location.")
+    reply.set_text("Sprout, Flora, Bud")
+
+    found = bridge.find_new_content(1, baseline, exclude_text=prompt, min_height=8)
+
+    assert found is not None
+    assert bridge.read_text(found) == "Sprout, Flora, Bud"
