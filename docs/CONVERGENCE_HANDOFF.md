@@ -1433,3 +1433,177 @@ the last build.**
   parent Kalpavriksha process; not started by this session's tooling and
   not touched.
 - Nothing was killed, and no evidence or log was deleted.
+
+---
+
+# RESUMED AND CLOSED — 2026-08-22 (same day, after the shutdown pause)
+
+HEAD:        003be1c9ebbaa16c3fb22f78afb1d5158dad7c4b
+BRANCH:      main
+REMOTE SYNC: origin/main == HEAD, 0 ahead / 0 behind
+TRACKED TREE: clean
+
+The repair the pause checkpoint left **written but never executed** has
+now been executed, proven live, tested, committed and packaged. This
+section supersedes that checkpoint's UNPROVEN list.
+
+## Acceptance H — PASS
+
+The Founder objective, through the production pipeline:
+
+    Think of three short names for a gardening notes app and write them
+    into names.txt on the Desktop.
+
+    Planner provider calls:   0
+    Reasoning provider calls: 2
+    Planned steps:            Reasoning.Transform -> Filesystem.WriteFile
+    Reasoning output:         'Sprout, Flora, Bud'
+    Binding Evidence:         verdict=matched
+                              evidence_id=bf7a2ac1-3600-4929-9baa-79a1f89776d9
+                              worker=text  environment=generated_text
+    names.txt exists:         True
+    names.txt contents:       Sprout, Flora, Bud
+
+Every required condition met. The chain is live-proven end to end:
+deterministic plan -> Reasoning.Transform -> real produced text ->
+canonical Evidence from `TextVerifier` -> `input_resolution` binding ->
+`Filesystem.WriteFile` -> a real file holding the produced names.
+
+## Four defects, none of them new architecture
+
+The pause checkpoint had established the seam. Running it exposed three
+more, in front of and behind it. All four are fixed in `7ae49cf` and
+`003be1c`.
+
+1. **Planning was still being sent to a model.** Now compiled locally by
+   `_generate_then_write`. Planner provider calls = 0, counted at the
+   door by requester rather than asserted. The Transform prompt is 390
+   characters of the founder's actual instruction, not 20,869 characters
+   of capability catalogue.
+
+2. **The seam itself.** `ReasoningGateway` pairs the Reasoning Executive
+   with MB035's `TextVerifier`, in the shape `PluginGateway`'s own
+   docstring prescribes and `FilesystemGateway` already follows. No
+   second verifier, no second capability, `input_resolution` untouched.
+   It fails closed: no Evidence at all when the artefact under test
+   cannot be identified with certainty.
+
+3. **Sensitivity was never declared.** `Reasoning.Transform` defaults to
+   `sensitive` -- correctly, since its `context` is normally a document
+   off the founder's disk. That cannot reach a step built with no
+   `context` and no `depends_on`. Unsaid, the Broker ruled every
+   third-party provider `NOT_PRIVATE`; the only PRIVATE providers here
+   are Ollama (disabled by the RAM policy) and LM Studio (not installed);
+   so selection refused before `approval_needed()` could offer the
+   founder the choice, and the mission died with "none eligible" rather
+   than with a question. The contract already provided for a plan that
+   knows its material is public to say so. It now says so, for that step
+   only.
+
+4. **The question itself was malformed.** Every Transform prompt opened
+   with "you are reasoning over evidence gathered by earlier steps" and
+   closed with "if the evidence does not contain something you were asked
+   about, say so rather than supplying it from general knowledge" --
+   whether or not any evidence existed. With none, the model obeyed
+   perfectly and returned "The evidence provided does not contain names
+   for a gardening notes app", which was then verified, bound and written
+   to the Desktop. The machinery was flawless; the question was wrong.
+   The evidence framing is now stated when there is evidence and not when
+   there is none. A Transform carrying context is held to the same rule,
+   word for word.
+
+## The two desktop fabrications — fixed and pinned (`7ae49cf`)
+
+Both had been recorded by the runner as SUCCESSFUL answers, and both
+reached no one only because a downstream expectation happened to reject
+the text.
+
+- The composer's own placeholder, "Message ChatGPT", returned as the
+  reply to a 20,869-character prompt. Focusable elements were already
+  excluded for exactly this reason and it was not enough: the app draws
+  the placeholder as a separate NON-focusable label over the input. The
+  rule that holds is ownership, not focusability.
+- A block of the founder's own prompt, echoed in the transcript. The
+  floor meant to bury the prompt was anchored on a region whose text
+  EQUALS the whole prompt; a long prompt is never one region.
+
+Three regression tests now pin these, including one proving a genuine
+reply below the echoed prompt is still found -- the guard must not
+starve the reader. Both changes only ever ADD exclusions, so the reader
+can return `None` more often and never accept more: **fail-closed by
+construction**. Submission, provider availability, the Claude Desktop
+`AUTONOMOUS_REASONING_UNSAFE` gate and session isolation are untouched.
+
+## Tests
+
+- Focused: `test_deterministic_planning.py` 46, `test_desktop_uia.py` 67,
+  `test_reasoning_gateway.py` 10 (new), plus text-verification,
+  cross-step binding, binding plan/runtime and reasoning role separation
+  -- all passing.
+- **Full suite: 94 failed, 7791 passed, 2 skipped.** Baseline was 95 /
+  7769. Failure lists were diffed rather than counted:
+  **zero new failures**, and one pre-existing failure now passes --
+  `test_verified_execution.py::test_a_verified_answer_reaches_the_founders_memory_end_to_end`,
+  which is precisely about a verified answer reaching the founder.
+- The 94 remaining are the inherited baseline, untouched by this work and
+  not chased.
+
+## Packaging and the running application
+
+- `packaging/kalpavriksha.spec` gained
+  `master_agent.plugins.reasoning_gateway` as a hidden import. It is
+  imported inside `_build_mission_pipeline()` like every other entry
+  there, so static analysis cannot see it; without the declaration a
+  packaged run would have lost the Evidence the whole path depends on.
+- Package **rebuilt from final HEAD**. Artifact verified by timestamp,
+  not by exit code: `dist/Kalpavriksha/Kalpavriksha.exe`, 13:10, 36.9 MB
+  (the stale 10:15 build is gone).
+- **Packaged self-check: RESULT OK** -- `packaged: True`, 46
+  capabilities, five executives all runtime-reachable, four-rung ladder,
+  deterministic planning and founder checkpoint both working inside the
+  frozen process. This is also the proof that `reasoning_gateway` was
+  collected: the pipeline imports and registers it, so a missing module
+  could not have assembled.
+- **Restart smoke: PASS.** Launched, verified, closed, confirmed gone,
+  relaunched cold. Window "Kalpavriksha" visible and responding, UI
+  serving HTTP 200 (5,197 bytes) on 127.0.0.1, exactly one instance.
+- **The packaged Founder Edition is running now and was left open** --
+  PID 8708.
+
+## Stated precisely: packaged vs source
+
+The frozen process is proven to assemble the identical composition and to
+plan deterministically (self-check, above). The mission acceptances --
+B, C, C2, D, E, F, H -- were executed through the real production path
+(`_build_mission_pipeline` + `_submit_objective`) at this same HEAD,
+launched from source rather than from the exe, because the packaged app
+speaks to its UI over pywebview's internal `js_api` bridge and has no
+external mission endpoint to drive. Driving the GUI by automation was not
+attempted, so **"the frozen exe executed a full mission" is not claimed
+here**; what is claimed is that it assembles the same 46 capabilities,
+the same five reachable executives, the same ladder and the same
+deterministic planner, and that it launches, serves and restarts.
+
+## Observed and NOT acted on
+
+While recovering repository truth, `args_complete=False` was found on 15
+of the 19 Desktop capabilities -- including `DesktopClick`,
+`DesktopPressKey` and `FindTarget` -- because those actions never
+declare `optional_parameters()`, leaving their schemas open. The
+consequence is measured, not inferred: `direct_plan` refuses them, so
+those capabilities cannot be planned without a model, and only
+`LaunchApplication`, `DesktopObserve`, `DesktopTypeText` and `ReadText`
+can. It is the same contract-incompleteness class as `delete_file.py`'s
+unpublished `location`, fixed earlier in `d681fa6`, and the four actions
+checked read only their required parameters -- so the truthful
+declaration is an empty list, not a new argument.
+
+**Deliberately left alone.** No Desktop blocker appeared in operational
+acceptance, and the instruction was not to open a P0 Desktop campaign
+tonight. Recorded here so the next session does not rediscover it.
+
+Also still true and unchanged: the desktop rung's handling of a long
+STRUCTURED reply (a JSON plan arrived missing its opening `{"steps"`,
+rendered as sibling regions with no eligible container). Now largely
+moot -- with planning done locally, a 20k-character planning prompt
+should never be sent at all.
