@@ -35,6 +35,8 @@ objective that touches a provider cannot pass by accident.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from master_agent.capabilities.extraction import contracts_from_actions
@@ -591,3 +593,68 @@ class TestReasoningBelongsInTheStepNotTheChoiceOfSteps:
         from master_agent.planner.direct import _read_generate_request
 
         assert _read_generate_request(goal) is None, goal
+
+
+class TestNoStepIdIsEverReusedAcrossMissions:
+    """A step id must be unique across every mission the process ever
+    runs, not merely within its own plan.
+
+    `RuntimeEngine._objective_of()` finds a task's objective by scanning
+    every objective for a matching task id and returning the FIRST hit,
+    so a reused id silently resolves to somebody else's mission.
+    `_single_capability_plan` records this at length and obeys it; the
+    multi-step lanes each carry a per-mission mark for the same reason.
+
+    `_generate_then_write` shipped with "step_1"/"step_2" hard-coded, and
+    the packaged application measured the cost: the plan was right, the
+    reasoning ran, its Evidence came back matched -- and WriteFile was
+    never dispatched, because its id collided with 26 earlier records in
+    the founder's own plan history. Every source-path run had passed,
+    because those had less history behind them.
+    """
+
+    GOALS = [
+        "Think of three short names for a gardening notes app and write them "
+        "into names.txt on the Desktop.",
+        "Create a folder called KV_Ids on the Desktop. Then show me the text "
+        "before you write it into notes.txt inside that folder. The text "
+        "should be: hello.",
+    ]
+
+    def _ids(self, goal, options):
+        plan = direct_plan(Intent(goal=goal), options)
+        assert plan is not None, goal
+        return [step.step_id for step in plan.steps]
+
+    def test_two_runs_of_the_same_objective_share_no_step_id(
+        self, options_with_reasoning
+    ):
+        for goal in self.GOALS:
+            first = self._ids(goal, options_with_reasoning)
+            second = self._ids(goal, options_with_reasoning)
+
+            assert not (set(first) & set(second)), (
+                f"a rerun reused {set(first) & set(second)} for: {goal}"
+            )
+
+    def test_no_plan_uses_a_bare_positional_id(self, options_with_reasoning):
+        """"step_1" is the shape that collides. Nothing may emit it."""
+        for goal in self.GOALS:
+            for step_id in self._ids(goal, options_with_reasoning):
+                assert not re.fullmatch(r"step_\d+", step_id), (
+                    f"{step_id!r} is positional, so every mission emits it"
+                )
+
+    def test_dependencies_and_bindings_follow_the_unique_ids(
+        self, options_with_reasoning
+    ):
+        """Making ids unique is only safe if everything pointing AT them
+        moves too -- otherwise the step is unique and unreachable."""
+        goal = self.GOALS[0]
+        plan = direct_plan(Intent(goal=goal), options_with_reasoning)
+        produced, consumer = plan.steps[0], plan.steps[1]
+
+        assert consumer.depends_on == [produced.step_id]
+        assert consumer.input_bindings["content"]["from_step"]["step_id"] == (
+            produced.step_id
+        )

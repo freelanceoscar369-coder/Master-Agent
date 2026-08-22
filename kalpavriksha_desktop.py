@@ -1026,13 +1026,53 @@ def _drive_until_settled(runtime, mission_control, status, objective_id,
     """
     import time as _time
 
+    def _progress_mark():
+        """What "this mission moved" looks like from outside.
+
+        Read from Mission Control rather than counted here: this function
+        observes progress, it does not define it.
+        """
+        try:
+            state = mission_control.founder_state(objective_id)
+            return (state.progress, tuple(state.errors or ()))
+        except Exception:  # noqa: BLE001 - a mark is best-effort, never fatal
+            return None
+
     deadline = _time.monotonic() + timeout_seconds
+    mark = _progress_mark()
     objective = mission_control.dispatcher.objective(objective_id)
     while _time.monotonic() < deadline and not (
         objective.is_complete or objective.has_failure
     ):
         runtime.run_once()
         objective = mission_control.dispatcher.objective(objective_id)
+
+        # **The deadline bounds silence, not work.**
+        #
+        # `run_once()` blocks for the whole of the step it runs, and a step
+        # that asks a desktop AI for an answer legitimately takes minutes.
+        # So the elapsed clock had always expired by the time control came
+        # back -- and the loop exited holding a mission that was perfectly
+        # healthy and half finished.
+        #
+        # Measured in the packaged application, on "think of three short
+        # names ... and write them into packaged_names.txt": the plan was
+        # right, `Reasoning.Transform` ran, produced real text and was
+        # verified `matched` -- and `Filesystem.WriteFile` was never
+        # dispatched, because this loop had already given up. Nothing else
+        # drives the Runtime, so the mission stayed abandoned, and the
+        # founder watched "that's taking longer than expected" forever
+        # about work that had stopped.
+        #
+        # A mission that just moved is not a mission that is stuck. Every
+        # observable step forward returns the full budget; the bound is
+        # still real, and still stops a genuinely hung provider, but it now
+        # measures how long the mission has been SILENT rather than how
+        # long it has been running.
+        moved = _progress_mark()
+        if moved != mark:
+            mark = moved
+            deadline = _time.monotonic() + timeout_seconds
         # Waiting on the founder is a terminal state for THIS call. The
         # work has run and been verified; nothing further will happen
         # until a human answers, so spinning to the deadline only delays

@@ -852,7 +852,29 @@ def _generate_then_write(intent: Intent, options) -> MissionPlan | None:
     if not _usable(found[_WRITE_FILE], payloads[_WRITE_FILE], bound=("content",)):
         return None
 
-    ids = {_TRANSFORM: "step_1", _WRITE_FILE: "step_2"}
+    # One mark per mission, exactly as the two lanes above do, and for the
+    # identity reason `_single_capability_plan` records at length: a step
+    # id must be unique across every mission this process EVER runs, not
+    # merely within its own plan. `RuntimeEngine._objective_of()` finds a
+    # task's objective by scanning every objective for a matching task id
+    # and returning the FIRST hit.
+    #
+    # This lane shipped with `"step_1"`/`"step_2"` hard-coded, and the
+    # consequence was measured in the packaged application rather than
+    # reasoned about. The mission planned correctly, `Reasoning.Transform`
+    # ran and produced "Sprout, Flora, Bud", and its Evidence came back
+    # `matched` with the text in the observation -- and then
+    # `Filesystem.WriteFile` was never dispatched at all. Its id collided
+    # with 26 earlier records in the founder's own plan history, so it
+    # resolved to a long-completed objective, and the founder watched
+    # "that's taking longer than expected" about a step nothing would ever
+    # run.
+    #
+    # It passed every source-path run because those had less history
+    # behind them. That is the worst kind of defect: one that works until
+    # the founder has used the application for a while.
+    mark = uuid4().hex[:8]
+    ids = {_TRANSFORM: f"{_TRANSFORM}-{mark}", _WRITE_FILE: f"{_WRITE_FILE}-{mark}"}
     steps = [
         Step(
             step_id=ids[_TRANSFORM],

@@ -309,3 +309,111 @@ class TestApprovingActuallyReleasesTheWork:
             "decide_approval grants the permission but never resumes the "
             "work it just authorised"
         )
+
+
+class _State:
+    def __init__(self, progress=0.0, errors=()):
+        self.progress = progress
+        self.errors = list(errors)
+
+
+class _ProgressingMissionControl(_FakeMissionControl):
+    """Mission Control as the driver actually sees it: a dispatcher, plus
+    `founder_state()` reporting how far the mission has got."""
+
+    def __init__(self, objective, steps):
+        super().__init__(objective)
+        self._steps = steps
+        self._done = 0
+
+    def founder_state(self, objective_id):
+        return _State(progress=self._done / self._steps)
+
+    def advance(self):
+        self._done = min(self._done + 1, self._steps)
+
+
+class _SlowRuntime:
+    """Each `run_once()` really sleeps longer than the whole budget --
+    which is what a real step does when it asks a desktop AI for an
+    answer. Real time, not a stubbed clock: the loop reads
+    `time.monotonic()` itself, so a fake clock would prove nothing.
+    """
+
+    def __init__(self, mission_control, objective, cost, steps, moves=True):
+        self.calls = 0
+        self._mc = mission_control
+        self._objective = objective
+        self._cost = cost
+        self._steps = steps
+        self._moves = moves
+
+    def run_once(self):
+        import time as _t
+
+        self.calls += 1
+        _t.sleep(self._cost)            # the step is genuinely slow
+        if self._moves and self.calls <= self._steps:
+            self._mc.advance()
+        if self.calls >= self._steps:
+            self._objective.tick()
+
+
+class TestASlowStepDoesNotAbandonTheMission:
+    """The deadline bounds silence, not work.
+
+    `run_once()` blocks for the whole of the step it runs, so by the time
+    control returns from a step that asked a desktop AI for an answer, an
+    elapsed-time budget has always expired -- and the loop exited holding
+    a mission that was healthy and half finished.
+
+    Measured in the packaged application on "think of three short names
+    ... and write them into packaged_names.txt": the plan was right,
+    `Reasoning.Transform` ran, produced real text and was verified
+    `matched`, and `Filesystem.WriteFile` was never dispatched, because
+    this loop had already given up. Nothing else drives the Runtime, so
+    the founder watched "that's taking longer than expected" forever
+    about work that had stopped.
+    """
+
+    def test_a_step_slower_than_the_budget_still_reaches_the_next_step(self):
+        objective = _FakeObjective(completes_after=1)
+        mc = _ProgressingMissionControl(objective, steps=2)
+        # Every step outlasts the entire budget, exactly as the live
+        # reasoning step outlasted the packaged UI's 45 seconds.
+        # The step outlasts the whole budget, exactly as the live
+        # reasoning step outlasted the packaged UI's 45 seconds. The
+        # budget stays above the loop's own 0.2s pacing sleep, as the
+        # real 45s one does.
+        runtime = _SlowRuntime(mc, objective, cost=0.8, steps=2)
+        kd._drive_until_settled(runtime, mc, _Status(), "obj-1", 0.5)
+
+        assert runtime.calls >= 2, (
+            "the mission was abandoned after its first slow step -- the "
+            "dependent step never ran"
+        )
+        assert objective.is_complete
+
+    def test_a_silent_runtime_is_still_bounded(self):
+        """The bound is still real. A runtime that reports no progress at
+        all must not spin forever -- that is what the deadline is for."""
+        objective = _FakeObjective(completes_after=10_000)
+        mc = _ProgressingMissionControl(objective, steps=2)
+        runtime = _SlowRuntime(mc, objective, cost=0.8, steps=10_000,
+                               moves=False)   # progress never changes
+        kd._drive_until_settled(runtime, mc, _Status(), "obj-1", 0.5)
+
+        assert not objective.is_complete
+        assert runtime.calls == 1, (
+            "a silent runtime must not be retried past the budget"
+        )
+
+    def test_mission_control_without_founder_state_still_works(self):
+        """`founder_state()` is read best-effort. A Mission Control that
+        does not offer it must not break the driver."""
+        objective = _FakeObjective(completes_after=2)
+        mc = _FakeMissionControl(objective)          # no founder_state
+        runtime = _CountingRuntime(objective)
+        kd._drive_until_settled(runtime, mc, _Status(), "obj-1", 5.0)
+
+        assert objective.is_complete
