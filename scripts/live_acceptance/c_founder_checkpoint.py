@@ -27,7 +27,20 @@ import sys
 import time
 from pathlib import Path
 
-os.environ.setdefault("KALPAVRIKSHA_FMEA_REASONING_TIER", "gemini")
+# NO reasoning-tier pin here, deliberately.
+#
+# This harness used to set KALPAVRIKSHA_FMEA_REASONING_TIER=gemini, which
+# EMPTIES the desktop tier and leaves the ladder as Gemini-only. That is a
+# legitimate FMEA control for a provider-specific test, and it is exactly
+# wrong for an operational acceptance: with the pin in place an exhausted
+# Gemini quota ends the run, and the acceptance reports FAIL for a product
+# that would have carried on perfectly well down the ladder in a founder's
+# hands.
+#
+# A Founder Edition operational acceptance must exercise the PRODUCTION
+# reasoning ladder -- local, desktop application, Gemini API, browser web
+# rung -- not one rung of it. The control still exists for harnesses that
+# genuinely need to isolate a provider.
 os.environ.setdefault("KALPAVRIKSHA_DISABLE_MIC", "1")
 
 sys.path.insert(0, "D:/MasterAgent")
@@ -64,7 +77,7 @@ def run(label: str, continue_it: bool) -> bool:
     banner(f"RUN {label} - founder will {'CONTINUE' if continue_it else 'STOP'}")
     pipeline = kd._build_mission_pipeline()
     if pipeline is None:
-        print("NO PIPELINE - GEMINI_API_KEY missing.", flush=True)
+        print("NO PIPELINE. (It no longer depends on a Gemini key.)", flush=True)
         return False
     (mission_service, runtime, mission_control, status, _runner,
      _set_mode, _interactions, decide_approval) = pipeline

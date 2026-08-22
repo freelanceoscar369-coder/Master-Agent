@@ -183,6 +183,30 @@ class TieredPromptRunner:
             self.last_attempts.append(TierAttempt(tier_name, True, tuple(considered), outcome))
             last_outcome = outcome
             if outcome is not None and getattr(outcome, "ok", False):
+                # This module's own rule, at the top of this file: "stop as
+                # soon as a VERIFIED reasoning result is obtained." It used
+                # to stop as soon as an `ok` one was, and those are not the
+                # same fact.
+                #
+                # Found live. ChatGPT Desktop returned a mid-stream
+                # fragment -- once literally `{"steps"`, once a bare `-` --
+                # with `ok=True` and `verified=False`. The Planner then
+                # refused the founder's whole objective ("the reply was not
+                # a plan document") while three untried rungs sat below,
+                # any of which could have answered. One flaky read ended a
+                # mission the ladder existed to keep alive.
+                #
+                # `evidence is not None` is the discriminator, and it is
+                # the precise one: `PromptOutcome.evidence` is `None`
+                # exactly when no expectation was supplied, and `verified`
+                # is documented as "False when nothing was asked --
+                # unchecked is not verified". So a caller with nothing to
+                # check against behaves exactly as before; only a caller
+                # that stated an expectation and had it fail causes the
+                # ladder to keep walking.
+                asked = getattr(outcome, "evidence", None) is not None
+                if asked and not getattr(outcome, "verified", False):
+                    continue
                 return outcome
 
         return last_outcome

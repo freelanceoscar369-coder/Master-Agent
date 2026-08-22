@@ -621,3 +621,79 @@ def test_founder_edition_web_rung_is_gemini_only():
     assert [s.label for s in BrowserFreeAiReasoningProvider()._sites] == [
         s.label for s in CANDIDATE_SITES
     ]
+
+
+# ═════════ An unverified answer is not a reason to stop the ladder ═════════
+#
+# This file's own module docstring states the rule: "stop as soon as a
+# VERIFIED reasoning result is obtained." The loop used to stop as soon as
+# an `ok` one was, and those are not the same fact.
+#
+# Found live, not theorised. ChatGPT Desktop returned a mid-stream
+# fragment -- once literally `{"steps"`, once a bare `-` -- carrying
+# ok=True and verified=False. The Planner then refused the founder's whole
+# objective ("the reply was not a plan document") while three untried
+# rungs sat below it.
+
+
+def _expect_contains(text: str):
+    from master_agent.ai_infrastructure.text_verifier import expect
+
+    return expect(contains_all=[text])
+
+
+def test_an_ok_but_unverified_answer_does_not_end_the_ladder():
+    """The live defect, as a test. The desktop rung answers, its answer
+    fails the expectation it was given, and the ladder keeps walking
+    instead of handing the founder something unusable."""
+    desktop = FakeProvider("claude-desktop", [_success("claude-desktop", text="{\"steps\"")])
+    browser = FakeProvider("browser.free-ai", [_success("browser.free-ai", text="COMPLETE ANSWER")])
+    runner = _build_system(gemini=None, desktops=[desktop], browser=browser)
+
+    outcome = runner.run("hello", _request(), expected=_expect_contains("COMPLETE ANSWER"))
+
+    assert outcome.ok
+    assert outcome.provider_id == "browser.free-ai", (
+        "a truncated answer from an upper rung ended the ladder"
+    )
+    assert desktop.complete_calls == 1, "the upper rung was still tried first"
+
+
+def test_a_verified_answer_stops_the_ladder_immediately():
+    """The other half: when the answer does satisfy what was asked of it,
+    nothing below is touched."""
+    desktop = FakeProvider("claude-desktop", [_success("claude-desktop", text="COMPLETE ANSWER")])
+    browser = FakeProvider("browser.free-ai", [_success("browser.free-ai", text="COMPLETE ANSWER")])
+    runner = _build_system(gemini=None, desktops=[desktop], browser=browser)
+
+    outcome = runner.run("hello", _request(), expected=_expect_contains("COMPLETE ANSWER"))
+
+    assert outcome.provider_id == "claude-desktop"
+    assert browser.complete_calls == 0
+
+
+def test_a_caller_with_nothing_to_check_against_is_unaffected():
+    """`PromptOutcome.evidence` is None exactly when no expectation was
+    supplied, and `verified` is documented as False in that case. Without
+    this discriminator every unchecked call would walk the whole ladder."""
+    desktop = FakeProvider("claude-desktop", [_success("claude-desktop", text="anything")])
+    browser = FakeProvider("browser.free-ai", [_success("browser.free-ai")])
+    runner = _build_system(gemini=None, desktops=[desktop], browser=browser)
+
+    outcome = runner.run("hello", _request())  # no `expected=`
+
+    assert outcome.provider_id == "claude-desktop"
+    assert browser.complete_calls == 0, "an unchecked call fell through the ladder"
+
+
+def test_when_no_rung_verifies_the_last_answer_is_still_returned_honestly():
+    """Walking the whole ladder without satisfying the expectation is a
+    failure to report, not a reason to fabricate one."""
+    desktop = FakeProvider("claude-desktop", [_success("claude-desktop", text="fragment")])
+    browser = FakeProvider("browser.free-ai", [_success("browser.free-ai", text="also fragment")])
+    runner = _build_system(gemini=None, desktops=[desktop], browser=browser)
+
+    outcome = runner.run("hello", _request(), expected=_expect_contains("NEVER APPEARS"))
+
+    assert desktop.complete_calls == 1 and browser.complete_calls == 1
+    assert not getattr(outcome, "verified", False)
