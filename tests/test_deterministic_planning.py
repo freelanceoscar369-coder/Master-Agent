@@ -86,6 +86,33 @@ def options():
     return catalogue_from_index(index)
 
 
+@pytest.fixture
+def options_with_reasoning():
+    """The same catalogue plus the Reasoning Executive.
+
+    Kept separate from `options` deliberately: every other test in this
+    module asserts what the deterministic lane does with the Browser and
+    Filesystem catalogue, and silently widening that would change what
+    those tests are measuring.
+    """
+    from master_agent.plugins.reasoning_plugin import ReasoningPlugin
+
+    executor = LocalExecutor(PermissionSystem())
+    contracts = []
+    for plugin in (
+        BrowserPlugin(executor, BrowserSessionManager(default_headless=False)),
+        FilesystemPlugin(executor),
+        ReasoningPlugin(executor),
+    ):
+        actions = getattr(plugin, "_actions", None)
+        if isinstance(actions, dict):
+            contracts.extend(
+                contracts_from_actions(actions, plugin.manifest.name, qualified_name)
+            )
+    index = build_index(contracts, loader={c.canonical_id: c for c in contracts}.get)
+    return catalogue_from_index(index)
+
+
 def capabilities_of(plan):
     return [step.capability for step in plan.steps]
 
@@ -481,3 +508,86 @@ class TestTheSameInstructionInEitherVoice:
         from master_agent.planner.direct import _read_capture_request
 
         assert _read_capture_request(goal) is None, goal
+
+
+class TestReasoningBelongsInTheStepNotTheChoiceOfSteps:
+    """"Think of three short names for a gardening notes app and write
+    them into names.txt on the Desktop."
+
+    Nothing in that sentence says HOW. With `Reasoning.Transform` and
+    `Filesystem.WriteFile` both registered, the shape is the only one they
+    can form -- so choosing it needs no model. The old path paid a
+    20,869-character catalogue prompt to be told the obvious, and lost the
+    whole mission when every reasoning rung was out.
+
+    A model is still needed. It is the only thing that can invent three
+    names, and it is needed INSIDE the Transform.
+    """
+
+    GOAL = (
+        "Think of three short names for a gardening notes app and write them "
+        "into names.txt on the Desktop."
+    )
+
+    def test_it_compiles_to_transform_then_write(self, options_with_reasoning):
+        plan = direct_plan(Intent(goal=self.GOAL), options_with_reasoning)
+
+        assert plan is not None
+        assert [s.capability for s in plan.steps] == [
+            "Reasoning.Transform", "Filesystem.WriteFile",
+        ]
+
+    def test_the_model_is_asked_the_instruction_not_the_catalogue(self, options_with_reasoning):
+        plan = direct_plan(Intent(goal=self.GOAL), options_with_reasoning)
+        instruction = step_named(plan, "Reasoning.Transform").payload["instruction"]
+
+        assert "gardening notes app" in instruction
+        # The destination is not part of what to produce: Transform returns
+        # text and must never be told to write a file.
+        assert "names.txt" not in instruction
+        assert "write them" not in instruction.lower()
+
+    def test_the_content_is_bound_never_predicted(self, options_with_reasoning):
+        plan = direct_plan(Intent(goal=self.GOAL), options_with_reasoning)
+        write = step_named(plan, "Filesystem.WriteFile")
+
+        assert write.payload.get("path") == "names.txt"
+        assert "content" not in write.payload, "the answer was guessed at planning time"
+        assert write.input_bindings["content"] == {
+            "from_step": {"step_id": plan.steps[0].step_id, "field": "text"}
+        }
+
+    def test_this_step_declares_its_material_public(self, options_with_reasoning):
+        """`Reasoning.Transform` defaults to `sensitive`, and rightly: its
+        `context` is normally an earlier Step's output -- a document off
+        the founder's disk. This lane builds a Transform with no `context`
+        and no `depends_on`, so that material structurally cannot be
+        present, and the contract requires a plan that knows this to say
+        so.
+
+        Measured before it was said: the Broker ruled every third-party
+        provider NOT_PRIVATE, the only PRIVATE providers on this machine
+        are disabled or absent, and selection refused before the founder
+        could be offered the choice -- so the mission died with "none
+        eligible" instead of with a question."""
+        plan = direct_plan(Intent(goal=self.GOAL), options_with_reasoning)
+        transform = step_named(plan, "Reasoning.Transform")
+
+        assert transform.payload["sensitive"] is False
+        assert "context" not in transform.payload
+        assert transform.depends_on == []
+
+    @pytest.mark.parametrize("goal", [
+        # No verb of origination -- nothing is being invented.
+        "Write hello into names.txt on the Desktop.",
+        # A folder as well: another lane owns that shape.
+        "Think of three names and create a folder called X on the Desktop.",
+        # A page to open: not this lane's.
+        "Think of three names for https://example.com and write them to n.txt on the Desktop.",
+        # No destination the founder actually named.
+        "Think of three short names for a gardening notes app.",
+    ])
+    def test_it_declines_everything_it_does_not_fully_recognise(self, goal, options):
+        from master_agent.planner.direct import _read_generate_request
+
+        assert _read_generate_request(goal) is None, goal

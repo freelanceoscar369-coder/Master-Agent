@@ -419,6 +419,7 @@ def _build_mission_pipeline():
     from master_agent.mission_control.mission_control import MissionControl
     from master_agent.mission_control.adapters import discover_executives
     from master_agent.runtime.engine import RuntimeEngine
+    from master_agent.plugins.reasoning_gateway import ReasoningGateway
     from master_agent.runtime.gateway import PluginGateway
     from master_agent.runtime.approval import PermissionSystemGate
     from master_agent.ai_infrastructure.catalog import CLOUD, DESKTOP, PROVIDER_CATALOG
@@ -639,15 +640,31 @@ def _build_mission_pipeline():
     # `PluginGateway` is the same generic seam Browser and Filesystem used
     # before they earned verifying gateways of their own, and the one
     # Desktop's non-verifiable capabilities still take. It executes and
-    # returns no Evidence, which is the truthful shape here: neither
-    # writing a document nor transforming text has a generic read-only
-    # postcondition this layer could re-observe, and inventing one would
-    # be manufacturing Evidence.
+    # returns no Evidence, which is the truthful shape for Document: a
+    # written document has no generic read-only postcondition this layer
+    # could re-observe, and inventing one would be manufacturing Evidence.
     runtime.register_gateway(
         document_plugin.manifest.name, PluginGateway(document_plugin),
     )
+
+    # Reasoning is different, and the difference was measured rather than
+    # reasoned about. Registered through the generic gateway it executed
+    # correctly and produced real text, and then every binding out of it
+    # failed: `input_resolution` resolves a produced value only from
+    # canonical Evidence with a matched verdict, and `PluginGateway`
+    # returns None by contract. So an objective as ordinary as "think of
+    # three names and write them into a file" could not run -- not for
+    # want of a capability, but because the Executive that produces text
+    # and the Verifier that measures text were never joined.
+    #
+    # `ReasoningGateway` is that join, in the shape `PluginGateway`'s own
+    # docstring prescribes and `FilesystemGateway` already follows. It
+    # adds no capability and no second verifier: it hands the text to
+    # MB035's `TextVerifier`, which re-derives its observation from the
+    # artefact by deterministic measurement and never asks the provider
+    # what it thought of its own answer.
     runtime.register_gateway(
-        reasoning_plugin.manifest.name, PluginGateway(reasoning_plugin),
+        reasoning_plugin.manifest.name, ReasoningGateway(reasoning_plugin),
     )
 
     # No Ollama: matches every prior Gemini mission this build carries.

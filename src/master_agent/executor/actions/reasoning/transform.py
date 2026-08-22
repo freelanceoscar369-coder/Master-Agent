@@ -143,16 +143,48 @@ class ReasoningTransformAction(Action):
         return errors
 
     def _prompt(self, instruction: str, context: str, must_contain) -> str:
+        """The framing follows the evidence, because the discipline does.
+
+        Every prompt used to open with "you are reasoning over evidence
+        gathered by earlier steps" and close with "if the evidence does
+        not contain something you were asked about, say so plainly rather
+        than supplying it from general knowledge" -- whether or not any
+        evidence had been supplied.
+
+        That is exactly right when there IS evidence, and it is the whole
+        anti-fabrication discipline, so it is preserved below unchanged.
+
+        With no `context` it inverts. Measured live, on the founder
+        objective "think of three short names for a gardening notes app":
+        the model obeyed, correctly, and returned
+
+            The evidence provided does not contain names for a gardening
+            notes app.
+
+        which was then verified, bound and written to their Desktop. The
+        machinery was flawless; the question was malformed. Nothing had
+        been gathered, nothing was being reasoned over, and the founder
+        had asked for something to be originated -- so the model was told
+        to refuse the only thing it had been asked to do.
+
+        So the evidence framing is stated when evidence exists and not
+        when it does not. This weakens nothing: a Transform carrying
+        context is held to the same rule it always was, word for word.
+        """
+        grounded = bool(context)
         parts = [
             "You are reasoning over evidence that was gathered by earlier "
-            "steps of a task. Use only what the evidence actually says.",
+            "steps of a task. Use only what the evidence actually says."
+            if grounded else
+            "You are carrying out one step of a task. No evidence was "
+            "gathered for it: answer from your own general knowledge.",
             "",
             f"Instruction:\n{instruction}",
         ]
         if must_contain:
             wanted = ", ".join(str(item) for item in must_contain)
             parts += ["", f"Your answer must cover: {wanted}."]
-        if context:
+        if grounded:
             parts += ["", "Evidence:", context]
         parts += [
             "",
@@ -161,7 +193,9 @@ class ReasoningTransformAction(Action):
             # than one that reports the absence.
             "If the evidence does not contain something you were asked "
             "about, say so plainly rather than supplying it from general "
-            "knowledge. Answer with the result only.",
+            "knowledge. Answer with the result only."
+            if grounded else
+            "Answer with the result only.",
         ]
         return "\n".join(parts)
 

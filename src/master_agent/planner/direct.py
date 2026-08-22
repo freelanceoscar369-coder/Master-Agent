@@ -191,6 +191,10 @@ _OBSERVE = "observe_browser"
 _CREATE_FOLDER = "create_folder"
 _WRITE_FILE = "write_file"
 _CLOSE = "close_browser_session"
+#: `Reasoning.Transform` -- the one capability that produces text by
+#: thinking. Named here so `_generate_then_write` can confirm it is
+#: registered rather than assume it.
+_TRANSFORM = "transform"
 
 #: The two page facts `Browser.ObserveBrowser` publishes. Confirmed
 #: against the registered contract before use, never assumed here.
@@ -686,6 +690,201 @@ def _explicit_workflow(intent: Intent, options) -> MissionPlan | None:
     )
 
 
+# ──────────────────── generate-then-write, deterministically ────────────
+#
+# "Think of three short names for a gardening notes app and write them
+# into names.txt on the Desktop."
+#
+# Nothing in that sentence says HOW. It does not need to: with
+# `Reasoning.Transform` and `Filesystem.WriteFile` both registered, the
+# shape is the only one they can form -- produce text, then write that
+# text. Choosing it requires no judgement, and asking a model to choose
+# it costs a 20,000-character catalogue prompt to be told the obvious.
+#
+# The founder's own measurement of the old behaviour, which is what this
+# lane exists to end:
+#
+#     AI calls for PLANNING:              0   (required)
+#     AI calls for Reasoning.Transform:   required
+#
+# The model is still needed -- it is the only thing that can invent three
+# names. It is needed INSIDE the Transform, where the prompt is the
+# actual instruction, and not in the choice of two capabilities.
+#
+# The content is never predicted here. `Reasoning.Transform` produces the
+# text at run time, `TextVerifier` measures it into canonical Evidence,
+# and `WriteFile.content` binds to that Evidence's `text` field. If the
+# reasoning step produces nothing, or its Evidence does not match, the
+# binding fails and no file is written -- which is the correct outcome,
+# and the reason a literal is not used.
+
+#: The founder asking for something to be invented. A verb of
+#: origination, not of retrieval: "think of", "come up with",
+#: "generate", "invent", "suggest", "brainstorm", "write me". These are
+#: the openings that mean the answer is not in the sentence.
+_GENERATE = re.compile(
+    r"\b(?:think(?:\s+up|\s+of)?|come\s+up\s+with|generate|invent|"
+    r"make\s+up|suggest|brainstorm|draft|compose)\b",
+    re.I,
+)
+
+#: Where the produced text is to be put. Deliberately narrow: a file the
+#: founder named, in a place the founder named. Anything vaguer is not a
+#: dictated destination and belongs to a model.
+_INTO_FILE = re.compile(
+    r"\b(?:in|into|to)\s+(?:a\s+|the\s+)?(?:new\s+)?(?:text\s+)?file\s+"
+    r"(?:called\s+|named\s+)?[`'\"]?([^\s`'\"]+\.[A-Za-z0-9]+)|"
+    r"\b(?:in|into|to)\s+[`'\"]?([A-Za-z0-9_\-]+\.[A-Za-z0-9]+)",
+    re.I,
+)
+
+
+#: The tail of the sentence that names the destination rather than the
+#: work: "... and write them", "... then save it". Removed from the
+#: instruction the model is given.
+_TRAILING_WRITE = re.compile(
+    r"[,;]?\s*(?:and\s+|then\s+)*(?:write|save|put|store|record|place)\s*"
+    r"(?:them|it|those|these|that|the\s+(?:names|list|text|result|results))?\s*$",
+    re.I,
+)
+
+
+def _read_generate_request(goal: str) -> tuple[str, str, str] | None:
+    """`(instruction, filename, place)` for the generate-then-write shape.
+
+    `None` on any doubt, as everywhere in this module. In particular this
+    refuses anything naming work neither capability can do -- the same
+    `_FOREIGN_OPERATION` guard that stops a partial plan being compiled
+    from a sentence that was only partly understood.
+    """
+    text = (goal or "").strip()
+    if not text or not _GENERATE.search(text):
+        return None
+    if _FOREIGN_OPERATION.search(text):
+        return None
+    # A folder to create, a file to delete, a page to open: other lanes
+    # own those shapes, and a sentence carrying one is not this one.
+    if _FOLDER.search(text) or _URL.search(text) or _DELETE.search(text):
+        return None
+
+    match = _INTO_FILE.search(text)
+    place_match = _PLACE.search(text)
+    if not match or not place_match:
+        return None
+    filename = (match.group(1) or match.group(2) or "").rstrip(".,;")
+    if not filename:
+        return None
+
+    # The instruction is the founder's own words, up to the point where
+    # they stop describing what to produce and start describing where to
+    # put it. Never paraphrased: this is what the model will be asked,
+    # and rewording a founder's request is not this module's business.
+    instruction = text[: match.start()].strip().rstrip(",;").strip()
+    # "...and write them" is the founder describing the destination, not
+    # the thing to produce. It is cut, because this instruction becomes
+    # the model's entire prompt and telling it to write a file is the one
+    # thing `Reasoning.Transform` must never do -- it returns text and
+    # touches nothing.
+    instruction = _TRAILING_WRITE.sub("", instruction).strip().rstrip(",;").strip()
+    if not instruction:
+        return None
+    return instruction, filename, place_match.group(1).capitalize()
+
+
+def _generate_then_write(intent: Intent, options) -> MissionPlan | None:
+    """`Reasoning.Transform` -> `Filesystem.WriteFile`, with a binding."""
+    request = _read_generate_request(intent.goal)
+    if request is None:
+        return None
+    instruction, filename, place = request
+
+    found = {name: find_option(name, options) for name in (_TRANSFORM, _WRITE_FILE)}
+    if any(option is None for option in found.values()):
+        return None
+
+    payloads = {
+        # The prompt the model actually receives is this instruction --
+        # not the capability catalogue. Stated plainly, and with the
+        # shape of the answer named, because a file is about to be
+        # written from it verbatim.
+        _TRANSFORM: {
+            "instruction": (
+                f"{instruction}\n\n"
+                "Return only the result itself, with nothing else -- no "
+                "preamble, no numbering, no commentary, no quotes around it. "
+                "It is going to be written into a file exactly as you return it."
+            ),
+            # Said out loud, because the contract requires it to be said.
+            #
+            # `Reasoning.Transform` defaults to `sensitive`, and it is right
+            # to: its `context` is normally an earlier Step's output -- a
+            # document off the founder's disk, a page from their session --
+            # and treating that as public by default would quietly post it
+            # to whichever provider ranked first.
+            #
+            # That reasoning cannot reach this step. This lane builds a
+            # Transform with **no `context` and no `depends_on`**: nothing
+            # from disk, from a session, or from any earlier Step can be in
+            # it. What is sent is the founder's own sentence and nothing
+            # else. So the careful default is guarding material that
+            # structurally does not exist here, and the contract's own
+            # provision applies -- "a plan that knows its material is
+            # public may say so, but it has to say so."
+            #
+            # Measured, before this was said: `sensitive` reached the
+            # Broker, `prefer_free` inherits `require_private_for_sensitive`,
+            # every third-party provider was ruled NOT_PRIVATE, and the
+            # only PRIVATE providers on this machine are Ollama (disabled
+            # by the RAM policy) and LM Studio (not installed). Nothing was
+            # eligible, so selection refused before `approval_needed()`
+            # could offer the founder the choice, and the mission died with
+            # "none eligible" rather than with a question.
+            #
+            # This is a statement about THIS step only. A lane that ever
+            # binds a produced value into `context` is carrying the
+            # founder's material and must leave the default alone.
+            "sensitive": False,
+        },
+        _WRITE_FILE: {"path": filename, "location": place.lower()},
+    }
+    if not _usable(found[_TRANSFORM], payloads[_TRANSFORM]):
+        return None
+    if not _usable(found[_WRITE_FILE], payloads[_WRITE_FILE], bound=("content",)):
+        return None
+
+    ids = {_TRANSFORM: "step_1", _WRITE_FILE: "step_2"}
+    steps = [
+        Step(
+            step_id=ids[_TRANSFORM],
+            capability=found[_TRANSFORM].name,
+            payload=payloads[_TRANSFORM],
+            depends_on=[],
+            input_bindings={},
+            expected_outcome=SuccessSpec(
+                description=f"Text is produced for: {instruction}",
+                min_words=1,
+            ).to_expected_outcome(),
+        ),
+        Step(
+            step_id=ids[_WRITE_FILE],
+            capability=found[_WRITE_FILE].name,
+            payload=payloads[_WRITE_FILE],
+            depends_on=[ids[_TRANSFORM]],
+            # The produced text, read from the Evidence that measured it.
+            # Never a literal: at planning time the answer does not exist.
+            input_bindings={
+                "content": {
+                    "from_step": {"step_id": ids[_TRANSFORM], "field": "text"}
+                }
+            },
+            expected_outcome=SuccessSpec(
+                description=f"{filename} exists on the {place} holding the produced text",
+            ).to_expected_outcome(),
+        ),
+    ]
+    return MissionPlan(steps=steps, objective=intent.goal)
+
+
 def direct_plan(intent: Intent, options) -> MissionPlan | None:
     """A plan written without a model, or `None` when one is genuinely needed.
 
@@ -699,6 +898,9 @@ def direct_plan(intent: Intent, options) -> MissionPlan | None:
     if plan is not None:
         return plan
     plan = _local_capture_workflow(intent, options)
+    if plan is not None:
+        return plan
+    plan = _generate_then_write(intent, options)
     if plan is not None:
         return plan
     return _explicit_workflow(intent, options)

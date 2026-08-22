@@ -53,6 +53,13 @@ a = Analysis(
         'docx',
         'master_agent.plugins.document_plugin',
         'master_agent.plugins.reasoning_plugin',
+        # The gateway that pairs the Reasoning Executive with TextVerifier.
+        # Imported inside `_build_mission_pipeline()` like everything else
+        # here, so static analysis cannot see it either -- and without it a
+        # packaged run loses the Evidence that `Reasoning.Transform`'s
+        # output is bound out of, which is the whole path from a produced
+        # answer to a written file.
+        'master_agent.plugins.reasoning_gateway',
         'master_agent.executor.actions.document.extract_text',
         'master_agent.executor.actions.document.write_document',
         'master_agent.executor.actions.reasoning.transform',
