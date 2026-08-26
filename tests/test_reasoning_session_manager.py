@@ -348,13 +348,29 @@ class TestEstablishCreatesWhenMissing:
         assert ISOLATION_UNVERIFIED in result.reason
 
 
-class TestRenameIsBestEffort:
-    """A session that was genuinely created but could not be renamed is
-    still a valid, isolated conversation for *this* call — only *reuse*
-    on a future call is what degrades, gracefully, back to the prior
-    architecture's own per-call-creation behavior."""
+class TestAnUnnameableSessionIsRefused:
+    """A conversation that cannot be named is not a reasoning surface.
 
-    def test_no_rename_control_discoverable_still_succeeds_this_call(self):
+    This class used to assert the opposite -- that a created-but-unnamed
+    conversation still succeeded for *this* call, degrading only reuse.
+    In isolation terms that was defensible. In founder terms it produced
+    an endless series of anonymous chats inside their own applications,
+    which is what they observed and rejected.
+
+    Measured per installed provider before the policy changed:
+
+        chatgpt-desktop      found and reused "Kalpavriksha Reasoning"
+        perplexity-desktop   created, rename FAILED, not findable
+        kimi-desktop         created, rename FAILED, not findable
+
+    Both failures reported success, so autonomous prompts went into a
+    conversation indistinguishable from the founder's own. Founder policy
+    is now that desktop autonomous reasoning uses the persistent, visibly
+    named conversation or the provider is unavailable for it and the
+    ladder moves on.
+    """
+
+    def test_no_rename_control_discoverable_is_refused(self):
         bridge = FakeUiaBridge(
             existing_sessions={}, rename_action_available=False, rename_trigger_available=False,
         )
@@ -362,11 +378,12 @@ class TestRenameIsBestEffort:
 
         result = manager.establish({"handle": 1}, "Some App", FakeKeyboard())
 
-        assert result.ok is True
+        assert result.ok is False
         assert result.reused is False
         assert result.renamed is False
+        assert ISOLATION_UNVERIFIED in result.reason
 
-    def test_focus_never_lands_in_this_window_rename_fails_gracefully(self):
+    def test_focus_never_landing_in_this_window_is_refused(self):
         bridge = FakeUiaBridge(
             existing_sessions={}, rename_action_available=True, get_focused_raises=True,
         )
@@ -374,10 +391,11 @@ class TestRenameIsBestEffort:
 
         result = manager.establish({"handle": 1}, "Some App", FakeKeyboard())
 
-        assert result.ok is True
+        assert result.ok is False
         assert result.renamed is False
+        assert ISOLATION_UNVERIFIED in result.reason
 
-    def test_write_text_failing_is_not_fatal_to_the_call(self):
+    def test_write_text_failing_is_refused(self):
         bridge = FakeUiaBridge(
             existing_sessions={}, rename_action_available=True, write_text_result=False,
         )
@@ -385,8 +403,9 @@ class TestRenameIsBestEffort:
 
         result = manager.establish({"handle": 1}, "Some App", FakeKeyboard())
 
-        assert result.ok is True
+        assert result.ok is False
         assert result.renamed is False
+        assert ISOLATION_UNVERIFIED in result.reason
 
     def test_an_unrenamed_session_is_not_findable_by_exact_name_next_time(self):
         """The honest degrade: reuse simply will not work on the next
