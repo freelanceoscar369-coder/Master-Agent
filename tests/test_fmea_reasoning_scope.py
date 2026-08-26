@@ -136,20 +136,35 @@ class TestNormalFounderLaunchIsUnchanged:
         assert "_gemini_only" in rendered, (
             "the desktop tier does not depend on the FMEA switch"
         )
-        assert "if _gemini_only else" in rendered, (
+        # The condition gained `_web_only` when the validation scope learned
+        # to isolate the web rung. What this guard actually protects is that
+        # the desktop tier stays CONDITIONAL -- so an unset switch still
+        # yields the full catalogue -- not the exact spelling of the
+        # condition. `tests/test_fmea_web_scope.py` proves the behaviour
+        # itself, which is the stronger statement.
+        assert "else" in rendered, (
             "the desktop tier is not a conditional -- the normal ladder may be gone"
         )
+        assert "_web_only" in rendered or "_gemini_only" in rendered
         assert "PROVIDER_CATALOG" in rendered, (
             "the normal desktop tier no longer draws from the provider catalogue"
         )
 
-        # The browser tier is no longer governed by this switch, and that is
-        # a founder decision rather than drift: `browser.free-ai` drives
-        # Duck.ai, and Founder Edition does not use it at all. Empty always,
-        # switch or no switch -- so there is nothing here for the FMEA scope
-        # to protect.
-        assert by_keyword["browser_provider_ids"] == "frozenset()", (
+        # This asserted the browser tier was EMPTY, which was true when the
+        # rung had no provider Founder Edition would use. The rung is filled
+        # now -- by the TRUSTED browser lane, the founder's own signed-in
+        # browser driven through the Desktop Executive -- so "empty" is no
+        # longer the property worth guarding.
+        #
+        # What the assertion was always really protecting is that Duck.ai
+        # does not come back, and `browser.free-ai` is the provider that
+        # drives it. That is what it checks now.
+        rung = by_keyword["browser_provider_ids"]
+        assert "BROWSER_FREE_AI_ID" not in rung, (
             "Duck.ai is back in the Founder Edition ladder"
+        )
+        assert "TRUSTED_WEB_PROVIDER_ID" in rung, (
+            "the web rung should be the trusted browser lane"
         )
 
     @pytest.mark.parametrize("value", ["", "   ", "off", "no", "desktop"])

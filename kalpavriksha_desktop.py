@@ -1016,6 +1016,20 @@ def _build_mission_pipeline():
     # fall through rather than trying to guess whether it would need to.
     _fmea_reasoning = (os.environ.get("KALPAVRIKSHA_FMEA_REASONING_TIER") or "").strip().lower()
     _gemini_only = _fmea_reasoning == "gemini"
+    # `web` isolates the trusted browser rung the same way `gemini` already
+    # isolates the API rung, and for the same reason: a validation harness
+    # must be able to prove ONE rung executes without the run silently
+    # falling through to whichever provider happens to be healthy on the
+    # founder's machine that minute. A harness that has to hope the higher
+    # rungs fail is not evidence.
+    #
+    # This is VALIDATION CONFIGURATION, never product policy. Unset -- which
+    # is every founder launch -- leaves the complete configured ladder
+    # untouched, and an unrecognised value is treated exactly as unset,
+    # which is the existing contract's own behaviour and is deliberately
+    # not changed here. Nothing about Broker policy, provider ranking or
+    # the normal web rung moves.
+    _web_only = _fmea_reasoning == "web"
 
     tiered_runner = TieredPromptRunner(
         prompt_executor,
@@ -1024,8 +1038,10 @@ def _build_mission_pipeline():
         # by having a credential rather than by being named in a branch
         # here -- the same known-is-not-configured rule the candidate
         # boundary already enforces.
-        gemini_provider_ids=frozenset(_configured_cloud_providers()),
-        desktop_provider_ids=frozenset() if _gemini_only else frozenset(
+        gemini_provider_ids=frozenset() if _web_only else frozenset(
+            _configured_cloud_providers()
+        ),
+        desktop_provider_ids=frozenset() if (_gemini_only or _web_only) else frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
         ),
         # The web rung, now filled. Reached only after Gemini API and the
