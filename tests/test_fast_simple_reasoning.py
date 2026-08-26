@@ -177,3 +177,104 @@ class TestDeterministicWorkStillCallsNoProvider:
         assert [step.capability for step in plan.steps] == [
             "Filesystem.CreateFolder", "Filesystem.WriteFile",
         ]
+
+
+class TestKnownButNotConfiguredIsNeverACandidate:
+    """`_all_ids` is the universe needed to EXCLUDE everything not allowed
+    in an attempt. It was briefly used as the candidate set, which turned
+    "every provider this codebase has a descriptor for" into "every
+    provider we may send a prompt to" -- and a live interactive run duly
+    reported `ollama.local` as eligible.
+
+    Founder Edition's no-Ollama contract rests on exactly this: the
+    descriptor stays in PROVIDER_CATALOG deliberately, is never
+    constructed, registered or probed, and its presence in the exclusion
+    universe is what keeps it out. The invariant is generic -- known but
+    not configured is never a candidate -- and needs no exclusion table.
+    """
+
+    def _runner(self, **overrides):
+        from master_agent.ai_infrastructure.tiered_runner import TieredPromptRunner
+
+        kwargs = dict(
+            prompt_executor=object(),
+            gemini_provider_ids=frozenset({"gemini.api"}),
+            desktop_provider_ids=frozenset({"chatgpt-desktop", "kimi-desktop"}),
+            browser_provider_ids=frozenset({"browser.free-ai"}),
+            local_provider_ids=frozenset(),
+            all_known_provider_ids=frozenset({
+                "gemini.api", "chatgpt-desktop", "kimi-desktop", "browser.free-ai",
+                # Known to ProviderSource, configured by nobody.
+                "ollama.local", "lm-studio.local", "openai.api", "openrouter.api",
+            }),
+        )
+        kwargs.update(overrides)
+        return TieredPromptRunner(**kwargs)
+
+    def _interactive_ids(self, runner):
+        attempts = runner._ordered_attempts(Request(INTERACTIVE))
+        assert len(attempts) == 1
+        return set(attempts[0][1])
+
+    def test_A_the_attempt_contains_only_configured_tier_ids(self):
+        assert self._interactive_ids(self._runner()) == {
+            "gemini.api", "chatgpt-desktop", "kimi-desktop", "browser.free-ai",
+        }
+
+    def test_B_a_provider_known_only_to_the_universe_is_excluded(self):
+        runner = self._runner()
+
+        candidates = self._interactive_ids(runner)
+
+        for known_only in ("ollama.local", "lm-studio.local", "openai.api",
+                           "openrouter.api"):
+            assert known_only in runner._all_ids, "the exclusion universe changed"
+            assert known_only not in candidates
+
+    def test_C_ollama_stays_in_the_catalogue_and_never_in_an_attempt(self):
+        from master_agent.ai_infrastructure.catalog import PROVIDER_CATALOG
+
+        catalogued = {spec.provider_id for spec in PROVIDER_CATALOG}
+        assert "ollama.local" in catalogued, (
+            "the descriptor is kept on purpose -- removing it is not the fix"
+        )
+        assert "ollama.local" not in self._interactive_ids(self._runner())
+
+    def test_D_unconfigured_providers_cannot_arrive_via_the_descriptor_set(self):
+        """Every attempt, not merely the interactive one."""
+        runner = self._runner()
+
+        for request_class in (INTERACTIVE, EXECUTION):
+            for _name, ids in runner._ordered_attempts(Request(request_class)):
+                assert not ({"ollama.local", "lm-studio.local", "openai.api",
+                             "openrouter.api"} & set(ids))
+
+    def test_E_configured_providers_still_compete_together(self):
+        """The fast path is still cross-tier: Gemini, desktop and browser
+        in ONE attempt, ranked by the Broker."""
+        candidates = self._interactive_ids(self._runner())
+
+        assert "gemini.api" in candidates
+        assert {"chatgpt-desktop", "kimi-desktop"} <= candidates
+        assert "browser.free-ai" in candidates
+
+    def test_F_the_scope_still_excludes_everything_outside_the_attempt(self):
+        """`_all_ids` keeps its original meaning, which is what makes the
+        fallback in `_attempt_tier()` safe: a request scoped to the
+        remaining candidates excludes every other id the Broker can see."""
+        runner = self._runner()
+        remaining = {"chatgpt-desktop"}
+
+        scoped = runner._scope(Request(INTERACTIVE), remaining)
+
+        assert "ollama.local" in scoped.exclude_providers
+        assert "gemini.api" in scoped.exclude_providers
+        assert "chatgpt-desktop" not in scoped.exclude_providers
+
+    def test_a_deployment_configuring_nothing_falls_back_to_the_ladder(self):
+        runner = self._runner(
+            gemini_provider_ids=frozenset(), desktop_provider_ids=frozenset(),
+            browser_provider_ids=frozenset(),
+        )
+
+        assert runner._ordered_attempts(Request(INTERACTIVE)) == runner._tiers

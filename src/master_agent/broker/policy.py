@@ -234,11 +234,11 @@ DEFAULT_POLICY = BALANCED
 #: **This supersedes the strict locality ladder for simple work, on the
 #: founder's explicit instruction, and it must not be "corrected" back.**
 #:
-#: `ai_infrastructure/tiered_runner.py` walked local -> desktop -> gemini
-#: -> browser and scoped the Broker to one locality at a time, so an
+#: `ai_infrastructure/tiered_runner.py` walked its locality tiers in a
+#: fixed order and scoped the Broker to one of them at a time, so an
 #: adequate fast provider could not win until every slower one had been
 #: exhausted. Measured on a trivial public generation: desktop automation
-#: ~74s serially, a healthy free Gemini ~5.4s, ~90s overall. That ordering
+#: ~74s serially, a healthy free cloud API ~5.4s, ~90s overall. That ordering
 #: is right when the question is "what is cheapest and most private"; it
 #: is wrong when the founder is waiting for three words.
 #:

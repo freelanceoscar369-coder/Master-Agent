@@ -170,6 +170,27 @@ class TieredPromptRunner:
             local_provider_ids, gemini_provider_ids, desktop_provider_ids,
             browser_provider_ids,
         )
+        #: The providers this deployment actually CONFIGURED -- the union
+        #: of what was placed into the tiers above, and nothing else.
+        #:
+        #: Distinct from `_all_ids` below, and the distinction is the whole
+        #: point: `_all_ids` is the universe needed to EXCLUDE everything
+        #: not allowed in an attempt. Reading it as a candidate list turns
+        #: "every provider this codebase has a descriptor for" into "every
+        #: provider we may send a prompt to", which is the opposite of what
+        #: it is for.
+        #:
+        #: Founder Edition's no-Ollama contract depends on exactly this.
+        #: `ollama.local` stays in PROVIDER_CATALOG deliberately, is never
+        #: constructed, registered or probed, and its presence in
+        #: `_all_ids` is what has always kept it EXCLUDED. It became a
+        #: live interactive candidate the moment I used `_all_ids` as the
+        #: candidate set -- alongside lm-studio.local, openai.api and
+        #: openrouter.api, none of them configured either.
+        #:
+        #: Known but not configured is never a candidate. That is generic,
+        #: needs no exclusion table, and names no provider.
+        self._configured_ids: frozenset[str] = tiered_ids
         # A real, live bug found running the actual production pipeline:
         # `ProviderSource` (and therefore `CapabilityBroker.select()`)
         # sees *every* spec in whatever `specs=` tuple the composition
@@ -284,10 +305,10 @@ class TieredPromptRunner:
         if request_class != INTERACTIVE_CLASS:
             return self._tiers
 
-        everything = frozenset(self._all_ids)
-        if not everything:
+        # CONFIGURED, never `_all_ids`. See `_configured_ids`.
+        if not self._configured_ids:
             return self._tiers
-        return ((TIER_ANY, everything),)
+        return ((TIER_ANY, self._configured_ids),)
 
     def _attempt_tier(
         self, prompt: str, request: Any, tier_ids: frozenset[str], kwargs: dict,

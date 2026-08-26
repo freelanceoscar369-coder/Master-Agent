@@ -104,6 +104,49 @@ def test_no_ollama_provider_is_ever_registered(monkeypatch):
     }
 
 
+def test_no_ollama_in_the_interactive_candidate_set(monkeypatch):
+    """G — the assembly point that DID silently reintroduce it.
+
+    Registration was never the only door. The interactive fast path asks
+    the Broker to rank a set of candidates directly, and that set was
+    briefly built from `_all_ids` -- the universe that exists so `_scope()`
+    can EXCLUDE everything not allowed in an attempt. Reading it as a
+    candidate list turned "every provider we have a descriptor for" into
+    "every provider we may send a prompt to", and a live run duly reported
+    ollama.local as eligible.
+
+    `ollama.local` stays in PROVIDER_CATALOG deliberately; what must never
+    happen is it becoming a candidate. This asserts the attempt itself, so
+    the next person to touch `_ordered_attempts()` finds out here.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-test")
+    import dataclasses
+
+    from master_agent.ai_infrastructure.workload import EXECUTION, INTERACTIVE
+
+    mission_service, *_rest = kd._build_mission_pipeline()
+    runner = mission_service.planner._runner
+
+    @dataclasses.dataclass(frozen=True)
+    class Request:
+        request_class: str
+        exclude_providers: frozenset = frozenset()
+
+    for request_class in (INTERACTIVE, EXECUTION):
+        for _name, ids in runner._ordered_attempts(Request(request_class)):
+            assert "ollama.local" not in ids, request_class
+            assert "lm-studio.local" not in ids, request_class
+            assert "openai.api" not in ids, request_class
+            assert "openrouter.api" not in ids, request_class
+
+    interactive = runner._ordered_attempts(Request(INTERACTIVE))
+    assert len(interactive) == 1
+    assert set(interactive[0][1]) == {
+        "gemini.api", "claude-desktop", "chatgpt-desktop",
+        "perplexity-desktop", "kimi-desktop", "browser.free-ai",
+    }
+
+
 # ---- _submit_objective() --------------------------------------------------
 
 
