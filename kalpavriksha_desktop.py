@@ -434,9 +434,6 @@ def _build_mission_pipeline():
     from master_agent.providers.openrouter import (
         OPENROUTER_PROVIDER_ID as _OPENROUTER_ID,
     )
-    from master_agent.broker.registry import EconomicClass as _EconomicClass
-    import dataclasses as _dataclasses
-    from datetime import UTC as _UTC, datetime as _datetime
     import os as _os
     from master_agent.ai_infrastructure.service import AiCapabilityService
     from master_agent.ai_infrastructure.execution import PromptExecutor
@@ -764,38 +761,38 @@ def _build_mission_pipeline():
     # every call and refuses if it is no longer free or no longer text --
     # this is not a claim that it is free forever.
     if _os.environ.get(_OPENROUTER_ENV):
-        provider_registry.register(
-            OpenRouterProvider(model=OPENROUTER_CONFIGURED_MODEL)
-        )
+        _openrouter = OpenRouterProvider(model=OPENROUTER_CONFIGURED_MODEL)
+        provider_registry.register(_openrouter)
         # The catalogue declares this provider at 0.005 a call -- "metered
         # aggregator; every call spends money" -- which is true of
         # OpenRouter in general and false of the specific model THIS
         # deployment addresses. Left as declared, the free policy ruled it
         # ineligible, which was the right answer to the wrong question.
         #
-        # So the canonical record is corrected for this deployment, with
-        # the provenance that makes it checkable rather than asserted: the
-        # claim names the model it is about, the source it came from, and
-        # when it was read. It is not a statement that OpenRouter is free.
-        # `OpenRouterProvider.resolve_model()` revalidates the price on
-        # every single call and refuses if it has changed, so a withdrawn
-        # free tier costs an unavailable provider, never a surprise bill.
+        # An earlier version corrected the record the moment a credential
+        # was present, stamping `economic_verified_at = now`. That was a
+        # provenance defect and worth naming: a credential proves this
+        # deployment is CONFIGURED, and proves nothing whatsoever about
+        # what the model costs today. The Broker was being handed a
+        # zero-cost claim carrying a fresh verification timestamp for an
+        # observation that had never been made.
+        #
+        # So the price is READ before it is claimed. Two separate facts
+        # now, deliberately kept apart:
+        #
+        #   static, deployment configuration -- which model we address
+        #   dynamic, observed at time T     -- what it currently costs
+        #
+        # No reading, an unreachable endpoint, an unlisted model or a
+        # priced one all land the same way: economics UNKNOWN, cost left
+        # at the declared metered rate, and therefore not eligible under a
+        # free policy. Never an optimistic zero.
         _declared = canonical_providers.get(_OPENROUTER_ID)
         if _declared is not None:
-            canonical_providers.register(_dataclasses.replace(
+            canonical_providers.register(_with_observed_economics(
                 _declared,
-                cost_per_call=0.0,
-                is_free=True,
-                economic_class=_EconomicClass.RECURRING_FREE,
-                economic_source=(
-                    f"deployment configures {OPENROUTER_CONFIGURED_MODEL!r}; "
-                    "prompt and completion prices read as 0 from OpenRouter "
-                    "/api/v1/models and revalidated before every call"
-                ),
-                economic_verified_at=_datetime.now(_UTC),
-                notes=(
-                    f"gateway, addressing {OPENROUTER_CONFIGURED_MODEL} only"
-                ),
+                _observe_openrouter_economics(_openrouter),
+                OPENROUTER_CONFIGURED_MODEL,
             ))
     # NO OLLAMA ON THIS MACHINE. A founder decision, not a technical one:
     # this laptop has 16 GB and the smaller of the two installed models
@@ -974,6 +971,20 @@ def _build_mission_pipeline():
     # and unused.
     persistence.attach_provider_registry(canonical_providers)
     persistence.start_recording()
+    # ...and something has to actually WRITE one. Attaching the registry
+    # guaranteed the provider slice would be in every snapshot this
+    # composition saved; it saved none. `launcher/boot.py` has passed
+    # `checkpoint_sink=persistence` to its RuntimeEngine since MB025 and
+    # this root never did, so the restore path above was reading a file
+    # the application itself never produced -- a persistence layer that
+    # was correct in every part and inert as a whole.
+    #
+    # The Runtime checkpoints at the end of every cycle and once more on a
+    # graceful stop, and `save_checkpoint()` rewrites the whole snapshot
+    # when a MissionControl is attached, so runtime counters, mission
+    # state and the canonical provider record always describe the same
+    # moment rather than three different ones.
+    runtime.attach_checkpoint_sink(persistence)
     plan_history = PlanHistory(store=JsonFilePlanStore(state_dir / HISTORY_FILENAME))
     plan_history.attach_to(mission_control)
 
@@ -1833,9 +1844,16 @@ def _self_check() -> int:
     the source tree; if a capability is missing from the package it is
     missing from this output too.
 
-    No window opens, nothing is executed against the machine, and no
-    provider is contacted: constructing the pipeline is free of launch and
-    scan by design.
+    No window opens, no application is launched, no machine scan runs and
+    no prompt is sent anywhere.
+
+    **One network read does happen**, and saying otherwise would be the
+    kind of comfortable inaccuracy this whole output exists to avoid: when
+    a gateway credential is configured, the composition asks that gateway
+    what the configured model currently costs, because the Broker ranks on
+    economics and a price nobody has read is not evidence. It is one
+    unauthenticated GET for public metadata, it carries no prompt, and a
+    failure is not fatal -- see `_observe_openrouter_economics`.
     """
     import sys
 
@@ -1866,6 +1884,47 @@ def _self_check() -> int:
         print(f"  reasoning tier {name:<9} {', '.join(sorted(ids)) or '(empty)'}")
 
     print(f"  approval wired:          {callable(decide_approval)}")
+
+    # ---- what this build knows, what it can call, and on what evidence --
+    #
+    # A tier list says which ids the ladder would try. It does not say
+    # whether an id is merely KNOWN, whether this deployment CONFIGURED
+    # it, whether anything is actually EXECUTABLE behind it, or what the
+    # economic claim attached to it is standing on -- and those four
+    # became different questions in U1. A packaged build is exactly where
+    # they cannot be answered by reading the source, so they are printed.
+    print("  provider facts:")
+    executor = runner._executor
+    executable_ids = {p.provider_id for p in executor._providers.all_plugins()}
+    configured_ids = set(_configured_cloud_providers())
+    source = executor._service.providers
+    profiles = {p.provider_id: p for p in source.profiles()}
+    registry = source.registry
+
+    for record in sorted(registry.all() if registry else (),
+                         key=lambda d: d.provider_id):
+        pid = record.provider_id
+        profile = profiles.get(pid)
+        verified = record.economic_verified_at
+        economics = (
+            f"{record.economic_class.value} @ {record.cost_per_call:g}"
+            + (f", read {verified.isoformat(timespec='seconds')}"
+               if verified else ", NOT currently verified")
+        )
+        print(
+            f"    {pid:<22} known=yes"
+            f" configured={'yes' if pid in configured_ids else 'n/a'}"
+            f" executable={'yes' if pid in executable_ids else 'no'}"
+            f" available={'yes' if profile and profile.available else 'no'}"
+        )
+        print(f"    {'':<22} economics: {economics}")
+
+    # No Ollama, stated as an observation rather than a promise: if it
+    # were ever constructed it would be in the executable set.
+    print(f"  no-ollama:               constructed="
+          f"{'yes' if 'ollama.local' in executable_ids else 'no'}"
+          f", candidate="
+          f"{'yes' if 'ollama.local' in set(getattr(runner, '_configured_ids', ())) else 'no'}")
 
     # Deterministic planning, proven rather than assumed: a fully dictated
     # objective must compile without any provider being reachable.
@@ -2011,10 +2070,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 def _configured_cloud_providers() -> tuple[str, ...]:
     """Which credentialled services this deployment has actually
     configured, decided from the environment at construction time.
@@ -2049,21 +2104,25 @@ def _restore_canonical_providers(registry, state_dir) -> tuple[str, ...]:
     refuse what is already there, so a DISCOVERED record has to be
     restored FIRST or the declared import silently wins.
 
-    Reads the same snapshot the rest of the system uses. A missing or
-    unreadable snapshot is a first run, not a failure.
-    """
-    try:
-        from master_agent.persistence.schema import migrate
-        from master_agent.persistence.service import restore_providers
-        from master_agent.persistence.store import JsonFileStateStore
+    Reads the same snapshot the rest of the system uses, **through the
+    same verified loader**. `PersistenceService.load()` already does
+    `load_snapshot()` -> `envelope.verify()` -> `migrate()`, and an
+    earlier version of this function open-coded two of those three and
+    skipped the checksum -- a second loader, weaker than the first, in the
+    one place a founder would never look.
 
-        envelope = JsonFileStateStore(state_dir).load_snapshot()
-        if envelope is None:
-            return ()
-        return restore_providers(migrate(envelope), registry)
-    except Exception as exc:  # noqa: BLE001
-        logging.warning("canonical provider descriptors not restored: %s", exc)
+    A MISSING snapshot is a legitimate first run and returns nothing.
+    A CORRUPT, TAMPERED or UNREADABLE one is a different condition
+    entirely, and it is raised, not logged and swallowed: this package's
+    whole discipline is that refusing to start beats starting on a lie.
+    """
+    from master_agent.persistence.service import PersistenceService, restore_providers
+    from master_agent.persistence.store import JsonFileStateStore
+
+    envelope = PersistenceService(JsonFileStateStore(state_dir)).load()
+    if envelope is None:
         return ()
+    return restore_providers(envelope, registry)
 
 
 #: The OpenRouter model this deployment addresses, as configuration.
@@ -2078,3 +2137,128 @@ def _restore_canonical_providers(registry, state_dir) -> tuple[str, ...]:
 #: is written down here where a founder can see and change it, rather than
 #: ranked inside a provider adapter.
 OPENROUTER_CONFIGURED_MODEL = "minimax/minimax-m3:free"
+
+
+def _observe_openrouter_economics(provider) -> dict | None:
+    """Read what the configured model costs RIGHT NOW, or return None.
+
+    This is the selection-time price check, and it exists because the
+    Broker ranks on economics before anything is executed. Without it the
+    only price gate was inside the provider, which is the correct place
+    for the *execution-time* gate and far too late to keep a ranking
+    honest: the Broker would already have preferred a "free" provider on a
+    claim nobody had checked.
+
+    `resolve_model()` is reused rather than reimplemented -- it is already
+    the thing that asks OpenRouter's own `/api/v1/models` for the
+    configured slug and returns it only when both published prices are
+    exactly zero and it still emits text only. Calling it here costs one
+    unauthenticated GET, warms the same short-lived cache the execution
+    path reads, and needs no second notion of what "free" means.
+
+    Returns the evidence -- which model, both prices, and the moment the
+    reading was taken -- or None for every way the reading can fail to
+    establish zero cost. None is not an error: it is the absence of
+    evidence, and the caller must treat it as such rather than as a zero.
+    """
+    from datetime import UTC, datetime
+
+    try:
+        model = provider.resolve_model()
+    except Exception as exc:  # noqa: BLE001 - an unreachable gateway is not fatal
+        logging.warning("OpenRouter price not observed: %s", exc)
+        return None
+    observed_at = datetime.now(UTC)
+    if model is None:
+        return None
+
+    pricing = model.get("pricing") or {}
+    try:
+        prompt_price = float(pricing.get("prompt", 1))
+        completion_price = float(pricing.get("completion", 1))
+    except (TypeError, ValueError):
+        return None
+    if prompt_price != 0.0 or completion_price != 0.0:
+        return None
+
+    return {
+        "model": str(model.get("id", "")),
+        "prompt_price": prompt_price,
+        "completion_price": completion_price,
+        "observed_at": observed_at,
+        "source": "openrouter /api/v1/models",
+    }
+
+
+def _with_observed_economics(descriptor, observation, configured_model: str):
+    """The canonical record, with its economics set from an observation
+    rather than from a hope.
+
+    Pure and separated from the reading above so the rule can be tested
+    without a network: evidence in, descriptor out.
+
+    With evidence, the record says free, and says why: which model, which
+    endpoint, and the timestamp of the actual retrieval. Without it, the
+    record says UNKNOWN and keeps the declared metered cost -- so a stale
+    "free" that arrived from a persisted snapshot cannot quietly become
+    today's truth, which is the failure mode this whole function exists
+    to close.
+    """
+    import dataclasses
+
+    from master_agent.broker.registry import EconomicClass
+
+    if observation is None:
+        return dataclasses.replace(
+            descriptor,
+            # Deliberately NOT zero. `ProviderProfile.is_free` is
+            # `cost <= 0`, so a cost of zero here would make the Broker
+            # treat an unverified provider as free on no evidence at all.
+            cost_per_call=max(descriptor.cost_per_call, _OPENROUTER_METERED_COST),
+            is_free=False,
+            economic_class=EconomicClass.UNKNOWN,
+            economic_source=(
+                f"deployment configures {configured_model!r}; its current "
+                "price could NOT be read from OpenRouter, so no zero-cost "
+                "claim is made and the declared metered rate stands"
+            ),
+            economic_verified_at=None,
+            notes=f"gateway, addressing {configured_model} only",
+        )
+
+    return dataclasses.replace(
+        descriptor,
+        cost_per_call=0.0,
+        is_free=True,
+        economic_class=EconomicClass.RECURRING_FREE,
+        economic_source=(
+            f"{observation['source']}: {observation['model']} priced at "
+            f"prompt {observation['prompt_price']:g} / completion "
+            f"{observation['completion_price']:g}, read at "
+            f"{observation['observed_at'].isoformat()}; revalidated again "
+            "before every call"
+        ),
+        economic_verified_at=observation["observed_at"],
+        notes=f"gateway, addressing {configured_model} only",
+    )
+
+
+#: What `PROVIDER_CATALOG` declares an OpenRouter call costs in general.
+#: The floor an unverified record falls back to, so "we could not read the
+#: price" can never be mistaken for "the price is zero".
+_OPENROUTER_METERED_COST = 0.005
+
+
+# The executable entry point, and it belongs HERE -- at the true end of
+# the module, after every helper and constant it can reach.
+#
+# It used to sit above `_configured_cloud_providers`,
+# `_restore_canonical_providers` and `OPENROUTER_CONFIGURED_MODEL`. On an
+# `import`, that is harmless: the whole module executes before anything
+# calls `main()`. Run as a script -- which is exactly what the packaged
+# Founder Edition does -- the guard fires the moment the interpreter
+# reaches it, `main()` calls `_build_mission_pipeline()`, and the names
+# below it do not exist yet. A packaging change alone could have surfaced
+# that as a NameError on launch.
+if __name__ == "__main__":
+    raise SystemExit(main())

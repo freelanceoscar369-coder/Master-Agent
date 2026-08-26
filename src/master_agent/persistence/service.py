@@ -348,11 +348,23 @@ def restore_providers(envelope, registry) -> tuple[str, ...]:
     from master_agent.broker.registry import ProviderDescriptor, ProviderHealth
 
     rows = (envelope.payload or {}).get("providers") or []
-    restored: list[str] = []
-    for row in rows:
-        descriptor = ProviderDescriptor.from_dict(row)
+    # Read every row BEFORE registering any of them. A row that cannot be
+    # read is corruption, and the rule this package holds everywhere else
+    # is that a snapshot is refused whole rather than loaded in part --
+    # registering as we went would leave the registry half-restored behind
+    # the exception, which is precisely the "confidently acting on a lie"
+    # state `CorruptSnapshot`'s own docstring exists to prevent.
+    descriptors: list[ProviderDescriptor] = []
+    for index, row in enumerate(rows):
+        try:
+            descriptors.append(ProviderDescriptor.from_dict(row))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CorruptSnapshot(
+                f"provider row {index} is unreadable: {exc}"
+            ) from exc
+
+    for descriptor in descriptors:
         registry.register(dataclasses.replace(
             descriptor, health=ProviderHealth.UNVERIFIED,
         ))
-        restored.append(descriptor.provider_id)
-    return tuple(restored)
+    return tuple(d.provider_id for d in descriptors)

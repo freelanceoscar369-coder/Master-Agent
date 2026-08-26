@@ -130,6 +130,24 @@ class RuntimeEngine:
 
     # ---- checkpointing (MB025) ---------------------------------------
 
+    def attach_checkpoint_sink(self, sink: CheckpointSink) -> None:
+        """Give this Runtime somewhere to checkpoint, after construction.
+
+        `launcher/boot.py` builds its PersistenceService before its
+        RuntimeEngine and passes `checkpoint_sink=` straight in, which is
+        the better shape and stays the default. A composition root that
+        cannot -- because the store it persists to is decided further down
+        than the Runtime is built -- had only the constructor, so
+        `kalpavriksha_desktop.py` quietly ran with no sink at all and
+        never wrote a snapshot.
+
+        Attaching does not change Rule 3: the Runtime still only *requests*
+        a checkpoint through the protocol and still performs no storage
+        itself. Same reason `PersistenceService.attach_provider_registry()`
+        exists -- composition order is not an architecture decision.
+        """
+        self._checkpoint_sink = sink
+
     def checkpoint(self) -> RuntimeCheckpoint:
         """Capture resumable state. Pure: builds a value object and hands
         it to the sink, if one was provided. A sink that raises must never
