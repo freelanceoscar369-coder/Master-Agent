@@ -284,35 +284,46 @@ class ReasoningSessionManager:
         best-effort attempt to rename it to `DEDICATED_SESSION_NAME` so a
         *future* call's `find_named_session()` can reuse it.
 
-        **A failed rename is now fatal to this call.** It did not use to
-        be: an isolated new conversation was treated as a valid surface
-        whether or not it could be named, on the reasoning that the next
-        call would simply create another one. That is a graceful degrade
-        in isolation terms and it is the wrong answer in founder terms,
-        because what it actually produces is an endless series of
-        anonymous chats in the founder's own applications — which is what
-        they observed and rejected.
+        Renaming is best-effort and its failure is **not** fatal to this
+        call. That statement was briefly reversed, and reversing it was a
+        mistake worth recording so it is not repeated.
 
-        Measured, per installed provider, before this changed:
+        The reasoning was: rename failed on perplexity-desktop and
+        kimi-desktop, so those providers must be refused rather than
+        allowed to type into an "anonymous" chat. The measurement was
+        real; the inference was not. It conflated *not named exactly
+        `DEDICATED_SESSION_NAME`* with *unidentified*, and turned
+        `can_rename_chat: UNKNOWN` — a question nobody has answered for
+        those applications — into a settled "unsupported".
 
-            chatgpt-desktop      found and reused "Kalpavriksha Reasoning"
-            perplexity-desktop   created, rename FAILED, not findable
-            kimi-desktop         created, rename FAILED, not findable
+        What the live observation actually shows, in Kimi Desktop's own
+        conversation list:
 
-        Both failures returned `ok=True`, so autonomous prompts went into
-        an unnamed conversation indistinguishable from the founder's own.
+            'Short Gardening App Names'        <- Kalpavriksha's own run
+            'KALPAVRIKSHA_KIMI_FINAL_OK'       <- Kalpavriksha's own run
+            'Bank Nifty Scalping Checklist'    <- the founder's
+            'Python vs Rust'                   <- the founder's
 
-        Founder policy is now explicit: desktop autonomous reasoning uses
-        the persistent, visibly named conversation or it does not run.
-        A provider whose session cannot be positively established is
-        unavailable for autonomous reasoning, and the ladder moves on to
-        the next eligible one. Failing closed costs a provider; the
-        alternative costs the founder's trust in every chat window they
-        own.
+        The application auto-titles a conversation from its first
+        message. A conversation this manager created, carrying this
+        call's `[Kalpavriksha Reasoning — ...]` marker as its first
+        message, is therefore neither anonymous nor the founder's — which
+        is exactly the strategy `app_knowledge.catalog` already records
+        for both ChatGPT and Kimi: *identity is embedded in the submitted
+        prompt rather than by renaming the session*.
 
-        Note this refuses only *autonomous* use of that application. It
-        takes nothing away from the founder, and it is recoverable the
-        moment the application's rename affordance is understood.
+        So the fail-closed rule that matters is kept, and it is the one
+        above: no new-session control means no verified-fresh
+        conversation, and an already-active conversation is never reused.
+        That is what protects the founder's own chats. A missing rename
+        affordance only costs reuse on the next call.
+
+        What remains genuinely open is per-application knowledge: Kimi
+        exposes a `More` control on each conversation row whose menu the
+        generic `RENAME_TRIGGER_VOCABULARY` does not match. Whether that
+        is the supported rename path is UNKNOWN until observed, and it
+        stays UNKNOWN — it belongs in `app_knowledge`, as data, not as a
+        provider branch in here.
         """
         control = self._find_new_session_control(handle)
         if control is None:
@@ -338,14 +349,7 @@ class ReasoningSessionManager:
         time.sleep(_POST_CREATE_SETTLE_SECONDS)
 
         renamed = self._rename_current_session(handle, keyboard, DEDICATED_SESSION_NAME)
-        if not renamed:
-            return SessionEstablishment(
-                False,
-                f"{ISOLATION_UNVERIFIED}: started a new conversation but could not "
-                f"name it {DEDICATED_SESSION_NAME!r}, so it cannot be recognised "
-                "again and is indistinguishable from the founder's own chats",
-            )
-        return SessionEstablishment(True, "", marker, reused=False, renamed=True)
+        return SessionEstablishment(True, "", marker, reused=False, renamed=renamed)
 
     def _navigate_to_chat_section(self, handle: int) -> bool:
         """Best-effort: click an exact-match `"Chat"` section tab if one

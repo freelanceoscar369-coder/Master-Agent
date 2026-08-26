@@ -221,17 +221,50 @@ KIMI_DESKTOP = AppKnowledgeProfile(
             "application."
         ),
     ),
-    can_rename_chat=unknown("Not found in this session's bounded web research, and no rename action was ever performed live."),
+    can_rename_chat=Fact(
+        value=(
+            "STILL UNKNOWN, and deliberately recorded as such. Each conversation row in "
+            "the Chat surface's 'Chats' list carries its own control whose accessible "
+            "Name is exactly 'More' (ControlType 50000), positioned at the row's right "
+            "edge — observed live at (185,377)-(208,400) beside the row 'Short Gardening "
+            "App Names'. That is the natural candidate for a rename/delete menu, and the "
+            "generic RENAME_TRIGGER_VOCABULARY does not match it. Clicking it did not "
+            "reveal any menu item within the sidebar region enumerated, so the affordance "
+            "it opens — if any — has NOT been observed. It is written down here so the "
+            "next investigation starts from the control rather than rediscovering it, and "
+            "it must not be treated as a supported rename path until a menu item is "
+            "actually seen and used."
+        ),
+        knowledge_type=KnowledgeType.UNKNOWN,
+        source=(
+            "live UIA read of the Chat surface's conversation list, 2026-08-26; a click on "
+            "the 'More' control produced no enumerated menu item"
+        ),
+    ),
     dedicated_session_strategy=Fact(
         value=(
             "Same approach as ChatGPT Desktop: current production automation embeds the "
             "'[Kalpavriksha Reasoning — ...]' identity in the submitted prompt text rather than "
-            "renaming the session."
+            "renaming the session. "
+            "CONFIRMED LIVE 2026-08-26, and it works better than expected: this application "
+            "AUTO-TITLES a conversation from its first message, so a conversation created by "
+            "automation acquires a title derived from Kalpavriksha's own marked prompt. Its "
+            "conversation list was read directly and contained "
+            "'Short Gardening App Names' and 'KALPAVRIKSHA_KIMI_FINAL_OK' — both Kalpavriksha's "
+            "own runs — alongside the founder's 'Bank Nifty Scalping Checklist' and "
+            "'Python vs Rust'. "
+            "TWO CONSEQUENCES. First, such a conversation is neither anonymous nor the "
+            "founder's, so refusing this provider merely because an exact-name rename failed "
+            "was wrong, and was reverted. Second, auto-titling means Kalpavriksha's "
+            "conversations INTERLEAVE with the founder's in one shared list; the prompt marker "
+            "identifies them to a reader but does not separate them, and only a real rename "
+            "(see can_rename_chat, still UNKNOWN) or a dedicated container would."
         ),
         knowledge_type=KnowledgeType.OBSERVED,
         source=(
             "src/master_agent/providers/reasoning_session.py, "
-            "src/master_agent/providers/desktop_app.py (current implementation, this session)."
+            "src/master_agent/providers/desktop_app.py (current implementation); "
+            "live UIA read of the Chat surface conversation list, 2026-08-26."
         ),
     ),
     composer_exposure=Fact(
