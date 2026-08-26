@@ -277,6 +277,34 @@ genuinely missing *primitive* was a third click, now `multi_click(x, y,
 count)` — generic, because a named `triple_click()` invites treating the
 gesture as select-all.
 
+## Mouse capability reachability
+
+Every gesture the controller has is now either public or deliberately
+internal, with no unexplained middle.
+
+| Primitive | Status |
+|---|---|
+| `click` | **public** — `desktop_click` |
+| `button` (left/right/middle) | **public** — optional argument on `desktop_click` |
+| `click_count` (1/2/3…) | **public** — optional argument on `desktop_click` |
+| `double_click` / `multi_click` / `right_click` | **public via those arguments**, not as separate Actions |
+| `drag` | **public** — `desktop_drag` (was built and unreachable) |
+| `scroll` | **public** — `desktop_scroll` (was built and unreachable) |
+| `move` | **INTENTIONAL INTERNAL PRIMITIVE** — click, drag and scroll each position the pointer themselves, and `write_text`'s focus fallback uses it directly. A capability whose only effect is to leave the pointer somewhere is not worth publishing. |
+
+One capability with two arguments rather than five Actions: a named Action
+per gesture multiplies the contract for one operation and invites a
+per-site gesture the first time a page wants something unusual. Count `1`
+keeps the exact call it always made, so existing behaviour is unchanged.
+Rosters stay closed — the planner sees `button` and `click_count`, not an
+"others may exist" hedge. The Desktop Executive capability count moved
+19 → 21 and both counting tests record why.
+
+Mouse Actions report **delivery, not outcome**. Whether the intended thing
+moved is a question for the next observation.
+
+---
+
 **NOT CLOSED — stated plainly so nobody plans against it:**
 
 - **Packaged end-to-end acceptance cannot currently be driven.** The
@@ -286,11 +314,22 @@ gesture as select-all.
   WebView2 content is not in the accessibility tree, so Kalpavriksha's own
   Desktop Executive cannot drive Kalpavriksha's own window.
 
-  Both routes out of this are decisions, not implementation details:
-  adding a production console/CLI entry for objectives (a real product
-  capability, but adding it to make a gate pass is the pattern this
-  document exists to prevent), or enabling WebView2 accessibility. Neither
-  should be done silently. **FOUNDER DECISION REQUIRED.**
+  **Founder decision taken:** neither route is to be built. No CLI entry,
+  no console mode, no WebView2 accessibility change, and no automating
+  Kalpavriksha's own Founder Surface with its own Desktop Executive — that
+  last one would be the product driving itself, which is not a proof of
+  anything a founder does.
+
+  The packaged acceptance is therefore **manual founder input through the
+  real GUI**, followed by independent production evidence for every
+  downstream boundary. The keystroke is `MANUALLY OBSERVED`; the mission,
+  Broker decision, execution record, evidence and verdict remain
+  `VERIFIED`. Those labels do not merge.
+
+  The WebView2 limitation is classified **FOUNDER SURFACE ACCESSIBILITY /
+  SELF-AUTOMATION LIMITATION — DELIBERATELY FUTURE-DEFERRED**. It is not a
+  Desktop Executive, Browser Executive, Trusted Browser or Trusted Web
+  failure, and improving it later must not reopen those contracts.
 
   What *is* proven, from the real production composition rather than the
   packaged shell: the Broker selects `trusted-founder-web` and records it,
