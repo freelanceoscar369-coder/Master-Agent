@@ -93,7 +93,23 @@ canvas#treeCanvas {
   z-index: var(--z-content);
   display: flex; flex-direction: column; align-items: center;
   text-align: center;
+  /* **The container is layout, not a target.**
+     `.stack` carries `--z-content`, the same layer as `.conversation-scroll`,
+     and comes after it in the document -- so this 640px-wide, bottom-anchored
+     box paints ON TOP of the conversation. Most of it is empty space, and
+     empty space was swallowing clicks meant for the messages underneath.
+     Founder-visible consequence: "Mark complete" did nothing, ever. The
+     page's own hit test at the button's centre returned
+     `DIV.stack is-conversation`, not the button -- which was enabled,
+     correctly placed, and simply never reached. The composer kept working
+     throughout, because the composer lives INSIDE this stack; that
+     asymmetry is what made it look like a dead button rather than a
+     layering fault.
+     The children stay clickable; only the gaps between them stop
+     intercepting. */
+  pointer-events: none;
 }
+.stack > * { pointer-events: auto; }
 
 .greeting {
   font-family: var(--font-text);

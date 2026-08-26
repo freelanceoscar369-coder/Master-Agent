@@ -1835,6 +1835,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # `--debug` opened the WebView's developer tools and did nothing to
+    # the log level, so everything the page reports through
+    # `DesktopShellApi.debug_log()` -- which logs at INFO -- was discarded
+    # by the WARNING default above. Debugging a founder-reported UI defect
+    # meant the one channel built for exactly that was silent in the one
+    # mode meant to expose it.
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
     if args.self_check:
         return _self_check()
 

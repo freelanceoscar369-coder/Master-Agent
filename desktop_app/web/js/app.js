@@ -1098,6 +1098,10 @@ let lastAcknowledgeKey = null;
 let prevProminenceLevel = 'ambient';
 let completionCompleted = false;
 let completionCountdown = 60;
+//: What the bridge said when a confirmation failed, or null. Shown on the
+//: card itself, because a founder who pressed a button is owed the reason
+//: it did not take rather than a surface that simply ignores them.
+let completionError = null;
 let completionCountdownTimer = null;
 let lastCompletionRenderedFor;
 // Decision Gate Item 5 -- the one approved celebration trigger: the
@@ -1219,21 +1223,36 @@ function renderWorkRegion(presentation, timing) {
 // approval_id, for a different subsystem). Recorded here, not silently
 // wired to the wrong call.
 function renderCompletionRequest(exec) {
+  const existingCard = els.conversation.querySelector(
+    `[data-interaction="completion"][data-interaction-id="${exec.completion_id || ''}"]`
+  );
+
   if (exec.completion_id !== lastCompletionRenderedFor) {
     completionCompleted = false;
     completionCountdown = 60;
+    completionError = null;
     if (completionCountdownTimer) {
       clearInterval(completionCountdownTimer);
       completionCountdownTimer = null;
     }
     lastCompletionRenderedFor = exec.completion_id;
-  } else if (els.conversation.querySelector(
-    `[data-interaction="completion"][data-interaction-id="${exec.completion_id || ''}"]`
-  )) {
-    // Already asked. This is re-entered on every poll, which was harmless
-    // while the card replaced a slot's contents and is not harmless now
-    // that it appends to the conversation: without this the founder would
-    // watch the same question stack up once a second.
+  } else if (existingCard
+             && existingCard.dataset.completedState === String(completionCompleted)) {
+    // Already asked, and asked in exactly this state. This is re-entered
+    // on every poll, which was harmless while the card replaced a slot's
+    // contents and is not harmless now that it appends to the
+    // conversation: without this the founder would watch the same
+    // question stack up once a second.
+    //
+    // **The state comparison is the fix for "Mark complete does
+    // nothing".** The guard used to return on the mere existence of a
+    // card for this completion_id -- so the re-render the click handler
+    // performs immediately after the founder clicks did nothing at all,
+    // and the card kept showing an un-pressed button. The founder pressed
+    // it, the request went to the bridge, and the surface said nothing
+    // whatsoever had happened. Re-rendering only when the state actually
+    // changed keeps the anti-stacking behaviour and lets the founder's
+    // own decision appear.
     return;
   }
 
@@ -1326,7 +1345,30 @@ function renderCompletionRequest(exec) {
         applyBloom('celebration');
         setTimeout(() => applyBloom(currentTreeState), burstMs);
       }
-      await Bridge.call('confirm_completion', exec.completion_id).catch(() => {});
+      // **Never silently.** This was `.catch(() => {})`, and that empty
+      // handler is why "Mark complete does nothing" survived so long: a
+      // confirmation that never reached the backend looked exactly like
+      // one that did. Six consecutive completions went unconfirmed in the
+      // founder's own event log with nothing anywhere saying why.
+      //
+      // A failure now says so, on the card, and is recorded through the
+      // already-exposed debug channel where a developer will find it.
+      try {
+        await Bridge.call('confirm_completion', exec.completion_id);
+      } catch (err) {
+        completionCompleted = false;
+        completionError = (err && err.message) ? err.message : String(err);
+        if (completionCountdownTimer) {
+          clearInterval(completionCountdownTimer);
+          completionCountdownTimer = null;
+        }
+        renderCompletionRequest(executionStatus);
+        Bridge.call('debug_log', {
+          where: 'confirm_completion',
+          completion_id: exec.completion_id,
+          error: completionError,
+        }).catch(() => {});
+      }
     });
 
     const secondary = document.createElement('button');
@@ -1355,6 +1397,15 @@ function renderCompletionRequest(exec) {
     actions.appendChild(secondary);
     root.appendChild(consequence);
     root.appendChild(actions);
+
+    // A refusal the founder can read. Silence here is what made this
+    // defect invisible; it is not repeated.
+    if (completionError) {
+      const failed = document.createElement('p');
+      failed.className = 'kv-completion__error';
+      failed.textContent = `That didn't go through: ${completionError}`;
+      root.appendChild(failed);
+    }
   }
 
   // Chronological, like every other thing the founder is asked. It sat in
@@ -1365,13 +1416,23 @@ function renderCompletionRequest(exec) {
   card.className = 'somesh-message kv-interaction';
   card.dataset.interaction = 'completion';
   card.dataset.interactionId = exec.completion_id || '';
+  // What this card is currently SHOWING, so the poll above can tell "the
+  // same question again" from "the founder has now answered it".
+  card.dataset.completedState = String(completionCompleted);
   card.innerHTML = '<div class="somesh-message__hairline"></div>';
   const body = document.createElement('div');
   body.className = 'somesh-message__body kv-interaction__body';
   body.appendChild(root);
   card.appendChild(body);
-  els.conversation.appendChild(card);
-  scrollToBottom();
+  if (existingCard) {
+    // Replaced where it stands, never appended again: the question was
+    // asked at a moment in the conversation and the answer belongs at
+    // that same moment, not at the bottom underneath everything since.
+    existingCard.replaceWith(card);
+  } else {
+    els.conversation.appendChild(card);
+    scrollToBottom();
+  }
 }
 
 // Renders the founder's decision on an open approval.
