@@ -108,6 +108,7 @@ class WebAiSite:
         "label",
         "new_chat",
         "page_markers",
+        "rename_field",
         "rename_item",
         "response_noise",
         "response_role",
@@ -129,6 +130,7 @@ class WebAiSite:
         history_toggle: str = "",
         conversation_menu: str = "",
         rename_item: str = "",
+        rename_field: str = "",
         new_chat: str = "",
     ) -> None:
         self.label = label
@@ -153,6 +155,14 @@ class WebAiSite:
         self.history_toggle = history_toggle
         self.conversation_menu = conversation_menu
         self.rename_item = rename_item
+        #: The dialog's own edit control, which is NOT the menu item.
+        #: Acquired read-only rather than guessed, and the distinction is
+        #: the whole reason the first attempt failed: choosing Rename
+        #: opens a modal named "Rename this chat" carrying an edit control
+        #: of the same name, while "Rename" on its own also matches the
+        #: menu item -- a MenuItem, which cannot be typed into. Targeting
+        #: the shorter name is a silent no-op that looks like a rename.
+        self.rename_field = rename_field
         self.new_chat = new_chat
 
 
@@ -172,6 +182,7 @@ GEMINI_WEB = WebAiSite(
     history_toggle="Toggle Recents",
     conversation_menu="Open menu for conversation actions",
     rename_item="Rename",
+    rename_field="Rename this chat",
     new_chat="New chat",
     response_noise=(
         "ask gemini",
@@ -516,7 +527,8 @@ class TrustedWebAiProvider:
             return (False, self._browser.observe().window_title or "")
         self._browser.click(item)
 
-        typed = self._browser.type_into(self._site.rename_item, self._conversation_title)
+        target = self._site.rename_field or self._site.rename_item
+        typed = self._browser.type_into(target, self._conversation_title)
         if not typed.ok:
             self._browser.press("escape")
             return (False, self._browser.observe().window_title or "")
