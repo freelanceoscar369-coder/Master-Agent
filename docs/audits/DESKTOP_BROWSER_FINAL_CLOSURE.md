@@ -108,8 +108,16 @@ say "unavailable" honestly rather than never having heard of it.
 **Browser resolution is observed, never preferred.** A browser already
 showing the target page beats one that is not, whichever browser it
 happens to be; the foreground breaks a tie between two that both show it;
-genuine ambiguity goes to the founder. There is no Chrome-first or
-Comet-first rule anywhere.
+genuine ambiguity goes to the founder.
+
+There *was* a Chrome-first rule and it was invisible: with no browser
+showing the target page, resolution fell through to the first entry of
+`("chrome", "comet")`, so a tuple's order silently chose a browser with
+nothing observed justifying it. Removed. A single running browser is now
+chosen because it is the only one, several are a question for the founder,
+and no browser is opened at all until one has been resolved. A deployment
+may configure an explicit preference in future; none may be inferred from
+ordering.
 
 **Recognisable is not drivable.** Comet was showing the target page in its
 title and threw `COMError` on every accessibility read. A window title is
@@ -213,23 +221,71 @@ none requires reopening Desktop or Browser architecture):
   moment this lane points at anything that **writes** a record, it stops
   being sufficient. Revisit before that happens.
 
+**RESOLVED — an earlier pass in this document was wrong.**
+
+- **App Knowledge identity: `provider_id` is correct. There is no gap.**
+  A previous pass concluded that Chrome and Comet could not own knowledge
+  and proposed migrating `AppKnowledgeProfile` to `application_key`.
+  Source says otherwise, and there are three owners, not one:
+
+  | Subject | Owner | Identity |
+  |---|---|---|
+  | generic application operation (launch, windows, failure modes, recovery) | `desktop/operations` | `ApplicationSpec.key` |
+  | reasoning/chat **application** UI (composer, sessions, rename, response) | `app_knowledge` | `provider_id` |
+  | AI **website** UI | `WebAiSite`, provider edge | site value |
+
+  Chrome and Comet are already correctly owned by `desktop/operations` and
+  now have both a profile and a recovery plan there. A browser is not a
+  chat application and has no use for `chat_interface`,
+  `composer_exposure` or `can_rename_chat`, so migrating that layer would
+  have widened an identity to admit subjects that do not want its fields.
+  **Verdict: FALSE GAP / WRONG OWNER. Not migrated.** Pinned by
+  `tests/test_desktop_knowledge_ownership.py`.
+
+- **`DesktopExecutiveV2.recommend()` has no runtime consumer and must
+  never gain one.** It predates the AI Capability Broker and carries
+  AI-flavoured capability names. The Broker is the sole authority for
+  which provider serves a request. Verified structurally — no module
+  outside the operations package calls it — and now guarded by a test.
+
 **NOT CLOSED — stated plainly so nobody plans against it:**
 
-- **App Knowledge identity is still `provider_id`.** `resolve_app_knowledge`
-  walks `PROVIDER_CATALOG` matching `inventory_key`, so an ordinary
-  application cannot own a knowledge profile without pretending to be an
-  AI provider. Chrome and Comet therefore have **operations** knowledge
-  (`desktop/operations/knowledge.py`) but no `AppKnowledgeProfile`. The fix
-  is specified — `application_key` canonical, `provider_id` optional, one
-  profile set with two derived indices — and unbuilt.
 - **No Windows/UIA/Chromium reference corpus exists.** Interaction
-  technique is currently chosen from control type and live observation,
-  which worked for the rename, but there is no curated local baseline.
-- Everything above depends on the identity fix landing first.
+  technique is currently chosen from live control type and observation,
+  which is what actually solved the rename, but there is no curated local
+  baseline to consult before observing.
 
 ---
 
-## 9. Attribution
+## 9. Request scoping: already built
+
+`SelectionRequest` is a frozen dataclass carrying `exclude_providers`;
+`BudgetedSelectionRequest` extends it with `request_class` and is what the
+Planner builds; `AiCapabilityService.task_profile()` already reads the
+field and `TieredPromptRunner._scope()` already uses
+`dataclasses.replace`. **No seam was missing and none was added.**
+
+An earlier proof failed here and the failure was entirely in the harness:
+it built a plain `SelectionRequest` and asked `dataclasses.replace` for
+`request_class`, which that class does not have. The `TypeError` was
+swallowed by a bare `except` and an unscoped request went through, so the
+Broker legitimately chose a desktop provider and the run proved nothing.
+Bare excepts around a diagnostic are how a broken proof reads as a
+finding.
+
+With the correct request type, the ledger answers plainly:
+
+```
+broker winner     : trusted-founder-web     broker outcome : selected
+executed provider : trusted-founder-web
+candidates        : trusted-founder-web, browser.free-ai, chatgpt-desktop, ...
+browser.free-ai executed : False
+```
+
+`browser.free-ai` appears as a *candidate* — known, so it can be excluded —
+and was never executed.
+
+## 10. Attribution
 
 `microsoft/UFO` `cd9bfdd`, `OpenAdaptAI/OpenAdapt` `753f3d2`,
 `OpenAdaptAI/openadapt-flow` `80dc49b` — all MIT, inspected only. No code

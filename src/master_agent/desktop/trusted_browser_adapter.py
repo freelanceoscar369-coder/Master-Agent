@@ -44,10 +44,18 @@ from master_agent.trusted_browser import (
 #: is decided by what is observed open, never by this list's order.
 DEFAULT_CANDIDATES = ("chrome", "comet")
 
-#: What to launch when none of the candidates is running. The only place
-#: an ordering opinion is allowed, because with nothing observed there is
-#: nothing to observe.
-DEFAULT_APPLICATION = "chrome"
+#: Deliberately NOT a default browser.
+#:
+#: There was one here, and it was a deployment preference hidden inside
+#: execution: with no browser showing the target page, resolution fell
+#: through to the first entry of `DEFAULT_CANDIDATES`, so the tuple's
+#: order silently chose Chrome. Nothing observed justified it.
+#:
+#: A genuine tie between equally suitable browsers is a question for the
+#: founder, not a position in a tuple. A deployment may configure an
+#: explicit preferred browser in future; none may be inferred from
+#: ordering.
+NO_APPLICATION_RESOLVED = ""
 
 #: How many times focus-then-type is retried before giving up. Bounded on
 #: purpose -- another application winning the foreground forever is a real
@@ -72,7 +80,7 @@ class DesktopTrustedBrowser:
     def __init__(
         self,
         context: Any,
-        application: str = DEFAULT_APPLICATION,
+        application: str = NO_APPLICATION_RESOLVED,
         actions: dict[str, Any] | None = None,
         sleep: Any = None,
         candidates: tuple[str, ...] = DEFAULT_CANDIDATES,
@@ -169,14 +177,43 @@ class DesktopTrustedBrowser:
                 tuple(showing), ordered=ordered,
             )
 
-        if candidates:
-            running = ordered[0]
+        # Nothing is showing the target page. Reuse a running browser if
+        # exactly one is running -- that is an observation, not a
+        # preference. Several equally uninformative candidates is a real
+        # tie, and a tie is the founder's to break.
+        if len(candidates) == 1:
+            running = candidates[0]
             return BrowserResolution(
                 running,
-                f"no browser is showing the target page; reusing running {running.application}",
+                f"no browser is showing the target page; {running.application} is "
+                "the only one running",
                 ordered=ordered,
             )
-        return BrowserResolution(None, "no trusted browser is running", (), ())
+        if candidates:
+            return BrowserResolution(
+                None,
+                "several browsers are running and none is showing the target page",
+                tuple(candidates), ordered,
+            )
+
+        # Nothing running at all. Which browser to OPEN is equally not a
+        # tuple's decision; with one configured candidate there is nothing
+        # to ask about, with several there is.
+        to_open = tuple(
+            BrowserCandidate(application=name, has_target_page=False)
+            for name in self._candidates
+        )
+        if len(to_open) == 1:
+            return BrowserResolution(
+                to_open[0],
+                f"no trusted browser is running; {to_open[0].application} is the "
+                "only one configured",
+                ordered=to_open,
+            )
+        return BrowserResolution(
+            None, "no trusted browser is running and several are configured",
+            to_open, to_open,
+        )
 
     def use(self, candidate: BrowserCandidate) -> TrustedBrowserResult:
         if not candidate.application:
@@ -213,6 +250,13 @@ class DesktopTrustedBrowser:
         whole point: what starts is the browser the founder uses, with the
         profile and the sessions they already have.
         """
+        if not self._application:
+            return TrustedBrowserResult(
+                False,
+                "no browser has been resolved for this request; resolve() must "
+                "choose one, or the founder must, before one is opened",
+            )
+
         focused = self._run("bring_to_front", application=self._application)
         if focused.success:
             return TrustedBrowserResult(True, "already running; reused")

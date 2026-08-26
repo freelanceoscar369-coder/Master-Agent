@@ -597,3 +597,93 @@ def test_an_unattached_founder_port_never_guesses_a_browser():
 
     assert result.ok is False
     assert browser.typed == []
+
+
+# =========================================================================
+# No hidden browser preference
+# =========================================================================
+
+
+def _adapter(running, foreground=None, candidates=("chrome", "comet")):
+    """The real adapter over a scripted window list -- no machine."""
+    from master_agent.desktop.trusted_browser_adapter import DesktopTrustedBrowser
+
+    class Windows:
+        def locate_by_process(self, pids):
+            app = next(iter(pids))
+            wins = [{"handle": h, "title": t} for h, t in running.get(app, [])]
+            return type("R", (), {"success": bool(wins),
+                                  "output": {"windows": wins}, "errors": []})()
+
+        def active(self):
+            return type("R", (), {"success": foreground is not None,
+                                  "output": {"handle": foreground}, "errors": []})()
+
+    class Context:
+        def refresh(self, **_kw):
+            return type("Inv", (), {
+                "running": staticmethod(
+                    lambda app: [type("P", (), {"pid": app})()] if app in running else []
+                )
+            })()
+
+    return DesktopTrustedBrowser(Context(), actions={}, windows=Windows(),
+                                 candidates=candidates)
+
+
+def test_neither_browser_holds_the_page_and_both_run_is_the_founders_tie():
+    """The hidden default, as an assertion.
+
+    Resolution used to fall through to the first entry of a tuple, so
+    `("chrome", "comet")` silently chose Chrome with nothing observed
+    justifying it. A deployment preference has no business living inside
+    execution ordering.
+    """
+    resolution = _adapter(
+        {"chrome": [(1, "New Tab - Google Chrome")], "comet": [(2, "Comet")]}
+    ).resolve(("Google Gemini",))
+
+    assert resolution.chosen is None, "a genuine tie must not be broken by tuple order"
+    assert resolution.ambiguous is True
+    assert {c.application for c in resolution.options} == {"chrome", "comet"}
+
+
+def test_one_running_browser_is_an_observation_not_a_preference():
+    resolution = _adapter({"comet": [(2, "Comet")]}).resolve(("Google Gemini",))
+
+    assert resolution.chosen is not None
+    assert resolution.chosen.application == "comet"
+    assert "only one running" in resolution.reason
+
+
+def test_nothing_running_and_several_configured_is_also_the_founders_tie():
+    resolution = _adapter({}).resolve(("Google Gemini",))
+
+    assert resolution.chosen is None
+    assert {c.application for c in resolution.options} == {"chrome", "comet"}
+
+
+def test_nothing_running_and_one_configured_needs_no_question():
+    resolution = _adapter({}, candidates=("comet",)).resolve(("Google Gemini",))
+
+    assert resolution.chosen is not None
+    assert resolution.chosen.application == "comet"
+
+
+def test_the_browser_showing_the_page_still_wins_over_the_one_in_front():
+    resolution = _adapter(
+        {"chrome": [(1, "Kalpavriksha - Google Gemini - Google Chrome")],
+         "comet": [(2, "Comet")]},
+        foreground=2,
+    ).resolve(("Google Gemini",))
+
+    assert resolution.chosen.application == "chrome", (
+        "showing the target page outranks merely being in front"
+    )
+
+
+def test_no_browser_is_opened_before_one_has_been_resolved():
+    browser = _adapter({})
+    assert browser.ensure_available().ok is False, (
+        "an unresolved browser must not be launched on a hidden default"
+    )
