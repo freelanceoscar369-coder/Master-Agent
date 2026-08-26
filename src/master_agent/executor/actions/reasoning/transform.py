@@ -229,7 +229,8 @@ class ReasoningTransformAction(Action):
             BudgetedSelectionRequest,
         )
         from master_agent.ai_infrastructure.workload import (
-            DEFAULT_CLASS as REQUEST_CLASS,
+            DEFAULT_CLASS,
+            INTERACTIVE,
         )
         from master_agent.plugins.model_router import REASONING
 
@@ -238,7 +239,24 @@ class ReasoningTransformAction(Action):
             capability=REASONING,
             sensitive=bool(sensitive),
             requester="reasoning_transform",
-            request_class=REQUEST_CLASS,
+            # **What kind of work this actually is.**
+            #
+            # `context` is an earlier Step's output -- a document off the
+            # founder's disk, a page from their session. A Transform that
+            # has one is analysis: it may be long, and the founder is not
+            # sitting watching it. A Transform WITHOUT one is a
+            # conversational turn, which is what `interactive` means in
+            # `workload.py` ("a conversational turn is short"), and the
+            # founder is waiting on it.
+            #
+            # The distinction matters because the workload class is what
+            # `broker/policy.py::policy_for_request_class()` reads to
+            # decide an interactive turn under `fast_free` -- ranking free
+            # providers by latency instead of walking locality tiers.
+            # Declared from the same structural fact the sensitivity
+            # decision already uses, never from the wording of the
+            # instruction and never from which provider is installed.
+            request_class=INTERACTIVE if not context else DEFAULT_CLASS,
             prompt=prompt,
         )
 

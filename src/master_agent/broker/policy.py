@@ -194,6 +194,24 @@ PRIVACY_FIRST = SelectionPolicy(
     description="private providers first; sensitive work never leaves the machine",
 )
 
+FAST_FREE = SelectionPolicy(
+    name="fast_free",
+    version="1",
+    # Cost first, so nothing paid can win on speed. Then LATENCY, which is
+    # the whole point of this policy and the one dimension `prefer_free`
+    # never consults -- it ranks by locality, which is a proxy for cost
+    # and privacy, not for how long the founder waits. Quality last, to
+    # break ties among options that already clear the floor.
+    ranking=(BY_COST, BY_LATENCY, BY_QUALITY),
+    default_min_quality=0.6,
+    allow_paid=False,
+    require_private_for_sensitive=True,
+    description=(
+        "an interactive turn: the fastest free provider that clears an "
+        "adequate quality bar, never a paid one"
+    ),
+)
+
 POLICIES: dict[str, SelectionPolicy] = {
     policy.name: policy
     for policy in (
@@ -205,10 +223,51 @@ POLICIES: dict[str, SelectionPolicy] = {
         OFFLINE_ONLY,
         CLOUD_ALLOWED,
         PRIVACY_FIRST,
+        FAST_FREE,
     )
 }
 
 DEFAULT_POLICY = BALANCED
+
+#: Which policy an interactive turn is decided under.
+#:
+#: **This supersedes the strict locality ladder for simple work, on the
+#: founder's explicit instruction, and it must not be "corrected" back.**
+#:
+#: `ai_infrastructure/tiered_runner.py` walked local -> desktop -> gemini
+#: -> browser and scoped the Broker to one locality at a time, so an
+#: adequate fast provider could not win until every slower one had been
+#: exhausted. Measured on a trivial public generation: desktop automation
+#: ~74s serially, a healthy free Gemini ~5.4s, ~90s overall. That ordering
+#: is right when the question is "what is cheapest and most private"; it
+#: is wrong when the founder is waiting for three words.
+#:
+#: `interactive` therefore decides under FAST_FREE, which ranks free
+#: options by latency. Every other class is unchanged and still decides
+#: under whatever policy production configured -- planning included.
+#:
+#: Deliberately NOT an economics model: today `cost == 0` conflates a free
+#: API, an installed subscription application and a local runtime, and
+#: pretending otherwise here would be inventing measurements. `allow_paid`
+#: is False so that conflation can never let a paid provider win on speed.
+_POLICY_BY_REQUEST_CLASS: dict[str, SelectionPolicy] = {
+    "interactive": FAST_FREE,
+}
+
+
+def policy_for_request_class(
+    request_class: str | None, default: SelectionPolicy | None = None
+) -> SelectionPolicy | None:
+    """The policy an request of this workload class is decided under, or
+    `default` when the class has no opinion.
+
+    Lives here, with the policies, because it IS policy -- the mapping
+    from "what kind of work is this" to "how do we choose" belongs beside
+    the choices it names, never inside the runner that executes them.
+    """
+    if not request_class:
+        return default
+    return _POLICY_BY_REQUEST_CLASS.get(str(request_class).strip().lower(), default)
 
 
 def get_policy(name: str) -> SelectionPolicy:

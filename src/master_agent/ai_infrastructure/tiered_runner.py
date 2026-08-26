@@ -26,6 +26,32 @@ this session's own research that `Planner` requires exactly one method,
 `run(prompt, request, expected=...)` (`planner/planner.py:184`) — so the
 Planner itself needed zero changes to gain tiered fallback.
 
+**SUPERSEDED FOR INTERACTIVE TURNS — founder decision, do not revert.**
+Everything above describes the ladder as it still works for planning,
+execution, code generation, verification and embedding. It no longer
+describes an `interactive` turn, and the paragraphs above must not be used
+to "correct" that back.
+
+The argument above is that the Broker, left to rank freely, could pick a
+desktop application before Gemini has been tried. That is true, and for a
+cost-and-privacy question it is the wrong outcome. For a founder waiting
+on a conversational answer it is the right one, and the ladder's own
+guarantee becomes the defect: an adequate fast provider cannot win until
+every slower one has been exhausted. Measured on a trivial public
+generation -- desktop automation ~74s serially, a healthy free Gemini
+~5.4s, ~90s overall.
+
+So an `interactive` request gets ONE attempt containing every provider,
+and `broker/policy.py`'s `policy_for_request_class()` decides it under
+`fast_free`, which ranks free options by latency. The choice of provider
+still belongs entirely to the Broker; what changed is that this module
+stopped pre-deciding it by locality. Privacy is unaffected -- `fast_free`
+keeps `require_private_for_sensitive`, and `approval_needed()` one layer
+down still refuses to send sensitive work to a non-private provider
+without a founder's yes. `allow_paid=False` keeps a paid provider from
+winning on speed while `cost == 0` still conflates a free API, an
+installed subscription and a local runtime.
+
 **No second retry system.** A transient Gemini failure (429/500/502/503/
 504) is already retried, bounded, inside `GeminiProvider.complete()`
 itself (`DEFAULT_MAX_ATTEMPTS = 3`) before `PromptExecutor.run()` ever
@@ -49,6 +75,10 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
+#: Named from the workload vocabulary rather than spelled here, so the two
+#: cannot drift apart.
+from master_agent.ai_infrastructure.workload import INTERACTIVE as INTERACTIVE_CLASS
+
 #: Provider ids belonging to each tier. Populated once, from the same
 #: declarative `PROVIDER_CATALOG` every provider in this system is
 #: already built from — never a hardcoded application name. Adding a
@@ -62,6 +92,9 @@ TIER_LOCAL = "local"
 TIER_GEMINI = "gemini"
 TIER_DESKTOP = "desktop"
 TIER_BROWSER = "browser"
+#: The one attempt an interactive turn gets: every provider at once, ranked
+#: by the Broker rather than pre-ordered by locality here.
+TIER_ANY = "any"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -123,6 +156,10 @@ class TieredPromptRunner:
         # The last two rungs have no tier here yet -- no subscription or
         # paid provider is wired -- and rungs are added in ADR order when
         # they are, never appended wherever they happen to be built.
+        #: Which candidates need the machine scanned before they can
+        #: honestly report availability. Kept as a set so the scan follows
+        #: the candidates rather than a tier's name.
+        self._desktop_ids = frozenset(desktop_provider_ids)
         self._tiers: tuple[tuple[str, frozenset[str]], ...] = (
             (TIER_LOCAL, frozenset(local_provider_ids)),
             (TIER_DESKTOP, frozenset(desktop_provider_ids)),
@@ -164,7 +201,7 @@ class TieredPromptRunner:
         self.last_attempts = []
         last_outcome = None
 
-        for tier_name, tier_ids in self._tiers:
+        for tier_name, tier_ids in self._ordered_attempts(request):
             if not tier_ids:
                 self.last_attempts.append(TierAttempt(tier_name, False, (), None))
                 continue
@@ -176,7 +213,16 @@ class TieredPromptRunner:
             # and it is read-only machine discovery, not an application
             # launch — launching happens only inside a provider's own
             # `complete()`, one tier down.
-            if tier_name == TIER_DESKTOP and self._desktop_context is not None:
+            # The scan must follow the CANDIDATES, not the tier's name.
+            # A desktop provider reports "not available" until the machine
+            # has been scanned, so an attempt that offers desktop
+            # candidates without scanning would see them rejected as
+            # missing and hand the win to whatever remained -- the right
+            # provider chosen for the wrong reason, and a fast path that
+            # only looks fast because it never looked. Measured: the first
+            # interactive run selected gemini.api over a field where every
+            # desktop candidate read "not available".
+            if self._desktop_context is not None and (tier_ids & self._desktop_ids):
                 self._desktop_context.inventory(deep=True)
 
             outcome, considered = self._attempt_tier(prompt, request, tier_ids, kwargs)
@@ -210,6 +256,38 @@ class TieredPromptRunner:
                 return outcome
 
         return last_outcome
+
+    def _ordered_attempts(self, request: Any) -> tuple[tuple[str, frozenset[str]], ...]:
+        """The attempts this request gets, in order.
+
+        **Locality tiers are a cost-and-privacy answer, not a latency
+        one.** Walking local -> desktop -> gemini -> browser and scoping
+        the Broker to one locality at a time means an adequate fast
+        provider cannot win until every slower one has been exhausted.
+        Measured on a trivial public generation: desktop automation ~74s
+        serially, a healthy free Gemini ~5.4s, ~90s overall. For a founder
+        waiting on three words that is the wrong question answered well.
+
+        So an INTERACTIVE turn gets ONE attempt containing every provider,
+        and the Broker ranks them under `fast_free` -- which is chosen by
+        `policy_for_request_class()` in the Broker's own policy module,
+        not here. This module still decides nothing about which provider
+        wins; it stops pre-deciding by locality and lets the owner choose.
+
+        `_attempt_tier()` already falls through candidate by candidate
+        within one attempt, so a selected provider that fails still yields
+        to the next eligible one, bounded by the candidate count.
+
+        Every other class keeps the ladder exactly as it was.
+        """
+        request_class = str(getattr(request, "request_class", "") or "").strip().lower()
+        if request_class != INTERACTIVE_CLASS:
+            return self._tiers
+
+        everything = frozenset(self._all_ids)
+        if not everything:
+            return self._tiers
+        return ((TIER_ANY, everything),)
 
     def _attempt_tier(
         self, prompt: str, request: Any, tier_ids: frozenset[str], kwargs: dict,

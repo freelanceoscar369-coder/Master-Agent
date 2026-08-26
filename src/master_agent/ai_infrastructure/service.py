@@ -235,7 +235,16 @@ class AiCapabilityService:
         refusal — a refusal is an answer."""
         profiles = self._providers.profiles()
         task = self.task_profile(request, profiles)
-        decision = self._broker.select(task, list(profiles))
+        # Which policy this class of work is decided under. The mapping is
+        # the Broker's own -- `policy_for_request_class()` lives beside the
+        # policies it names -- and `select()` has always accepted a
+        # per-call policy; nothing here decides anything, it only asks.
+        from master_agent.broker.policy import policy_for_request_class
+
+        policy = policy_for_request_class(
+            getattr(request, "request_class", None), self._broker.policy
+        )
+        decision = self._broker.select(task, list(profiles), policy=policy)
         entry = self._recorded(decision, profiles)
 
         if not decision.selected:
