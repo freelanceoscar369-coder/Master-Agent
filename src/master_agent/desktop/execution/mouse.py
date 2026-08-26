@@ -57,6 +57,37 @@ class MouseController:
             return ExecutionResult(success=False, errors=[str(exc)])
         return ExecutionResult(success=True, output={"x": x, "y": y, "button": button})
 
+    def multi_click(self, x: int, y: int, count: int, button: str = "left") -> ExecutionResult:
+        """`count` rapid clicks at one point — the generic gesture, not a
+        named special case.
+
+        Exists because a third click is a real desktop technique and the
+        controller could express one and two but not three. Deliberately
+        `count` rather than a `triple_click()` method: the gesture is
+        generic, and what a third click SELECTS is not — in a single-line
+        field it commonly takes the whole value, in document content a
+        paragraph or line. That distinction is reference knowledge
+        (`operations/reference.py::triple_click`), and a caller must verify
+        the resulting selection rather than assume it.
+
+        Nothing in this codebase currently needs three: the rename that
+        prompted this was solved by targeting the correct control. The
+        primitive exists so the next caller has it without inventing a
+        site-specific gesture.
+        """
+        if button not in _KNOWN_BUTTONS:
+            return ExecutionResult(
+                success=False, errors=[f"unknown button: {button!r} (known: {', '.join(_KNOWN_BUTTONS)})"]
+            )
+        if not isinstance(count, int) or count < 1:
+            return ExecutionResult(success=False, errors=["'count' must be a positive integer"])
+        try:
+            for _ in range(count):
+                self._backend.click(x, y, button)
+        except BackendUnavailable as exc:
+            return ExecutionResult(success=False, errors=[str(exc)])
+        return ExecutionResult(success=True, output={"x": x, "y": y, "button": button, "count": count})
+
     def right_click(self, x: int, y: int) -> ExecutionResult:
         return self.click(x, y, button="right")
 
