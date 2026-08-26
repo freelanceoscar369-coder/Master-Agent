@@ -72,6 +72,7 @@ FOUNDER_ACTION_MESSAGE = (
     "once the page is usable."
 )
 ACCOUNT_CANCELLED = "the founder cancelled the account choice"
+BROWSER_CANCELLED = "the founder cancelled the browser choice"
 CANNOT_ASK = "an account must be chosen and this deployment has no way to ask the founder"
 
 _UNSAFE_TO_ACT = "the browser window could not be confirmed, so nothing was typed"
@@ -180,6 +181,17 @@ GEMINI_WEB = WebAiSite(
         "just a sec",
         "thinking",
         "loading",
+        # Observed live and not anticipated: Gemini sometimes answers with
+        # an A/B comparison and asks which reply was better. The scaffolding
+        # around that question is chrome, not an answer, and returning it
+        # would hand the founder a survey instead of the names they asked
+        # for.
+        "which response is more helpful",
+        "your choice will help",
+        "choice a",
+        "choice b",
+        # An aria status announcement, not the reply it announces.
+        "gemini replied",
     ),
 )
 
@@ -352,10 +364,20 @@ class TrustedWebAiProvider:
         resolution = self._browser.resolve(self._site.page_markers)
 
         if resolution.ambiguous:
-            chosen = self._ask_which_browser(resolution.options)
-            if chosen is None:
-                return self._fail(REJECTED, ACCOUNT_CANCELLED, started)
-            candidates = (chosen,)
+            # Before asking, find out how many of them can actually be
+            # driven. Live, two browsers held the page and one threw on
+            # every accessibility read -- so the "ambiguity" was between a
+            # usable session and an unusable one, which is not a choice
+            # worth interrupting the founder for. Asking is reserved for
+            # when the founder genuinely has something to decide.
+            usable = [option for option in resolution.options if self._is_usable(option)]
+            if len(usable) == 1:
+                candidates = (usable[0],)
+            else:
+                chosen = self._ask_which_browser(tuple(usable) or resolution.options)
+                if chosen is None:
+                    return self._fail(REJECTED, BROWSER_CANCELLED, started)
+                candidates = (chosen,)
         elif resolution.ranked:
             candidates = resolution.ranked
         elif resolution.chosen is not None:
@@ -386,6 +408,11 @@ class TrustedWebAiProvider:
         if not opened.ok:
             return self._fail(UNAVAILABLE, f"{NOT_REACHED}: {opened.detail}", started)
         return None
+
+    def _is_usable(self, candidate: Any) -> bool:
+        """Can this browser actually be read? A title is not an answer."""
+        self._browser.use(candidate)
+        return bool(self._browser.observe().elements)
 
     def _ask_which_browser(self, options: tuple[Any, ...]) -> Any:
         """Several browsers hold the page and none is in front. Which
@@ -529,14 +556,22 @@ class TrustedWebAiProvider:
         }.get(state, f"the page is not usable: {state}")
 
     def _safe_to_act(self, observation: PageObservation) -> bool:
-        """Right application, right window in front, expected page.
+        """Right application, expected page -- checked here; right window
+        in front -- checked by the act itself.
 
-        All three, every time, from a fresh observation. Anything less is
-        typing hopefully into whatever happens to be on screen -- which on
-        a real desktop is another person's window.
+        The split is not laziness, it is what the live desktop forced.
+        Requiring foreground from *this* observation made acting
+        impossible: another application reclaims the foreground within
+        seconds, so by the time the check passed and the type began it was
+        false again, and the run died having never typed anything on a
+        page that was perfectly usable.
+
+        The invariant is not weakened, it is moved to where it can hold.
+        `type_into` takes the foreground and types as one operation and the
+        Desktop Executive refuses the keystroke unless the window is
+        confirmed in front at that instant -- which is a stronger guarantee
+        than any check made beforehand could give.
         """
-        if not observation.foreground:
-            return False
         if not observation.application:
             return False
         return self._browser.find(self._site.composer_name) is not None

@@ -244,7 +244,10 @@ def test_both_suitable_and_none_in_front_asks_the_founder():
     provider(browser, interaction=founder).complete(PROMPT)
 
     assert len(founder.asked) == 1, "genuine ambiguity is a question, not a tiebreak"
-    assert browser.used[0] == "comet"
+    # `used[-1]`, not `used[0]`: both candidates are probed for whether
+    # they can actually be read before the founder is troubled, so the
+    # last one used is the one that did the work.
+    assert browser.used[-1] == "comet"
 
 
 def test_a_cancelled_browser_choice_submits_nothing():
@@ -274,6 +277,29 @@ def test_nothing_is_typed_when_the_window_is_not_in_front():
 
     assert result.ok is False
     assert browser.typed == [], "a stolen foreground must never produce a blind keystroke"
+
+
+def test_only_one_drivable_candidate_is_not_an_ambiguity_worth_asking_about():
+    """Two browsers held the page live and one threw on every read.
+
+    That is a choice between a usable session and an unusable one, which
+    is not something to interrupt the founder for -- asking is reserved
+    for when they genuinely have something to decide.
+    """
+    browser = FakeBrowser(
+        [chrome("Google Gemini", True, False), comet("Google Gemini", True, False)],
+        ambiguous=True,
+        pages_by_app={
+            "chrome": [Page("Google Gemini", controls=[COMPOSER]), answered("Google Gemini")],
+            "comet": [Page("Google Gemini", usable=False)],
+        },
+    )
+    founder = Founder()
+    result = provider(browser, interaction=founder).complete(PROMPT)
+
+    assert founder.asked == [], "no question when only one candidate is drivable"
+    assert browser.used[-1] == "chrome"
+    assert result.ok is True
 
 
 def test_a_browser_that_cannot_be_observed_is_not_treated_as_usable():
