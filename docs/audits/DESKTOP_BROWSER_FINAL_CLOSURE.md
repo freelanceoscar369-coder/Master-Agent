@@ -248,12 +248,56 @@ none requires reopening Desktop or Browser architecture):
   which provider serves a request. Verified structurally — no module
   outside the operations package calls it — and now guarded by a test.
 
+**OPERATING REFERENCE — now present.** `desktop/operations/reference.py`
+carries fifteen entries across three layers, reusing `Fact`/`KnowledgeType`
+so provenance is structural: Windows conventions cited to Microsoft's own
+shortcut documentation, UIA control-pattern semantics cited to the Control
+Patterns Overview, and Chromium behaviour recorded from what this machine
+was actually watched doing. Twelve are confirmed; the rest say `UNKNOWN`.
+
+Retrieved deterministically by topic (`reference_for`, `explain`) — no
+lookup service, no network, no model. It **selects nothing**: a test
+refuses any function named select/rank/choose/prefer/fallback in it and
+refuses any product or provider name as a value.
+
+Two entries are worth reading before touching this area again.
+`triple_click` is `UNKNOWN` on purpose — none was performed here, and
+recording it as select-all on general reputation would be inventing
+evidence; what *is* recorded is that it is context dependent. `select_all`
+carries "NOT a universal repair", because Ctrl+A already exists in the
+execution ladder as the clear step and was never the missing piece.
+
+**The audit that produced it changed its shape.** Most of what looked
+missing was already execution-encoded — `write_text()` already prefers
+`ValuePattern.SetValue`, already clears before replacing, already verifies
+both by read-back; `DesktopExecutor` already consults
+`DesktopExecutiveV2.profile()`. Re-encoding that as data would have been
+saying the same thing in two places that could later disagree. The one
+genuinely missing *primitive* was a third click, now `multi_click(x, y,
+count)` — generic, because a named `triple_click()` invites treating the
+gesture as select-all.
+
 **NOT CLOSED — stated plainly so nobody plans against it:**
 
-- **No Windows/UIA/Chromium reference corpus exists.** Interaction
-  technique is currently chosen from live control type and observation,
-  which is what actually solved the rename, but there is no curated local
-  baseline to consult before observing.
+- **Packaged end-to-end acceptance cannot currently be driven.** The
+  packaged product exposes no non-GUI production entry for a founder
+  objective — only `--self-check` — and its pywebview window exposes
+  **six** UIA elements: `System`, `Restore`, `Maximise`, `Close`. The
+  WebView2 content is not in the accessibility tree, so Kalpavriksha's own
+  Desktop Executive cannot drive Kalpavriksha's own window.
+
+  Both routes out of this are decisions, not implementation details:
+  adding a production console/CLI entry for objectives (a real product
+  capability, but adding it to make a gate pass is the pattern this
+  document exists to prevent), or enabling WebView2 accessibility. Neither
+  should be done silently. **FOUNDER DECISION REQUIRED.**
+
+  What *is* proven, from the real production composition rather than the
+  packaged shell: the Broker selects `trusted-founder-web` and records it,
+  the lane executes, two turns return clean current-turn answers, and both
+  verify. The packaged artifact reaches the lane — `--self-check` shows the
+  web rung and `executable=yes`. The gap is the packaged *shell*, not the
+  packaged *lane*.
 
 ---
 
