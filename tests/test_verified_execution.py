@@ -12,6 +12,7 @@ still gets neither.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +21,7 @@ from master_agent.ai_infrastructure.economy import NO_CACHE
 from master_agent.ai_infrastructure.execution import PromptExecutor
 from master_agent.ai_infrastructure.ledger import DecisionLedger, ExecutionRecord
 from master_agent.ai_infrastructure.text_verifier import expect
+from master_agent.config import MasterAgentConfig
 from master_agent.dashboard.charset import ASCII
 from master_agent.dashboard.founder import as_dict as founder_as_dict
 from master_agent.dashboard.founder import build_founder_view
@@ -636,7 +638,41 @@ def test_the_outcome_serialises_its_verdict():
 # =========================================================================
 
 
+def stated_config(app_dir) -> MasterAgentConfig:
+    """The product's own defaults, minus this machine.
+
+    `build_system()` falls back to `load_config()`, and `load_config()`
+    reads two things no test may depend on: `app_dir`, which resolves to
+    the founder's real `~/.master_agent`, and `GEMINI_API_KEY` out of the
+    environment. Left ambient, the first has these tests reading and
+    writing the founder's own memory, and the second hands the launcher a
+    live API key -- so a run on the founder's machine posted this file's
+    prompts to the real Gemini endpoint and failed on its rate limit.
+
+    So the config is *stated* here rather than loaded. `app_dir` is the
+    test's own `tmp_path`, and no cloud provider is enabled -- which is
+    the shipped `BrokerConfig` default ("empty by default, so a provider
+    that needs credentials is reported unavailable until the founder says
+    otherwise") before the founder's own deployment decision added
+    `gemini.api` to it. That decision is the deployment's, not this
+    file's: these tests fake the *local* provider's transport and assert
+    on what the launcher then does, so a second, unfaked provider being
+    selectable is the machine leaking in, not the path under test.
+
+    Everything else -- the policy, the prompt cache, the Ollama settings
+    -- is the product's own default and stays untouched.
+    """
+    config = MasterAgentConfig(app_dir=Path(app_dir))
+    config.broker.enabled_cloud_providers = ()
+    return config
+
+
 def quiet_system(state_dir, **kwargs):
+    state_dir = Path(state_dir)
+    # `app_dir` is the *parent*: the launcher puts founder memory beside
+    # the state directory rather than inside it, so this is the one value
+    # that keeps both of them under the test's `tmp_path`.
+    kwargs.setdefault("config", stated_config(state_dir.parent))
     kwargs.setdefault("runtime_config", RuntimeConfig(poll_interval_seconds=0))
     kwargs.setdefault("dashboard_kwargs", {"writer": lambda _text: None})
     return build_system(state_dir=state_dir, **kwargs)
