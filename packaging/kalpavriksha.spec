@@ -124,6 +124,17 @@ a = Analysis(
         'master_agent.plugins.browser_plugin',
         'master_agent.plugins.registry',
         'master_agent.environment.browser_session',
+        # Both reached only through lazy imports, so static analysis
+        # cannot see either -- the same reason every other name in this
+        # list is here.
+        #
+        # `founder_choice` is the one that would hurt most: it is imported
+        # inside the account-chooser branch, so a packaged build without it
+        # would run perfectly until the moment Google offers the founder
+        # two accounts, and then fail at exactly the point the founder is
+        # being asked to make a decision.
+        'master_agent.environment.browser_identity',
+        'master_agent.founder_interaction',
         'master_agent.executor',
         'master_agent.permissions',
         'playwright',

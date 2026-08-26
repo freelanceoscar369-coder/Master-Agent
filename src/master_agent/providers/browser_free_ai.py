@@ -653,7 +653,7 @@ class BrowserFreeAiReasoningProvider(ModelProvider):
 
         state = self._auth_state(manager, site)
         if state == AUTHENTICATION_IN_PROGRESS:
-            chosen = self._choose_account(manager, site)
+            chosen = self._resolve_account_with_founder(manager, site)
             if chosen is not None:
                 return chosen
         elif state == SIGNED_OUT:
@@ -664,8 +664,18 @@ class BrowserFreeAiReasoningProvider(ModelProvider):
 
         return self._wait_for_authenticated(manager, site)
 
-    def _choose_account(self, manager: Any, site: _Site) -> str | None:
-        """Google is offering accounts. Decide which -- or rather, don't.
+    def _resolve_account_with_founder(
+        self, manager: Any, site: _Site
+    ) -> str | None:
+        """Google is offering accounts. Find out which -- without deciding.
+
+        Named for what it does after the provider guard rejected
+        `_choose_account`: MB033 Rule 4 forbids a provider defining
+        anything that chooses, and the guard was right, because nothing
+        here applies a preference. One offered account continues on
+        authority the founder already gave; several are handed to the
+        founder; none is reported as theirs to finish. The provider
+        executes the answer, it never forms one.
 
         Returns a terminal state, or None meaning "an account was clicked,
         carry on watching".
@@ -686,7 +696,7 @@ class BrowserFreeAiReasoningProvider(ModelProvider):
         if self._interaction is None:
             return AUTHENTICATION_REQUIRED
 
-        from master_agent.mission_control.founder_choice import (
+        from master_agent.founder_interaction import (
             ChoiceOption,
             FounderChoiceRequest,
         )

@@ -372,7 +372,7 @@ def founder_interaction():
     """The application's `FounderInteraction`, created on first use."""
     global _FOUNDER_INTERACTION
     if _FOUNDER_INTERACTION is None:
-        from master_agent.mission_control.founder_choice import (
+        from master_agent.founder_interaction import (
             DeferredFounderInteraction,
         )
 

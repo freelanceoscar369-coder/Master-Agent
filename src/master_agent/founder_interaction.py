@@ -1,6 +1,16 @@
 """FounderChoice — one bounded question put to the founder, and their one
 answer.
 
+**Why it is not inside `mission_control/`.** That was the first home, and
+the provider guard rejected it, correctly. MB033 Rule 4 says a provider
+executes and never decides, and enforces it structurally: a provider may
+not import `master_agent.mission_control`, `broker`, `ai_infrastructure`
+or `runtime`, because a provider that can see the layer that decides will
+eventually consult it. The thing that needs to ask the founder which
+account to use is a provider. So the port lives outside all of them --
+it is a contract with no dependencies, which is what lets both a provider
+and a shell hold it without either acquiring the other's layer.
+
 **Why this is not the Approval Queue.** `mission_control/approvals.py`
 already asks the founder things, and it was the first candidate. It
 answers a *yes/no about authority*: may this capability run, is this

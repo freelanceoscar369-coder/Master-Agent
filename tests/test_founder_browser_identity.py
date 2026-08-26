@@ -27,7 +27,7 @@ from master_agent.environment.browser_session import (
 )
 from master_agent.executor.action import ExecutionResult
 from master_agent.executor.actions.browser.open_session import OpenBrowserSessionAction
-from master_agent.mission_control.founder_choice import (
+from master_agent.founder_interaction import (
     DeferredFounderInteraction,
     FounderChoiceRequest,
     FounderChoiceResponse,
