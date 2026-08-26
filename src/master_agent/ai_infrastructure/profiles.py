@@ -72,16 +72,51 @@ class ProviderSource:
     def __init__(
         self,
         inventory_provider: Any = None,
-        specs: tuple[ProviderSpec, ...] = PROVIDER_CATALOG,
+        registry: Any = None,
         enabled_cloud_providers: tuple[str, ...] | frozenset[str] = (),
+        executable_provider_ids: Any = None,
+        specs: tuple[ProviderSpec, ...] | None = None,
     ) -> None:
+        """`registry` is the canonical `ProviderRegistry` and is the only
+        source of administrative provider facts.
+
+        It used to take `specs` and project straight from
+        `PROVIDER_CATALOG`, which meant the catalogue remained a
+        production authority for the life of the process: a descriptor
+        registered administratively was invisible to selection, and
+        editing a spec silently changed what the Broker saw. The
+        catalogue is now a bootstrap import and nothing else.
+
+        `executable_provider_ids` is a callable returning the ids that
+        currently have a registered executable implementation. Optional,
+        and when absent this projection makes no claim about
+        executability -- exactly as before. When supplied, a descriptor
+        with no live implementation is reported unavailable, because
+        KNOWN is not EXECUTABLE and a restored binding is not evidence
+        that anything is callable now.
+        """
         self._inventory_provider = inventory_provider
-        self._specs = tuple(specs)
         self._enabled = frozenset(enabled_cloud_providers)
+        self._executable_provider_ids = executable_provider_ids
+
+        # `specs` is BOOTSTRAP, not an authority. Given some, they are
+        # imported into a registry once, here, and never read again -- so
+        # `profiles()` always projects from canonical descriptors whichever
+        # way this was constructed, and editing a `ProviderSpec` after
+        # construction cannot silently change a `ProviderProfile`. That
+        # last property is what "canonical" has to mean; a source that
+        # re-read the catalogue on every call did not have it.
+        if registry is None:
+            from master_agent.broker.registry import ProviderRegistry
+
+            registry = ProviderRegistry()
+            for spec in (PROVIDER_CATALOG if specs is None else specs):
+                registry.register(descriptor_for(spec))
+        self._registry = registry
 
     @property
-    def specs(self) -> tuple[ProviderSpec, ...]:
-        return self._specs
+    def registry(self) -> Any:
+        return self._registry
 
     @property
     def enabled_cloud_providers(self) -> frozenset[str]:
@@ -91,7 +126,29 @@ class ProviderSource:
 
     def profiles(self) -> tuple[ProviderProfile, ...]:
         inventory = self._inventory()
-        return tuple(profile_for(spec, inventory, self._enabled) for spec in self._specs)
+        executable = self._executable()
+        return tuple(
+            profile_from_descriptor(descriptor, inventory, self._enabled, executable)
+            for descriptor in self._descriptors()
+        )
+
+    def _descriptors(self) -> tuple[Any, ...]:
+        if self._registry is None:
+            return ()
+        try:
+            return tuple(self._registry.all())
+        except Exception:  # noqa: BLE001 - an unreadable registry is an empty estate
+            return ()
+
+    def _executable(self) -> frozenset[str] | None:
+        """Which providers currently have a live implementation, or None
+        when nobody said. None means "no claim", not "none of them"."""
+        if self._executable_provider_ids is None:
+            return None
+        try:
+            return frozenset(self._executable_provider_ids())
+        except Exception:  # noqa: BLE001
+            return None
 
     def available(self) -> tuple[ProviderProfile, ...]:
         return tuple(profile for profile in self.profiles() if profile.available)
@@ -241,6 +298,13 @@ def descriptor_for(spec: ProviderSpec) -> ProviderDescriptor:
         privacy=spec.privacy,
         requires_network=spec.requires_network,
         requires_approval=spec.requires_approval,
+        # The four facts availability() needs, carried so the projection
+        # never has to read a spec again. `is_coding_agent` is the
+        # catalogue guard's own verdict, normalised once here.
+        inventory_key=spec.inventory_key,
+        needs_credentials=spec.needs_credentials,
+        is_coding_agent=is_coding_agent(spec),
+        autonomous_reasoning_unsafe_reason=spec.autonomous_reasoning_unsafe_reason,
         max_context_tokens=spec.max_context_tokens,
         latency_ms=spec.latency_ms,
         declared_quality=spec.declared_quality,
@@ -281,3 +345,101 @@ def bootstrap_registry(registry, specs=None) -> tuple[ProviderDescriptor, ...]:
             continue
         imported.append(registry.register(descriptor_for(spec)))
     return tuple(imported)
+
+
+# ---- the projection, from the canonical record --------------------------
+#
+# Same three availability rules `availability()` has always applied, asked
+# of a `ProviderDescriptor` instead of a `ProviderSpec`. Nothing is
+# weakened: a coding agent is still never a reasoning provider, an unsafe
+# identity is still excluded by its own recorded reason, a credentialled
+# service is still unavailable until the founder configures it, and an
+# inventory-backed provider is still absent until a scan says otherwise.
+#
+# One rule is ADDED, and only when the caller supplies the information:
+# a descriptor with no currently registered executable implementation is
+# unavailable. KNOWN is not EXECUTABLE, and a descriptor restored from
+# last week's snapshot is not evidence that anything can be called today.
+
+NOT_EXECUTABLE = "no executable provider implementation is registered"
+
+
+def descriptor_availability(
+    descriptor: Any,
+    inventory: Any = None,
+    enabled: frozenset[str] = frozenset(),
+    executable: frozenset[str] | None = None,
+) -> tuple[bool, str]:
+    """Is this provider usable right now, and how do we know?
+
+    `(available, detail)`, never a bare boolean -- "not available" and
+    "not available because nothing has looked" are different facts and the
+    second is the one a founder needs before installing anything.
+    """
+    if getattr(descriptor, "is_coding_agent", False):
+        return False, CODING_AGENT_NOT_A_REASONING_PROVIDER
+
+    unsafe = getattr(descriptor, "autonomous_reasoning_unsafe_reason", None)
+    if unsafe is not None:
+        return False, f"{AUTONOMOUS_REASONING_UNSAFE}: {unsafe}"
+
+    if executable is not None and descriptor.provider_id not in executable:
+        return False, NOT_EXECUTABLE
+
+    if descriptor.needs_credentials and descriptor.provider_id not in enabled:
+        return False, NO_CREDENTIALS
+
+    if descriptor.inventory_key is None:
+        return True, descriptor.notes or "configured"
+
+    if inventory is None:
+        return False, NOT_SCANNED
+
+    application = inventory.get(descriptor.inventory_key)
+    if application is None or not getattr(application, "installed", False):
+        return False, NOT_INSTALLED
+    if not getattr(application, "healthy", True):
+        return False, NOT_HEALTHY
+
+    version = getattr(application, "version", None)
+    return True, f"{INSTALLED}{f' {version}' if version else ''}"
+
+
+def profile_from_descriptor(
+    descriptor: Any,
+    inventory: Any = None,
+    enabled: frozenset[str] | tuple[str, ...] = (),
+    executable: frozenset[str] | None = None,
+) -> ProviderProfile:
+    """One canonical descriptor plus what the world says about it now.
+
+    `benchmark` stays None for the same reason it always did: nothing in
+    this build measures a provider, so `quality` is the declared number
+    and the profile says so rather than presenting a claim as evidence.
+    """
+    available, detail = descriptor_availability(
+        descriptor, inventory, frozenset(enabled), executable
+    )
+    return ProviderProfile(
+        provider_id=descriptor.provider_id,
+        capabilities=frozenset(descriptor.capabilities),
+        locality=descriptor.locality,
+        privacy=descriptor.privacy,
+        quality=descriptor.declared_quality,
+        benchmark=None,
+        benchmark_confidence=0.0,
+        cost=descriptor.cost_per_call,
+        latency_ms=descriptor.latency_ms,
+        available=available,
+        requires_network=descriptor.requires_network,
+        requires_approval=descriptor.requires_approval,
+        max_context_tokens=descriptor.max_context_tokens,
+        notes=detail,
+        prefill_tokens_per_second=descriptor.prefill_tokens_per_second,
+        decode_tokens_per_second=descriptor.decode_tokens_per_second,
+        expected_itl_ms=descriptor.expected_itl_ms,
+        supports_streaming=descriptor.supports_streaming,
+        chars_per_token=descriptor.chars_per_token,
+        serialises=descriptor.serialises,
+        model_load_ms=descriptor.model_load_ms,
+    )

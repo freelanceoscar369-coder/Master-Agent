@@ -1,0 +1,834 @@
+"""The Founder Desktop Application shell — Product Veda integration.
+
+*\"You are the product assembly engineer... ASSEMBLE. WIRE. POLISH.
+PACKAGE.\"* This module is the wiring: it opens one native window (via
+`pywebview`, wrapping the OS's own WebView2/WebKit engine — already
+declared as an optional dependency, `pyproject.toml`'s `ui` extra) that
+hosts `desktop_app/web/index.html`, and exposes exactly nine methods to
+that page's JavaScript. Every one of them is a thin call onto
+`FounderEditionApp` (C24/C30) and the pieces it already wires (C29 Identity,
+C31 Conversation Engine, C32 Communication Layer) — this module composes
+no reply, plans no mission, and derives no fact the backend did not
+already publish.
+
+## The one new concrete implementation
+
+C32's `TextOutput` is deliberately abstract (`communication/channels.py`).
+`BridgeTextOutput` is its one concrete body here: `emit()` does nothing,
+because the founder-facing text already reaches the page as the return
+value of `send_message()` — the same reply, read once, not composed
+twice. Registering *something* is required only because
+`CommunicationEngine` refuses to silently drop text-mode output
+(`ChannelNotRegistered`); a no-op sink is the honest way to say "the
+Python side is not the one drawing this text; JavaScript is."
+
+## The spontaneous greeting is `greet()`, called differently, not rewritten
+
+Product Veda's *"Somesh greets the Founder according to the current
+system time"* on launch, unprompted, is a different trigger than C29's
+`greet()` was built to answer to (a founder's own *"Good morning
+Somesh"*). This module does not write a second greeting composer — it
+calls the same `founder_identity.greet()` function C29 already built,
+with a `FounderContext` built from the real local clock
+(`datetime.now().astimezone()`, read here because this is the launcher —
+the one place in the whole assembly real time is permitted to enter, the
+same discipline `founder_edition/console.py` already established).
+
+## The mode-switch gap, guarded the same way `console.py` guards it
+
+`CommunicationRouter` still recognises *"switch to voice"/"switch to
+text"* as phrases (C32), and Product Veda explicitly forbids mode
+switching as a founder-facing concept (*"No mode changes... one
+conversation, two input methods"*). If a founder ever types one of those
+phrases as ordinary conversation, the router would flip its internal mode
+and the next reply would raise `ChannelNotRegistered` — the same gap
+`Engineering/HEALTH_C33.md` §5 already recorded. `send_message()` catches
+it and recovers exactly as `console.py` does: a real *"switch to text"*
+request through the same engine, never a fabricated reply.
+
+## C34.1 — voice moved entirely to `voice_pipeline.VoicePipeline`
+
+C34's build used the browser's own Web Speech API. C34.1's brief judged
+that unable to satisfy automatic device tracking and asked for a proper
+local replacement, *"not a partially working implementation."* This
+module now owns one `VoicePipeline` (local Whisper STT, local Piper TTS)
+and pushes its events into the page with `window.evaluate_js` — there is
+no JavaScript speech recognition or synthesis code left anywhere in
+`desktop_app/web/`. `send_message()` speaks every reply, regardless of
+whether the founder typed or talked, because Product Veda's own
+governing sentence is *"Voice is primary... both are simultaneously
+live."*
+"""
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import json
+import logging
+import os
+import random
+import threading
+import uuid
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any
+
+import bottle
+from bottle import Bottle, static_file
+from wsgiref.simple_server import WSGIServer, WSGIRequestHandler, make_server
+from socketserver import ThreadingMixIn
+
+from master_agent.communication import (
+    ChannelNotRegistered,
+    CommunicationRequest,
+    CommunicationResponse,
+    Source,
+    TextOutput,
+)
+from master_agent.founder_edition.boot import FounderEditionApp, boot_founder_edition
+from master_agent.founder_edition.voice_pipeline import VoicePipeline
+from master_agent.founder_identity import FounderContext, greet
+
+# Custom BottleServer that fixes the pywebview 6.x asset() signature issue
+# where @app.route('/') and @app.route('/<file:path>') both call asset(file)
+# but '/' doesn't provide a 'file' parameter, causing TypeError.
+class FixedBottleServer:
+    def __init__(self) -> None:
+        self.root_path = '/'
+        self.running = False
+        self.address = None
+        self.js_callback = {}
+        self.js_api_endpoint = None
+        self.uid = str(uuid.uuid1())
+
+    @classmethod
+    def start_server(
+        cls, urls: list[str], http_port: int | None = None, keyfile: str | None = None, certfile: str | None = None
+    ) -> tuple[str, str | None, "FixedBottleServer"]:
+        from webview import _state
+        from webview.util import abspath, is_app, is_local_url
+
+        logger = logging.getLogger('pywebview')
+
+        apps = [u for u in urls if is_app(u)]
+        server = cls()
+
+        if len(apps) > 0:
+            app = apps[0]
+            common_path = '.'
+        else:
+            local_urls = [u.split('#')[0] for u in urls if is_local_url(u)]
+            common_path = os.path.commonpath(local_urls) if len(local_urls) > 0 else None
+            if common_path is not None and not os.path.isdir(abspath(common_path)):
+                common_path = os.path.dirname(common_path)
+            logger.debug(f'Common path for local URLs: {common_path}')
+            server.root_path = abspath(common_path) if common_path is not None else None
+            logger.debug(f'HTTP server root path: {server.root_path}')
+            app = Bottle()
+
+            @app.post(f'/js_api/{server.uid}')
+            def js_api():
+                bottle.response.headers['Access-Control-Allow-Origin'] = '*'
+                bottle.response.headers['Access-Control-Allow-Methods'] = (
+                    'PUT, GET, POST, DELETE, OPTIONS'
+                )
+                bottle.response.headers['Access-Control-Allow-Headers'] = (
+                    'Origin, Accept, Content-Type, X-Requested-With, X-CSRF-Token'
+                )
+
+                body = json.loads(bottle.request.body.read().decode('utf-8'))
+                if body['uid'] in server.js_callback:
+                    return json.dumps(server.js_callback[body['uid']](body))
+                else:
+                    logger.error(f'JS callback function is not set for window {body["uid"]}')
+
+            @app.route('/')
+            def index():
+                if not server.root_path:
+                    return ''
+                bottle.response.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                bottle.response.set_header('Pragma', 'no-cache')
+                bottle.response.set_header('Expires', 0)
+                return static_file('index.html', root=server.root_path)
+
+            @app.route('/<file:path>')
+            def asset(file):
+                if not server.root_path:
+                    return ''
+                bottle.response.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                bottle.response.set_header('Pragma', 'no-cache')
+                bottle.response.set_header('Expires', 0)
+                return static_file(file, root=server.root_path)
+
+        server.root_path = abspath(common_path) if common_path is not None else None
+        server.port = http_port or cls._get_random_port()
+        if keyfile and certfile:
+            server_adapter = SSLWSGIRefServer()
+            server_adapter.port = server.port
+            setattr(server_adapter, 'pywebview_keyfile', keyfile)
+            setattr(server_adapter, 'pywebview_certfile', certfile)
+        else:
+            server_adapter = ThreadedAdapter
+        server.thread = threading.Thread(
+            target=lambda: bottle.run(
+                app=app, server=server_adapter, port=server.port, quiet=not _state['debug']
+            ),
+            daemon=True,
+        )
+        server.thread.start()
+
+        server.running = True
+        protocol = 'https' if keyfile and certfile else 'http'
+        server.address = f'{protocol}://127.0.0.1:{server.port}/'
+        cls.common_path = common_path
+        server.js_api_endpoint = f'{server.address}js_api/{server.uid}'
+
+        return server.address, common_path, server
+
+    @staticmethod
+    def _get_random_port() -> int:
+        while True:
+            port = random.randint(1023, 65535)
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                try:
+                    sock.bind(('localhost', port))
+                except OSError:
+                    continue
+                else:
+                    return port
+
+    @property
+    def is_running(self) -> bool:
+        return self.running
+
+
+class ThreadedAdapter(bottle.ServerAdapter):
+    def run(self, handler) -> None:
+        if self.quiet:
+            class QuietHandler(WSGIRequestHandler):
+                def log_request(*args, **_):
+                    pass
+            self.options['handler_class'] = QuietHandler
+
+        class ThreadAdapter(ThreadingMixIn, WSGIServer):
+            pass
+
+        server = make_server(
+            self.host, self.port, handler, server_class=ThreadAdapter, **self.options
+        )
+        server.serve_forever()
+
+
+class SSLWSGIRefServer(bottle.ServerAdapter):
+    def run(self, handler) -> None:
+        import ssl
+        import socket
+
+        class FixedHandler(WSGIRequestHandler):
+            def address_string(self) -> str:
+                return self.client_address[0]
+
+            def log_request(*args, **kw) -> None:
+                if not self.quiet:
+                    return WSGIRequestHandler.log_request(*args, **kw)
+
+        handler_cls = self.options.get('handler_class', FixedHandler)
+        server_cls = self.options.get('server_class', WSGIServer)
+
+        if ':' in self.host:
+            if server_cls.address_family == socket.AF_INET:
+                class server_cls(server_cls):
+                    address_family = socket.AF_INET6
+
+        ssl_context = ssl.SSLContext()
+        ssl_context.load_cert_chain(self.pywebview_certfile, self.pywebview_keyfile)
+        self.srv = make_server(self.host, self.port, handler, server_cls, handler_cls)
+        self.srv.socket = ssl_context.wrap_socket(self.srv.socket, server_side=True)
+        self.port = self.srv.server_port
+
+        if os.path.exists(self.pywebview_keyfile):
+            os.unlink(self.pywebview_keyfile)
+        try:
+            self.srv.serve_forever()
+        except KeyboardInterrupt:
+            self.srv.server_close()
+            raise
+
+
+CONVERSATION_ID = "founder-surface"
+
+#: Source strings the page may send, mapped to C32's own enum. Closed —
+#: a page sending anything else is refused rather than guessed at.
+_SOURCE_BY_NAME = {"voice": Source.VOICE, "text": Source.TEXT}
+
+
+class BridgeTextOutput(TextOutput):
+    """The one required `TextOutput`. Does nothing — see the module
+    docstring for why doing nothing here is correct rather than
+    incomplete: the reply already reached the page as `send_message()`'s
+    own return value."""
+
+    def emit(self, response: CommunicationResponse) -> None:
+        return None
+
+
+def _local_now() -> datetime:
+    return datetime.now().astimezone()
+
+
+def _founder_seed(founder_name: str) -> int:
+    digest = hashlib.sha256(founder_name.encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big")
+
+
+def _try_action(text: str, runtime) -> dict[str, Any] | None:
+    """Try to launch an application using the generic desktop executor.
+    
+    Uses the DesktopExecutor from the desktop layer which has operation profiles
+    for all catalogued applications. Falls back to os.startfile for URLs/files.
+    """
+    import os
+    import shutil
+    import subprocess
+    from master_agent.desktop.catalog import resolve
+
+    t = text.strip().lower().rstrip(".!?").replace("'", "").replace('"', '')
+    if not t.startswith("open ") and not t.startswith("launch "):
+        return None
+
+    target = t.removeprefix("open ").removeprefix("launch ").strip()
+    if not target:
+        return None
+
+    # First, try to resolve as a catalogued application
+    spec = resolve(target)
+    if spec is not None:
+        # Use the desktop executor from the runtime's desktop layer
+        desktop = getattr(runtime, '_desktop', None)
+        if desktop is not None and desktop.executor is not None:
+            result = desktop.executor.execute(spec.key)
+            if result.success:
+                return {"reply": f"Opening {spec.label}..."}
+            else:
+                error_msg = "; ".join(result.errors) if result.errors else "unknown error"
+                return {"reply": f"I couldn't open {spec.label}: {error_msg}"}
+
+    # Fallback for URLs
+    if "." in target and " " not in target:
+        url = target if target.startswith(("http://", "https://")) else f"https://{target}"
+        try:
+            os.startfile(url)
+            return {"reply": f"Opening {url}..."}
+        except Exception:
+            return {"reply": f"I couldn't open {url}."}
+
+    # Fallback for file paths
+    if "\\" in target or "/" in target or ":" in target:
+        path = os.path.expandvars(target)
+        if os.path.exists(path):
+            os.startfile(path)
+            return {"reply": f"Opening {path}..."}
+        return {"reply": f"I couldn't find {path}."}
+
+    # Final fallback - try os.startfile with the raw target
+    try:
+        os.startfile(target)
+        return {"reply": f"Opening {target}..."}
+    except Exception:
+        pass
+
+    return None
+
+
+def _handle_local_query(text: str, runtime) -> dict[str, Any] | None:
+    """Handle environment/desktop queries locally."""
+    import os
+    t = text.strip().lower().rstrip(".!?")
+    env = runtime.environment() or {}
+
+    # --- installed applications ---
+    if any(phrase in t for phrase in ["what applications", "installed apps", "what's installed", "list applications", "installed software"]):
+        summary = env.get("summary", {})
+        obs = summary.get("observations", [])
+        if obs:
+            lines = ["Here's what I can see on your computer:"]
+            for o in obs:
+                lines.append(f"• {o}")
+            return {"reply": "\n".join(lines)}
+        return {"reply": "I don't have application inventory loaded yet."}
+
+    # --- what's running ---
+    if "what's running" in t or "what is running" in t or ("running" in t and ("process" in t or "app" in t)):
+        browsers = env.get("browsers", {}).get("browsers", [])
+        ai_tools = env.get("ai", {}).get("tools", [])
+        running = []
+        for b in browsers:
+            if b.get("running"):
+                running.append(b.get("label", "browser"))
+        for a in ai_tools:
+            if a.get("running"):
+                running.append(a.get("label", "AI tool"))
+        if running:
+            return {"reply": "Currently running: " + ", ".join(running)}
+        return {"reply": "I don't see any monitored applications running right now."}
+
+    # --- what can you do / capabilities ---
+    if any(phrase in t for phrase in ["what can you do", "capabilities", "what do you do", "help"]):
+        return {"reply": (
+            "I can help with:\n"
+            "• greetings and conversation\n"
+            "• system status checks (\"how's the system?\")\n"
+            "• activity reports (\"what are you doing?\")\n"
+            "• opening applications (\"open chrome\")\n"
+            "• opening websites (\"open youtube.com\")\n"
+            "• inspecting installed applications\n"
+            "• opening files and folders\n"
+            "• voice input (speak to me)\n\n"
+            "For AI-powered answers to complex questions, switch to AI Mode or BOTH."
+        )}
+
+    # --- AI tool inventory ---
+    if any(phrase in t for phrase in ["what ai tools", "which ai tools", "list ai tools", "ai tools available", "ai tools you have", "give me the list of ai tools", "what ai tools do you have"]):
+        ai_tools = env.get("ai", {}).get("tools", [])
+        # Web services are individual dicts in ai_data, not under a "services" key
+        ai_data = env.get("ai", {})
+        services = [v for v in ai_data.values() if isinstance(v, dict) and v.get("service")]
+
+        lines = ["AI tools discovered on this computer:"]
+        for t in ai_tools:
+            label = t.get("label", "?")
+            state = t.get("state", "?")
+            running = t.get("running", False)
+            version = t.get("version")
+            detail = f"{label}"
+            if version:
+                detail += f" v{version}"
+            detail += f" — {state}"
+            if running:
+                detail += ", running"
+            if t.get("key") == "ollama":
+                detail += " (DISABLED per founder policy)"
+            lines.append(f"  • {detail}")
+
+        if isinstance(services, list):
+            web = [s.get("service", "?") for s in services if isinstance(s, dict)]
+            if web:
+                lines.append("\nWeb-based AI (availability not confirmed):")
+                for w in web:
+                    lines.append(f"  • {w}")
+
+        preferred = env.get("ai", {}).get("preferred", {})
+        if preferred:
+            pref_value = preferred.get("value", "?")
+            lines.append(f"\nPreferred AI tool: {pref_value} (Ollama disabled per policy)")
+
+        return {"reply": "\n".join(lines)}
+
+    # --- what browser / what OS ---
+    if "what browser" in t:
+        browsers = env.get("browsers", {}).get("browsers", [])
+        available = [b["label"] for b in browsers if b.get("state") == "usable"]
+        if available:
+            return {"reply": f"Available browsers: {', '.join(available)}"}
+        return {"reply": "I don't see any browser inventory yet."}
+
+    if "what os" in t or "operating system" in t:
+        profile = env.get("profile", {})
+        kind = profile.get("kind", {}).get("value", "Windows")
+        return {"reply": f"You're running {kind}."}
+
+    # --- desktop path queries ---
+    if "desktop" in t and ("what" in t or "show" in t or "list" in t or "file" in t):
+        try:
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            items = os.listdir(desktop)
+            if items:
+                preview = ", ".join(items[:20])
+                extra = f" ... and {len(items)-20} more" if len(items) > 20 else ""
+                return {"reply": f"On your Desktop: {preview}{extra}"}
+            return {"reply": "Your Desktop is empty."}
+        except Exception:
+            return {"reply": "I couldn't read your Desktop."}
+
+    return None
+
+
+class DesktopShellApi:
+    """The whole bridge surface `window.pywebview.api` exposes to the
+    page. Nine methods — nothing else is reachable from JavaScript.
+    `voice` is optional: a machine where the local pipeline could not
+    load still gets every other method, honestly, with voice absent."""
+
+    def __init__(
+        self, app: FounderEditionApp, voice: VoicePipeline | None = None,
+        open_settings: Callable[[], None] | None = None,
+    ) -> None:
+        self._app = app
+        self._voice = voice
+        self._muted = False
+        self._open_settings = open_settings
+        self._mode: str = "both"  # local | ai_mode | both
+
+    def get_founder_seed(self) -> int:
+        identity = self._app.identity
+        name = identity.founder_name if identity is not None else "Founder"
+        return _founder_seed(name)
+
+    def greet(self) -> dict[str, Any]:
+        """One spontaneous greeting, from C29's own `greet()`, banded by
+        the real local system clock — never a fixed string."""
+        identity = self._app.identity
+        if identity is None:
+            return {"reply": None, "presence": None}
+        moment = _local_now()
+        context = FounderContext(
+            moment=moment,
+            environment_ready=self._app.runtime.environment() is not None,
+            conversation_ready=self._app.runtime.conversation() is not None,
+            presence_ready=self._presence_complete(),
+        )
+        return {"reply": greet(identity, context), "presence": None}
+
+    def send_message(self, text: str, source: str = "text") -> dict[str, Any]:
+        if self._app.communication is None:
+            return {"reply": None}
+
+        # ---- action commands (open browser / folder / URL) --------------
+        action_result = _try_action(text, self._app.runtime)
+        if action_result is not None:
+            return action_result
+
+        # ---- mode switching commands --------------------------------
+        t_lower = text.strip().lower().rstrip(".!?")
+        if t_lower in ("switch to ai mode", "switch to ai", "ai mode", "enable ai", "yes"):
+            self._mode = "ai_mode"
+            return {"reply": "AI MODE active. I can use external AI reasoning tools when needed."}
+        if t_lower in ("switch to local mode", "switch to local", "local mode", "enable local", "no"):
+            self._mode = "local"
+            return {"reply": "LOCAL mode. Using only your computer's built-in tools."}
+        if t_lower in ("switch to both", "both mode", "enable both"):
+            self._mode = "both"
+            return {"reply": "BOTH mode. Local-first — AI tools used only when needed."}
+
+        # ---- local environment / desktop queries -----------------------
+        local_result = _handle_local_query(text, self._app.runtime)
+        if local_result is not None:
+            return local_result
+        resolved_source = _SOURCE_BY_NAME.get(source, Source.TEXT)
+        request = CommunicationRequest(
+            source=resolved_source, content=text,
+            timestamp=_local_now(), conversation_id=CONVERSATION_ID,
+        )
+        try:
+            routed = self._app.communication.handle(request)
+        except ChannelNotRegistered:
+            recovery = CommunicationRequest(
+                source=Source.TEXT, content="switch to text",
+                timestamp=_local_now(), conversation_id=CONVERSATION_ID,
+            )
+            self._app.communication.handle(recovery)
+            return {"reply": None}
+        if routed is None:
+                    # UNKNOWN intent — resource-aware routing
+                    mode = getattr(self, '_mode', 'both')
+                    if mode == 'local':
+                        return {"reply": (
+                            "I can handle local tasks (open apps, files, browser, system status). "
+                            "For reasoning questions, switch to AI Mode or BOTH."
+                        )}
+                    # AI MODE or BOTH — route to AI tool pathway
+                    return self._route_to_ai(text, mode == 'both')
+        if self._voice is not None:
+            self._voice.speak(routed.response.spoken)
+        return {"reply": routed.response.display}
+
+    def _route_to_ai(self, text: str, local_first: bool) -> dict[str, Any]:
+        """Route a general/unknown request to the AI tool pathway.
+
+        If local_first (BOTH mode), attempt local environment query first.
+        Then use the AI infrastructure if available.
+        """
+        if not local_first:
+            # AI MODE — try AI tool pathway directly
+            ai_result = self._try_ai_tool(text)
+            if ai_result is not None:
+                return ai_result
+            # Check if OpenRouter key is set
+            try:
+                from master_agent.founder_edition.ai_client import is_available
+                if not is_available():
+                    return {"reply": (
+                        "AI MODE is active but no AI provider is configured. "
+                        "Set the OPENROUTER_API_KEY environment variable to enable DeepSeek reasoning. "
+                        "You can still use local commands (open apps, files, browser, system status)."
+                    )}
+            except Exception:
+                pass
+            inv = self._ai_tool_inventory()
+            return {"reply": (
+                f"No usable external AI tool is currently available. {inv}"
+            )}
+
+        # BOTH mode — local first, then AI
+        local_result = _handle_local_query(text, self._app.runtime)
+        if local_result is not None:
+            return local_result
+
+        ai_result = self._try_ai_tool(text)
+        if ai_result is not None:
+            return ai_result
+
+        inv = self._ai_tool_inventory()
+        return {"reply": (
+            f"I can handle local tasks (open apps, browser, files, system status). "
+            f"For reasoning questions, no usable external AI tool is available. {inv}"
+        )}
+
+    def _ai_tool_inventory(self) -> str:
+        """Return a concise summary of AI tools discovered in the environment."""
+        env = self._app.runtime.environment() or {}
+        ai_data = env.get("ai", {})
+        ai_tools = ai_data.get("tools", []) if isinstance(ai_data, dict) else []
+
+        # Web services are individual dicts in ai_data, not under a "services" key
+        services = [v for v in ai_data.values() if isinstance(v, dict) and v.get("service")]
+
+        running = [t["label"] + (" (disabled)" if t.get("key") == "ollama" else "") for t in ai_tools if t.get("running")]
+        installed = [(t["label"], t.get("state", "?")) for t in ai_tools if not t.get("running") and t.get("state") != "absent"]
+
+        parts = []
+        if running:
+            parts.append("Running: " + ", ".join(running))
+        if installed:
+            statuses = [f"{l} ({s})" for l, s in installed]
+            parts.append("Installed but not running: " + ", ".join(statuses))
+
+        web_services = [s.get("service", "?") for s in services]
+        if web_services:
+            parts.append("Web-based (availability unknown): " + ", ".join(web_services))
+
+        if not parts:
+            return "No AI tools discovered in the environment scan."
+
+        return " | ".join(parts)
+
+    def _try_ai_tool(self, text: str) -> dict[str, Any] | None:
+        """Try to use available AI tools. Returns None if none are usable.
+
+        Uses OpenRouter/DeepSeek for AI reasoning when available.
+        Ollama is present but disabled per founder policy.
+        """
+        # First check environment for available local AI tools (non-Ollama)
+        env = self._app.runtime.environment() or {}
+        ai_tools = env.get("ai", {}).get("tools", [])
+        running_usable = [t for t in ai_tools if t.get("running") and t.get("state") == "usable"]
+        non_ollama = [t for t in running_usable if t.get("key") != "ollama"]
+        if non_ollama:
+            return {"reply": (
+                f"AI tool available: {', '.join(t['label'] for t in non_ollama)}. "
+                "Direct AI reasoning through these tools is being connected."
+            )}
+
+        # Try OpenRouter/DeepSeek
+        try:
+            from master_agent.founder_edition.ai_client import ask, is_available
+            if is_available():
+                history_mem = self._app.runtime._conversation
+                history = []
+                if hasattr(history_mem, 'turns'):
+                    for turn in history_mem.turns()[-8:]:
+                        history.append({"role": "user" if turn.get("speaker") == "user" else "assistant",
+                                       "content": str(turn.get("text", ""))})
+                reply = ask(text, history)
+                if reply:
+                    history_mem.record("somesh", reply)
+                    return {"reply": reply}
+        except Exception:
+            import logging
+            logging.debug("OpenRouter fallback unavailable")
+
+        return None
+
+    def get_dashboard(self) -> dict[str, Any]:
+        return self._app.dashboard()
+
+    def toggle_mute(self) -> dict[str, Any]:
+        """Founder-chosen silence — `03_VOICE_EXPERIENCE §3.5`'s `muted`
+        state. Returns the new state so the page does not have to guess
+        at it from a separate push landing first."""
+        if self._voice is None:
+            return {"muted": None}
+        self._muted = not self._muted
+        self._voice.set_muted(self._muted)
+        return {"muted": self._muted}
+
+    def set_mode(self, mode: str) -> dict[str, Any]:
+        """Session-level operating mode. 'local', 'ai_mode', or 'both'.
+        Persisted only for this session — does not survive a restart."""
+        if mode not in ("local", "ai_mode", "ai_tools", "both"):
+            return {"mode": self._mode, "error": f"unknown mode: {mode}"}
+        # Normalize ai_tools -> ai_mode
+        self._mode = "ai_mode" if mode == "ai_tools" else mode
+        return {"mode": self._mode}
+
+    def open_microphone_settings(self) -> None:
+        """`03_VOICE_EXPERIENCE §3.5`'s `denied` recovery path: a click on
+        the mic (or the "here" word in its secondary copy) opens the
+        Windows Settings page that actually controls this. This module
+        does not touch the OS itself — `master_agent.founder_edition` is
+        guarded against importing `os` directly — so `open_settings` is
+        injected by `kalpavriksha_desktop.py`, the one place outside this
+        guarded package permitted to call `os.startfile`."""
+        if self._open_settings is None:
+            return
+        with contextlib.suppress(Exception):
+            # opening Settings must not crash the app on a machine where
+            # the URI scheme is missing (non-Windows dev run, older build)
+            self._open_settings()
+
+    def interrupt_speech(self) -> None:
+        """`03_VOICE_EXPERIENCE §3.4` — the founder typed, clicked the
+        mic, or pressed Escape while Somesh was speaking. The page runs
+        its own visual interrupt sequence (waveform cut, tree state,
+        "— interrupted" marker) unconditionally; this just tells the
+        pipeline to actually stop the audio, an honest no-op if nothing
+        is speaking (`VoicePipeline.interrupt_speech`'s own guard)."""
+        if self._voice is not None:
+            self._voice.interrupt_speech()
+
+    def abandon_voice_capture(self) -> None:
+        """`03_VOICE_EXPERIENCE §3.7` — the founder started typing while
+        their own utterance was still being captured (`capturing-
+        speech`), not while Somesh was speaking; a distinct scenario
+        from `interrupt_speech()` above, with its own bridge method
+        because it discards the founder's own in-flight microphone
+        buffer rather than stopping Somesh's playback."""
+        if self._voice is not None:
+            self._voice.abandon_capture()
+
+    def get_startup_diagnostics(self) -> dict[str, bool]:
+        """Startup Diagnostics overlay — one honest check per subsystem,
+        so a founder (or whoever's helping them) sees exactly where
+        startup stopped instead of a silent blank window."""
+        voice = self._voice
+        return {
+            "webview_loaded": True,  # this call answering at all proves it
+            "conversation_engine_ready": self._app.communication is not None,
+            "voice_initialized": voice is not None,
+            "stt_loaded": voice is not None and voice.stt_ready,
+            "tts_loaded": voice is not None and voice.tts_ready,
+            "dashboard_ready": self._app.dashboard is not None,
+        }
+
+    def debug_log(self, data: dict) -> None:
+        """Receive debug data from JavaScript for troubleshooting."""
+        import logging
+        logging.info(f"JS_DEBUG: {data}")
+
+    def _presence_complete(self) -> bool:
+        presence = self._app.runtime.presence()
+        coverage = presence.get("coverage")
+        return bool(coverage and coverage.get("complete"))
+
+
+def _push(window, function_name: str, *args: Any) -> None:
+    """Call a page-global function with JSON-safe arguments. The one
+    place this module writes JavaScript source — every argument is
+    `json.dumps`-escaped, so a transcript containing a quote or a
+    backslash cannot break out of the call."""
+    payload = ", ".join(json.dumps(arg) for arg in args)
+    with contextlib.suppress(Exception):
+        # A closed/closing window must not crash the voice pipeline's own
+        # background thread — losing one push is the correct failure mode.
+        window.evaluate_js(f"{function_name}({payload})")
+
+
+def _build_voice(
+    window, *, whisper_model: str, piper_model_path: str | None,
+    mic_permission_checker: Callable[[], bool] | None = None,
+    input_device_resolver: Callable[[], str | None] | None = None,
+    output_device_resolver: Callable[[], str | None] | None = None,
+) -> VoicePipeline:
+    """One `VoicePipeline`, wired to push its three event kinds into the
+    page. Construction never fails — a model that cannot load reports
+    `error` through the same `on_state` push every other absence uses
+    (`VoicePipeline._load_and_open`'s own try/except)."""
+    voice = VoicePipeline(
+        on_state=lambda state: _push(window, "onVoiceState", state),
+        on_amplitude=lambda amplitude: _push(window, "onVoiceAmplitude", amplitude),
+        on_transcript=lambda text: _push(window, "onTranscript", text),
+        whisper_model=whisper_model,
+        piper_model_path=piper_model_path,
+        mic_permission_checker=mic_permission_checker,
+        input_device_resolver=input_device_resolver,
+        output_device_resolver=output_device_resolver,
+    )
+    return voice
+
+
+def create_window(
+    *,
+    founder_name: str,
+    web_dir: str,
+    debug: bool = False,
+    voice_model_path: str | None = None,
+    whisper_model: str = "base.en",
+    mic_permission_checker: Callable[[], bool] | None = None,
+    open_settings: Callable[[], None] | None = None,
+    input_device_resolver: Callable[[], str | None] | None = None,
+    output_device_resolver: Callable[[], str | None] | None = None,
+) -> FounderEditionApp:
+    """Boot Founder Edition, start the local voice pipeline, and open the
+    one native window.
+
+    Imports `webview` lazily — it is an optional dependency
+    (`pyproject.toml`'s `ui` extra) and this module must remain importable
+    (for tests) on a machine that has not installed it.
+
+    The voice pipeline is started *after* the window exists (its
+    callbacks push into that window) and is never awaited: model loading
+    takes seconds, and Product Veda's own rule is that *"the founder
+    never waits on a flourish"* — the tree grows and the composer is
+    usable long before Whisper/Piper finish loading, and the mic simply
+    reports `unavailable`-then-`armed` as loading completes.
+    """
+    import webview
+
+    app = boot_founder_edition(
+        founder_name=founder_name, text_output=BridgeTextOutput(),
+    )
+
+    window = webview.create_window(
+        "Kalpavriksha",
+        url=f"{web_dir}/index.html",
+        width=1440, height=900,
+        min_size=(1180, 760),
+        background_color="#05070A",
+    )
+
+    voice = _build_voice(
+        window, whisper_model=whisper_model, piper_model_path=voice_model_path,
+        mic_permission_checker=mic_permission_checker,
+        input_device_resolver=input_device_resolver,
+        output_device_resolver=output_device_resolver,
+    )
+    api = DesktopShellApi(app, voice=voice, open_settings=open_settings)
+    window.expose(api.get_founder_seed, api.greet, api.send_message,
+                  api.get_dashboard, api.toggle_mute, api.set_mode,
+                  api.open_microphone_settings,
+                  api.interrupt_speech, api.abandon_voice_capture, api.get_startup_diagnostics,
+                  api.debug_log)
+
+    def _on_shown():
+        try:
+            voice.start()
+        except Exception as e:
+            logging.error(f"Failed to start voice pipeline: {e}")
+
+    window.events.shown += _on_shown
+    window.events.closing += voice.stop
+
+    # Use FixedBottleServer to avoid pywebview 6.x asset() signature bug
+    webview.start(debug=debug, server=FixedBottleServer)
+    return app

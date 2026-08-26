@@ -52,6 +52,10 @@ class PersistenceService:
         self._flush_every = max(1, flush_every)
         self._buffer: list[dict[str, Any]] = []
         self._recording = False
+        #: The canonical provider registry, once a composition root
+        #: attaches one. None means this deployment does not persist
+        #: provider descriptors, and the slice is written empty.
+        self._provider_registry: Any = None
 
     @property
     def store(self) -> StateStore:
@@ -85,6 +89,17 @@ class PersistenceService:
         self._store.append_events(pending)
 
     # ---- snapshots (deliverables #2-#5, #7) --------------------------
+
+    def attach_provider_registry(self, registry: Any) -> None:
+        """The canonical `ProviderRegistry` whose descriptors travel in
+        every snapshot from here on.
+
+        Attached rather than passed per call so a composition root wires
+        it once and cannot later save a snapshot that silently omits the
+        provider slice -- which is exactly what "the component is built
+        but the composition does not use it" looked like.
+        """
+        self._provider_registry = registry
 
     def build_snapshot(
         self,
@@ -120,8 +135,10 @@ class PersistenceService:
             # and `restore_providers()` starts every restored descriptor
             # UNVERIFIED so current reality has to say so again.
             "providers": (
-                [d.as_dict() for d in provider_registry.all()]
-                if provider_registry is not None else []
+                [d.as_dict() for d in (provider_registry
+                                       or self._provider_registry).all()]
+                if (provider_registry or self._provider_registry) is not None
+                else []
             ),
         }
         return SnapshotEnvelope(
@@ -139,7 +156,9 @@ class PersistenceService:
         a crash between the two loses nothing that the log could have
         answered for."""
         self.flush()
-        envelope = self.build_snapshot(mission_control, checkpoint)
+        envelope = self.build_snapshot(
+            mission_control, checkpoint, self._provider_registry
+        )
         self._store.save_snapshot(envelope)
         return envelope
 

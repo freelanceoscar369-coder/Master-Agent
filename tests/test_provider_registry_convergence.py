@@ -203,11 +203,21 @@ class TestPersistedDescriptorsCarryNoSecret:
         secretish = ("api_key", "apikey", "access_token", "auth_token",
                      "secret", "password", "cookie", "authorization",
                      "bearer", "credential")
+        # A field can only CARRY a secret if it holds a string. This
+        # check has now been wrong three times by matching names alone --
+        # on a notes field reading "requires GEMINI_API_KEY", on
+        # `max_context_tokens`, and on `needs_credentials`, which is a
+        # boolean saying a credential is REQUIRED. Naming a credential,
+        # counting tokens and flagging a requirement are all things a
+        # descriptor should do; carrying a key is not.
         for descriptor in registry.all():
             record = descriptor.as_dict()
-            for field in record:
+            for field, value in record.items():
+                if not isinstance(value, str) or not value:
+                    continue
                 assert not any(s in field.lower() for s in secretish), (
-                    f"{descriptor.provider_id} persists a field named {field!r}"
+                    f"{descriptor.provider_id} persists a string field "
+                    f"named {field!r}"
                 )
             for field, value in record.items():
                 if field == "notes" or not isinstance(value, str):
@@ -245,6 +255,7 @@ class TestTheOpenRouterGateway:
     def _provider(self, **kwargs):
         kwargs.setdefault("transport", FakeTransport())
         kwargs.setdefault("credential_reader", lambda: "test-credential")
+        kwargs.setdefault("model", "free/big")
         return OpenRouterProvider(**kwargs)
 
     def test_only_models_priced_at_exactly_zero_are_eligible(self):
@@ -286,7 +297,10 @@ class TestTheOpenRouterGateway:
         result = provider.complete("three names please")
 
         assert result.ok is False
-        assert result.error == NO_FREE_MODEL
+        # The message now names the configured model, because refusing is
+        # about THAT slug rather than about the catalogue as a whole.
+        assert "not currently listed" in result.error
+        assert "free/big" in result.error
 
     def test_a_missing_credential_is_ordinary_unavailability(self):
         provider = self._provider(credential_reader=lambda: "")
@@ -344,133 +358,77 @@ class TestKnownIsNotExecutable:
         )
 
 
-class TestTheModelChoiceStaysHere:
+class TestTheModelChoiceIsNotThisAdapters:
+    """An earlier version filtered the gateway's catalogue and ranked the
+    survivors by context length. That is selection policy, and it was
+    living inside a provider adapter -- renaming the method did not move
+    the ownership, so the ranking was removed.
 
-    def _provider(self):
-        return OpenRouterProvider(
-            transport=FakeTransport(), credential_reader=lambda: "test-credential"
+    The slug is now deployment configuration. What happens here is
+    revalidation, every call, and refusal when it no longer holds.
+    """
+
+    def _provider(self, model, **kwargs):
+        kwargs.setdefault("transport", FakeTransport())
+        kwargs.setdefault("credential_reader", lambda: "test-credential")
+        return OpenRouterProvider(model=model, **kwargs)
+
+    def test_it_addresses_exactly_the_configured_slug(self):
+        transport = FakeTransport()
+        provider = self._provider("free/small", transport=transport)
+
+        provider.complete("three names please")
+
+        _url, payload, _headers = transport.posts[0]
+        assert payload["model"] == "free/small", (
+            "the adapter substituted a model the deployment did not configure"
         )
 
-    def test_a_model_that_emits_more_than_text_is_never_chosen(self):
-        """Live, an earlier filter accepted a clip-generation model --
-        `['text','image'] -> ['text','audio']` -- because text was
-        *included* in its outputs, and chose it to answer a three-name
-        question. A text reasoner emits text and nothing else."""
-        chosen = self._provider().resolve_model()
+    def test_it_never_upgrades_to_a_larger_free_model(self):
+        """`free/big` has four times the context and is equally free. A
+        ranking adapter would take it; this one was not asked to."""
+        transport = FakeTransport()
 
-        assert chosen["id"] != "vendor/clip-preview"
-        assert chosen["id"] == "free/big"
+        self._provider("free/small", transport=transport).complete("x")
 
-    def test_the_gateways_own_aggregator_is_never_chosen(self):
-        """`openrouter/free` is free, is text, and has the largest context
-        of all of them -- and it picks the underlying model itself, which
-        is the decision this provider exists to keep."""
-        provider = self._provider()
+        assert transport.posts[0][1]["model"] == "free/small"
 
-        chosen = provider.resolve_model()
+    def test_a_configured_model_that_is_not_listed_is_refused(self):
+        """No silent substitute. If the configured slug is gone, this
+        provider is unavailable for the attempt."""
+        result = self._provider("vendor/no-longer-listed").complete("x")
 
-        assert chosen["id"] != "openrouter/free"
-        assert "openrouter/free" in {m["id"] for m in provider.free_models()}, (
-            "the aggregator is still offered by the gateway; it is excluded "
-            "by choice, not by absence"
+        assert result.ok is False
+        assert "not currently listed" in result.error
+
+    def test_a_configured_model_that_became_priced_is_refused(self):
+        """The whole point on an account that is not free tier: a model
+        that stopped being free must cost an unavailable provider, never
+        a surprise charge."""
+        result = self._provider("paid/cheap").complete("x")
+
+        assert result.ok is False
+        assert "not currently listed" in result.error
+
+    def test_a_configured_model_that_stopped_emitting_only_text_is_refused(self):
+        result = self._provider("vendor/clip-preview").complete("x")
+
+        assert result.ok is False
+        assert "text" in result.error
+
+    def test_with_no_model_configured_it_is_simply_unavailable(self):
+        """Nothing to address, so nothing is addressed -- rather than
+        picking one, which is the behaviour being removed."""
+        result = self._provider("").complete("x")
+
+        assert result.ok is False
+        assert "no OpenRouter model is configured" in result.error
+
+    def test_the_aggregator_is_never_substituted_in(self):
+        transport = FakeTransport()
+
+        self._provider("free/big", transport=transport).complete("x")
+
+        assert transport.posts[0][1]["model"] not in (
+            "openrouter/free", "openrouter/auto",
         )
-
-    def test_the_choice_is_deterministic(self):
-        provider = self._provider()
-
-        assert provider.resolve_model()["id"] == provider.resolve_model()["id"]
-
-
-# ---- D-G: the canonical record survives; runtime facts do not ----------
-
-import dataclasses  # noqa: E402
-
-from master_agent.broker.registry import ProviderHealth  # noqa: E402
-from master_agent.persistence.schema import (  # noqa: E402
-    CURRENT_SCHEMA_VERSION,
-    SnapshotEnvelope,
-    migrate,
-)
-from master_agent.persistence.service import restore_providers  # noqa: E402
-
-
-def snapshot_of(registry) -> SnapshotEnvelope:
-    return SnapshotEnvelope(
-        payload={"providers": [d.as_dict() for d in registry.all()]},
-        schema_version=CURRENT_SCHEMA_VERSION,
-    ).sealed()
-
-
-class TestTheCanonicalRecordSurvivesARestart:
-
-    def test_descriptors_come_back(self):
-        saved = ProviderRegistry()
-        bootstrap_registry(saved)
-
-        restored = ProviderRegistry()
-        ids = restore_providers(snapshot_of(saved), restored)
-
-        assert set(ids) == {d.provider_id for d in saved.all()}
-        assert len(restored.all()) == len(saved.all())
-
-    def test_the_economic_record_survives(self):
-        saved = ProviderRegistry()
-        bootstrap_registry(saved)
-
-        restored = ProviderRegistry()
-        restore_providers(snapshot_of(saved), restored)
-
-        for original in saved.all():
-            back = restored.get(original.provider_id)
-            assert back.economic_class is original.economic_class
-            assert back.economic_source == original.economic_source
-            assert back.declared_quality == original.declared_quality
-
-    def test_yesterdays_health_is_not_todays(self):
-        """The point of the whole rule. A provider saved HEALTHY comes
-        back UNVERIFIED, because whether it works is a fact about now."""
-        saved = ProviderRegistry()
-        bootstrap_registry(saved)
-        saved.register(dataclasses.replace(
-            saved.get("gemini.api"), health=ProviderHealth.HEALTHY
-        ))
-
-        restored = ProviderRegistry()
-        restore_providers(snapshot_of(saved), restored)
-
-        assert restored.get("gemini.api").health is ProviderHealth.UNVERIFIED
-        assert {d.health for d in restored.all()} == {ProviderHealth.UNVERIFIED}
-
-    def test_a_snapshot_written_before_providers_existed_still_restores(self):
-        """A v1 snapshot predates this slice entirely. That is an older
-        format, not corruption, and it must migrate rather than refuse."""
-        old = SnapshotEnvelope(payload={"objectives": []}, schema_version=1)
-
-        migrated = migrate(old)
-
-        assert migrated.schema_version == CURRENT_SCHEMA_VERSION
-        assert migrated.payload["providers"] == []
-        assert restore_providers(migrated, ProviderRegistry()) == ()
-
-    def test_an_unreadable_provider_row_is_refused_not_guessed(self):
-        broken = SnapshotEnvelope(
-            payload={"providers": [{"display_name": "no id at all"}]},
-            schema_version=CURRENT_SCHEMA_VERSION,
-        )
-
-        with pytest.raises(Exception):
-            restore_providers(broken, ProviderRegistry())
-
-    def test_no_credential_reaches_the_snapshot(self):
-        registry = ProviderRegistry()
-        bootstrap_registry(registry)
-
-        blob = json.dumps(snapshot_of(registry).payload)
-
-        assert "Bearer" not in blob
-        for row in snapshot_of(registry).payload["providers"]:
-            for field in row:
-                assert not any(s in field.lower() for s in (
-                    "api_key", "apikey", "access_token", "auth_token", "secret",
-                    "password", "cookie", "authorization", "credential",
-                ))

@@ -423,7 +423,21 @@ def _build_mission_pipeline():
     from master_agent.runtime.gateway import PluginGateway
     from master_agent.runtime.approval import PermissionSystemGate
     from master_agent.ai_infrastructure.catalog import CLOUD, DESKTOP, PROVIDER_CATALOG
-    from master_agent.ai_infrastructure.profiles import ProviderSource
+    from master_agent.ai_infrastructure.profiles import (
+        ProviderSource, bootstrap_registry, descriptor_for,
+    )
+    from master_agent.broker.registry import ProviderRegistry
+    from master_agent.providers.openrouter import (
+        CREDENTIAL_ENV as _OPENROUTER_ENV,
+        OpenRouterProvider,
+    )
+    from master_agent.providers.openrouter import (
+        OPENROUTER_PROVIDER_ID as _OPENROUTER_ID,
+    )
+    from master_agent.broker.registry import EconomicClass as _EconomicClass
+    import dataclasses as _dataclasses
+    from datetime import UTC as _UTC, datetime as _datetime
+    import os as _os
     from master_agent.ai_infrastructure.service import AiCapabilityService
     from master_agent.ai_infrastructure.execution import PromptExecutor
     from master_agent.ai_infrastructure.ledger import DecisionLedger
@@ -681,15 +695,38 @@ def _build_mission_pipeline():
     # nothing — the deep scan a desktop-tier decision actually needs is
     # triggered lazily, only by `TieredPromptRunner`, only once Gemini
     # has already failed (see `tiered_runner.py`'s own docstring).
+    # ---- the canonical provider record ---------------------------------
+    #
+    # ONE registry, and it is administrative only: it holds descriptors,
+    # never live provider objects. The executable ones live in the plugin
+    # registry the PromptExecutor uses, below, and the two are named apart
+    # here so the code cannot confuse them.
+    #
+    # Order matters. RESTORE first, then bootstrap: a persisted record
+    # whose provenance is DISCOVERED or SELF_REGISTERED outranks a
+    # declaration, and `bootstrap_registry()` protects it -- but only if
+    # it is already present when the import runs.
+    canonical_providers = ProviderRegistry()
+    _restore_canonical_providers(canonical_providers, _app_state_dir())
+    bootstrap_registry(canonical_providers)
+    # `BROWSER_FREE_AI_SPEC` is deliberately absent from the shared global
+    # catalogue (see that module's own note) so it exists only for a
+    # composition root that actually registers the provider. This is that
+    # root, so it is imported into the SAME canonical registry rather than
+    # appended to a second list of specs -- which is what kept the
+    # catalogue a parallel authority.
+    canonical_providers.register(descriptor_for(BROWSER_FREE_AI_SPEC))
+
     providers_source = ProviderSource(
         inventory_provider=lambda: desktop_plugin._context.cached,
-        # `PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)`, not the bare
-        # catalogue: `BROWSER_FREE_AI_SPEC` is deliberately excluded from
-        # the shared, global `PROVIDER_CATALOG` (see that module's own
-        # note) so it only ever exists for a composition root that
-        # actually registers the provider — this one.
-        specs=PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,),
-        enabled_cloud_providers=("gemini.api",),
+        registry=canonical_providers,
+        enabled_cloud_providers=_configured_cloud_providers(),
+        # Read at call time, never captured: a provider is executable
+        # because an implementation is registered NOW, not because a
+        # descriptor survived a restart saying it once was.
+        executable_provider_ids=lambda: frozenset(
+            p.provider_id for p in provider_registry.all_plugins()
+        ),
     )
     # The Broker already records a full DecisionEntry for every reasoning
     # request -- which providers were eligible, their rank, which was
@@ -709,8 +746,57 @@ def _build_mission_pipeline():
     intelligence = AiCapabilityService(
         broker=broker, providers=providers_source, ledger=ledger, approvals=None,
     )
+    # The EXECUTABLE registry. Live provider objects, and nothing
+    # administrative: `canonical_providers` above is the metadata
+    # authority and never holds one of these. Named apart deliberately --
+    # the two were easy to confuse and mean opposite things.
     provider_registry = PluginRegistry()
     provider_registry.register(GeminiProvider(api_key=api_key))
+
+    # OpenRouter becomes EXECUTABLE only when this deployment has a
+    # credential for it. A descriptor in the canonical registry is not a
+    # reason to construct one: known is not configured, and configured is
+    # not executable. Constructing it performs no network call and reads
+    # no credential, so this costs nothing when it is not used.
+    #
+    # The model slug is deployment configuration, passed in here. The
+    # provider revalidates it against OpenRouter's own current metadata on
+    # every call and refuses if it is no longer free or no longer text --
+    # this is not a claim that it is free forever.
+    if _os.environ.get(_OPENROUTER_ENV):
+        provider_registry.register(
+            OpenRouterProvider(model=OPENROUTER_CONFIGURED_MODEL)
+        )
+        # The catalogue declares this provider at 0.005 a call -- "metered
+        # aggregator; every call spends money" -- which is true of
+        # OpenRouter in general and false of the specific model THIS
+        # deployment addresses. Left as declared, the free policy ruled it
+        # ineligible, which was the right answer to the wrong question.
+        #
+        # So the canonical record is corrected for this deployment, with
+        # the provenance that makes it checkable rather than asserted: the
+        # claim names the model it is about, the source it came from, and
+        # when it was read. It is not a statement that OpenRouter is free.
+        # `OpenRouterProvider.resolve_model()` revalidates the price on
+        # every single call and refuses if it has changed, so a withdrawn
+        # free tier costs an unavailable provider, never a surprise bill.
+        _declared = canonical_providers.get(_OPENROUTER_ID)
+        if _declared is not None:
+            canonical_providers.register(_dataclasses.replace(
+                _declared,
+                cost_per_call=0.0,
+                is_free=True,
+                economic_class=_EconomicClass.RECURRING_FREE,
+                economic_source=(
+                    f"deployment configures {OPENROUTER_CONFIGURED_MODEL!r}; "
+                    "prompt and completion prices read as 0 from OpenRouter "
+                    "/api/v1/models and revalidated before every call"
+                ),
+                economic_verified_at=_datetime.now(_UTC),
+                notes=(
+                    f"gateway, addressing {OPENROUTER_CONFIGURED_MODEL} only"
+                ),
+            ))
     # NO OLLAMA ON THIS MACHINE. A founder decision, not a technical one:
     # this laptop has 16 GB and the smaller of the two installed models
     # occupies 9 GB resident, which is the founder's working memory rather
@@ -773,7 +859,12 @@ def _build_mission_pipeline():
 
     tiered_runner = TieredPromptRunner(
         prompt_executor,
-        gemini_provider_ids=frozenset({"gemini.api"}),
+        # The free-cloud-API rung. Membership follows what this
+        # deployment actually CONFIGURED, so a credentialled service joins
+        # by having a credential rather than by being named in a branch
+        # here -- the same known-is-not-configured rule the candidate
+        # boundary already enforces.
+        gemini_provider_ids=frozenset(_configured_cloud_providers()),
         desktop_provider_ids=frozenset() if _gemini_only else frozenset(
             spec.provider_id for spec in PROVIDER_CATALOG if spec.locality == DESKTOP
         ),
@@ -876,6 +967,12 @@ def _build_mission_pipeline():
 
     interactions = InteractionLog(JsonlInteractionStore(state_dir / _INTERACTIONS))
     persistence = PersistenceService(JsonFileStateStore(state_dir), mission_control)
+    # The canonical provider record travels in the same snapshot as
+    # everything else. Attached once here so no later save can quietly
+    # omit it -- proving `build_snapshot(registry=...)` in isolation while
+    # the composition never passes one is how a component ends up built
+    # and unused.
+    persistence.attach_provider_registry(canonical_providers)
     persistence.start_recording()
     plan_history = PlanHistory(store=JsonFilePlanStore(state_dir / HISTORY_FILENAME))
     plan_history.attach_to(mission_control)
@@ -1916,3 +2013,68 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _configured_cloud_providers() -> tuple[str, ...]:
+    """Which credentialled services this deployment has actually
+    configured, decided from the environment at construction time.
+
+    Generic, and deliberately not a list of names in a branch: a service
+    is configured when its credential is present, and that is the same
+    question for every one of them. `known != configured` is what this
+    function is for -- a descriptor in the canonical registry does not put
+    a provider here.
+    """
+    import os
+
+    from master_agent.providers.openrouter import (
+        CREDENTIAL_ENV as OPENROUTER_ENV,
+        OPENROUTER_PROVIDER_ID,
+    )
+
+    configured: list[str] = []
+    if os.environ.get("GEMINI_API_KEY"):
+        configured.append("gemini.api")
+    if os.environ.get(OPENROUTER_ENV):
+        configured.append(OPENROUTER_PROVIDER_ID)
+    return tuple(configured)
+
+
+def _restore_canonical_providers(registry, state_dir) -> tuple[str, ...]:
+    """Put last run's canonical descriptors back, before the catalogue is
+    imported over the top of them.
+
+    Order is the point. `bootstrap_registry()` refuses to overwrite a
+    record whose provenance outranks a declaration -- but it can only
+    refuse what is already there, so a DISCOVERED record has to be
+    restored FIRST or the declared import silently wins.
+
+    Reads the same snapshot the rest of the system uses. A missing or
+    unreadable snapshot is a first run, not a failure.
+    """
+    try:
+        from master_agent.persistence.schema import migrate
+        from master_agent.persistence.service import restore_providers
+        from master_agent.persistence.store import JsonFileStateStore
+
+        envelope = JsonFileStateStore(state_dir).load_snapshot()
+        if envelope is None:
+            return ()
+        return restore_providers(migrate(envelope), registry)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("canonical provider descriptors not restored: %s", exc)
+        return ()
+
+
+#: The OpenRouter model this deployment addresses, as configuration.
+#:
+#: Live-proven zero-cost and text-only on 2026-08-26, which is a fact
+#: about that moment and not a promise. `OpenRouterProvider` revalidates
+#: it against OpenRouter's own metadata before every call and refuses if
+#: the price or the modality has changed -- this constant says WHICH model
+#: this deployment uses, never that it is permanently free.
+#:
+#: Choosing among models belongs to a later tranche. Until then the choice
+#: is written down here where a founder can see and change it, rather than
+#: ranked inside a provider adapter.
+OPENROUTER_CONFIGURED_MODEL = "minimax/minimax-m3:free"

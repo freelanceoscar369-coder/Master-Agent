@@ -130,6 +130,34 @@ class ProviderDescriptor:
     model_load_ms: float | None = None
 
     # Registration metadata
+    # ---- how availability is observed, and what safety says -----------
+    #
+    # These four are the facts `ai_infrastructure.profiles.availability()`
+    # needs, and until now it could only get them by reading a
+    # `ProviderSpec` -- which is why the catalogue stayed a production
+    # authority after bootstrap. They are carried here so the canonical
+    # record can answer, on its own: where is availability observed, does
+    # this need a credential, and may it reason autonomously.
+    #
+    # `is_coding_agent` is the NORMALISED RESULT of the catalogue's own
+    # identity guard, computed once at bootstrap and stored. The guard
+    # stays the single place that decides what a coding tool is; this
+    # records what it decided, so the projection never has to rediscover
+    # it from a spec.
+    #: A key in `desktop.catalog.BY_KEY`, or None for a remote service.
+    #: When set, availability is a question about the machine scan; when
+    #: None it is a question about credentials.
+    inventory_key: str | None = None
+    #: True when this cannot be reached without a credential the founder
+    #: supplies. Unavailable until they do.
+    needs_credentials: bool = False
+    #: True when this identity is a coding tool and therefore never a
+    #: reasoning provider, whatever its installation state.
+    is_coding_agent: bool = False
+    #: Why autonomous reasoning is unsafe here, or None. A reason present
+    #: is itself the exclusion -- the text is what the founder is shown.
+    autonomous_reasoning_unsafe_reason: str | None = None
+
     # ---- economics and provenance of the economic claim ---------------
     #
     # `cost_per_call` above stays exactly as it was, and every existing
@@ -207,6 +235,12 @@ class ProviderDescriptor:
             "chars_per_token": self.chars_per_token,
             "serialises": self.serialises,
             "model_load_ms": self.model_load_ms,
+            "inventory_key": self.inventory_key,
+            "needs_credentials": self.needs_credentials,
+            "is_coding_agent": self.is_coding_agent,
+            "autonomous_reasoning_unsafe_reason": (
+                self.autonomous_reasoning_unsafe_reason
+            ),
             # Economics travels with the descriptor, and so does the
             # provenance of the economic claim -- a cost fact without a
             # source and a timestamp is an assertion, not a record.
@@ -272,6 +306,12 @@ class ProviderDescriptor:
             chars_per_token=data.get("chars_per_token"),
             serialises=data.get("serialises", False),
             model_load_ms=data.get("model_load_ms"),
+            inventory_key=data.get("inventory_key"),
+            needs_credentials=bool(data.get("needs_credentials", False)),
+            is_coding_agent=bool(data.get("is_coding_agent", False)),
+            autonomous_reasoning_unsafe_reason=data.get(
+                "autonomous_reasoning_unsafe_reason"
+            ),
             economic_class=EconomicClass(
                 data.get("economic_class") or EconomicClass.UNKNOWN.value
             ),

@@ -98,6 +98,10 @@ MAX_ATTEMPTS = 3
 RETRY_DELAYS_SECONDS = (0.8, 2.0)
 
 NO_CREDENTIAL = "no OPENROUTER_API_KEY is configured"
+NO_MODEL_CONFIGURED = (
+    "no OpenRouter model is configured for this deployment; this provider "
+    "addresses an explicit slug and never picks one"
+)
 NO_FREE_MODEL = (
     "OpenRouter currently lists no model whose prompt and completion "
     "prices are both zero; refusing rather than incurring a charge"
@@ -105,6 +109,8 @@ NO_FREE_MODEL = (
 
 
 class OpenRouterProvider(ModelProvider):
+    CAPABILITY_NAME = "reasoning"
+
     """One OpenRouter gateway. Constructing it performs no network call
     and reads no credential -- the same discipline `GeminiProvider`
     holds, so mere registration cannot cause a request."""
@@ -116,6 +122,7 @@ class OpenRouterProvider(ModelProvider):
         credential_reader: Any = None,
         clock: Any = None,
         sleep: Any = None,
+        model: str = "",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._transport: Transport = transport or UrllibTransport()
@@ -129,6 +136,11 @@ class OpenRouterProvider(ModelProvider):
         self._sleep = sleep or time.sleep
         self._models: tuple[dict[str, Any], ...] = ()
         self._models_read_at: float | None = None
+        #: The explicit model this deployment configured. Not a default
+        #: and not a preference: with none set this provider has nothing
+        #: to address and reports unavailable, which is the truthful
+        #: answer to "which model would you use" when nobody has said.
+        self._model_slug = (model or "").strip()
 
     # ---- identity -------------------------------------------------------
 
@@ -140,18 +152,21 @@ class OpenRouterProvider(ModelProvider):
     def base_url(self) -> str:
         return self._base_url
 
+    @property
     def manifest(self) -> PluginManifest:
         return PluginManifest(
             name=OPENROUTER_PROVIDER_ID,
             version=OPENROUTER_VERSION,
-            description="Reasoning through the OpenRouter gateway, free models only.",
-            capabilities=(
+            capabilities=[
                 CapabilityManifest(
-                    name="reasoning",
-                    description="Answer a prompt via a specific zero-cost model.",
+                    name=self.CAPABILITY_NAME,
+                    description=(
+                        "Generate text through the OpenRouter gateway using the "
+                        f"configured zero-cost model ({self._model_slug or 'none'})."
+                    ),
                     risk_tier=RiskTier.READ_ONLY,
-                ),
-            ),
+                )
+            ],
         )
 
     # ---- availability ---------------------------------------------------
@@ -208,62 +223,43 @@ class OpenRouterProvider(ModelProvider):
         return tuple(free)
 
     def resolve_model(self) -> dict[str, Any] | None:
-        """The specific zero-cost TEXT model this call will address, or
-        None.
+        """The CONFIGURED model's current metadata, or None if it is no
+        longer usable.
 
-        Named `resolve`, not `choose`, and the distinction is the one an
-        architecture guard in `tests/test_ollama_provider.py` enforces: a
-        provider executes and never decides. It caught this method when it
-        was called `choose_model`, correctly.
+        **This does not choose anything, and an earlier version did.** It
+        filtered the gateway's catalogue and ranked the survivors by
+        context length -- selection policy, living inside a provider
+        adapter. Renaming the method did not move the ownership; removing
+        the ranking does.
 
-        Nothing here selects a PROVIDER or applies a policy -- that is the
-        Broker's, and it stays there. This resolves which of the gateway's
-        own models this gateway will address, which the Broker cannot do
-        because it does not hold OpenRouter's catalogue. It is execution
-        detail, bounded by the cost rule below.
+        The slug is deployment configuration, supplied at construction.
+        What happens here is revalidation, every call, against the
+        gateway's own current metadata:
 
-        Two filters beyond price, both from OpenRouter's own metadata and
-        neither naming a vendor.
+            the configured slug is still listed
+            its prompt price is still exactly zero
+            its completion price is still exactly zero
+            it still emits text and only text
 
-        **Modality.** A first version ranked purely by context length and
-        chose a clip-generation model that happens to accept a text
-        prompt. `architecture.input_modalities` / `output_modalities` is
-        the published answer to "can this thing read and write text", so
-        it is asked rather than inferred from a slug.
-
-        **Self-delegation.** The gateway publishes aggregator pseudo-models
-        in its own namespace which choose an underlying model themselves.
-        They work, and they hand back the decision this provider exists to
-        keep: the record would then say a model answered without saying
-        which. Excluded by namespace, not by name.
-
-        Ordered by context length then slug, so the same listing always
-        yields the same choice and the decision is reproducible from the
-        evidence recorded with it.
+        If any of those has changed, this returns None and the provider is
+        unavailable for this attempt. It never substitutes another model,
+        never falls back to an aggregator, and never picks a "best" free
+        one -- a silent substitution would mean the record named a model
+        that did not answer, and on an account that is not free tier it
+        could mean a charge nobody authorised.
         """
-        candidates = []
+        if not self._model_slug:
+            return None
         for model in self.free_models():
+            if str(model.get("id", "")) != self._model_slug:
+                continue
             architecture = model.get("architecture") or {}
             inputs = architecture.get("input_modalities") or []
             outputs = architecture.get("output_modalities") or []
-            # Text in, and text ONLY out. Merely *including* text is not
-            # enough: a clip-generation model declares
-            # `['text','image'] -> ['text','audio']` and passed an earlier
-            # version of this filter, which then chose it to answer a
-            # three-name question. A text reasoner emits text and nothing
-            # else, and that is a property of the published metadata
-            # rather than a judgement about any vendor.
             if "text" not in inputs or list(outputs) != ["text"]:
-                continue
-            if str(model.get("id", "")).split("/", 1)[0] == AGGREGATOR_NAMESPACE:
-                continue
-            candidates.append(model)
-        if not candidates:
-            return None
-        return sorted(
-            candidates,
-            key=lambda m: (-(m.get("context_length") or 0), str(m.get("id", ""))),
-        )[0]
+                return None
+            return model
+        return None
 
     # ---- execution ------------------------------------------------------
 
@@ -280,7 +276,7 @@ class OpenRouterProvider(ModelProvider):
 
         model = self.resolve_model()
         if model is None:
-            return failure(self.provider_id, UNAVAILABLE, NO_FREE_MODEL)
+            return failure(self.provider_id, UNAVAILABLE, self._why_unusable())
         slug = str(model.get("id", ""))
 
         payload = {
@@ -365,3 +361,20 @@ class OpenRouterProvider(ModelProvider):
         if not result.ok:
             raise RuntimeError(result.error or "openrouter call failed")
         return result.response.text
+
+    def _why_unusable(self) -> str:
+        """Which of the revalidation conditions failed, in the founder's
+        terms rather than as a bare False."""
+        if not self._model_slug:
+            return NO_MODEL_CONFIGURED
+        listed = {str(m.get("id", "")) for m in self.free_models()}
+        if self._model_slug not in listed:
+            return (
+                f"the configured model {self._model_slug!r} is not currently "
+                "listed by OpenRouter at zero prompt and completion price; "
+                "refusing rather than substituting another or incurring a charge"
+            )
+        return (
+            f"the configured model {self._model_slug!r} no longer emits text "
+            "only; refusing rather than substituting another"
+        )

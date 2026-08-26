@@ -98,10 +98,16 @@ def test_no_ollama_provider_is_ever_registered(monkeypatch):
     mission_service, *_rest = kd._build_mission_pipeline()
     provider_ids = {p.provider_id for p in mission_service.planner._runner._executor._providers.all_plugins()}
     assert "ollama.local" not in provider_ids
-    assert provider_ids == {
+    # OpenRouter joins this set only when this machine has a credential
+    # configured for it, so the assertion is over what must ALWAYS be
+    # there plus what may legitimately vary -- an exact set would fail on
+    # a developer machine for the wrong reason.
+    always = {
         "gemini.api", "claude-desktop", "chatgpt-desktop",
         "perplexity-desktop", "kimi-desktop", "browser.free-ai",
     }
+    assert always <= provider_ids
+    assert provider_ids <= always | {"openrouter.api"}
 
 
 def test_no_ollama_in_the_interactive_candidate_set(monkeypatch):
@@ -134,17 +140,27 @@ def test_no_ollama_in_the_interactive_candidate_set(monkeypatch):
 
     for request_class in (INTERACTIVE, EXECUTION):
         for _name, ids in runner._ordered_attempts(Request(request_class)):
+            # These four were all known-but-unconfigured when this guard
+            # was written. OpenRouter has since become genuinely
+            # configured on a machine that has a credential for it, so it
+            # is no longer part of the invariant -- the invariant is that
+            # nothing UNCONFIGURED appears, not that this particular id
+            # never does.
             assert "ollama.local" not in ids, request_class
             assert "lm-studio.local" not in ids, request_class
             assert "openai.api" not in ids, request_class
-            assert "openrouter.api" not in ids, request_class
 
     interactive = runner._ordered_attempts(Request(INTERACTIVE))
     assert len(interactive) == 1
-    assert set(interactive[0][1]) == {
+    always = {
         "gemini.api", "claude-desktop", "chatgpt-desktop",
         "perplexity-desktop", "kimi-desktop", "browser.free-ai",
     }
+    candidates = set(interactive[0][1])
+    assert always <= candidates
+    # OpenRouter is configured only where a credential exists. Nothing
+    # else known-but-unconfigured may appear, which is the invariant.
+    assert candidates <= always | {"openrouter.api"}
 
 
 # ---- _submit_objective() --------------------------------------------------
