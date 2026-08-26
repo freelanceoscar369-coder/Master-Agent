@@ -489,3 +489,72 @@ class TestSessionEstablishmentIntegration:
 
         assert result.ok is False
         assert result.error == mod.SUBMIT_UNVERIFIED
+
+
+class TestARunningProcessIsNotAnOpenWindow:
+    """Closing one of these applications leaves it alive in the tray, so
+    it has processes and no window at all.
+
+    `_launch_or_focus()` launched only when NO process existed, on the
+    reasonable-sounding assumption that a running application has a window
+    to focus. Measured live, and it is the whole of the founder's
+    intermittent "empty run": ChatGPT Desktop with NINE running processes
+    and ZERO visible windows. Nothing was launched, the bounded poll spent
+    thirty seconds waiting for a window that was never going to appear,
+    and the mission failed with "the application did not report a real,
+    visible window" — without a single prompt being submitted.
+    """
+
+    def _app(self):
+        return types.SimpleNamespace(
+            key="chatgpt-desktop", launchable=True, launch_target="fake.exe",
+        )
+
+    def test_processes_but_no_window_still_launches(self):
+        provider = _provider(_chatgpt_spec())
+        window_info = WindowInfo(
+            handle=42, title="ChatGPT", process_id=99,
+            is_visible=True, is_minimized=False, is_maximized=False,
+        )
+        # No window at first; the launch is what makes one appear.
+        backend = FakeWindowBackend(windows=(), active_handle=42)
+        provider._windows = backend
+        provider._context.refresh = lambda **_: types.SimpleNamespace(
+            processes=[ProcessInfo(pid=99, name="chatgpt.exe", owner="chatgpt-desktop")],
+        )
+        started: list = []
+
+        def start(argv):
+            started.append(argv)
+            backend._windows[window_info.handle] = window_info   # the window opens
+            return types.SimpleNamespace(ok=True)
+
+        provider._context.probe = types.SimpleNamespace(start=start)
+
+        window = provider._launch_or_focus(self._app())
+
+        assert started, "a running-but-windowless application was never launched"
+        assert window is not None and window["handle"] == 42
+
+    def test_an_already_open_window_is_not_relaunched(self):
+        """The launch follows the WINDOW. One that is already open must
+        be focused, never started again."""
+        provider = _provider(_chatgpt_spec())
+        window_info = WindowInfo(
+            handle=42, title="ChatGPT", process_id=99,
+            is_visible=True, is_minimized=False, is_maximized=False,
+        )
+        backend = FakeWindowBackend(windows=(window_info,), active_handle=42)
+        provider._windows = backend
+        provider._context.refresh = lambda **_: types.SimpleNamespace(
+            processes=[ProcessInfo(pid=99, name="chatgpt.exe", owner="chatgpt-desktop")],
+        )
+        started: list = []
+        provider._context.probe = types.SimpleNamespace(
+            start=lambda argv: (started.append(argv), types.SimpleNamespace(ok=True))[1]
+        )
+
+        window = provider._launch_or_focus(self._app())
+
+        assert window is not None and window["handle"] == 42
+        assert started == [], "an application with an open window was relaunched"

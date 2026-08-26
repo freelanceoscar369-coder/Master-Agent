@@ -427,26 +427,65 @@ class DesktopAppReasoningProvider(ModelProvider):
 
     def _launch_or_focus(self, app) -> dict | None:
         deadline = time.monotonic() + _LAUNCH_TIMEOUT_SECONDS
-        pids = {p.pid for p in self._context.refresh(read_versions=False, deep=False).processes
-                if p.owner and p.owner == getattr(app, "key", None)}
-        if not pids:
-            # Not already running (by catalog process attribution) —
-            # launch it. `launch_target` was already resolved by
-            # discovery (§7's own precedence: AppUserModel/MSIX >
-            # verified path), never guessed here.
+
+        def _start() -> bool:
+            """Invoke the launch target discovery already resolved (§7's
+            own precedence: AppUserModel/MSIX > verified path). Never
+            guessed here."""
             target = app.launch_target
             if target.lower().startswith("shell:appsfolder"):
                 result = self._context.probe.start(["explorer.exe", target])
             else:
                 result = self._context.probe.start([target])
-            if not result.ok:
+            return bool(result.ok)
+
+        from master_agent.desktop.execution.window import WindowManager
+        manager = WindowManager(self._windows)
+
+        def _visible_windows() -> list:
+            inv = self._context.refresh(read_versions=False, deep=False)
+            running = {p.pid for p in inv.processes
+                       if p.owner and p.owner == getattr(app, "key", None)}
+            if not running:
+                return []
+            located = manager.locate_by_process(frozenset(running))
+            if not located.success:
+                return []
+            return list(located.output["windows"] or ())
+
+        # **A running process is not an open window.**
+        #
+        # This used to launch only when no process existed, on the
+        # reasonable-sounding assumption that a running application has a
+        # window to focus. These applications do not work that way: closing
+        # the window leaves the app alive in the tray, and it then has
+        # processes and no window at all.
+        #
+        # Measured live, and it is the whole of the "empty run" the founder
+        # saw one time in three: ChatGPT Desktop with NINE running processes
+        # and ZERO visible windows. Because processes existed, nothing was
+        # launched; the loop below then polled for thirty seconds for a
+        # window that was never going to appear, and the mission failed with
+        # "the application did not report a real, visible window" without a
+        # single prompt being submitted. Nothing was wrong with response
+        # capture; nothing had been asked.
+        #
+        # So the decision to launch follows the WINDOW, not the process.
+        # Invoking the launch target of an already-running application is
+        # how a founder reopens it from the Start menu, and for the
+        # single-instance applications here that restores the existing
+        # window rather than starting a second copy. Done once, before the
+        # poll, so the bounded wait is spent waiting for a window that has
+        # actually been asked to appear.
+        if not _visible_windows():
+            if not _start():
                 return None
             time.sleep(1.0)
 
         # Find the real, visible window — polled, bounded, never assumed
         # from "the launch call returned".
-        from master_agent.desktop.execution.window import WindowManager
-        manager = WindowManager(self._windows)
+        pids = {p.pid for p in self._context.refresh(read_versions=False, deep=False).processes
+                if p.owner and p.owner == getattr(app, "key", None)}
         while time.monotonic() < deadline:
             inv = self._context.refresh(read_versions=False, deep=False)
             running_pids = {p.pid for p in inv.processes
