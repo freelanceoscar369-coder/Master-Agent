@@ -503,39 +503,67 @@ class TrustedWebAiProvider:
                 self._browser.click(fresh)
         return ("created", self._browser.observe().window_title or "")
 
-    def rename_conversation(self) -> tuple[bool, str]:
-        """Name this deployment's conversation, and report what the site
-        actually shows afterwards.
+    def rename_conversation(self) -> tuple[bool, str, str]:
+        """Name this deployment's conversation, and report WHICH STEP
+        stopped it when it does not work.
 
-        Confirmed live before being relied on: Gemini's conversation-actions
-        menu really does offer Rename, alongside Share, Pin, Download PDF,
-        Export to Docs and Delete. Where a site offers no such control this
-        returns False and the caller records the real title instead of
-        claiming a name it never managed to set.
+        Returns `(renamed, visible_title, stopped_at)`.
+
+        The third value is the point of this signature. This returned a
+        bare boolean before, and it reported False twice in a row against
+        a live page whose every control had already been observed -- which
+        left no way to tell a missing menu from a missing dialog from a
+        refused keystroke. A step that cannot say where it stopped cannot
+        be debugged without guessing, and guessing at this page is the
+        habit that produced three wrong answers already.
+
+        Each step below therefore states what it expects to observe, and
+        names itself when that expectation is not met. That is the same
+        shape a stored procedure needs, arrived at from the debugging need
+        rather than imported for its own sake.
         """
+        def title() -> str:
+            return self._browser.observe().window_title or ""
+
         if not (self._site.conversation_menu and self._site.rename_item):
-            return (False, self._browser.observe().window_title or "")
+            return (False, title(), "site declares no rename affordance")
 
         menu = self._browser.find(self._site.conversation_menu)
         if menu is None:
-            return (False, self._browser.observe().window_title or "")
-        self._browser.click(menu)
+            return (False, title(), "conversation menu not found")
+        if not self._browser.click(menu).ok:
+            return (False, title(), "conversation menu would not open")
 
         item = self._browser.find(self._site.rename_item)
         if item is None:
             self._browser.press("escape")
-            return (False, self._browser.observe().window_title or "")
-        self._browser.click(item)
+            return (False, title(), "no rename item in the opened menu")
+        if not self._browser.click(item).ok:
+            self._browser.press("escape")
+            return (False, title(), "rename item would not activate")
 
+        # The dialog's edit control, NOT the menu item -- acquired
+        # read-only rather than guessed, because "Rename" matches both and
+        # only one of them can be typed into.
         target = self._site.rename_field or self._site.rename_item
+        if self._browser.find(target) is None:
+            self._browser.press("escape")
+            return (False, title(), f"rename dialog never showed {target!r}")
+
         typed = self._browser.type_into(target, self._conversation_title)
         if not typed.ok:
             self._browser.press("escape")
-            return (False, self._browser.observe().window_title or "")
-        self._browser.press("enter")
+            return (False, title(), f"could not type the new name: {typed.detail}")
 
-        title = self._browser.observe().window_title or ""
-        return (self._conversation_title in title, title)
+        if not self._browser.press("enter").ok:
+            return (False, title(), "could not commit the new name")
+
+        visible = title()
+        if self._conversation_title in visible:
+            return (True, visible, "")
+        # The site is the authority on whether it renamed anything. It says
+        # no, so this says no -- and says what it is showing instead.
+        return (False, visible, "the site still shows a different title")
 
     # ---- page state -----------------------------------------------------
 

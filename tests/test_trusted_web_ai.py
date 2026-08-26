@@ -398,25 +398,50 @@ def test_no_dedicated_conversation_creates_exactly_one():
 def test_rename_reports_the_title_the_site_actually_shows():
     """Confirmed live that Gemini offers Rename. Where it does not, this
     must report failure rather than claim a name it never set."""
+    # Modelled on the real page: choosing Rename opens a modal carrying an
+    # edit control named "Rename this chat" -- a different control from the
+    # menu item, which is a MenuItem and cannot be typed into.
     browser = FakeBrowser(
         [chrome("Google Gemini", target=True)],
         pages=[Page("Google Gemini", controls=["Open menu for conversation actions",
                                                "Rename", COMPOSER]),
+               Page("Google Gemini", controls=["Rename this chat"]),
                Page(f"{TITLE} - Google Gemini", controls=[COMPOSER])],
     )
-    renamed, title = provider(browser).rename_conversation()
+    browser.advance_on = {"Rename"}
+    renamed, title, stopped_at = provider(browser).rename_conversation()
 
     assert renamed is True
     assert TITLE in title
+    assert stopped_at == "", "a successful rename stops nowhere"
+
+
+def test_a_rename_that_fails_names_the_step_it_stopped_at():
+    """A bare False is undebuggable.
+
+    This returned only a boolean, reported False twice against a live page
+    whose every control had already been observed, and left no way to tell
+    a missing menu from a missing dialog from a refused keystroke.
+    """
+    browser = FakeBrowser(
+        [chrome("Google Gemini", target=True)],
+        pages=[Page("Google Gemini", controls=["Open menu for conversation actions",
+                                               "Rename", COMPOSER])],
+    )
+    renamed, _title, stopped_at = provider(browser).rename_conversation()
+
+    assert renamed is False
+    assert "Rename this chat" in stopped_at, "it must say the dialog never appeared"
 
 
 def test_a_site_without_rename_never_claims_it_renamed_anything():
     site = WebAiSite("Nameless AI", "https://example.invalid/", COMPOSER,
                      page_markers=("Nameless",))
     browser = FakeBrowser([chrome("Nameless AI", target=True)])
-    renamed, _title = provider(browser, site=site).rename_conversation()
+    renamed, _title, stopped_at = provider(browser, site=site).rename_conversation()
 
     assert renamed is False
+    assert "no rename affordance" in stopped_at, "a failure must name its step"
 
 
 # =========================================================================
