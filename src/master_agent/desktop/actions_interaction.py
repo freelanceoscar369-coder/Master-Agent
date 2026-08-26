@@ -303,6 +303,23 @@ class VerifiedFocusWindowAction(_VerifiedInteractionAction):
     def required_parameters(self) -> list[str]:
         return ["application"]
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return self._require_known_application(parameters)
 
@@ -341,6 +358,23 @@ class FindTargetAction(_VerifiedInteractionAction):
 
     def required_parameters(self) -> list[str]:
         return ["application", "name_contains"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors = self._require_known_application(parameters)
@@ -452,6 +486,23 @@ class ClickControlAction(_VerifiedInteractionAction):
 
     def required_parameters(self) -> list[str]:
         return ["application", "x", "y"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors = self._require_known_application(parameters)
@@ -750,6 +801,23 @@ class PressKeyAction(_VerifiedInteractionAction):
     def required_parameters(self) -> list[str]:
         return ["application", "key"]
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors = self._require_known_application(parameters)
         if not isinstance(parameters.get("key"), str) or not parameters.get("key", "").strip():
@@ -782,6 +850,23 @@ class CloseWindowAction(_VerifiedInteractionAction):
 
     def required_parameters(self) -> list[str]:
         return ["application"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return self._require_known_application(parameters)

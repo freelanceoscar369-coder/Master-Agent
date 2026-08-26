@@ -147,6 +147,23 @@ class IsInstalledAction(_DesktopAction):
     def required_parameters(self) -> list[str]:
         return ["application"]
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return self._require_known_application(parameters)
 
@@ -164,6 +181,23 @@ class GetVersionAction(_DesktopAction):
 
     def required_parameters(self) -> list[str]:
         return ["application"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return self._require_known_application(parameters)
@@ -190,6 +224,35 @@ class ListInstalledSoftwareAction(_DesktopAction):
 
     def required_parameters(self) -> list[str]:
         return []
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """Publishes `category`, which this Action has always accepted and
+        never advertised.
+
+        `validate()` immediately below rejects a category outside the
+        catalogue's own set, and `run()` filters the inventory by it. So
+        the argument is real, its type is established by source -- read as
+        a string, lower-cased and compared against `spec.category` -- and
+        its accepted values are the catalogue's, not a list invented here.
+
+        No default is published, because the implementation demonstrates
+        none: `parameters.get("category")` with nothing to fall back on,
+        where absent simply means no filtering. Inventing `all` or `""`
+        here would be advertising behaviour the code does not have.
+        """
+        known = ", ".join(sorted({spec.category for spec in catalog.CATALOG}))
+        return [
+            {
+                "name": "category",
+                "type": "string",
+                "description": (
+                    "Return only applications in this category. One of: "
+                    + known
+                    + ". Omit it to return everything."
+                ),
+                "default": None,
+            },
+        ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         category = (parameters.get("category") or "").strip().lower()
@@ -224,6 +287,33 @@ class ListRunningProcessesAction(_DesktopAction):
     def required_parameters(self) -> list[str]:
         return []
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """Publishes `owned_only`, which this Action has always accepted
+        and never advertised.
+
+        `run()` reads it as `bool(parameters.get("owned_only"))` and keeps
+        only processes with a known owner. Two things follow from that one
+        line, and neither is a guess.
+
+        The type is boolean: the value is used solely for its truthiness,
+        and nothing here treats any other form specially.
+
+        The default is False, and it is demonstrable rather than chosen --
+        `get()` returns None when the key is absent and `bool(None)` is
+        False, which is exactly the unfiltered behaviour.
+        """
+        return [
+            {
+                "name": "owned_only",
+                "type": "boolean",
+                "description": (
+                    "Return only processes attributable to a known "
+                    "application. False returns every running process."
+                ),
+                "default": False,
+            },
+        ]
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return []
 
@@ -250,6 +340,23 @@ class IsRunningAction(_DesktopAction):
 
     def required_parameters(self) -> list[str]:
         return ["application"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return self._require_known_application(parameters)
@@ -309,6 +416,23 @@ class OpenFileAction(_DesktopAction):
     def required_parameters(self) -> list[str]:
         return ["path"]
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         path = (parameters.get("path") or "").strip()
         if not path:
@@ -345,6 +469,23 @@ class BringToFrontAction(_DesktopAction):
 
     def required_parameters(self) -> list[str]:
         return ["application"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return self._require_known_application(parameters)
@@ -393,6 +534,23 @@ class CloseApplicationAction(_DesktopAction):
     def required_parameters(self) -> list[str]:
         return ["application"]
 
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
+
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         return self._require_known_application(parameters)
 
@@ -432,6 +590,23 @@ class ExecuteCommandAction(_DesktopAction):
 
     def required_parameters(self) -> list[str]:
         return ["command"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments.
+
+        Verified against this Action's own `validate()`, `run()` and
+        every helper they call: it reads exactly the required
+        arguments above and nothing else. Returning a list -- even an
+        empty one -- is this Action stating that its argument roster
+        is complete.
+
+        That statement is what the deterministic planner needs. An
+        open roster means `optional arguments exist and are not
+        listed`, and a planner that cannot see the whole contract
+        correctly refuses to guess at it -- so this capability could
+        not be planned without a model, however fully the founder
+        spelled the request out."""
+        return []
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         command = parameters.get("command")
