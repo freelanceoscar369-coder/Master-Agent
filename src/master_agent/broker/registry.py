@@ -27,6 +27,31 @@ class RegistrationProvenance(str, Enum):
     SELF_REGISTERED = "self_registered"  # Executive that provides intelligence
 
 
+class EconomicClass(str, Enum):
+    """What it costs to use a provider, in the only terms that are
+    knowable without inventing a number.
+
+    `cost_per_call == 0.0` conflates at least three genuinely different
+    situations -- a recurring free API tier, an installed application the
+    founder already subscribes to, and a local runtime with no licence fee
+    -- and treating them as one is what let a selection policy reason as
+    though they were interchangeable. They are not: one has a monthly
+    quota, one has a seat, and one has a laptop.
+
+    UNKNOWN is the default and is a real answer. A declared catalogue
+    entry that says only "free" has not said which of these it is, and
+    guessing would be exactly the fabrication this vocabulary exists to
+    prevent.
+    """
+
+    RECURRING_FREE = "recurring_free"          # a free tier that renews
+    NO_LICENCE_FEE = "no_license_fee"          # local/open, no fee at all
+    PROMOTIONAL_CREDIT = "promotional_credit"  # trial credit, expires
+    SUBSCRIPTION_CAPACITY = "subscription_capacity"  # covered by a seat
+    PAID = "paid"                              # marginal cost per call
+    UNKNOWN = "unknown"
+
+
 class ProviderHealth(str, Enum):
     """Provider health state."""
 
@@ -34,6 +59,17 @@ class ProviderHealth(str, Enum):
     DEGRADED = "degraded"
     UNREACHABLE = "unreachable"
     UNVERIFIED = "unverified"
+
+
+def _when(value: Any) -> datetime | None:
+    """An ISO timestamp, or None. Tolerant on read because a descriptor
+    restored from an older snapshot simply has not got the field."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -94,6 +130,30 @@ class ProviderDescriptor:
     model_load_ms: float | None = None
 
     # Registration metadata
+    # ---- economics and provenance of the economic claim ---------------
+    #
+    # `cost_per_call` above stays exactly as it was, and every existing
+    # consumer keeps reading it. These describe what that number does not:
+    # WHICH KIND of free, how much is left, and -- the part that makes a
+    # cost claim honest -- who said so and when.
+    #
+    # A fact here means "verified as this, according to `economic_source`,
+    # at `economic_verified_at`". It does not mean "permanently free". A
+    # free tier withdrawn tomorrow makes yesterday's record stale, not
+    # wrong, and `economic_revalidation_due` is where that is said out
+    # loud rather than discovered by being billed.
+    #
+    # Every field is None/UNKNOWN by default. Nothing is derived from a
+    # provider's name, and no quota is ever guessed.
+    economic_class: EconomicClass = EconomicClass.UNKNOWN
+    quota_remaining: float | None = None
+    quota_reset_at: datetime | None = None
+    credit_remaining: float | None = None
+    credit_expires_at: datetime | None = None
+    economic_source: str = ""
+    economic_verified_at: datetime | None = None
+    economic_revalidation_due: datetime | None = None
+
     provenance: RegistrationProvenance = RegistrationProvenance.DECLARED
     version: str = "1.0.0"
     registered_at: datetime = datetime.now(UTC)
@@ -147,6 +207,27 @@ class ProviderDescriptor:
             "chars_per_token": self.chars_per_token,
             "serialises": self.serialises,
             "model_load_ms": self.model_load_ms,
+            # Economics travels with the descriptor, and so does the
+            # provenance of the economic claim -- a cost fact without a
+            # source and a timestamp is an assertion, not a record.
+            "economic_class": self.economic_class.value,
+            "quota_remaining": self.quota_remaining,
+            "quota_reset_at": (
+                self.quota_reset_at.isoformat() if self.quota_reset_at else None
+            ),
+            "credit_remaining": self.credit_remaining,
+            "credit_expires_at": (
+                self.credit_expires_at.isoformat() if self.credit_expires_at else None
+            ),
+            "economic_source": self.economic_source,
+            "economic_verified_at": (
+                self.economic_verified_at.isoformat()
+                if self.economic_verified_at else None
+            ),
+            "economic_revalidation_due": (
+                self.economic_revalidation_due.isoformat()
+                if self.economic_revalidation_due else None
+            ),
             "provenance": self.provenance.value,
             "version": self.version,
             "registered_at": self.registered_at.isoformat(),
@@ -191,6 +272,16 @@ class ProviderDescriptor:
             chars_per_token=data.get("chars_per_token"),
             serialises=data.get("serialises", False),
             model_load_ms=data.get("model_load_ms"),
+            economic_class=EconomicClass(
+                data.get("economic_class") or EconomicClass.UNKNOWN.value
+            ),
+            quota_remaining=data.get("quota_remaining"),
+            quota_reset_at=_when(data.get("quota_reset_at")),
+            credit_remaining=data.get("credit_remaining"),
+            credit_expires_at=_when(data.get("credit_expires_at")),
+            economic_source=data.get("economic_source", ""),
+            economic_verified_at=_when(data.get("economic_verified_at")),
+            economic_revalidation_due=_when(data.get("economic_revalidation_due")),
             provenance=RegistrationProvenance(data.get("provenance", "declared")),
             version=data.get("version", "1.0.0"),
             registered_at=datetime.fromisoformat(data["registered_at"]),

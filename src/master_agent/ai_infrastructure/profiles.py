@@ -33,6 +33,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from master_agent.broker.registry import (
+    EconomicClass,
+    ProviderDescriptor,
+    RegistrationProvenance,
+)
 from master_agent.ai_infrastructure.catalog import PROVIDER_CATALOG, ProviderSpec, is_coding_agent
 from master_agent.broker.profiles import ProviderProfile
 
@@ -184,3 +189,95 @@ def availability(
 
     version = getattr(application, "version", None)
     return True, f"{INSTALLED}{f' {version}' if version else ''}"
+
+
+# ---- bootstrap: the catalogue becomes registry descriptors --------------
+#
+# `ProviderRegistry` is the canonical administrative record and
+# `PROVIDER_CATALOG` is a declared bootstrap source. Until now production
+# never joined them: `ProviderSource` authored profiles straight from
+# specs, so the catalogue stayed a second independent authority for the
+# life of the process and anything registered administratively was
+# invisible to selection.
+#
+# This is the join, and it is deliberately a one-way import. After
+# bootstrap the registry is the authority; the catalogue is where the
+# founder's declared estate came FROM, not a parallel truth.
+
+
+def descriptor_for(spec: ProviderSpec) -> ProviderDescriptor:
+    """One catalogue spec as the canonical descriptor of the same
+    provider.
+
+    Every field carried across is one `ProviderSpec` actually holds.
+    Nothing is derived from a provider's name and nothing absent is
+    invented -- a spec that never stated a latency produces a descriptor
+    whose latency is None, which is what "not measured" has to look like.
+
+    **Economics is the one place this deliberately says less than it
+    could.** `cost_per_call == 0.0` conflates a recurring free tier, an
+    installed application the founder already subscribes to, and a local
+    runtime with no licence fee. A catalogue entry saying only "free" has
+    not said which, so the descriptor says UNKNOWN. Only a positive cost
+    is mechanically certain, and that maps to PAID.
+    """
+    return ProviderDescriptor(
+        provider_id=spec.provider_id,
+        display_name=spec.label,
+        # The catalogue's own word for what kind of thing this is, taken
+        # rather than re-derived: `provider_class` is an open vocabulary
+        # and locality is the only classification a spec actually makes.
+        provider_class=spec.locality,
+        capabilities=frozenset(spec.capabilities),
+        cost_per_call=spec.cost_per_call,
+        is_free=spec.cost_per_call == 0.0,
+        economic_class=(
+            EconomicClass.PAID if spec.cost_per_call > 0.0 else EconomicClass.UNKNOWN
+        ),
+        economic_source=(
+            "ai_infrastructure.catalog.PROVIDER_CATALOG (declared)"
+        ),
+        locality=spec.locality,
+        privacy=spec.privacy,
+        requires_network=spec.requires_network,
+        requires_approval=spec.requires_approval,
+        max_context_tokens=spec.max_context_tokens,
+        latency_ms=spec.latency_ms,
+        declared_quality=spec.declared_quality,
+        prefill_tokens_per_second=spec.prefill_tokens_per_second,
+        decode_tokens_per_second=spec.decode_tokens_per_second,
+        expected_itl_ms=spec.expected_itl_ms,
+        supports_streaming=spec.supports_streaming,
+        chars_per_token=spec.chars_per_token,
+        serialises=spec.serialises,
+        model_load_ms=spec.model_load_ms,
+        provenance=RegistrationProvenance.DECLARED,
+        notes=spec.notes,
+    )
+
+
+def bootstrap_registry(registry, specs=None) -> tuple[ProviderDescriptor, ...]:
+    """Import the declared catalogue into the registry, idempotently.
+
+    Safe to call on every launch: registering the same spec twice yields
+    the same descriptor, and a provider whose administrative record has
+    since been updated by something other than the catalogue is not
+    clobbered by a re-import -- `RegistrationProvenance` is how the
+    registry already distinguishes those, so a DECLARED import never
+    overwrites a record that was DISCOVERED or SELF_REGISTERED.
+
+    Returns what is now in the registry for these ids, so a caller can
+    assert parity rather than trust it.
+    """
+    from master_agent.ai_infrastructure.catalog import PROVIDER_CATALOG
+
+    imported: list[ProviderDescriptor] = []
+    for spec in (PROVIDER_CATALOG if specs is None else specs):
+        existing = registry.get(spec.provider_id)
+        if existing is not None and existing.provenance is not RegistrationProvenance.DECLARED:
+            # Something with better standing than a declaration already
+            # owns this record. Leave it alone and report what is there.
+            imported.append(existing)
+            continue
+        imported.append(registry.register(descriptor_for(spec)))
+    return tuple(imported)

@@ -70,10 +70,19 @@ class Transport(Protocol):
     """What a provider needs from the network, and nothing more."""
 
     def post_json(
-        self, url: str, payload: dict[str, Any], timeout: float
+        self,
+        url: str,
+        payload: dict[str, Any],
+        timeout: float,
+        headers: dict[str, str] | None = None,
     ) -> HttpResponse: ...
 
-    def get(self, url: str, timeout: float) -> HttpResponse: ...
+    def get(
+        self,
+        url: str,
+        timeout: float,
+        headers: dict[str, str] | None = None,
+    ) -> HttpResponse: ...
 
     def stream_json(
         self, url: str, payload: dict[str, Any], timeout: float
@@ -90,17 +99,33 @@ class UrllibTransport:
         url: str,
         payload: dict[str, Any],
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        headers: dict[str, str] | None = None,
     ) -> HttpResponse:
+        """`headers` is additive and optional, so every existing caller is
+        unchanged.
+
+        It exists because an API that authenticates with a bearer token
+        cannot put its credential in a query string the way Gemini's does,
+        and the alternative -- a provider opening its own HTTP connection
+        -- is the second transport layer this module's own docstring
+        exists to prevent. A credential passed here is used for one
+        request and never stored, logged or echoed.
+        """
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **(headers or {})},
             method="POST",
         )
         return self._open(request, timeout)
 
-    def get(self, url: str, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> HttpResponse:
-        request = urllib.request.Request(url, method="GET")
+    def get(
+        self,
+        url: str,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        headers: dict[str, str] | None = None,
+    ) -> HttpResponse:
+        request = urllib.request.Request(url, headers=headers or {}, method="GET")
         return self._open(request, timeout)
 
     def stream_json(
