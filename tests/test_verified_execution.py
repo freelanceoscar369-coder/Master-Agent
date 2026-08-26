@@ -41,7 +41,13 @@ from master_agent.providers.ollama import OLLAMA_PROVIDER_ID
 from master_agent.providers.transport import HttpResponse, TransportUnavailable
 from master_agent.runtime.config import RuntimeConfig
 from master_agent.verification.evidence import Verdict
-from tests.broker_test_support import FakeTransport, Harness, ollama, ollama_body
+from tests.broker_test_support import (
+    FakeTransport,
+    Harness,
+    ollama,
+    ollama_body,
+    stated_config,
+)
 
 WHEN = datetime(2026, 7, 30, 16, 0, tzinfo=UTC)
 

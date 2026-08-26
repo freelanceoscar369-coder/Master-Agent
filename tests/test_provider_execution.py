@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -64,6 +65,7 @@ from tests.broker_test_support import (
     RecordingProvider,
     ollama,
     ollama_body,
+    stated_config,
     tags_body,
 )
 
@@ -913,6 +915,17 @@ def test_the_panel_never_causes_an_execution():
 
 
 def quiet_system(state_dir, **kwargs):
+    """A launcher-built system that says nothing and states its own config.
+
+    `config` is a `setdefault`, so the tests below that hand in their own
+    `MasterAgentConfig` -- the ones asserting what `OllamaConfig` and
+    `PromptCacheConfig` do to the wiring -- keep it. See `stated_config`
+    for what arrives when this is left to `load_config()`: the founder's
+    real `~/.master_agent`, and a live `GEMINI_API_KEY` that made this
+    file's "only the transport is invented" tests contact a real endpoint.
+    """
+    state_dir = Path(state_dir)
+    kwargs.setdefault("config", stated_config(state_dir.parent))
     kwargs.setdefault("runtime_config", RuntimeConfig(poll_interval_seconds=0))
     kwargs.setdefault("dashboard_kwargs", {"writer": lambda _text: None})
     return build_system(state_dir=state_dir, **kwargs)
