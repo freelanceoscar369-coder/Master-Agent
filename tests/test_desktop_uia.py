@@ -1755,3 +1755,124 @@ def test_without_a_prompt_floor_nothing_is_reconstructed():
     )
 
     assert result != "Copy\nShare\nUpdate\nYour chats will appear here"
+
+
+# ═══════════ an anchored turn survives the viewport moving ═══════════
+
+PROMPT_A = "Give exactly three short names for a gardening notes app, one name per line."
+NAMES = ["GardenLog", "SproutNote", "PlotPad"]
+
+
+def test_case_A_the_same_answer_twice_is_captured_the_second_time():
+    """Same question, same answer, consecutive turns. The new one is
+    byte-identical to the old and must still be captured -- it is a
+    different OBSERVATION, whatever the words are."""
+    from master_agent.desktop.execution.uia_control import ResponseTurn
+
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    old = [FakeUiaElement(name=f"o{i}", has_text=True,
+                          rect=(0, 100 + i * 33, 400, 129 + i * 33), text=t)
+           for i, t in enumerate(NAMES)]
+    new = [FakeUiaElement(name=f"n{i}", has_text=True,
+                          rect=(0, 350 + i * 33, 400, 379 + i * 33), text="")
+           for i in range(3)]
+    bridge = _reply_bridge(old + [echo] + new)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)   # holds the OLD answer
+    turn = ResponseTurn()
+    echo.set_text(PROMPT_A)
+    for element, text in zip(new, NAMES):
+        element.set_text(text)
+
+    assert bridge.find_new_response(
+        1, baseline, exclude_text=PROMPT_A, min_height=8, turn=turn
+    ) == "GardenLog\nSproutNote\nPlotPad"
+
+
+def test_case_B_the_turn_survives_its_prompt_scrolling_out_of_the_tree():
+    """Observed live: anchored on polls 1-2 at floor=179, then ChatGPT
+    scrolled and the prompt left the tree entirely from poll 3. The turn
+    must not revert to an unanchored interpretation."""
+    from master_agent.desktop.execution.uia_control import ResponseTurn
+
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    lines = [FakeUiaElement(name=f"n{i}", has_text=True,
+                            rect=(0, 350 + i * 33, 400, 379 + i * 33), text="")
+             for i in range(3)]
+    bridge = _reply_bridge([echo] + lines)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    turn = ResponseTurn()
+
+    echo.set_text(PROMPT_A)                       # poll 1: prompt visible
+    bridge.find_new_response(1, baseline, exclude_text=PROMPT_A, min_height=8, turn=turn)
+    assert turn.anchored is True
+
+    echo.set_text("")                             # the transcript scrolls it away
+    for element, text in zip(lines, NAMES):
+        element.set_text(text)
+
+    assert bridge.find_new_response(
+        1, baseline, exclude_text=PROMPT_A, min_height=8, turn=turn
+    ) == "GardenLog\nSproutNote\nPlotPad"
+
+
+def test_case_C_persistent_chrome_never_becomes_a_reply():
+    """Sidebar text that has not moved is the same observation the
+    baseline recorded, and stays excluded even once the turn is anchored
+    and the viewport has changed."""
+    from master_agent.desktop.execution.uia_control import ResponseTurn
+
+    sidebar = FakeUiaElement(name="nav", has_text=True, rect=(0, 100, 120, 400),
+                             text="Bank Nifty Scalping Checklist")
+    echo = FakeUiaElement(name="p", has_text=True, rect=(200, 250, 400, 290), text="")
+    reply = FakeUiaElement(name="r", has_text=True, rect=(200, 350, 400, 379), text="")
+    bridge = _reply_bridge([sidebar, echo, reply])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    turn = ResponseTurn()
+    echo.set_text(PROMPT_A)
+    bridge.find_new_response(1, baseline, exclude_text=PROMPT_A, min_height=8, turn=turn)
+    echo.set_text("")
+    reply.set_text("GardenLog")
+
+    result = bridge.find_new_response(
+        1, baseline, exclude_text=PROMPT_A, min_height=8, turn=turn
+    )
+
+    assert result == "GardenLog"
+    assert "Bank Nifty" not in result
+
+
+def test_case_D_a_status_notice_is_returned_by_neither_path():
+    """`find_new_response()` excluded generation notices and its fallback
+    `find_new_content()` did not, so the fallback could return what the
+    other path had just refused. One rule now, both paths."""
+    status = FakeUiaElement(name="s", has_text=True, rect=(0, 300, 400, 329), text="")
+    bridge = _reply_bridge([status])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    status.set_text("ChatGPT is responding")
+
+    assert bridge.find_new_response(1, baseline, min_height=8) is None
+    assert bridge.find_new_content(1, baseline, min_height=8) is None
+
+
+def test_case_E_a_turn_never_anchored_stays_conservative():
+    """No prompt ever located means no turn boundary. Joining every new
+    region would be a window sweep, not a reply."""
+    from master_agent.desktop.execution.uia_control import ResponseTurn
+
+    chrome = [FakeUiaElement(name=f"c{i}", has_text=True,
+                             rect=(0, 300 + i * 30, 400, 326 + i * 30), text="")
+              for i in range(4)]
+    bridge = _reply_bridge(chrome)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    turn = ResponseTurn()
+    for element, text in zip(chrome, ["Copy", "Share", "Update",
+                                      "Your chats will appear here"]):
+        element.set_text(text)
+
+    result = bridge.find_new_response(
+        1, baseline, exclude_text="a prompt this window never rendered",
+        min_height=8, turn=turn,
+    )
+
+    assert turn.anchored is False
+    assert result != "Copy\nShare\nUpdate\nYour chats will appear here"

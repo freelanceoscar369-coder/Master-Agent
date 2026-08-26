@@ -189,6 +189,29 @@ _TRANSIENT_STATUS = (
 )
 
 
+@dataclass
+class ResponseTurn:
+    """What one `_await_response()` call has established about its turn.
+
+    Deliberately mutable, deliberately tiny, and deliberately owned by the
+    caller for the duration of a single wait — not conversation state, not
+    a subsystem, and never shared between two waits.
+
+    It exists because a turn that has been positively anchored can stop
+    being anchorable. Observed live: this call's prompt was located on
+    polls 1-2, ChatGPT then scrolled the transcript, and from poll 3 the
+    prompt was no longer anywhere in the accessibility tree. Each poll
+    re-derived everything from scratch, so the wait forgot it had ever
+    known where its own turn began and fell back to text uniqueness.
+
+    Note what is NOT kept here: the numeric floor. A screen coordinate
+    from a viewport that scrolls is not a durable boundary, and carrying
+    one forward would be a worse answer than forgetting.
+    """
+
+    anchored: bool = False
+
+
 def _is_transient_status(normalised: str) -> bool:
     """Whether this region is a generation/connection notice rather than
     words the model produced. Whole-string, case-insensitive, and bounded
@@ -835,6 +858,15 @@ class UiaAutomationBridge:
                 continue  # a rendered block of this call's own question
             if text_norm in baseline_texts:
                 continue  # this exact text already existed somewhere in the window before submission
+            if _is_transient_status(text_norm):
+                # **One status rule, not two.** `_reply_lines()` excluded
+                # generation notices and this path did not, so whenever
+                # reconstruction declined and fell back here, the fallback
+                # could return what the other path had just refused --
+                # observed live returning 'ChatGPT is responding' as a
+                # reply. A notice that the model is still working is never
+                # the model's answer, whichever path is asking.
+                continue
             height = key[3] - key[1]
             candidates.append((element, height, text_norm, key))
         if not candidates:
@@ -887,6 +919,7 @@ class UiaAutomationBridge:
         baseline: dict[tuple[int, int, int, int], str],
         exclude_text: str = "",
         min_height: int = 8,
+        turn: "ResponseTurn | None" = None,
     ) -> str | None:
         """The whole assistant reply as TEXT, or `None`.
 
@@ -934,7 +967,9 @@ class UiaAutomationBridge:
         only accepted once every line has arrived and the reconstruction
         stops changing -- never because one child happened to be stable.
         """
-        lines = self._reply_lines(window_handle, baseline, exclude_text, min_height)
+        lines = self._reply_lines(
+            window_handle, baseline, exclude_text, min_height, turn
+        )
         if not lines:
             # Nothing below this turn's prompt. Fall back to the
             # single-region finder, which still answers for applications
@@ -966,6 +1001,7 @@ class UiaAutomationBridge:
         baseline: dict[tuple[int, int, int, int], str],
         exclude_text: str,
         min_height: int,
+        turn: "ResponseTurn | None" = None,
     ) -> list[str]:
         """This turn's reply, one entry per rendered leaf, in reading
         order — top to bottom, then left to right for anything sharing a
@@ -1027,6 +1063,39 @@ class UiaAutomationBridge:
         # floor located, the content-set stays in force, which is the
         # conservative answer.
         floor_established = prompt_floor > win_rect.top
+        if floor_established and turn is not None:
+            turn.anchored = True
+
+        if not floor_established and turn is not None and turn.anchored:
+            # **The turn was anchored; the viewport moved.**
+            #
+            # This call located its own prompt on an earlier poll, so the
+            # boundary between "before this turn" and "this turn" is a
+            # settled fact. Then ChatGPT scrolled the transcript and the
+            # prompt left the accessibility tree entirely -- observed
+            # live, polls 1-2 anchored at floor=179, polls 3-20 with the
+            # prompt nowhere in the tree.
+            #
+            # Re-deriving from scratch each poll made the wait forget it
+            # had ever known, and fall back to text uniqueness. Because
+            # the founder's acceptance asks the same question repeatedly,
+            # the new answer is byte-identical to the previous one, and
+            # the three names sat in the tree being discarded as "already
+            # existed" until the poll budget ran out.
+            #
+            # The distinction that survives a scroll is not the text and
+            # not the coordinate: it is the OBSERVATION. `baseline` is
+            # `rectangle -> text`, and collapsing it to a set of strings
+            # is what threw that away. A region is excluded here only when
+            # it is the SAME observation the baseline recorded -- same
+            # rectangle, same text. Persistent chrome does not move, so it
+            # stays excluded; a freshly rendered answer occupies a
+            # rectangle the baseline never held, so it stays eligible
+            # however familiar its words.
+            return self._lines_by_observation(
+                all_regions, baseline, exclude_norm, prompt_echo, _on_the_composer
+            )
+
         if not floor_established:
             # **No floor, no reconstruction.**
             #
@@ -1068,6 +1137,13 @@ class UiaAutomationBridge:
                 continue
             kept.append((key[1], key[0], text.strip()))
 
+        return self._in_reading_order(kept)
+
+    @staticmethod
+    def _in_reading_order(kept: list[tuple[int, int, str]]) -> list[str]:
+        """Top to bottom, then left to right for anything sharing a row.
+        Consecutive duplicates collapse: a line rendered by both a wrapper
+        and its own leaf must not appear twice."""
         kept.sort(key=lambda row: (row[0], row[1]))
         lines: list[str] = []
         for _top, _left, text in kept:
@@ -1075,6 +1151,37 @@ class UiaAutomationBridge:
                 continue
             lines.append(text)
         return lines
+
+    def _lines_by_observation(
+        self,
+        all_regions: dict,
+        baseline: dict[tuple[int, int, int, int], str],
+        exclude_norm: str,
+        prompt_echo: set[str],
+        on_the_composer,
+    ) -> list[str]:
+        """This turn's reply for an anchored turn whose prompt has
+        scrolled away — selected by OBSERVATION rather than by text.
+
+        A region is the baseline's own if the baseline holds that same
+        rectangle with that same text. Anything else is something the
+        window is rendering now that it was not rendering then, which is
+        what "new" has to mean once identical wording is legitimate.
+        """
+        kept: list[tuple[int, int, str]] = []
+        for key, (_element, text) in all_regions.items():
+            if not text or not text.strip() or on_the_composer(key):
+                continue
+            norm = _normalize_whitespace(text)
+            if norm == exclude_norm or norm in prompt_echo:
+                continue
+            if _is_transient_status(norm):
+                continue
+            previously = baseline.get(key)
+            if previously is not None and _normalize_whitespace(previously) == norm:
+                continue  # the same observation, unchanged -- chrome
+            kept.append((key[1], key[0], text.strip()))
+        return self._in_reading_order(kept)
 
     def describe(self, element) -> UiaElementInfo:
         info = self._info(element)

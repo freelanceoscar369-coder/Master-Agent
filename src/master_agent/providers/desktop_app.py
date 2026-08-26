@@ -47,6 +47,7 @@ from master_agent.desktop.execution.text_control import (
     classify_window,
 )
 from master_agent.desktop.execution.uia_control import (
+    ResponseTurn,
     UiaAutomationBridge,
     UiaTargetNotFound,
     UiaUnavailable,
@@ -644,6 +645,12 @@ class DesktopAppReasoningProvider(ModelProvider):
         handle = window["handle"]
         deadline = time.monotonic() + _RESPONSE_POLL_TIMEOUT_SECONDS
         prompt_norm = _normalize_whitespace(prompt)
+        # One turn, owned by this wait and discarded with it. Once this
+        # call has positively located its own prompt, that fact survives
+        # the application scrolling the prompt out of the tree -- which it
+        # does, mid-wait, and which used to make every later poll behave
+        # as though the turn had never been anchored at all.
+        turn = ResponseTurn()
         previous_text: str | None = None
         stable_count = 0
         while time.monotonic() < deadline:
@@ -658,7 +665,9 @@ class DesktopAppReasoningProvider(ModelProvider):
                 # missing. The stability check below now compares the whole
                 # reconstruction, so a streaming answer settles only once
                 # every line has arrived.
-                text = self._uia.find_new_response(handle, baseline, exclude_text=prompt)
+                text = self._uia.find_new_response(
+                    handle, baseline, exclude_text=prompt, turn=turn
+                )
             except (UiaUnavailable, UiaTargetNotFound):
                 text = None
             if not text or not text.strip() or _normalize_whitespace(text) == prompt_norm:
