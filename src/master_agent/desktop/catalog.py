@@ -160,6 +160,22 @@ CATALOG: tuple[ApplicationSpec, ...] = (
         process_names=("msedge.exe",),
     ),
     ApplicationSpec(
+        key="comet",
+        label="Comet",
+        category=BROWSER,
+        executables=("comet",),
+        # Per-user install, so it is under LOCALAPPDATA rather than
+        # PROGRAMFILES -- the path was read from the running process on
+        # the founder's own machine, not guessed. Declared here because
+        # the Desktop Executive already knew how to drive it and only
+        # lacked the entry that names it; nothing about how a browser is
+        # launched, focused or observed changes for Comet.
+        windows_paths=(
+            r"%LOCALAPPDATA%\Perplexity\Comet\Application\comet.exe",
+        ),
+        process_names=("comet.exe",),
+    ),
+    ApplicationSpec(
         key="firefox",
         label="Firefox",
         category=BROWSER,
