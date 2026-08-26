@@ -277,6 +277,43 @@ genuinely missing *primitive* was a third click, now `multi_click(x, y,
 count)` — generic, because a named `triple_click()` invites treating the
 gesture as select-all.
 
+## Mouse: live outcome proof
+
+Delivery is not outcome, so every gesture was verified from a fixture's own
+state rather than from an Action's return value. Fixture served on loopback
+only, read by Playwright while the Desktop Executive acted — two different
+mechanisms, so one failing could not hide the other.
+
+| Gesture | fixture before → after | verdict |
+|---|---|---|
+| `desktop_click` | clicks `0 → 1` | VERIFIED |
+| `click_count=2` | clicks `1 → 3` | VERIFIED |
+| `click_count=3` | clicks `3 → 6` | VERIFIED |
+| `button="right"` | right_clicks `0 → 1` | VERIFIED |
+| `desktop_drag` | dragged `false → true` | VERIFIED |
+| `desktop_scroll` | scrolled `false → true` | VERIFIED |
+
+The counts accumulating 1 → 3 → 6 are the actual proof of `click_count`:
+each gesture delivered exactly the number asked for.
+
+**A harness bug worth remembering.** The first run computed screen
+coordinates from `window.screenX` plus a guessed browser-chrome height,
+landed at (130, 259), and reported five gestures NOT VERIFIED — while
+**scroll passed**, because a scroll does not need to be precisely on
+anything. A coordinate error that leaves one test green is exactly how a
+false product finding gets written down. The fix was to stop doing
+arithmetic and use `find_target`, which returns the centre of UIA's own
+bounding rectangle — the same mechanism a real mission uses.
+
+**Outcome verification ownership.** `desktop_click`, `desktop_drag` and
+`desktop_scroll` produce **delivery evidence only**: input reached the
+confirmed-foreground window of the resolved application. None of them
+asserts a UI outcome, and no generic postcondition was invented to raise
+coverage. Outcome belongs to the next observation, which is what the table
+above actually exercises.
+
+---
+
 ## Mouse capability reachability
 
 Every gesture the controller has is now either public or deliberately
@@ -339,6 +376,39 @@ moved is a question for the next observation.
   packaged *lane*.
 
 ---
+
+## Validation scoping: one seam, extended
+
+`KALPAVRIKSHA_FMEA_REASONING_TIER` already existed so a harness could prove
+one reasoning rung executes without the run falling through to whichever
+provider is healthy that minute. It understood `gemini`; it now also
+understands `web`, which empties the API and desktop rungs and leaves the
+web rung exactly as the product configures it. No provider is inserted
+anywhere, and the Broker still receives the scoped universe and still makes
+and records the selection.
+
+Proven in the final artifact:
+
+| mode | desktop rung | gemini rung | browser rung |
+|---|---|---|---|
+| unset (every founder launch) | 4 desktop apps | gemini.api, openrouter.api | trusted-founder-web |
+| `web` | empty | empty | trusted-founder-web |
+
+**This is validation configuration and never product policy.** Tests guard
+that direction specifically: unset yields the complete ladder, `gemini`
+behaves exactly as before, an unrecognised value fails OPEN to the normal
+ladder so a typo cannot silently disable a founder's fallback, and the web
+rung's membership is identical scoped or not.
+
+It replaces an earlier suggestion of closing the founder's running desktop
+AI apps to force a fallthrough. That was never evidence: closing an
+application does not make a provider administratively absent, the API rungs
+would have remained available, and hoping higher rungs fail is not a proof.
+
+**Two proofs that must not be conflated.** A validation-scoped run shows the
+trusted lane is executable inside the shipped artifact. It says nothing
+about what normal Broker policy would choose, and must never be presented
+as if it did.
 
 ## 9. Request scoping: already built
 
