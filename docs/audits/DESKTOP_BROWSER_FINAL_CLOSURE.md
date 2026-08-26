@@ -277,6 +277,27 @@ genuinely missing *primitive* was a third click, now `multi_click(x, y,
 count)` — generic, because a named `triple_click()` invites treating the
 gesture as select-all.
 
+## Mouse: verification ownership
+
+Audited rather than assumed. `bind_for_environment()` returns no
+postcondition for any of the three, and the gateway says why in its own
+words: *"inventing a verdict is the failure being removed."* Confirmed at
+runtime — `launch_application` has a postcondition, the three gestures do
+not.
+
+| Capability | Action delivery evidence | Outcome evidence owner | Acceptance verdict |
+|---|---|---|---|
+| `desktop_click` | ExecutionResult — input delivered to the confirmed-foreground window of the resolved application | **none from the gateway, deliberately** — the next observation owns it | VERIFIED against fixture state |
+| `desktop_drag` | as above | as above | VERIFIED against fixture state |
+| `desktop_scroll` | as above | as above | VERIFIED against fixture state |
+
+None of these is independently outcome-verified by the Desktop Executive,
+and none is described that way anywhere. A mission using them must pair the
+gesture with an observable effect, which is exactly what the live proof
+below does.
+
+---
+
 ## Mouse: live outcome proof
 
 Delivery is not outcome, so every gesture was verified from a fixture's own
