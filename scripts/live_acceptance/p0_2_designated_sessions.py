@@ -119,9 +119,14 @@ def main() -> int:
         findable = manager.find_named_session(handle) is not None
         print(f"  findable by exact name afterwards: {findable}", flush=True)
 
+        # A fresh conversation carrying this call's own marker as its
+        # first message is NOT anonymous -- an earlier version of this
+        # probe called it a policy violation, which is what led to two
+        # usable providers being refused. What it lacks is REUSE: without
+        # an exact name, the next call creates another one.
         verdict = (
-            "USES ITS OWN CONVERSATION" if (ok and findable)
-            else "ANONYMOUS CHAT — policy violation" if ok
+            "REUSES ITS NAMED SESSION" if (ok and findable)
+            else "FRESH MARKED SESSION (no reuse next call)" if ok
             else "refused (fails closed)"
         )
         print(f"  VERDICT   : {verdict}", flush=True)
