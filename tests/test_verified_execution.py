@@ -12,6 +12,7 @@ still gets neither.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -643,6 +644,19 @@ def test_the_outcome_serialises_its_verdict():
 
 
 def quiet_system(state_dir, **kwargs):
+    """A launcher-built system that says nothing and states its own config.
+
+    `config` is a `setdefault`, so any test handing in its own
+    `MasterAgentConfig` keeps it. See `stated_config` for what arrives
+    otherwise: the founder's real `~/.master_agent` and a live
+    `GEMINI_API_KEY`, which made this file's supposedly hermetic tests
+    select an unfaked cloud provider and contact a real endpoint.
+    """
+    state_dir = Path(state_dir)
+    # `app_dir` is the *parent*: the launcher puts founder memory beside the
+    # state directory rather than inside it, so this is the one value that
+    # keeps both under the test's own `tmp_path`.
+    kwargs.setdefault("config", stated_config(state_dir.parent))
     kwargs.setdefault("runtime_config", RuntimeConfig(poll_interval_seconds=0))
     kwargs.setdefault("dashboard_kwargs", {"writer": lambda _text: None})
     return build_system(state_dir=state_dir, **kwargs)
