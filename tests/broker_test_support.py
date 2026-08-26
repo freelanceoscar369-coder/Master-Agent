@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from master_agent.ai_infrastructure.approval import ProviderApprovalGate
@@ -25,6 +26,7 @@ from master_agent.ai_infrastructure.profiles import ProviderSource
 from master_agent.ai_infrastructure.service import AiCapabilityService
 from master_agent.broker.broker import CapabilityBroker
 from master_agent.broker.policy import BALANCED, SelectionPolicy
+from master_agent.config import MasterAgentConfig
 from master_agent.desktop.inventory import (
     INSTALLED,
     MISSING,
@@ -43,6 +45,46 @@ from master_agent.providers.ollama import OllamaProvider
 from master_agent.providers.transport import HttpResponse
 
 FIXED = datetime(2026, 7, 30, 11, 30, tzinfo=UTC)
+
+
+# ---- a config that states itself ----------------------------------------
+
+
+def stated_config(app_dir, *, enabled_cloud_providers=()) -> MasterAgentConfig:
+    """The product's own defaults, minus this machine.
+
+    `build_system()` falls back to `load_config()` when it is handed no
+    config, and `load_config()` reads two things off whichever machine is
+    running the test: `app_dir`, which resolves to the founder's real
+    `~/.master_agent`, and `GEMINI_API_KEY`, out of the environment. A
+    launcher test that lets it do so is not hermetic. It runs against the
+    deployment's own `enabled_cloud_providers` -- so the Broker selects a
+    cloud provider whose transport the test never faked -- and, on a
+    machine with a key configured, hands the launcher a live credential
+    and posts the test's prompts to a real endpoint over the network.
+
+    So a launcher test *states* its config. `app_dir` is the test's own
+    `tmp_path`; `MasterAgentConfig()` constructed directly never reads the
+    environment, so no ambient credential can reach a provider; and
+    `enabled_cloud_providers` is stated rather than inherited -- `()` by
+    default, because a test that fakes the *local* provider's transport
+    and then asserts on what the launcher does needs no second, unfaked
+    provider to be selectable.
+
+    That `()` is this helper's choice for those tests and **not** a claim
+    about what the deployment ships. Commit 2af3075 enabled `gemini.api`
+    by default as a founder decision; `test_broker_wiring.py` asserts that
+    current truth directly, against the real default, rather than through
+    this helper.
+
+    Everything else -- the policy, the prompt cache, the Ollama settings
+    -- stays the product's own default, because a fixture that restates
+    those would be testing itself.
+    """
+    config = MasterAgentConfig(app_dir=Path(app_dir))
+    config.broker.enabled_cloud_providers = tuple(enabled_cloud_providers)
+    return config
+
 
 # ---- an invented estate -------------------------------------------------
 #

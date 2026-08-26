@@ -13,6 +13,7 @@ four have.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -24,6 +25,7 @@ from master_agent.ai_infrastructure.ledger import (
     DecisionLedger,
     JsonFileDecisionStore,
 )
+from master_agent.ai_infrastructure.profiles import NO_CREDENTIALS
 from master_agent.ai_infrastructure.refusal import (
     NoProviderAvailable,
     ProviderApprovalDenied,
@@ -31,6 +33,7 @@ from master_agent.ai_infrastructure.refusal import (
 )
 from master_agent.ai_infrastructure.service import BrokerReport
 from master_agent.broker.policy import BEST_QUALITY, PREFER_LOCAL
+from master_agent.broker.profiles import CLOUD
 from master_agent.config import BrokerConfig, MasterAgentConfig
 from master_agent.dashboard.app import FOUNDER_PAGE, TECHNICAL_PAGE
 from master_agent.dashboard.charset import ASCII, UNICODE
@@ -44,8 +47,15 @@ from master_agent.dashboard.readmodel import DashboardSnapshot
 from master_agent.dashboard.sources import DashboardSources
 from master_agent.launcher.boot import build_system
 from master_agent.plugins.model_router import ModelRouter, RoutingContext
+from master_agent.providers.gemini import GEMINI_PROVIDER_ID, NO_API_KEY
+from master_agent.providers.response import UNAVAILABLE
 from master_agent.runtime.config import RuntimeConfig
-from tests.broker_test_support import Harness, RecordingProvider
+from tests.broker_test_support import (
+    FakeTransport,
+    Harness,
+    RecordingProvider,
+    stated_config,
+)
 
 # =========================================================================
 # The launcher wires it (Deliverable 2)
@@ -53,6 +63,17 @@ from tests.broker_test_support import Harness, RecordingProvider
 
 
 def quiet_system(state_dir, **kwargs):
+    """A launcher-built system that says nothing and states its own config.
+
+    `config` is a `setdefault`: every test below that hands in its own
+    `MasterAgentConfig` -- and several do, because what configuration
+    does to the Broker is the subject here -- keeps it untouched. See
+    `stated_config` for why leaving it to `load_config()` is not an
+    option: the founder's real `~/.master_agent` and a live
+    `GEMINI_API_KEY` both arrive through that door.
+    """
+    state_dir = Path(state_dir)
+    kwargs.setdefault("config", stated_config(state_dir.parent))
     kwargs.setdefault("runtime_config", RuntimeConfig(poll_interval_seconds=0))
     kwargs.setdefault("dashboard_kwargs", {"writer": lambda _text: None})
     return build_system(state_dir=state_dir, **kwargs)
@@ -191,13 +212,99 @@ def test_no_provider_is_available_before_the_machine_has_been_scanned(tmp_path):
     assert total > 0
 
 
-def test_cloud_providers_stay_off_until_the_founder_enables_them(tmp_path):
-    """No credential, no availability. Absence of a key is a fact."""
-    system = quiet_system(tmp_path / "state")
+def test_the_shipped_default_lets_the_broker_consider_gemini():
+    """The founder decision of 2af3075, asserted where it actually lives.
 
-    enabled = system.intelligence.providers.enabled_cloud_providers
+    This replaces `test_cloud_providers_stay_off_until_the_founder_enables_them`,
+    which asserted `enabled_cloud_providers == frozenset()` against a
+    launcher-built system. That commit changed the shipped default from
+    `()` to `("gemini.api",)` deliberately, so the old assertion had been
+    describing a superseded deployment ever since -- and, because the
+    system under test inherited the default through `load_config()`, it
+    was the machine that failed it rather than the code.
 
-    assert enabled == frozenset()
+    Read from `BrokerConfig()` rather than through a booted system on
+    purpose: the claim is about what the deployment *ships*, and a booted
+    system answers with whatever config it was handed, which in this file
+    is now a stated one.
+
+    Being on this list is **permission, not a credential** -- "the founder
+    has decided Gemini may be selected". The two tests below hold the
+    other half of the invariant: permission alone never makes a provider
+    usable, and never causes a call.
+    """
+    assert BrokerConfig().enabled_cloud_providers == ("gemini.api",)
+
+
+def test_an_enabled_cloud_provider_is_still_unavailable_without_its_credential(
+    tmp_path,
+):
+    """Enabled and usable are different facts, and the second needs a key.
+
+    Stated with `gemini.api` enabled -- the deployment's own setting --
+    and no credential anywhere: `stated_config` builds `MasterAgentConfig`
+    directly, which never reads `GEMINI_API_KEY`, so this asserts on a
+    provider that genuinely has no key rather than on one whose key
+    happens to be absent from this machine.
+    """
+    system = quiet_system(
+        tmp_path / "state",
+        config=stated_config(tmp_path, enabled_cloud_providers=("gemini.api",)),
+    )
+
+    availability = system.providers.get(GEMINI_PROVIDER_ID).availability()
+
+    assert availability.reachable is False
+    assert availability.detail == NO_API_KEY
+
+
+def test_enabling_a_cloud_provider_never_causes_a_call_without_its_credential(
+    tmp_path,
+):
+    """The refusal is reached before the transport, not after it.
+
+    A provider that discovered its missing key by asking the network
+    would turn every keyless boot into outbound traffic. The transport
+    here records everything asked of it and is asserted untouched, which
+    is the only way to prove the guard sits above it.
+    """
+    system = quiet_system(
+        tmp_path / "state",
+        config=stated_config(tmp_path, enabled_cloud_providers=("gemini.api",)),
+    )
+    gemini = system.providers.get(GEMINI_PROVIDER_ID)
+    transport = FakeTransport()
+    gemini._transport = transport
+
+    result = gemini.complete("anything at all")
+
+    assert result.ok is False
+    assert result.outcome == UNAVAILABLE
+    assert result.error == NO_API_KEY
+    assert transport.posts == []
+    assert transport.gets == []
+    assert transport.streamed == []
+
+
+def test_configuration_can_disable_every_cloud_provider(tmp_path):
+    """The mechanism, stated locally rather than claimed as the default.
+
+    This is what the replaced test was reaching for and could no longer
+    prove: an *explicitly* empty `enabled_cloud_providers` leaves every
+    provider that needs credentials unavailable, each saying why. The
+    positive direction is `test_configuration_can_enable_a_cloud_provider`
+    above.
+    """
+    config = MasterAgentConfig(
+        app_dir=tmp_path, broker=BrokerConfig(enabled_cloud_providers=())
+    )
+    system = quiet_system(tmp_path / "state", config=config)
+
+    cloud = [p for p in system.intelligence.profiles() if p.locality == CLOUD]
+
+    assert cloud, "the catalogue has cloud providers for this to be about"
+    assert all(p.available is False for p in cloud)
+    assert {p.notes for p in cloud} == {NO_CREDENTIALS}
 
 
 def test_configuration_can_enable_a_cloud_provider(tmp_path):
