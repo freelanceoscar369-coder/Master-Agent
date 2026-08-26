@@ -480,16 +480,25 @@ def test_observations_never_give_advice(advice_word):
 # ---- the Executive contract ----------------------------------------------
 
 
-def test_the_executive_registers_nineteen_capabilities():
+def test_the_executive_registers_twenty_one_capabilities():
     """Twelve was right under Mission Brief 030, whose Deliverable 7 held
     click/type/keyboard deliberately absent and said "a later Desktop
     Interaction brief owns this". That brief was delivered:
     `desktop/actions_interaction.py` registers the already-built
     `execution/` machinery as real Actions, and its own docstring records
-    exactly that. Seven interaction capabilities is the difference."""
+    exactly that. Seven interaction capabilities was the difference then.
+
+    Twenty-one now: `desktop_drag` and `desktop_scroll` were wired during
+    the Desktop/Browser closure. The MouseController had `drag()` and
+    `scroll()` all along and nothing could reach either -- a missing
+    capability wearing a built one's clothes."""
     plugin, _ = plugin_for(machine())
 
-    assert len(plugin.manifest.capabilities) == 19
+    # 21 since desktop_drag and desktop_scroll were wired: the mouse
+    # controller had drag() and scroll() all along and nothing could
+    # reach them, which is a missing capability wearing a built one's
+    # clothes.
+    assert len(plugin.manifest.capabilities) == 21
 
 
 def test_the_executive_is_named_desktop():
@@ -951,13 +960,13 @@ def test_its_capabilities_reach_mission_control_qualified():
     assert "Desktop.ListInstalledSoftware" in mc.capabilities.names()
 
 
-def test_all_nineteen_capabilities_are_registered():
+def test_all_twenty_one_capabilities_are_registered():
     """Whatever the Executive's manifest declares reaches Mission Control
     -- the count is asserted in both places so a capability cannot exist
     on one side and not the other."""
     mc, _, _, _ = registered_world()
 
-    assert len(mc.capabilities.for_executive(DESKTOP_EXECUTIVE_ID)) == 19
+    assert len(mc.capabilities.for_executive(DESKTOP_EXECUTIVE_ID)) == 21
 
 
 def test_discovery_needs_no_special_casing():

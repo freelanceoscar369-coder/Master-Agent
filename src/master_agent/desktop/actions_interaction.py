@@ -72,6 +72,8 @@ VERIFIED_BRING_TO_FRONT = "bring_to_front"
 # docstring). `read_text`/`close_window` have no such collision and keep
 # their plain names.
 CLICK_CONTROL = "desktop_click"
+DRAG_POINTER = "desktop_drag"
+SCROLL_POINTER = "desktop_scroll"
 TYPE_TEXT = "desktop_type_text"
 READ_TEXT = "read_text"
 PRESS_KEY = "desktop_press_key"
@@ -508,25 +510,119 @@ class ClickControlAction(_VerifiedInteractionAction):
         return ["application", "x", "y"]
 
     def optional_parameters(self) -> list[dict[str, Any]]:
-        """No optional arguments.
+        """`button` and `click_count`, and nothing else.
 
-        Verified against this Action's own `validate()`, `run()` and
-        every helper they call: it reads exactly the required
-        arguments above and nothing else. Returning a list -- even an
-        empty one -- is this Action stating that its argument roster
-        is complete.
+        One capability covers single, double, triple, right and middle
+        click. The alternative -- a named Action per gesture -- multiplies
+        the contract for what is one operation with two parameters, and
+        invites a per-site gesture Action the first time some page wants
+        something unusual.
 
-        That statement is what the deterministic planner needs. An
-        open roster means `optional arguments exist and are not
-        listed`, and a planner that cannot see the whole contract
-        correctly refuses to guess at it -- so this capability could
-        not be planned without a model, however fully the founder
-        spelled the request out."""
-        return []
+        The roster stays closed: these two are the whole of what `run()`
+        reads beyond the required arguments, so the planner sees the
+        complete contract rather than the "others may exist" hedge.
+        """
+        return [
+            {
+                "name": "button",
+                "type": "string",
+                "description": (
+                    "Which mouse button: 'left' (default), 'right' for a "
+                    "context menu, or 'middle'."
+                ),
+                "default": "left",
+            },
+            {
+                "name": "click_count",
+                "type": "integer",
+                "description": (
+                    "How many rapid clicks: 1 (default), 2 to double-click, 3 "
+                    "to triple-click. What a double or triple click SELECTS is "
+                    "control- and application-dependent -- a third click takes "
+                    "a whole single-line field in some controls and a "
+                    "paragraph in others -- so verify the result rather than "
+                    "assuming it selected everything."
+                ),
+                "default": 1,
+            },
+        ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors = self._require_known_application(parameters)
         for key in ("x", "y"):
+            if not isinstance(parameters.get(key), (int, float)):
+                errors.append(f"'{key}' must be a number")
+
+        button = parameters.get("button", "left")
+        if not isinstance(button, str) or button not in ("left", "right", "middle"):
+            errors.append("'button' must be one of: left, right, middle")
+
+        count = parameters.get("click_count", 1)
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            errors.append("'click_count' must be a positive integer")
+
+        return errors
+
+    def run(self, parameters: dict[str, Any]) -> ExecutionResult:
+        resolved = self._resolve_window(parameters["application"])
+        if not resolved.success:
+            return resolved
+        focused = self._focus_and_confirm(resolved.output["window"])
+        if not focused.success:
+            return focused
+
+        x, y = int(parameters["x"]), int(parameters["y"])
+        button = parameters.get("button", "left")
+        count = int(parameters.get("click_count", 1))
+
+        executor = _executor(self._context)
+        # One click keeps the exact call it always made, so nothing about
+        # existing behaviour shifts; more than one uses the generic
+        # repeated-click primitive rather than a named gesture.
+        if count == 1:
+            clicked = executor.mouse.click(x, y, button=button)
+        else:
+            clicked = executor.mouse.multi_click(x, y, count, button=button)
+        if not clicked.success:
+            return clicked
+        return ExecutionResult(
+            success=True,
+            output={**clicked.output, "window": focused.output["window"]},
+        )
+
+
+class DragPointerAction(_VerifiedInteractionAction):
+    """Press at one point, move, release at another.
+
+    Wired because the primitive already existed and nothing could reach
+    it: a built capability nobody can call is indistinguishable from a
+    missing one the first time somebody needs it.
+
+    Same safety boundary as every other interaction here -- the window is
+    resolved and confirmed foreground first, so a drag cannot start in one
+    application and finish in another.
+
+    Delivery is not outcome. This reports that the gesture was delivered
+    to the confirmed window; whether the intended thing moved is a
+    question for the next observation, never for this return value.
+    """
+
+    name = DRAG_POINTER
+    description = "Drag from one point to another inside a named application's window."
+    risk_tier = RiskTier.REVERSIBLE_WRITE
+    permission_category = PermissionCategory.SYSTEM
+    expected_result = "The drag gesture is delivered to the confirmed-foreground window."
+
+    def required_parameters(self) -> list[str]:
+        return ["application", "x1", "y1", "x2", "y2"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments; `run()` reads exactly the five above."""
+        return []
+
+    def validate(self, parameters: dict[str, Any]) -> list[str]:
+        errors = self._require_known_application(parameters)
+        for key in ("x1", "y1", "x2", "y2"):
             if not isinstance(parameters.get(key), (int, float)):
                 errors.append(f"'{key}' must be a number")
         return errors
@@ -540,12 +636,65 @@ class ClickControlAction(_VerifiedInteractionAction):
             return focused
 
         executor = _executor(self._context)
-        clicked = executor.mouse.click(int(parameters["x"]), int(parameters["y"]))
-        if not clicked.success:
-            return clicked
+        dragged = executor.mouse.drag(
+            int(parameters["x1"]), int(parameters["y1"]),
+            int(parameters["x2"]), int(parameters["y2"]),
+        )
+        if not dragged.success:
+            return dragged
         return ExecutionResult(
             success=True,
-            output={**clicked.output, "window": focused.output["window"]},
+            output={**dragged.output, "window": focused.output["window"]},
+        )
+
+
+class ScrollPointerAction(_VerifiedInteractionAction):
+    """Scroll at a point inside a confirmed window.
+
+    Wired for the same reason as the drag above. `amount` is signed --
+    positive scrolls one way, negative the other -- which is the mouse
+    controller's own convention, not a new one invented here.
+    """
+
+    name = SCROLL_POINTER
+    description = "Scroll at a point inside a named application's window."
+    risk_tier = RiskTier.REVERSIBLE_WRITE
+    permission_category = PermissionCategory.SYSTEM
+    expected_result = "The scroll is delivered to the confirmed-foreground window."
+
+    def required_parameters(self) -> list[str]:
+        return ["application", "x", "y", "amount"]
+
+    def optional_parameters(self) -> list[dict[str, Any]]:
+        """No optional arguments; `run()` reads exactly the four above."""
+        return []
+
+    def validate(self, parameters: dict[str, Any]) -> list[str]:
+        errors = self._require_known_application(parameters)
+        for key in ("x", "y", "amount"):
+            if not isinstance(parameters.get(key), (int, float)):
+                errors.append(f"'{key}' must be a number")
+        if isinstance(parameters.get("amount"), bool):
+            errors.append("'amount' must be a number")
+        return errors
+
+    def run(self, parameters: dict[str, Any]) -> ExecutionResult:
+        resolved = self._resolve_window(parameters["application"])
+        if not resolved.success:
+            return resolved
+        focused = self._focus_and_confirm(resolved.output["window"])
+        if not focused.success:
+            return focused
+
+        executor = _executor(self._context)
+        scrolled = executor.mouse.scroll(
+            int(parameters["x"]), int(parameters["y"]), int(parameters["amount"])
+        )
+        if not scrolled.success:
+            return scrolled
+        return ExecutionResult(
+            success=True,
+            output={**scrolled.output, "window": focused.output["window"]},
         )
 
 
@@ -936,6 +1085,8 @@ DESKTOP_INTERACTION_ACTION_CLASSES: tuple[type[_DesktopAction], ...] = (
     FindTargetAction,
     ObserveDesktopAction,
     ClickControlAction,
+    DragPointerAction,
+    ScrollPointerAction,
     TypeIntoWindowAction,
     ReadWindowTextAction,
     PressKeyAction,
