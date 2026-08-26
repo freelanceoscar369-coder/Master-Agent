@@ -397,8 +397,8 @@ class TrustedWebAiProvider:
                 if chosen is None:
                     return self._fail(REJECTED, BROWSER_CANCELLED, started)
                 candidates = (chosen,)
-        elif resolution.ranked:
-            candidates = resolution.ranked
+        elif resolution.ordered:
+            candidates = resolution.ordered
         elif resolution.chosen is not None:
             candidates = (resolution.chosen,)
         else:

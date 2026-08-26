@@ -135,7 +135,7 @@ class BrowserResolution:
     #: target page and its accessibility tree threw on every read, so it
     #: could be *recognised* and not *driven*. "Already open" and "usable"
     #: are different claims, and only an observation settles the second.
-    ranked: tuple[BrowserCandidate, ...] = field(default_factory=tuple)
+    ordered: tuple[BrowserCandidate, ...] = field(default_factory=tuple)
 
     @property
     def resolved(self) -> bool:

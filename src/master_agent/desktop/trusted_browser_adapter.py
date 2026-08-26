@@ -117,11 +117,14 @@ class DesktopTrustedBrowser:
     def resolve(self, page_markers: tuple[str, ...]) -> BrowserResolution:
         """Observed reality decides, in this order.
 
-        The founder's own machine is why this is not a preference list: a
-        Gemini page was open in Chrome while Comet sat in the foreground
-        with unrelated work. Preferring "whatever is in front" would have
-        driven the wrong browser; preferring "Chrome always" would have
-        been right by luck and wrong the next time.
+        The founder's own machine is why this is not a preference list:
+        the target page was open in one browser while another sat in the
+        foreground with unrelated work. Preferring "whatever is in front"
+        would have driven the wrong browser; preferring a fixed order
+        would have been right by luck and wrong the next time.
+
+        Which site the markers describe is the caller's business. This
+        layer matches strings and never learns what they mean.
         """
         foreground = self._foreground_handle()
         candidates: list[BrowserCandidate] = []
@@ -140,7 +143,7 @@ class DesktopTrustedBrowser:
 
         # Best first: already showing the target page beats not; being in
         # front breaks a tie between two that both show it.
-        ranked = tuple(
+        ordered = tuple(
             sorted(candidates, key=lambda c: (not c.has_target_page, not c.is_foreground))
         )
         showing = [c for c in candidates if c.has_target_page]
@@ -149,7 +152,7 @@ class DesktopTrustedBrowser:
             return BrowserResolution(
                 showing[0],
                 f"{showing[0].application} is already showing the target page",
-                ranked=ranked,
+                ordered=ordered,
             )
         if len(showing) > 1:
             in_front = [c for c in showing if c.is_foreground]
@@ -157,21 +160,21 @@ class DesktopTrustedBrowser:
                 return BrowserResolution(
                     in_front[0],
                     f"{in_front[0].application} is showing the target page and is in front",
-                    ranked=ranked,
+                    ordered=ordered,
                 )
             # Several hold the page and none is in front. Picking one would
             # be guessing at which session the founder means.
             return BrowserResolution(
                 None, "several browsers already hold the target page",
-                tuple(showing), ranked=ranked,
+                tuple(showing), ordered=ordered,
             )
 
         if candidates:
-            running = ranked[0]
+            running = ordered[0]
             return BrowserResolution(
                 running,
                 f"no browser is showing the target page; reusing running {running.application}",
-                ranked=ranked,
+                ordered=ordered,
             )
         return BrowserResolution(None, "no trusted browser is running", (), ())
 

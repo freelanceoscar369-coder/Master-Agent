@@ -104,7 +104,16 @@ def test_no_ollama_provider_is_ever_registered(monkeypatch):
     # a developer machine for the wrong reason.
     always = {
         "gemini.api", "claude-desktop", "chatgpt-desktop",
-        "perplexity-desktop", "kimi-desktop", "browser.free-ai",
+        "perplexity-desktop", "kimi-desktop",
+        # Founder Edition's web rung is the TRUSTED browser lane now, not
+        # the Playwright one. `browser.free-ai` stays administratively
+        # known and is deliberately not configured here, because Google
+        # refuses to sign in inside an automation-controlled browser, so
+        # it could occupy this rung without being able to serve it. The
+        # invariant this test actually guards -- nothing
+        # known-but-unconfigured becomes a candidate -- is unchanged, and
+        # `browser.free-ai` is now on the correct side of it.
+        "trusted-founder-web",
     }
     assert always <= provider_ids
     assert provider_ids <= always | {"openrouter.api"}
@@ -154,7 +163,16 @@ def test_no_ollama_in_the_interactive_candidate_set(monkeypatch):
     assert len(interactive) == 1
     always = {
         "gemini.api", "claude-desktop", "chatgpt-desktop",
-        "perplexity-desktop", "kimi-desktop", "browser.free-ai",
+        "perplexity-desktop", "kimi-desktop",
+        # Founder Edition's web rung is the TRUSTED browser lane now, not
+        # the Playwright one. `browser.free-ai` stays administratively
+        # known and is deliberately not configured here, because Google
+        # refuses to sign in inside an automation-controlled browser, so
+        # it could occupy this rung without being able to serve it. The
+        # invariant this test actually guards -- nothing
+        # known-but-unconfigured becomes a candidate -- is unchanged, and
+        # `browser.free-ai` is now on the correct side of it.
+        "trusted-founder-web",
     }
     candidates = set(interactive[0][1])
     assert always <= candidates

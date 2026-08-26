@@ -75,19 +75,19 @@ class FakeBrowser:
     # -- resolution
     def resolve(self, page_markers):
         showing = [c for c in self._candidates if c.has_target_page]
-        ranked = tuple(sorted(self._candidates,
+        ordered = tuple(sorted(self._candidates,
                               key=lambda c: (not c.has_target_page, not c.is_foreground)))
         if self._ambiguous and len(showing) > 1:
-            return BrowserResolution(None, "ambiguous", tuple(showing), ranked)
+            return BrowserResolution(None, "ambiguous", tuple(showing), ordered)
         if len(showing) == 1:
-            return BrowserResolution(showing[0], "one showing", ranked=ranked)
+            return BrowserResolution(showing[0], "one showing", ordered=ordered)
         if len(showing) > 1:
             front = [c for c in showing if c.is_foreground]
             if len(front) == 1:
-                return BrowserResolution(front[0], "foreground", ranked=ranked)
-            return BrowserResolution(None, "ambiguous", tuple(showing), ranked)
-        if ranked:
-            return BrowserResolution(ranked[0], "reusing running", ranked=ranked)
+                return BrowserResolution(front[0], "foreground", ordered=ordered)
+            return BrowserResolution(None, "ambiguous", tuple(showing), ordered)
+        if ordered:
+            return BrowserResolution(ordered[0], "reusing running", ordered=ordered)
         return BrowserResolution(None, "nothing running", (), ())
 
     def use(self, candidate):
