@@ -29,15 +29,24 @@ import time
 from typing import Any
 
 from master_agent.trusted_browser import (
+    BrowserCandidate,
+    BrowserResolution,
     PageElement,
     PageObservation,
     TrustedBrowserResult,
     TrustedBrowserUnavailable,
 )
 
-#: The ordinary installed browser this deployment drives, as the Desktop
-#: Executive's own application catalogue names it. Configuration, not a
-#: branch: a deployment on a different browser changes this one value.
+#: The ordinary installed browsers this deployment may drive, as the
+#: Desktop Executive's own application catalogue names them. Deployment
+#: configuration and nothing more -- no code below branches on which one
+#: it is, and the order here is NOT a preference: which browser executes
+#: is decided by what is observed open, never by this list's order.
+DEFAULT_CANDIDATES = ("chrome", "comet")
+
+#: What to launch when none of the candidates is running. The only place
+#: an ordering opinion is allowed, because with nothing observed there is
+#: nothing to observe.
 DEFAULT_APPLICATION = "chrome"
 
 #: How many times focus-then-type is retried before giving up. Bounded on
@@ -66,14 +75,113 @@ class DesktopTrustedBrowser:
         application: str = DEFAULT_APPLICATION,
         actions: dict[str, Any] | None = None,
         sleep: Any = None,
+        candidates: tuple[str, ...] = DEFAULT_CANDIDATES,
+        windows: Any = None,
     ) -> None:
         self._context = context
         self._application = application
+        self._candidates = tuple(candidates)
         self._actions = actions or _default_actions()
         self._sleep = sleep or time.sleep
+        self._windows = windows
         #: Set once this task opens its own tab. Used only to decide
         #: whether closing something is this task's business.
         self._owns_tab = False
+
+    # ---- which browser executes this request ----------------------------
+
+    def _window_manager(self):
+        if self._windows is None:
+            from master_agent.desktop.execution.win32_backends import Win32WindowBackend
+            from master_agent.desktop.execution.window import WindowManager
+
+            self._windows = WindowManager(Win32WindowBackend())
+        return self._windows
+
+    def _running_windows(self, application: str) -> list[dict[str, Any]]:
+        inventory = self._context.refresh(read_versions=False, deep=False)
+        pids = frozenset(p.pid for p in inventory.running(application))
+        if not pids:
+            return []
+        located = self._window_manager().locate_by_process(pids)
+        if not located.success or not located.output:
+            return []
+        return list(located.output.get("windows") or [])
+
+    def _foreground_handle(self) -> Any:
+        active = self._window_manager().active()
+        if not active.success or not active.output:
+            return None
+        return active.output.get("handle")
+
+    def resolve(self, page_markers: tuple[str, ...]) -> BrowserResolution:
+        """Observed reality decides, in this order.
+
+        The founder's own machine is why this is not a preference list: a
+        Gemini page was open in Chrome while Comet sat in the foreground
+        with unrelated work. Preferring "whatever is in front" would have
+        driven the wrong browser; preferring "Chrome always" would have
+        been right by luck and wrong the next time.
+        """
+        foreground = self._foreground_handle()
+        candidates: list[BrowserCandidate] = []
+        for application in self._candidates:
+            for window in self._running_windows(application):
+                title = str(window.get("title") or "")
+                candidates.append(
+                    BrowserCandidate(
+                        application=application,
+                        window_handle=window.get("handle"),
+                        window_title=title,
+                        has_target_page=_matches(title, page_markers),
+                        is_foreground=window.get("handle") == foreground,
+                    )
+                )
+
+        # Best first: already showing the target page beats not; being in
+        # front breaks a tie between two that both show it.
+        ranked = tuple(
+            sorted(candidates, key=lambda c: (not c.has_target_page, not c.is_foreground))
+        )
+        showing = [c for c in candidates if c.has_target_page]
+
+        if len(showing) == 1:
+            return BrowserResolution(
+                showing[0],
+                f"{showing[0].application} is already showing the target page",
+                ranked=ranked,
+            )
+        if len(showing) > 1:
+            in_front = [c for c in showing if c.is_foreground]
+            if len(in_front) == 1:
+                return BrowserResolution(
+                    in_front[0],
+                    f"{in_front[0].application} is showing the target page and is in front",
+                    ranked=ranked,
+                )
+            # Several hold the page and none is in front. Picking one would
+            # be guessing at which session the founder means.
+            return BrowserResolution(
+                None, "several browsers already hold the target page",
+                tuple(showing), ranked=ranked,
+            )
+
+        if candidates:
+            running = ranked[0]
+            return BrowserResolution(
+                running,
+                f"no browser is showing the target page; reusing running {running.application}",
+                ranked=ranked,
+            )
+        return BrowserResolution(None, "no trusted browser is running", (), ())
+
+    def use(self, candidate: BrowserCandidate) -> TrustedBrowserResult:
+        if not candidate.application:
+            return TrustedBrowserResult(False, "the candidate names no application")
+        self._application = candidate.application
+        return TrustedBrowserResult(
+            True, f"executing in {candidate.application} ({candidate.window_title[:60]})"
+        )
 
     # ---- the Action boundary -------------------------------------------
 
@@ -269,6 +377,17 @@ class DesktopTrustedBrowser:
         if closed.success:
             return TrustedBrowserResult(True, "closed this task's tab")
         return TrustedBrowserResult(False, "; ".join(closed.errors) or "could not close the tab")
+
+
+def _matches(title: str, markers: tuple[str, ...]) -> bool:
+    """Whether a window title says this browser is on the caller's site.
+
+    A window title is what Windows itself publishes, so it needs no
+    accessibility read and no page inspection -- which matters, because
+    deciding *which* browser to drive must not require driving one.
+    """
+    lowered = (title or "").lower()
+    return any(marker.lower() in lowered for marker in markers if marker)
 
 
 def _failed(message: str):

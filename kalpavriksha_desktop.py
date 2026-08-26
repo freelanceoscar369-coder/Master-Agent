@@ -919,6 +919,58 @@ def _build_mission_pipeline():
     # The session manager is shared with the Browser Executive rather than
     # constructed privately: two managers would mean two Chromes, and
     # verification would then observe a window nobody typed into.
+    # Founder Edition's trusted web-AI lane. Registered as its OWN
+    # provider, never as a fallback hidden inside the Playwright one:
+    # Google refuses to sign in inside an automation-controlled browser,
+    # so `browser.free-ai` fails truthfully there, and whether to try this
+    # instead is the Broker's decision to make and to record. A provider
+    # that silently switched execution paths would be a provider deciding.
+    #
+    # The descriptor is built here rather than in the provider module
+    # because a `ProviderSpec` comes from `ai_infrastructure`, which MB033
+    # Rule 4 forbids a provider from importing at all.
+    from master_agent.ai_infrastructure.catalog import (
+        CLOUD as _CLOUD,
+        DECLARED as _DECLARED,
+        REASONING as _REASONING,
+        THIRD_PARTY as _THIRD_PARTY,
+        ProviderSpec as _ProviderSpec,
+    )
+    from master_agent.desktop.trusted_browser_adapter import DesktopTrustedBrowser
+    from master_agent.providers.trusted_web_ai import (
+        GEMINI_WEB,
+        TRUSTED_WEB_PROVIDER_ID,
+        TrustedWebAiProvider,
+    )
+
+    trusted_web_spec = _ProviderSpec(
+        provider_id=TRUSTED_WEB_PROVIDER_ID,
+        label="Web AI in the founder's own browser",
+        capabilities=frozenset({_REASONING}),
+        locality=_CLOUD,
+        privacy=_THIRD_PARTY,
+        declared_quality=0.72,
+        cost_per_call=0.0,
+        latency_ms=12000.0,
+        needs_credentials=False,
+        basis=_DECLARED,
+        # States the requirement and deliberately no verdict: whether a
+        # usable authenticated page exists is a fact about this minute,
+        # which a record written last week cannot hold.
+        notes=(
+            "drives the founder's ordinary installed browser through the Desktop "
+            "Executive; uses the session they are already signed into; requires a "
+            "usable authenticated page, verified at use"
+        ),
+    )
+    canonical_providers.register(descriptor_for(trusted_web_spec))
+    provider_registry.register(
+        TrustedWebAiProvider(
+            browser=DesktopTrustedBrowser(desktop_plugin._context),
+            site=GEMINI_WEB,
+            interaction=founder_interaction(),
+        ),
+    )
     provider_registry.register(
         BrowserFreeAiReasoningProvider(
             sites=FOUNDER_EDITION_SITES,

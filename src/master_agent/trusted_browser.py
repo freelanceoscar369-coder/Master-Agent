@@ -100,6 +100,53 @@ class PageObservation:
 
 
 @dataclass(frozen=True)
+class BrowserCandidate:
+    """One browser window that could serve this request."""
+
+    application: str = ""
+    window_handle: int | None = None
+    window_title: str = ""
+    has_target_page: bool = False
+    is_foreground: bool = False
+
+
+@dataclass(frozen=True)
+class BrowserResolution:
+    """Which browser window was chosen to execute in, and why.
+
+    `reason` is kept because this decision is made from observed reality
+    and a founder reading an execution record should be able to see what
+    was observed rather than take the choice on trust.
+
+    `options` is non-empty only when the observation was genuinely
+    ambiguous -- several browsers already showing the target site and none
+    of them in front. That is a question for the founder, not a tiebreak
+    to invent.
+    """
+
+    chosen: BrowserCandidate | None = None
+    reason: str = ""
+    options: tuple[BrowserCandidate, ...] = field(default_factory=tuple)
+    #: Every candidate, best first, so a caller that finds `chosen`
+    #: unusable can fall to the next without re-deciding.
+    #:
+    #: This exists because a window title is cheap evidence and not
+    #: sufficient evidence. Measured live: a browser was showing the
+    #: target page and its accessibility tree threw on every read, so it
+    #: could be *recognised* and not *driven*. "Already open" and "usable"
+    #: are different claims, and only an observation settles the second.
+    ranked: tuple[BrowserCandidate, ...] = field(default_factory=tuple)
+
+    @property
+    def resolved(self) -> bool:
+        return self.chosen is not None
+
+    @property
+    def ambiguous(self) -> bool:
+        return self.chosen is None and bool(self.options)
+
+
+@dataclass(frozen=True)
 class TrustedBrowserResult:
     """Whether one operation happened, and why not when it did not.
 
@@ -131,6 +178,29 @@ class TrustedBrowserPort(Protocol):
     foreground as part of the acting call rather than trusting an earlier
     check, and refuses rather than acting when it cannot.
     """
+
+    def resolve(self, page_markers: tuple[str, ...]) -> BrowserResolution:
+        """Choose which already-open browser window executes this request.
+
+        `page_markers` are the caller's own way of recognising its site --
+        the port matches them and never knows what they mean. That is what
+        keeps this file free of any website's name.
+
+        The order is observed reality, never a hardcoded preference:
+        a browser already showing the target site wins over one that is
+        not, whichever browser it happens to be; the foreground breaks a
+        tie between two that both qualify; and genuine ambiguity is
+        returned as `options` for the founder rather than settled here.
+
+        Choosing a *browser* is environment resolution. It is not choosing
+        a provider, which belongs to the Broker alone.
+        """
+        ...
+
+    def use(self, candidate: BrowserCandidate) -> TrustedBrowserResult:
+        """Execute subsequent operations in this specific window -- the one
+        the founder picked, or the one `resolve()` chose."""
+        ...
 
     def ensure_available(self) -> TrustedBrowserResult:
         """Make the founder's ordinary browser available, reusing it if

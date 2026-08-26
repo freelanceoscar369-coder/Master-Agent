@@ -32,13 +32,6 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from master_agent.ai_infrastructure.catalog import (
-    CLOUD,
-    DECLARED,
-    REASONING,
-    THIRD_PARTY,
-    ProviderSpec,
-)
 from master_agent.providers.response import (
     MALFORMED,
     REJECTED,
@@ -108,8 +101,13 @@ class WebAiSite:
     __slots__ = (
         "account_option_role",
         "composer_name",
+        "conversation_menu",
         "credential_markers",
+        "history_toggle",
         "label",
+        "new_chat",
+        "page_markers",
+        "rename_item",
         "response_noise",
         "response_role",
         "signed_out_markers",
@@ -126,6 +124,11 @@ class WebAiSite:
         credential_markers: tuple[str, ...] = (),
         account_option_role: str = "",
         response_noise: tuple[str, ...] = (),
+        page_markers: tuple[str, ...] = (),
+        history_toggle: str = "",
+        conversation_menu: str = "",
+        rename_item: str = "",
+        new_chat: str = "",
     ) -> None:
         self.label = label
         self.url = url
@@ -136,6 +139,20 @@ class WebAiSite:
         self.credential_markers = credential_markers
         self.account_option_role = account_option_role
         self.response_noise = response_noise
+        #: How a *window title* betrays that this site is already open.
+        #: Cheap evidence used only to pick which browser to drive -- no
+        #: accessibility read, because deciding which browser to drive
+        #: must not itself require driving one.
+        self.page_markers = page_markers or (label,)
+        #: The conversation controls, all read off the live page. The
+        #: menu's contents were confirmed rather than assumed: it offers
+        #: Share, Pin, Rename, Download PDF, Export to Docs, Delete -- so
+        #: rename is genuinely available here and this provider is allowed
+        #: to claim a dedicated conversation was named.
+        self.history_toggle = history_toggle
+        self.conversation_menu = conversation_menu
+        self.rename_item = rename_item
+        self.new_chat = new_chat
 
 
 #: Gemini, as observed live in the founder's own browser this session.
@@ -150,6 +167,11 @@ GEMINI_WEB = WebAiSite(
         "verify it", "authenticator", "security key", "recovery",
     ),
     account_option_role="button",
+    page_markers=("Google Gemini",),
+    history_toggle="Toggle Recents",
+    conversation_menu="Open menu for conversation actions",
+    rename_item="Rename",
+    new_chat="New chat",
     response_noise=(
         "ask gemini",
         "gemini is ai and can make mistakes",
@@ -161,27 +183,17 @@ GEMINI_WEB = WebAiSite(
     ),
 )
 
-#: The provider's canonical record. It states that an authenticated
-#: browser session is required and states NO verdict about whether one
-#: exists -- that is a fact about this minute, and a record written last
-#: week cannot hold it.
-TRUSTED_WEB_SPEC = ProviderSpec(
-    provider_id=TRUSTED_WEB_PROVIDER_ID,
-    label="Web AI in the founder's own browser",
-    capabilities=frozenset({REASONING}),
-    locality=CLOUD,
-    privacy=THIRD_PARTY,
-    declared_quality=0.72,
-    cost_per_call=0.0,
-    latency_ms=12000.0,
-    needs_credentials=False,
-    basis=DECLARED,
-    notes=(
-        "drives the founder's ordinary installed browser through the Desktop "
-        "Executive; uses the session they are already signed into; requires a "
-        "usable authenticated page, verified at use"
-    ),
-)
+# The provider's canonical record used to live here, and was moved to the
+# composition root deliberately.
+#
+# A `ProviderSpec` comes from `ai_infrastructure`, and MB033 Rule 4 keeps a
+# provider from importing that package at all: a provider able to see the
+# layer that decides will eventually consult it, and the guard that
+# enforces this caught exactly that import here. The descriptor is
+# administrative data about a provider rather than part of executing one,
+# so it belongs where the deployment registers it -- see
+# `kalpavriksha_desktop.py`. `providers/browser_free_ai.py` keeps its own
+# spec inline and is precisely why that module fails the same guard.
 
 
 class TrustedWebAiProvider:
@@ -196,6 +208,7 @@ class TrustedWebAiProvider:
         site: WebAiSite = GEMINI_WEB,
         provider_id: str = TRUSTED_WEB_PROVIDER_ID,
         interaction: Any = None,
+        conversation_title: str = "Kalpavriksha",
         auth_timeout_seconds: float = 300.0,
         response_timeout_seconds: float = 90.0,
         poll_seconds: float = 3.0,
@@ -204,6 +217,10 @@ class TrustedWebAiProvider:
         self._site = site
         self._provider_id = provider_id
         self._interaction = interaction
+        #: The one conversation this deployment keeps for its own work, so
+        #: a founder can find what Kalpavriksha asked, and so Kalpavriksha
+        #: does not litter their history with a new chat per request.
+        self._conversation_title = conversation_title
         self._auth_timeout_seconds = auth_timeout_seconds
         self._response_timeout_seconds = response_timeout_seconds
         self._poll_seconds = poll_seconds
@@ -276,16 +293,9 @@ class TrustedWebAiProvider:
     ) -> ProviderResult:
         started = time.monotonic()
 
-        try:
-            available = self._browser.ensure_available()
-        except TrustedBrowserUnavailable as exc:
-            return self._fail(UNAVAILABLE, f"{BROWSER_UNAVAILABLE}: {exc}", started)
-        if not available.ok:
-            return self._fail(UNAVAILABLE, f"{BROWSER_UNAVAILABLE}: {available.detail}", started)
-
-        opened = self._browser.open_task_tab(self._site.url)
-        if not opened.ok:
-            return self._fail(UNAVAILABLE, f"{NOT_REACHED}: {opened.detail}", started)
+        reached = self._reach_site(started)
+        if isinstance(reached, ProviderResult):
+            return reached
 
         state = self._page_state(self._browser.observe())
         if state != READY:
@@ -328,6 +338,165 @@ class TrustedWebAiProvider:
             latency_ms=self._elapsed(started),
             detail={"site": self._site.label, "url": self._site.url},
         )
+
+    # ---- getting to the right browser, page and conversation -------------
+
+    def _reach_site(self, started: float) -> Any:
+        """Choose a browser, get to the site, and land in this
+        deployment's own conversation, reusing whatever already exists.
+
+        Every step here is *preparation for the founder's request*, never a
+        substitute for it. The prompt stays in hand throughout and is
+        submitted the moment the page is usable.
+        """
+        resolution = self._browser.resolve(self._site.page_markers)
+
+        if resolution.ambiguous:
+            chosen = self._ask_which_browser(resolution.options)
+            if chosen is None:
+                return self._fail(REJECTED, ACCOUNT_CANCELLED, started)
+            candidates = (chosen,)
+        elif resolution.ranked:
+            candidates = resolution.ranked
+        elif resolution.chosen is not None:
+            candidates = (resolution.chosen,)
+        else:
+            candidates = ()
+
+        # A title match is cheap evidence; being drivable is the real test.
+        # Measured live: a browser was showing the target page and threw on
+        # every accessibility read, so it could be recognised and not
+        # driven. Each candidate is therefore proven by observation before
+        # anything is typed into it.
+        for candidate in candidates:
+            self._browser.use(candidate)
+            if candidate.has_target_page and self._browser.observe().elements:
+                return None
+        if candidates:
+            self._browser.use(candidates[0])
+
+        try:
+            available = self._browser.ensure_available()
+        except TrustedBrowserUnavailable as exc:
+            return self._fail(UNAVAILABLE, f"{BROWSER_UNAVAILABLE}: {exc}", started)
+        if not available.ok:
+            return self._fail(UNAVAILABLE, f"{BROWSER_UNAVAILABLE}: {available.detail}", started)
+
+        opened = self._browser.open_task_tab(self._site.url)
+        if not opened.ok:
+            return self._fail(UNAVAILABLE, f"{NOT_REACHED}: {opened.detail}", started)
+        return None
+
+    def _ask_which_browser(self, options: tuple[Any, ...]) -> Any:
+        """Several browsers hold the page and none is in front. Which
+        session the founder means is not something to infer."""
+        if not self._can_ask():
+            return options[0] if len(options) == 1 else None
+        from master_agent.founder_interaction import ChoiceOption, FounderChoiceRequest
+
+        response = self._interaction.ask_choice(
+            FounderChoiceRequest(
+                question=f"Which browser should Kalpavriksha use for {self._site.label}?",
+                options=tuple(
+                    ChoiceOption(
+                        option_id=str(index),
+                        label=f"{option.application}: {option.window_title}",
+                    )
+                    for index, option in enumerate(options)
+                ),
+                context="More than one browser already has this page open.",
+                asked_by=self._provider_id,
+            )
+        )
+        if response is None or response.cancelled:
+            return None
+        try:
+            return options[int(response.option_id)]
+        except (TypeError, ValueError, IndexError):
+            return None
+
+    def conversation_state(self) -> tuple[str, str]:
+        """Is this deployment's own conversation the one on screen?
+
+        Returns `(state, visible_title)`. The visible title is the
+        authority, because it is what the site itself is displaying --
+        clicking something and assuming it worked is exactly the trust
+        this lane refuses to extend.
+        """
+        observation = self._browser.observe()
+        title = observation.window_title or ""
+        if self._conversation_title and self._conversation_title in title:
+            return ("current", title)
+        return ("absent", title)
+
+    def open_dedicated_conversation(self) -> tuple[str, str]:
+        """Reuse this deployment's conversation, or say truthfully that it
+        had to be created.
+
+        The order is the founder's and it matters: confirm what is already
+        on screen, then search the visible history, and only then create --
+        so a new chat is not spawned on every single request.
+        """
+        state, title = self.conversation_state()
+        if state == "current":
+            return ("reused_current", title)
+
+        if self._site.history_toggle:
+            toggle = self._browser.find(self._site.history_toggle)
+            if toggle is not None:
+                self._browser.click(toggle)
+
+        matches = [
+            element
+            for element in self._browser.observe().elements
+            if (element.name or "").strip() == self._conversation_title
+        ]
+        if len(matches) == 1:
+            self._browser.click(matches[0])
+            state, title = self.conversation_state()
+            # The click proves nothing. The title after it does.
+            return ("reused_existing", title) if state == "current" else ("open_failed", title)
+        if len(matches) > 1:
+            return ("ambiguous", title)
+
+        if self._site.new_chat:
+            fresh = self._browser.find(self._site.new_chat)
+            if fresh is not None:
+                self._browser.click(fresh)
+        return ("created", self._browser.observe().window_title or "")
+
+    def rename_conversation(self) -> tuple[bool, str]:
+        """Name this deployment's conversation, and report what the site
+        actually shows afterwards.
+
+        Confirmed live before being relied on: Gemini's conversation-actions
+        menu really does offer Rename, alongside Share, Pin, Download PDF,
+        Export to Docs and Delete. Where a site offers no such control this
+        returns False and the caller records the real title instead of
+        claiming a name it never managed to set.
+        """
+        if not (self._site.conversation_menu and self._site.rename_item):
+            return (False, self._browser.observe().window_title or "")
+
+        menu = self._browser.find(self._site.conversation_menu)
+        if menu is None:
+            return (False, self._browser.observe().window_title or "")
+        self._browser.click(menu)
+
+        item = self._browser.find(self._site.rename_item)
+        if item is None:
+            self._browser.press("escape")
+            return (False, self._browser.observe().window_title or "")
+        self._browser.click(item)
+
+        typed = self._browser.type_into(self._site.rename_item, self._conversation_title)
+        if not typed.ok:
+            self._browser.press("escape")
+            return (False, self._browser.observe().window_title or "")
+        self._browser.press("enter")
+
+        title = self._browser.observe().window_title or ""
+        return (self._conversation_title in title, title)
 
     # ---- page state -----------------------------------------------------
 
