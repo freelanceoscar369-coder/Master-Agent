@@ -97,6 +97,43 @@ TIER_BROWSER = "browser"
 TIER_ANY = "any"
 
 
+def _acceptable(outcome: Any) -> bool:
+    """Whether this attempt actually answered the request.
+
+    **One definition, read by both loops.** `run()` already knew that a
+    result carrying a failed expectation is not an answer -- "stop as soon
+    as a VERIFIED reasoning result is obtained", this module's own rule --
+    while `_attempt_tier()` stopped on `ok` alone. Those two disagreed,
+    and the disagreement was invisible while every tier held one locality:
+    an unverified outcome returned to `run()`, which moved to the next
+    tier, and the next tier had different providers in it.
+
+    An interactive turn has ONE tier holding every configured provider, so
+    there is no next tier -- and a provider that executed fine while
+    failing the expectation ended the whole attempt with untried
+    candidates sitting beside it. Measured live: a forced fallback reached
+    a desktop provider, which returned `ok=True` and one line against a
+    three-line expectation, and the run stopped there.
+
+    The distinction the rest of this module turns on:
+
+        execution failed              -> not acceptable
+        executed, expectation failed  -> not acceptable, and NOT a
+                                         provider execution failure
+        executed, nothing was asked   -> acceptable, exactly as before
+
+    `evidence is not None` is the discriminator, and it is the precise
+    one: `PromptOutcome.evidence` is `None` exactly when no expectation was
+    supplied, and `verified` is documented as "False when nothing was
+    asked -- unchecked is not verified". A caller with nothing to check
+    against therefore behaves exactly as it always did.
+    """
+    if outcome is None or not getattr(outcome, "ok", False):
+        return False
+    asked = getattr(outcome, "evidence", None) is not None
+    return (not asked) or bool(getattr(outcome, "verified", False))
+
+
 @dataclasses.dataclass(frozen=True)
 class TierAttempt:
     """One tier's outcome, kept for founder-facing/diagnostic reporting —
@@ -248,31 +285,7 @@ class TieredPromptRunner:
             outcome, considered = self._attempt_tier(prompt, request, tier_ids, kwargs)
             self.last_attempts.append(TierAttempt(tier_name, True, tuple(considered), outcome))
             last_outcome = outcome
-            if outcome is not None and getattr(outcome, "ok", False):
-                # This module's own rule, at the top of this file: "stop as
-                # soon as a VERIFIED reasoning result is obtained." It used
-                # to stop as soon as an `ok` one was, and those are not the
-                # same fact.
-                #
-                # Found live. ChatGPT Desktop returned a mid-stream
-                # fragment -- once literally `{"steps"`, once a bare `-` --
-                # with `ok=True` and `verified=False`. The Planner then
-                # refused the founder's whole objective ("the reply was not
-                # a plan document") while three untried rungs sat below,
-                # any of which could have answered. One flaky read ended a
-                # mission the ladder existed to keep alive.
-                #
-                # `evidence is not None` is the discriminator, and it is
-                # the precise one: `PromptOutcome.evidence` is `None`
-                # exactly when no expectation was supplied, and `verified`
-                # is documented as "False when nothing was asked --
-                # unchecked is not verified". So a caller with nothing to
-                # check against behaves exactly as before; only a caller
-                # that stated an expectation and had it fail causes the
-                # ladder to keep walking.
-                asked = getattr(outcome, "evidence", None) is not None
-                if asked and not getattr(outcome, "verified", False):
-                    continue
+            if _acceptable(outcome):
                 return outcome
 
         return last_outcome
@@ -313,10 +326,18 @@ class TieredPromptRunner:
         self, prompt: str, request: Any, tier_ids: frozenset[str], kwargs: dict,
     ) -> tuple[Any, list[str]]:
         """Bounded loop *within* one tier: ask the Broker (scoped to this
-        tier only) for its best candidate; if that specific provider's
-        `complete()` fails, exclude just it and ask again — never more
-        than `len(tier_ids)` attempts, and stop the instant a result
-        succeeds."""
+        tier only) for its best candidate; if that candidate does not
+        answer the request, exclude just it and ask again — never more
+        than `len(tier_ids)` attempts, and stop the instant one does.
+
+        "Does not answer" is `_acceptable()`, the same predicate `run()`
+        uses, and it covers two different things on purpose: a provider
+        whose `complete()` failed, and a provider that completed fine
+        while failing the expectation the caller stated. The second is not
+        an execution failure and is not treated as one — the provider is
+        simply not adequate for THIS request, so the Broker is asked again
+        over what remains. It is never retried, and the expectation is
+        never weakened to let it through."""
         remaining = set(tier_ids)
         considered: list[str] = []
         outcome = None
@@ -326,7 +347,7 @@ class TieredPromptRunner:
             provider_id = getattr(outcome, "provider_id", None)
             if provider_id:
                 considered.append(provider_id)
-            if outcome is not None and getattr(outcome, "ok", False):
+            if _acceptable(outcome):
                 return outcome, considered
             if not provider_id or provider_id not in remaining:
                 # A refusal before any provider was even selected (e.g.
