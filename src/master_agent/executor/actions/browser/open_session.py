@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from master_agent.environment.browser_identity import IDENTITY_ID_PATTERN
 from master_agent.environment.browser_session import BrowserSessionError, BrowserSessionManager
 from master_agent.executor.action import Action, ExecutionResult
 from master_agent.plugins.base import PermissionCategory, RiskTier
@@ -56,6 +57,21 @@ class OpenBrowserSessionAction(Action):
                 ),
                 "default": None,
             },
+            {
+                "name": "identity_id",
+                "type": "string",
+                "description": (
+                    "Open this session as a named, signed-in browser "
+                    "identity (for example 'founder') so websites the "
+                    "founder has already signed into stay signed in. Omit "
+                    "it for an ordinary anonymous session that starts with "
+                    "no cookies and forgets everything on close — which is "
+                    "what almost every objective wants. Only name an "
+                    "identity when the objective needs a site the founder "
+                    "is signed into."
+                ),
+                "default": None,
+            },
         ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
@@ -72,6 +88,23 @@ class OpenBrowserSessionAction(Action):
         if channel is not None and not isinstance(channel, str):
             errors.append("'channel' must be a string if provided")
 
+        identity_id = parameters.get("identity_id")
+        if identity_id is not None:
+            if not isinstance(identity_id, str):
+                errors.append("'identity_id' must be a string if provided")
+            elif identity_id and not IDENTITY_ID_PATTERN.match(identity_id):
+                # Refused here as well as in the identity store, and for a
+                # different reason: this parameter can be written by the
+                # Planner, so `../../../Google/Chrome/User Data` is a
+                # spelling a *plan* could contain. Catching it at validate()
+                # keeps it from ever reaching a filesystem call, and makes
+                # the refusal a plan-level error the founder can read rather
+                # than a launch failure.
+                errors.append(
+                    "'identity_id' must be lowercase letters, digits, '_' or "
+                    "'-' (no path separators, drive letters or dots)"
+                )
+
         return errors
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
@@ -82,10 +115,14 @@ class OpenBrowserSessionAction(Action):
         # this Action having to know a founder exists.
         headless = parameters.get("headless")
         channel = parameters.get("channel") or None
+        identity_id = parameters.get("identity_id") or None
 
         try:
             handle = self._sessions.open_session(
-                session_id, headless=headless, channel=channel
+                session_id,
+                headless=headless,
+                channel=channel,
+                identity_id=identity_id,
             )
         except BrowserSessionError as exc:
             return ExecutionResult(success=False, errors=[str(exc)])
@@ -99,5 +136,6 @@ class OpenBrowserSessionAction(Action):
                 "opened_at": handle.opened_at.isoformat(),
                 "headless": handle.headless,
                 "channel": handle.channel,
+                "identity_id": handle.identity_id,
             },
         )

@@ -349,6 +349,75 @@ def _app_state_dir():
     return state
 
 
+#: Founder Edition's one browser identity. The *id* is generic on purpose
+#: -- nothing branches on it, and a second deployment naming its identity
+#: something else changes this line and nothing more. The founder's actual
+#: name is the label beside it, which is deployment configuration and is
+#: never architectural: it appears in a question put to the founder and
+#: nowhere else.
+FOUNDER_BROWSER_IDENTITY = "founder"
+FOUNDER_BROWSER_IDENTITIES = {FOUNDER_BROWSER_IDENTITY: "Onkar"}
+
+#: The one founder-interaction port for this application.
+#:
+#: A composition-root singleton because of an ordering fact: the reasoning
+#: stack is assembled before a window exists, so the provider must be
+#: handed the port it will ask through long before anything can answer.
+#: The shell attaches a real implementation once it has a surface; until
+#: it does, an unanswerable question cancels rather than being guessed at.
+_FOUNDER_INTERACTION = None
+
+
+def founder_interaction():
+    """The application's `FounderInteraction`, created on first use."""
+    global _FOUNDER_INTERACTION
+    if _FOUNDER_INTERACTION is None:
+        from master_agent.mission_control.founder_choice import (
+            DeferredFounderInteraction,
+        )
+
+        _FOUNDER_INTERACTION = DeferredFounderInteraction()
+    return _FOUNDER_INTERACTION
+
+
+def _browser_identity_store():
+    """Where this application keeps its browser identities.
+
+    A sibling of `state/` under the same `%LOCALAPPDATA%/Kalpavriksha`
+    root `_app_state_dir()` already owns, and deliberately *not* inside
+    it: `state/` is what PersistenceService snapshots and what a recovery
+    may legitimately discard, and browser authentication material must
+    survive neither of those decisions being applied to it. It is not in
+    the repository, not in a fixture, not in the provider registry
+    snapshot and not in mission history.
+
+    It is emphatically not the founder's own Chrome profile
+    (`%LOCALAPPDATA%/Google/Chrome/User Data`). This directory starts
+    empty and holds only what a sign-in performed inside Kalpavriksha's
+    own window put there.
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    from master_agent.environment.browser_identity import (
+        IDENTITIES_DIRNAME,
+        BrowserIdentityStore,
+    )
+
+    override = _os.environ.get("KALPAVRIKSHA_STATE_DIR")
+    # A disposable validation run gets disposable identities too, for the
+    # same reason it gets a disposable state directory: an automated
+    # session must not sign in as, or sign out, the founder.
+    root = (
+        _Path(override).parent
+        if override
+        else _Path(_os.environ.get("LOCALAPPDATA") or _Path.home()) / "Kalpavriksha"
+    )
+    return BrowserIdentityStore(
+        root / IDENTITIES_DIRNAME, known=dict(FOUNDER_BROWSER_IDENTITIES)
+    )
+
+
 def _build_mission_pipeline():
     """The minimal Planner -> Broker -> Gemini -> MissionPlan -> Mission
     Control -> Browser Executive assembly Founder Edition needs for one
@@ -474,9 +543,18 @@ def _build_mission_pipeline():
     # Defaults, not overrides: an explicit `headless`/`channel` in a plan
     # still wins, so the Planner can ask for an invisible session when an
     # objective genuinely does not want a window.
+    browser_identities = _browser_identity_store()
     browser_plugin = BrowserPlugin(
         executor,
-        BrowserSessionManager(default_headless=False, default_channel="chrome"),
+        BrowserSessionManager(
+            default_headless=False,
+            default_channel="chrome",
+            # Declared, not defaulted: a session stays anonymous unless an
+            # Action names an identity, so registering the store here adds
+            # the *ability* to be the founder without making anything
+            # silently become them.
+            identities=browser_identities,
+        ),
     )
     registry.register(browser_plugin)
 
@@ -828,8 +906,27 @@ def _build_mission_pipeline():
     # what the decision forbids. `providers/browser_free_ai.py` stays
     # generic -- its default list is unchanged and another deployment may
     # still use it -- and there is no second provider class.
+    #
+    # `identity_id` is the second half of the founder decision, and the
+    # repair to the defect that opened this mission: Chrome being installed
+    # and visible was never the same thing as the founder being signed in.
+    # The provider used to open an ordinary isolated context -- no cookies,
+    # no storage -- so Gemini showed "Sign in" to a founder whose own
+    # Chrome was signed in, and the provider read that wall as terminal.
+    # Naming an identity gives the session a persistent profile of its
+    # own, so a sign-in done once survives every later restart.
+    #
+    # The session manager is shared with the Browser Executive rather than
+    # constructed privately: two managers would mean two Chromes, and
+    # verification would then observe a window nobody typed into.
     provider_registry.register(
-        BrowserFreeAiReasoningProvider(sites=FOUNDER_EDITION_SITES),
+        BrowserFreeAiReasoningProvider(
+            sites=FOUNDER_EDITION_SITES,
+            identity_id=FOUNDER_BROWSER_IDENTITY,
+            sessions=getattr(browser_plugin, "_sessions", None),
+            identities=browser_identities,
+            interaction=founder_interaction(),
+        ),
     )
     prompt_executor = PromptExecutor(
         service=intelligence, providers=provider_registry, ledger=ledger,
