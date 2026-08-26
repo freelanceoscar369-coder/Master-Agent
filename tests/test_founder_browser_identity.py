@@ -265,6 +265,8 @@ class Provider(BrowserFreeAiReasoningProvider):
 class Recorder:
     """A `FounderInteraction` that answers however a test says."""
 
+    can_ask = True
+
     def __init__(self, answer: FounderChoiceResponse | None = None) -> None:
         self.answer = answer or FounderChoiceResponse.cancel()
         self.asked: list[FounderChoiceRequest] = []
@@ -382,6 +384,27 @@ def test_an_unattached_interaction_port_cancels_rather_than_choosing():
     )
     assert response.cancelled is True
     assert port.attached is False
+    assert port.can_ask is False
+
+
+def test_a_port_that_cannot_ask_is_not_reported_as_a_founder_cancelling():
+    """"Nobody asked you" and "you said no" are different facts.
+
+    The composition root builds the port before there is a window to ask
+    in. An unattached port cancels -- correctly, since guessing is
+    forbidden -- but telling the founder they cancelled a choice they were
+    never offered is a lie about their own actions.
+    """
+    browser = Browser(signed_out(), chooser("A <a@example.com>", "B <b@example.com>"))
+    port = DeferredFounderInteraction()
+
+    result = Provider(browser, identity_id="founder", interaction=port).complete(PROMPT)
+
+    assert result.ok is False
+    assert "cancel" not in result.error.lower()
+    assert FOUNDER_ACTION_MESSAGE in result.error or "action" in result.error.lower()
+    assert browser.typed == []
+    assert [c for c in browser.clicks if c.startswith(ACCOUNTS)] == []
 
 
 # =========================================================================

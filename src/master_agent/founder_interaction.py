@@ -109,6 +109,13 @@ class FounderInteraction(Protocol):
     something to report before it goes back to waiting.
     """
 
+    #: Whether this implementation can actually put a question to a
+    #: founder right now. A port that cannot ask is not the same thing as
+    #: a founder who said no, and a caller that cannot tell them apart
+    #: will eventually report one as the other -- see
+    #: `DeferredFounderInteraction`, where exactly that was reachable.
+    can_ask: bool
+
     def ask_choice(self, request: FounderChoiceRequest) -> FounderChoiceResponse:
         ...
 
@@ -126,11 +133,14 @@ class DeferredFounderInteraction:
     provider. This is that something: an empty holder the shell attaches
     a real implementation to once it has a surface.
 
-    Unattached, it **cancels**. That is the whole point of the class: a
-    question nobody can answer must not be answered on the founder's
-    behalf, and the caller's cancel path already stops safely and says
-    why. Returning a default option here would be exactly the guess the
-    account-choice rule forbids.
+    Unattached, it reports `can_ask = False` and cancels. Both halves
+    matter. Cancelling is what stops a question nobody can answer from
+    being answered on the founder's behalf -- returning a default option
+    would be exactly the guess the account-choice rule forbids. But
+    cancelling *alone* was a bug: the caller then told the founder they
+    had cancelled a choice they were never offered, which is a lie about
+    the founder's own actions. `can_ask` is how a caller tells "nobody
+    asked you" apart from "you said no", so it can say the true thing.
     """
 
     def __init__(self, delegate: FounderInteraction | None = None) -> None:
@@ -139,6 +149,14 @@ class DeferredFounderInteraction:
     @property
     def attached(self) -> bool:
         return self._delegate is not None
+
+    @property
+    def can_ask(self) -> bool:
+        """False until a surface is attached, and thereafter whatever that
+        surface says about itself."""
+        if self._delegate is None:
+            return False
+        return bool(getattr(self._delegate, "can_ask", True))
 
     def attach(self, delegate: FounderInteraction) -> None:
         self._delegate = delegate

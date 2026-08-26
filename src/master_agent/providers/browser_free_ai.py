@@ -693,7 +693,11 @@ class BrowserFreeAiReasoningProvider(ModelProvider):
             self._run_click(manager, selector)
             return None
 
-        if self._interaction is None:
+        if not self._can_ask_founder():
+            # Nobody can be asked. That is founder work to finish in the
+            # window, and it must NOT be reported as the founder having
+            # cancelled -- they were never offered the choice.
+            self._notify(FOUNDER_ACTION_MESSAGE)
             return AUTHENTICATION_REQUIRED
 
         from master_agent.founder_interaction import (
@@ -777,6 +781,18 @@ class BrowserFreeAiReasoningProvider(ModelProvider):
             timeout_ms=_LOAD_TIMEOUT_MS,
         )
         return bool(clicked.success)
+
+    def _can_ask_founder(self) -> bool:
+        """Whether a question would actually reach a founder.
+
+        A port may exist and still have nothing behind it -- the
+        composition root builds one before there is a window to ask in.
+        Asking anyway returns a cancellation, and reporting that as the
+        founder's own decision would be untrue.
+        """
+        if self._interaction is None:
+            return False
+        return bool(getattr(self._interaction, "can_ask", True))
 
     def _notify(self, message: str) -> None:
         if self._interaction is None:
