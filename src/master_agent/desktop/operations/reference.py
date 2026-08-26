@@ -10,8 +10,8 @@ here. What was missing was the *explanation* — the applicability, the
 limits, and the provenance — so that "why did it choose that technique?"
 has an answer that is not "because it was hardcoded".
 
-This is reference DATA. It selects nothing, executes nothing, and is
-outranked by whatever the live control actually reports. A profile that
+This is reference DATA. It selects nothing, executes nothing, and always
+loses to whatever the live control actually reports. A profile that
 disagrees with the running UI is a profile to correct, never a reason to
 distrust the UI.
 

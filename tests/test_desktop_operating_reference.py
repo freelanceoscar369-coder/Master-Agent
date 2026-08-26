@@ -113,11 +113,11 @@ def test_semantic_value_replacement_is_the_recorded_preferred_mechanism():
     assert "50004" in str(identity.fact.value)
 
 
-def test_live_reality_outranks_stored_reference():
+def test_live_reality_beats_stored_reference():
     """Stated in the module itself, because a corpus that quietly claims
     authority over the live UI is worse than no corpus."""
     text = SOURCE.read_text(encoding="utf-8").lower()
-    assert "outranked by whatever the live control actually reports" in text
+    assert "loses to whatever the live control actually reports" in text
 
 
 # ---- K/L/M: it decides nothing ------------------------------------------
