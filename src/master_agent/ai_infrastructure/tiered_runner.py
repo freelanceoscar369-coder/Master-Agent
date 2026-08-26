@@ -180,13 +180,12 @@ class TieredPromptRunner:
         #: provider we may send a prompt to", which is the opposite of what
         #: it is for.
         #:
-        #: Founder Edition's no-Ollama contract depends on exactly this.
-        #: `ollama.local` stays in PROVIDER_CATALOG deliberately, is never
-        #: constructed, registered or probed, and its presence in
-        #: `_all_ids` is what has always kept it EXCLUDED. It became a
-        #: live interactive candidate the moment I used `_all_ids` as the
-        #: candidate set -- alongside lm-studio.local, openai.api and
-        #: openrouter.api, none of them configured either.
+        #: A deployment's standing "never enable or query it" constraints
+        #: depend on exactly this. Such a provider keeps its descriptor in
+        #: the catalogue deliberately, is never constructed, registered or
+        #: probed, and its presence in `_all_ids` is what has always kept
+        #: it EXCLUDED. Four of them became live interactive candidates the
+        #: moment I used `_all_ids` as the candidate set.
         #:
         #: Known but not configured is never a candidate. That is generic,
         #: needs no exclusion table, and names no provider.
