@@ -971,15 +971,29 @@ def _build_mission_pipeline():
             interaction=founder_interaction(),
         ),
     )
-    provider_registry.register(
-        BrowserFreeAiReasoningProvider(
-            sites=FOUNDER_EDITION_SITES,
-            identity_id=FOUNDER_BROWSER_IDENTITY,
-            sessions=getattr(browser_plugin, "_sessions", None),
-            identities=browser_identities,
-            interaction=founder_interaction(),
-        ),
-    )
+    # KNOWN but deliberately NOT CONFIGURED for Founder Edition.
+    #
+    # The descriptor above keeps it administratively known, because the
+    # provider and the whole Browser Worker behind it remain valid for
+    # generic deployments. What Founder Edition does not do is register an
+    # executable implementation, so `executable_provider_ids` omits it and
+    # the Broker reports it unavailable rather than selecting something
+    # that cannot authenticate. Founder policy: an AI website used as a
+    # reasoning provider is driven in the founder's own browser.
+    #
+    # Nothing is deleted. A deployment that wants the automated lane
+    # registers this provider itself.
+    _FOUNDER_EDITION_REGISTERS_PLAYWRIGHT_WEB_AI = False
+    if _FOUNDER_EDITION_REGISTERS_PLAYWRIGHT_WEB_AI:
+        provider_registry.register(
+            BrowserFreeAiReasoningProvider(
+                sites=FOUNDER_EDITION_SITES,
+                identity_id=FOUNDER_BROWSER_IDENTITY,
+                sessions=getattr(browser_plugin, "_sessions", None),
+                identities=browser_identities,
+                interaction=founder_interaction(),
+            ),
+        )
     prompt_executor = PromptExecutor(
         service=intelligence, providers=provider_registry, ledger=ledger,
     )
@@ -1018,7 +1032,14 @@ def _build_mission_pipeline():
         # desktop AI applications have both been tried and failed, which
         # is ADR-0017's order and not a special case for 429 -- there is
         # deliberately no `if status == 429` anywhere near this.
-        browser_provider_ids=frozenset({BROWSER_FREE_AI_ID}),
+        # Founder Edition's web rung is the TRUSTED browser lane: the
+        # founder's own signed-in browser, driven through the Desktop
+        # Executive. Not the Playwright one -- Google refuses to sign in
+        # inside an automation-controlled browser ("this browser or app may
+        # not be secure"), so `browser.free-ai` cannot authenticate a
+        # Google account at all and would occupy this rung without being
+        # able to serve it.
+        browser_provider_ids=frozenset({TRUSTED_WEB_PROVIDER_ID}),
         desktop_context=desktop_plugin._context,
         # The Broker sees every spec in `providers_source`'s own `specs`
         # tuple (`PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)` — Ollama,
@@ -1027,15 +1048,25 @@ def _build_mission_pipeline():
         # scoped Broker call by ranking (Ollama notably — this codebase's
         # own repeated "never enable/query Ollama" constraint) purely
         # because nothing had told this ladder they existed to exclude.
-        # `browser.free-ai` is now IN a tier, so it no longer needs to be
-        # named here to keep the Broker from ranking it into one -- the
-        # web tier names it directly. It stays in the exclusion set anyway
-        # so that the Gemini and desktop tier attempts still exclude it
-        # explicitly, which is what keeps the ladder ordered rather than
-        # letting a lower rung win an upper rung's Broker call.
+        # DERIVED from the canonical registry rather than hand-listed, and
+        # that is the whole repair. This was `PROVIDER_CATALOG` plus one
+        # named id, so a provider registered here but absent from the
+        # global catalogue -- which is exactly what `trusted-founder-web`
+        # is -- was visible to the Broker through `providers_source` while
+        # being invisible to this ladder's exclusion set. A provider the
+        # ladder does not know exists cannot be excluded from an upper
+        # rung's scoped Broker call, so it could win a tier it was never
+        # placed in.
+        #
+        # The canonical registry is the administrative owner of "which
+        # providers exist". Deriving from it means the next provider to be
+        # registered is scoped correctly without anyone remembering to
+        # edit this line. `test_founder_edition_provider_universe.py` pins
+        # the invariant: everything the Broker can see is something this
+        # ladder knows about.
         all_known_provider_ids=frozenset(
-            spec.provider_id for spec in PROVIDER_CATALOG
-        ) | {BROWSER_FREE_AI_ID},
+            descriptor.provider_id for descriptor in canonical_providers.all()
+        ),
     )
     # The Reasoning Executive delegates to this same ladder -- one
     # routing stack for planning and for mid-mission judgement alike.
