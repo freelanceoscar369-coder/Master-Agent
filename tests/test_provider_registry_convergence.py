@@ -379,3 +379,98 @@ class TestTheModelChoiceStaysHere:
         provider = self._provider()
 
         assert provider.resolve_model()["id"] == provider.resolve_model()["id"]
+
+
+# ---- D-G: the canonical record survives; runtime facts do not ----------
+
+import dataclasses  # noqa: E402
+
+from master_agent.broker.registry import ProviderHealth  # noqa: E402
+from master_agent.persistence.schema import (  # noqa: E402
+    CURRENT_SCHEMA_VERSION,
+    SnapshotEnvelope,
+    migrate,
+)
+from master_agent.persistence.service import restore_providers  # noqa: E402
+
+
+def snapshot_of(registry) -> SnapshotEnvelope:
+    return SnapshotEnvelope(
+        payload={"providers": [d.as_dict() for d in registry.all()]},
+        schema_version=CURRENT_SCHEMA_VERSION,
+    ).sealed()
+
+
+class TestTheCanonicalRecordSurvivesARestart:
+
+    def test_descriptors_come_back(self):
+        saved = ProviderRegistry()
+        bootstrap_registry(saved)
+
+        restored = ProviderRegistry()
+        ids = restore_providers(snapshot_of(saved), restored)
+
+        assert set(ids) == {d.provider_id for d in saved.all()}
+        assert len(restored.all()) == len(saved.all())
+
+    def test_the_economic_record_survives(self):
+        saved = ProviderRegistry()
+        bootstrap_registry(saved)
+
+        restored = ProviderRegistry()
+        restore_providers(snapshot_of(saved), restored)
+
+        for original in saved.all():
+            back = restored.get(original.provider_id)
+            assert back.economic_class is original.economic_class
+            assert back.economic_source == original.economic_source
+            assert back.declared_quality == original.declared_quality
+
+    def test_yesterdays_health_is_not_todays(self):
+        """The point of the whole rule. A provider saved HEALTHY comes
+        back UNVERIFIED, because whether it works is a fact about now."""
+        saved = ProviderRegistry()
+        bootstrap_registry(saved)
+        saved.register(dataclasses.replace(
+            saved.get("gemini.api"), health=ProviderHealth.HEALTHY
+        ))
+
+        restored = ProviderRegistry()
+        restore_providers(snapshot_of(saved), restored)
+
+        assert restored.get("gemini.api").health is ProviderHealth.UNVERIFIED
+        assert {d.health for d in restored.all()} == {ProviderHealth.UNVERIFIED}
+
+    def test_a_snapshot_written_before_providers_existed_still_restores(self):
+        """A v1 snapshot predates this slice entirely. That is an older
+        format, not corruption, and it must migrate rather than refuse."""
+        old = SnapshotEnvelope(payload={"objectives": []}, schema_version=1)
+
+        migrated = migrate(old)
+
+        assert migrated.schema_version == CURRENT_SCHEMA_VERSION
+        assert migrated.payload["providers"] == []
+        assert restore_providers(migrated, ProviderRegistry()) == ()
+
+    def test_an_unreadable_provider_row_is_refused_not_guessed(self):
+        broken = SnapshotEnvelope(
+            payload={"providers": [{"display_name": "no id at all"}]},
+            schema_version=CURRENT_SCHEMA_VERSION,
+        )
+
+        with pytest.raises(Exception):
+            restore_providers(broken, ProviderRegistry())
+
+    def test_no_credential_reaches_the_snapshot(self):
+        registry = ProviderRegistry()
+        bootstrap_registry(registry)
+
+        blob = json.dumps(snapshot_of(registry).payload)
+
+        assert "Bearer" not in blob
+        for row in snapshot_of(registry).payload["providers"]:
+            for field in row:
+                assert not any(s in field.lower() for s in (
+                    "api_key", "apikey", "access_token", "auth_token", "secret",
+                    "password", "cookie", "authorization", "credential",
+                ))

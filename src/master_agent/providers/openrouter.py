@@ -87,6 +87,16 @@ MODEL_CACHE_SECONDS = 300.0
 #: is the one thing this provider exists to keep hold of.
 AGGREGATOR_NAMESPACE = "openrouter"
 
+#: Reused verbatim from `providers/gemini.py`'s own policy rather than
+#: invented here: a provider owns its retry, and burying it in the
+#: transport is what turns "one transport layer" into six. Observed live
+#: on this gateway -- the same zero-cost model returned 429 and then 200
+#: forty seconds later, which is ordinary free-tier throttling and not a
+#: reason to lose the mission.
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+MAX_ATTEMPTS = 3
+RETRY_DELAYS_SECONDS = (0.8, 2.0)
+
 NO_CREDENTIAL = "no OPENROUTER_API_KEY is configured"
 NO_FREE_MODEL = (
     "OpenRouter currently lists no model whose prompt and completion "
@@ -105,6 +115,7 @@ class OpenRouterProvider(ModelProvider):
         transport: Transport | None = None,
         credential_reader: Any = None,
         clock: Any = None,
+        sleep: Any = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._transport: Transport = transport or UrllibTransport()
@@ -114,6 +125,8 @@ class OpenRouterProvider(ModelProvider):
             lambda: os.environ.get(CREDENTIAL_ENV, "")
         )
         self._clock = clock or time.monotonic
+        #: Injected so a test never actually waits.
+        self._sleep = sleep or time.sleep
         self._models: tuple[dict[str, Any], ...] = ()
         self._models_read_at: float | None = None
 
@@ -274,19 +287,33 @@ class OpenRouterProvider(ModelProvider):
             "model": slug,
             "messages": [{"role": "user", "content": prompt}],
         }
-        try:
-            response = self._transport.post_json(
-                f"{self._base_url}/chat/completions",
-                payload,
-                DEFAULT_TIMEOUT_SECONDS,
-                headers={"Authorization": f"Bearer {credential}"},
-            )
-        except TransportTimeout as exc:
-            return failure(self.provider_id, TIMED_OUT, str(exc))
-        except (TransportUnavailable, TransportError) as exc:
-            return failure(self.provider_id, UNAVAILABLE, str(exc))
+        last: ProviderResult | None = None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                response = self._transport.post_json(
+                    f"{self._base_url}/chat/completions",
+                    payload,
+                    DEFAULT_TIMEOUT_SECONDS,
+                    headers={"Authorization": f"Bearer {credential}"},
+                )
+            except TransportTimeout as exc:
+                last = failure(self.provider_id, TIMED_OUT, str(exc))
+            except (TransportUnavailable, TransportError) as exc:
+                last = failure(self.provider_id, UNAVAILABLE, str(exc))
+            else:
+                status = getattr(response, "status", 0)
+                if status == 200 or status not in TRANSIENT_STATUSES:
+                    # Success, or a refusal that will not change by asking
+                    # again -- a 401 is an answer, not a hiccup.
+                    return self._read(response, slug, model, started)
+                last = self._read(response, slug, model, started)
 
-        return self._read(response, slug, model, started)
+            if attempt < MAX_ATTEMPTS:
+                self._sleep(RETRY_DELAYS_SECONDS[min(attempt - 1,
+                                                     len(RETRY_DELAYS_SECONDS) - 1)])
+        return last if last is not None else failure(
+            self.provider_id, UNAVAILABLE, "no response"
+        )
 
     def _read(self, response, slug, model, started) -> ProviderResult:
         latency_ms = (time.monotonic() - started) * 1000.0

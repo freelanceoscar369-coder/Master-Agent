@@ -90,6 +90,7 @@ class PersistenceService:
         self,
         mission_control: MissionControl | None = None,
         checkpoint: RuntimeCheckpoint | None = None,
+        provider_registry: Any = None,
     ) -> SnapshotEnvelope:
         """Serialise live state into a sealed, versioned envelope. Reads
         only public surfaces (Rule 4)."""
@@ -110,6 +111,18 @@ class PersistenceService:
             # so approval evidence survives too (ADR-0019).
             "approvals": target.approvals.as_dict(),
             "runtime": checkpoint.as_dict() if checkpoint else None,
+            # The canonical provider record. Administrative facts only:
+            # `ProviderDescriptor.as_dict()` has no field that can hold a
+            # credential, and a guard asserts that rather than trusting it.
+            #
+            # Runtime facts are deliberately NOT preserved as truth here.
+            # A provider that was healthy yesterday is not healthy today,
+            # and `restore_providers()` starts every restored descriptor
+            # UNVERIFIED so current reality has to say so again.
+            "providers": (
+                [d.as_dict() for d in provider_registry.all()]
+                if provider_registry is not None else []
+            ),
         }
         return SnapshotEnvelope(
             payload=payload,
@@ -277,3 +290,50 @@ class PersistenceService:
         ]
         self._store.append_events(events)
         return len(events)
+
+
+def restore_providers(envelope, registry) -> tuple[str, ...]:
+    """Put a snapshot's canonical provider descriptors back, and refuse to
+    pretend yesterday's runtime observations are today's.
+
+    **Administrative facts survive; runtime facts do not.** A descriptor
+    records what a provider IS -- its identity, locality, privacy,
+    declared quality, economics and the provenance of those claims. That
+    is stable and worth carrying across a restart. Whether it is
+    *available*, *installed*, *healthy* or *within quota right now* is a
+    fact about the world at the moment of asking, and restoring one as
+    though it were still true is how a launcher selects a provider that
+    has since gone away.
+
+    `ProviderDescriptor.health` conflates the two, so the smallest
+    truthful rule is applied here rather than by inventing a second health
+    system: every restored descriptor comes back UNVERIFIED, whatever it
+    was when saved, and the ordinary availability machinery re-establishes
+    it from present reality.
+
+    `verified_at` is deliberately NOT cleared, and that is worth stating
+    because a first version of this tried. `ProviderRegistry.register()`
+    stamps it on every write, so in that owner's model it records when the
+    RECORD was last written, not when the provider was last confirmed
+    working. Clearing it here would have been overwritten a line later
+    anyway, and asserting otherwise would have been a comment describing
+    behaviour the code does not have. Health is the runtime fact, and
+    health is what resets.
+
+    Returns the ids restored, so a caller can assert rather than trust.
+    A row that cannot be read is refused loudly -- the same discipline the
+    rest of this module applies to a payload it does not understand.
+    """
+    import dataclasses
+
+    from master_agent.broker.registry import ProviderDescriptor, ProviderHealth
+
+    rows = (envelope.payload or {}).get("providers") or []
+    restored: list[str] = []
+    for row in rows:
+        descriptor = ProviderDescriptor.from_dict(row)
+        registry.register(dataclasses.replace(
+            descriptor, health=ProviderHealth.UNVERIFIED,
+        ))
+        restored.append(descriptor.provider_id)
+    return tuple(restored)

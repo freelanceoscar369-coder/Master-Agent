@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 # Bump when the persisted payload's shape changes, and add a migration.
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 # Informational: which build wrote this snapshot. Never used to decide
 # whether a snapshot is readable -- that is schema_version's job. Recorded
@@ -108,7 +108,23 @@ class SnapshotEnvelope:
 # Migration registry: from_version -> callable(payload) -> payload.
 # Empty today because there is only one version. The seam exists so v2 is
 # one entry here rather than a rewrite of the loader.
-MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """v2 adds the canonical provider slice.
+
+    A v1 snapshot was written before `ProviderRegistry` was persisted at
+    all, so it simply has no providers -- which is not corruption and must
+    not be treated as such. The slice arrives empty and the registry is
+    repopulated from the catalogue bootstrap on the next launch, exactly
+    as it was before this version existed.
+    """
+    migrated = dict(payload)
+    migrated.setdefault("providers", [])
+    return migrated
+
+
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    1: _v1_to_v2,
+}
 
 
 def migrate(envelope: SnapshotEnvelope) -> SnapshotEnvelope:

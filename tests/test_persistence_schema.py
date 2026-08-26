@@ -136,7 +136,15 @@ def test_a_future_schema_version_is_refused_not_guessed_at():
 
 
 def test_an_older_version_without_a_migration_is_refused_clearly():
-    envelope = sealed(schema_version=CURRENT_SCHEMA_VERSION - 1)
+    """The guarantee: a gap in the migration chain is refused rather than
+    guessed at.
+
+    This used `CURRENT_SCHEMA_VERSION - 1` as its example, which stopped
+    being an unmigrated version the moment v1 -> v2 was registered for the
+    provider slice. The property is unchanged; only the example needed to
+    be a version that genuinely has no migration.
+    """
+    envelope = sealed(schema_version=0)
     with pytest.raises(UnsupportedSchemaVersion) as exc:
         migrate(envelope)
     assert "no migration registered" in str(exc.value)
