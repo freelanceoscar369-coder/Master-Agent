@@ -170,6 +170,37 @@ _MAX_CLEARED_CHARS = 80
 #: into. Sits just above the two real placeholder lengths recorded above
 #: (17 and 20 characters), so composer chrome cannot reach it either.
 _PROMPT_FRAGMENT_MIN_CHARS = 24
+#: A generation-in-progress notice is new content below this turn's own
+#: prompt, so nothing structural distinguishes it from the reply -- and
+#: once the reply is reconstructed from ALL such regions rather than one,
+#: it lands inside the answer. Observed live, returned as an entire
+#: three-name reply: `'ChatGPT is responding'`.
+#:
+#: These are STATUS phrasings, never answer content -- the same
+#: distinction `app_knowledge.acquisition._LOADING_KEYWORDS` already
+#: draws, extended with the generating-now wording that list did not
+#: need. A short region that IS one of these, in full, is chrome; the
+#: match is deliberately whole-string so a reply that happens to discuss
+#: loading is untouched.
+_TRANSIENT_STATUS = (
+    "reconnecting", "getting ready", "loading", "connecting",
+    "is responding", "thinking", "generating", "stop generating",
+    "regenerate", "searching the web",
+)
+
+
+def _is_transient_status(normalised: str) -> bool:
+    """Whether this region is a generation/connection notice rather than
+    words the model produced. Whole-string, case-insensitive, and bounded
+    in length: a real answer is not one of these phrases."""
+    text = (normalised or "").strip().lower().rstrip(".…")
+    if not text or len(text) > 40:
+        return False
+    # Containment, because the application prefixes its own name:
+    # 'ChatGPT is responding'. The length bound above is what keeps this
+    # from reaching a real answer -- a reply discussing loading runs far
+    # longer than a status line.
+    return any(phrase in text for phrase in _TRANSIENT_STATUS)
 _CLEAR_VERIFY_ATTEMPTS = 4
 _CLEAR_VERIFY_DELAY_SECONDS = 0.25
 #: Bounded — the clear *action* itself (`ctrl+a`+`delete`) is retried at
@@ -805,7 +836,7 @@ class UiaAutomationBridge:
             if text_norm in baseline_texts:
                 continue  # this exact text already existed somewhere in the window before submission
             height = key[3] - key[1]
-            candidates.append((element, height, text_norm))
+            candidates.append((element, height, text_norm, key))
         if not candidates:
             return None
 
@@ -842,13 +873,208 @@ class UiaAutomationBridge:
         # else that is new. Requiring two or more contained candidates
         # separates the two without a size ratio or any guess about
         # wording.
-        candidates.sort(key=lambda triple: triple[1])
-        texts = [text for _element, _height, text in candidates]
-        for element, _height, text in sorted(candidates, key=lambda c: -len(c[2])):
+        candidates.sort(key=lambda item: item[1])
+        texts = [text for _element, _height, text, _key in candidates]
+        for element, _height, text, _key in sorted(candidates, key=lambda c: -len(c[2])):
             contained = [other for other in texts if other != text and other in text]
             if len(contained) >= 2:
                 return element
         return candidates[0][0]
+
+    def find_new_response(
+        self,
+        window_handle: int,
+        baseline: dict[tuple[int, int, int, int], str],
+        exclude_text: str = "",
+        min_height: int = 8,
+    ) -> str | None:
+        """The whole assistant reply as TEXT, or `None`.
+
+        **Why this exists rather than another element-returning finder.**
+
+        `find_new_content()` answers "which single region is the reply",
+        and for this application that question has no answer. Observed
+        live in ChatGPT Desktop's own accessibility tree, immediately
+        after a complete three-line answer:
+
+            y=431  '[Kalpavriksha Reasoning - ChatGPT Desktop - ...]'
+            y=497  'Give exactly three short names...'
+            y=604  'GardenLog'
+            y=637  'SproutNote'
+            y=670  'PlotPad'
+            y=861  'Message ChatGPT'   (the composer, ControlType 50004)
+
+        Every one of those is a **flat sibling** `Text` leaf at the same
+        depth, under a single parent holding 2196 children. There is no
+        per-response container to descend into: the transcript is one
+        long list of leaves. So a method that must return one element can
+        only ever return one line of a three-line answer, and it did --
+        `'GardenLog'`, stable, complete-looking and two thirds missing.
+
+        The structure that IS present is reading order relative to this
+        turn. The reply is every new leaf below this call's own prompt and
+        above the composer, top to bottom. That is what a founder reads,
+        and it is what this reconstructs.
+
+        Every exclusion `find_new_content()` already enforces is enforced
+        here, because this is built on the same candidate set: the
+        prompt-anchored floor drops the previous exchange (the earlier
+        identical answer at y=248-314 sits above it), `prompt_echo` drops
+        this turn's own question however many blocks it renders as, the
+        composer rectangle drops the input box and its placeholder, and
+        the baseline content-set drops sidebar and navigation chrome.
+
+        Where a genuine container DOES exist -- a JSON block or table
+        exposed as one region holding its own lines -- `find_new_content()`
+        finds it by containment and this returns that container's text
+        unchanged, so nothing regresses for the applications that have one.
+
+        **Completeness belongs to the whole.** The caller's settle check
+        compares what this returns across polls, so a streaming reply is
+        only accepted once every line has arrived and the reconstruction
+        stops changing -- never because one child happened to be stable.
+        """
+        lines = self._reply_lines(window_handle, baseline, exclude_text, min_height)
+        if not lines:
+            # Nothing below this turn's prompt. Fall back to the
+            # single-region finder, which still answers for applications
+            # whose transcript this method's floor cannot anchor in.
+            element = self.find_new_content(
+                window_handle, baseline, exclude_text, min_height
+            )
+            if element is None:
+                return None
+            return self.read_text(element) or None
+
+        # A genuine container -- a JSON block or table exposed as one
+        # region that already holds its own lines -- is the whole reply by
+        # itself, and returning it alongside its children would repeat
+        # every line twice. Containment decides, exactly as
+        # `find_new_content()` decides it: two or more held fragments.
+        normalised = [_normalize_whitespace(line) for line in lines]
+        for index, candidate in enumerate(normalised):
+            held = [other for j, other in enumerate(normalised)
+                    if j != index and other and other in candidate]
+            if len(held) >= 2:
+                return lines[index]
+
+        return "\n".join(lines)
+
+    def _reply_lines(
+        self,
+        window_handle: int,
+        baseline: dict[tuple[int, int, int, int], str],
+        exclude_text: str,
+        min_height: int,
+    ) -> list[str]:
+        """This turn's reply, one entry per rendered leaf, in reading
+        order — top to bottom, then left to right for anything sharing a
+        row. Consecutive duplicates are collapsed: a line rendered by both
+        a wrapper and its own leaf must not appear twice."""
+        root = self._root(window_handle)
+        win_rect = root.CurrentBoundingRectangle
+        exclude_norm = _normalize_whitespace(exclude_text)
+        baseline_texts = {
+            _normalize_whitespace(t) for t in baseline.values() if t and t.strip()
+        }
+        all_regions = self._text_region_candidates(root, win_rect, min_height)
+
+        prompt_floor = win_rect.top
+        prompt_echo: set[str] = set()
+        if exclude_norm:
+            for key, (_element, text) in all_regions.items():
+                if not text or not text.strip():
+                    continue
+                norm = _normalize_whitespace(text)
+                if norm == exclude_norm or (
+                    len(norm) >= _PROMPT_FRAGMENT_MIN_CHARS and norm in exclude_norm
+                ):
+                    prompt_floor = max(prompt_floor, key[3])
+                    prompt_echo.add(norm)
+
+        composer_rect = None
+        try:
+            composer = self.find_composer(window_handle, retries=0)
+            if composer is not None:
+                box = composer.CurrentBoundingRectangle
+                composer_rect = (box.left, box.top, box.right, box.bottom)
+        except Exception:  # noqa: BLE001
+            composer_rect = None
+
+        def _on_the_composer(key: tuple[int, int, int, int]) -> bool:
+            if composer_rect is None:
+                return False
+            left, top, right, bottom = key
+            return (
+                left >= composer_rect[0] - 2 and top >= composer_rect[1] - 2
+                and right <= composer_rect[2] + 2 and bottom <= composer_rect[3] + 2
+            )
+
+        # **Below this turn's prompt, "seen before" means nothing.**
+        #
+        # The baseline content-set exists to drop persistent chrome -- a
+        # sidebar, a nav list -- which lives outside and above the
+        # transcript. It cannot also be used to drop transcript content,
+        # because a founder who asks the same question twice gets the same
+        # answer twice, and the second one is then filtered out as "not
+        # new". Measured: three consecutive runs of the founder's own
+        # acceptance prompt all returned empty, because each run's
+        # baseline held the previous run's identical three names.
+        #
+        # When a prompt floor was actually established, it is the stronger
+        # signal and it is sufficient: everything above it is the previous
+        # exchange, everything below it was produced by this turn. With no
+        # floor located, the content-set stays in force, which is the
+        # conservative answer.
+        floor_established = prompt_floor > win_rect.top
+        if not floor_established:
+            # **No floor, no reconstruction.**
+            #
+            # Everything this method does rests on one structural claim:
+            # what lies below this turn's own prompt was produced by this
+            # turn. Without having located that prompt there is no such
+            # claim, and joining every new region is not a reply -- it is
+            # a sweep of the window.
+            #
+            # Measured live against Kimi Desktop, whose prompt echo was
+            # not located, this returned:
+            #
+            #     Copy / Share / Create or select a file to start /
+            #     Your chats will appear here / Update / Instant / High /
+            #     AI-generated, for reference only
+            #
+            # Eight confident lines of copy-and-share control labels,
+            # empty-state chrome and a disclaimer, offered as the model's
+            # answer. That is worse than the single fragment it replaced,
+            # because it looks like a whole reply.
+            #
+            # So this declines, and `find_new_response()` falls back to
+            # the single-region finder, whose own baseline content-set and
+            # smallest-region rule are what that situation still has.
+            return []
+
+        kept: list[tuple[int, int, str]] = []
+        for key, (_element, text) in all_regions.items():
+            if key[1] < prompt_floor or _on_the_composer(key):
+                continue
+            if not text or not text.strip():
+                continue
+            norm = _normalize_whitespace(text)
+            if norm == exclude_norm or norm in prompt_echo:
+                continue
+            if not floor_established and norm in baseline_texts:
+                continue
+            if _is_transient_status(norm):
+                continue
+            kept.append((key[1], key[0], text.strip()))
+
+        kept.sort(key=lambda row: (row[0], row[1]))
+        lines: list[str] = []
+        for _top, _left, text in kept:
+            if lines and _normalize_whitespace(lines[-1]) == _normalize_whitespace(text):
+                continue
+            lines.append(text)
+        return lines
 
     def describe(self, element) -> UiaElementInfo:
         info = self._info(element)

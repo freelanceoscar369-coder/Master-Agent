@@ -1488,3 +1488,270 @@ def test_a_real_reply_below_the_echoed_prompt_is_still_found():
 
     assert found is not None
     assert bridge.read_text(found) == "Sprout, Flora, Bud"
+
+
+# ═══════════ the whole reply, not one line of it ═══════════
+#
+# ChatGPT Desktop exposes a transcript as FLAT sibling Text leaves -- 2196
+# of them under one parent, observed live -- with no per-response
+# container. `find_new_content()` must return one element, so for a
+# three-line answer it returned one line: 'GardenLog', stable,
+# complete-looking, two thirds missing. Verification then correctly
+# rejected it, and the mission fell through to the next provider.
+#
+# `find_new_response()` reconstructs the reply from every new leaf below
+# this turn's prompt and above the composer, in reading order.
+
+
+def _reply_bridge(elements, window_rect=(0, 0, 400, 900)):
+    return _bridge_with_elements(elements, window_rect=window_rect)
+
+
+def test_a_single_region_answer_is_returned_whole():
+    reply = FakeUiaElement(name="r", has_text=True, rect=(0, 300, 400, 330), text="")
+    bridge = _reply_bridge([reply])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    reply.set_text("GardenLog")
+
+    assert bridge.find_new_response(1, baseline, min_height=8) == "GardenLog"
+
+
+def test_a_multi_line_sibling_answer_is_reconstructed_in_reading_order():
+    """The live case. Three sibling leaves, no container between them."""
+    prompt = "Give exactly three short names for a gardening notes app, one name per line."
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    lines = [
+        FakeUiaElement(name=f"l{i}", has_text=True,
+                       rect=(0, 300 + i * 33, 400, 329 + i * 33), text="")
+        for i in range(3)
+    ]
+    bridge = _reply_bridge([echo] + lines)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    echo.set_text(prompt)
+    for element, text in zip(lines, ["GardenLog", "SproutNote", "PlotPad"]):
+        element.set_text(text)
+
+    assert bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8) == (
+        "GardenLog\nSproutNote\nPlotPad"
+    )
+
+
+def test_a_streaming_answer_is_not_complete_until_every_line_has_arrived():
+    """Completeness belongs to the reconstruction, never to one child.
+    The first line is stable from the moment it renders; that must not be
+    mistaken for a finished reply."""
+    prompt = "Give exactly three short names for a gardening notes app, one name per line."
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    lines = [
+        FakeUiaElement(name=f"l{i}", has_text=True,
+                       rect=(0, 300 + i * 33, 400, 329 + i * 33), text="")
+        for i in range(3)
+    ]
+    bridge = _reply_bridge([echo] + lines)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    echo.set_text(prompt)
+
+    lines[0].set_text("GardenLog")
+    partial = bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8)
+    lines[1].set_text("SproutNote")
+    more = bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8)
+    lines[2].set_text("PlotPad")
+    whole = bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8)
+
+    assert partial == "GardenLog"
+    assert more == "GardenLog\nSproutNote"
+    assert whole == "GardenLog\nSproutNote\nPlotPad"
+    assert partial != whole, "a settle check comparing these would stop too early"
+
+
+def test_the_founders_own_prompt_is_never_part_of_the_reply():
+    prompt = ("Give exactly three short names for a gardening notes app, "
+              "one name per line.")
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 200, 400, 240), text="")
+    reply = FakeUiaElement(name="r", has_text=True, rect=(0, 300, 400, 330), text="")
+    bridge = _reply_bridge([echo, reply])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    echo.set_text(prompt)
+    reply.set_text("GardenLog")
+
+    assert bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8) == (
+        "GardenLog"
+    )
+
+
+def test_the_composer_placeholder_is_never_part_of_the_reply():
+    composer = FakeUiaElement(name="Composer", has_text=True, is_focusable=True,
+                              rect=(0, 700, 400, 780), text="the submitted prompt")
+    placeholder = FakeUiaElement(name="ph", has_text=True, rect=(4, 704, 396, 776), text="")
+    reply = FakeUiaElement(name="r", has_text=True, rect=(0, 300, 400, 330), text="")
+    bridge = _reply_bridge([composer, placeholder, reply])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    placeholder.set_text("Message ChatGPT")
+    reply.set_text("GardenLog")
+
+    assert bridge.find_new_response(1, baseline, min_height=8) == "GardenLog"
+
+
+def test_sidebar_text_that_existed_before_is_never_part_of_the_reply():
+    sidebar = FakeUiaElement(name="nav", has_text=True, rect=(0, 100, 120, 400),
+                             text="Bank Nifty Scalping Checklist")
+    reply = FakeUiaElement(name="r", has_text=True, rect=(200, 300, 400, 330), text="")
+    bridge = _reply_bridge([sidebar, reply])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)  # sidebar already there
+    reply.set_text("GardenLog")
+
+    assert bridge.find_new_response(1, baseline, min_height=8) == "GardenLog"
+
+
+def test_the_previous_answer_is_never_part_of_this_one():
+    """The earlier exchange sits ABOVE this turn's prompt, and the
+    prompt-anchored floor is what keeps it out. Observed live: an
+    identical three-line answer from the previous turn sat at y=248-314
+    while this turn's prompt was at y=497."""
+    prompt = "Give exactly three short names for a gardening notes app, one name per line."
+    old = [
+        FakeUiaElement(name=f"o{i}", has_text=True,
+                       rect=(0, 100 + i * 33, 400, 129 + i * 33),
+                       text=t)
+        for i, t in enumerate(["OldOne", "OldTwo", "OldThree"])
+    ]
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    new = [
+        FakeUiaElement(name=f"n{i}", has_text=True,
+                       rect=(0, 350 + i * 33, 400, 379 + i * 33), text="")
+        for i in range(3)
+    ]
+    bridge = _reply_bridge(old + [echo] + new)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)  # old answer already present
+    echo.set_text(prompt)
+    for element, text in zip(new, ["GardenLog", "SproutNote", "PlotPad"]):
+        element.set_text(text)
+
+    result = bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8)
+
+    assert result == "GardenLog\nSproutNote\nPlotPad"
+    for stale in ("OldOne", "OldTwo", "OldThree"):
+        assert stale not in result
+
+
+def test_the_same_question_twice_still_captures_the_second_answer():
+    """A founder who asks the same thing twice gets the same answer
+    twice, and the second one must not be filtered out as "not new".
+
+    Measured live: three consecutive runs of the founder's own acceptance
+    prompt all returned EMPTY, because each run's baseline already held
+    the previous run's identical three names. The baseline content-set is
+    for persistent chrome; below this turn's prompt, the floor is the
+    stronger signal and "seen before" means nothing.
+    """
+    prompt = "Give exactly three short names for a gardening notes app, one name per line."
+    names = ["GardenLog", "SproutNote", "PlotPad"]
+    # The previous turn: the identical question and the identical answer.
+    old = [FakeUiaElement(name=f"o{i}", has_text=True,
+                          rect=(0, 100 + i * 33, 400, 129 + i * 33), text=t)
+           for i, t in enumerate(names)]
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    new = [FakeUiaElement(name=f"n{i}", has_text=True,
+                          rect=(0, 350 + i * 33, 400, 379 + i * 33), text="")
+           for i in range(3)]
+    bridge = _reply_bridge(old + [echo] + new)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)  # holds the OLD answer
+    echo.set_text(prompt)
+    for element, text in zip(new, names):
+        element.set_text(text)
+
+    assert bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8) == (
+        "GardenLog\nSproutNote\nPlotPad"
+    )
+
+
+def test_a_container_holding_its_own_lines_is_not_repeated():
+    """A JSON block exposed as one region PLUS a region per line must
+    return the block once, not the block followed by every line again."""
+    prompt = "Give exactly three short names for a gardening notes app, one name per line."
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    block = FakeUiaElement(name="b", has_text=True, rect=(0, 350, 400, 460), text="")
+    lines = [FakeUiaElement(name=f"l{i}", has_text=True,
+                            rect=(4, 354 + i * 33, 396, 383 + i * 33), text="")
+             for i in range(3)]
+    bridge = _reply_bridge([echo, block] + lines)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    echo.set_text(prompt)
+    block.set_text("GardenLog SproutNote PlotPad")
+    for element, text in zip(lines, ["GardenLog", "SproutNote", "PlotPad"]):
+        element.set_text(text)
+
+    result = bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8)
+
+    assert result == "GardenLog SproutNote PlotPad"
+    assert result.count("GardenLog") == 1
+
+
+def test_a_generation_status_notice_is_never_part_of_the_reply():
+    """Observed live, returned as an entire three-name reply:
+    'ChatGPT is responding'. It is new content below this turn's prompt,
+    so position alone cannot exclude it — and once the reply is built
+    from ALL such regions rather than one, it lands inside the answer."""
+    prompt = "Give exactly three short names for a gardening notes app, one name per line."
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    status = FakeUiaElement(name="s", has_text=True, rect=(0, 320, 400, 349), text="")
+    lines = [FakeUiaElement(name=f"l{i}", has_text=True,
+                            rect=(0, 380 + i * 33, 400, 409 + i * 33), text="")
+             for i in range(3)]
+    bridge = _reply_bridge([echo, status] + lines)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    echo.set_text(prompt)
+    status.set_text("ChatGPT is responding")
+    for element, text in zip(lines, ["GardenLog", "SproutNote", "PlotPad"]):
+        element.set_text(text)
+
+    result = bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8)
+
+    assert result == "GardenLog\nSproutNote\nPlotPad"
+    assert "responding" not in result
+
+
+def test_a_reply_that_merely_mentions_loading_is_untouched():
+    """The status rule is whole-string and short. A real answer that
+    discusses loading is words the model produced, not chrome."""
+    prompt = "Give exactly three short names for a gardening notes app, one name per line."
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    reply = FakeUiaElement(name="r", has_text=True, rect=(0, 380, 400, 409), text="")
+    bridge = _reply_bridge([echo, reply])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    echo.set_text(prompt)
+    reply.set_text("Loading times matter when the notes app opens a large garden log")
+
+    assert bridge.find_new_response(1, baseline, exclude_text=prompt, min_height=8) == (
+        "Loading times matter when the notes app opens a large garden log"
+    )
+
+
+def test_without_a_prompt_floor_nothing_is_reconstructed():
+    """No floor, no reconstruction.
+
+    Everything the reconstruction does rests on "below this turn's prompt
+    was produced by this turn". With the prompt never located there is no
+    such claim, and joining every new region sweeps the window.
+
+    Measured live against Kimi Desktop: eight lines of copy/share control
+    labels, empty-state chrome and a disclaimer, returned as the model's
+    answer. Worse than the fragment it replaced, because it looks whole.
+    """
+    chrome = [
+        FakeUiaElement(name=f"c{i}", has_text=True,
+                       rect=(0, 300 + i * 30, 400, 326 + i * 30), text="")
+        for i in range(4)
+    ]
+    bridge = _reply_bridge(chrome)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+    for element, text in zip(chrome, ["Copy", "Share", "Update",
+                                      "Your chats will appear here"]):
+        element.set_text(text)
+
+    # exclude_text names a prompt that is nowhere on screen, so no floor.
+    result = bridge.find_new_response(
+        1, baseline, exclude_text="a prompt this window never rendered", min_height=8
+    )
+
+    assert result != "Copy\nShare\nUpdate\nYour chats will appear here"

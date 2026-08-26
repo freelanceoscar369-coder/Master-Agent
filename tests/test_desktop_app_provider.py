@@ -62,6 +62,14 @@ class FakeUiaBridge:
     def find_new_content(self, handle, baseline, exclude_text=""):
         return self._texts.pop(0) if self._texts else None
 
+    def find_new_response(self, handle, baseline, exclude_text="", min_height=8):
+        """`_await_response()` reconstructs the WHOLE reply now, so this
+        fake answers the same question the real bridge does. Each entry in
+        `new_content_texts` is one complete reading, exactly as before --
+        these tests are about the settle rule, not about reconstruction,
+        which `test_desktop_uia.py` owns."""
+        return self._texts.pop(0) if self._texts else None
+
     def read_text(self, element):
         return element
 

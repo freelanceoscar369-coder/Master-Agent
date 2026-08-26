@@ -299,13 +299,27 @@ KIMI_DESKTOP = AppKnowledgeProfile(
             "A real, correct assistant reply becomes its own named UIA element (confirmed live: an "
             "element whose accessible Name *was* the reply text itself). A naive 'largest text "
             "region' read instead frequently captured left-sidebar navigation chrome (nav items, "
-            "an empty chat list, a 'Reconnecting…' status line) rather than the real reply."
+            "an empty chat list, a 'Reconnecting…' status line) rather than the real reply. "
+            "STILL UNRESOLVED FOR WHOLE-REPLY RECONSTRUCTION, 2026-08-26. "
+            "`find_new_response()` reconstructs a reply from every new region below this turn's "
+            "prompt, which is correct for ChatGPT Desktop and wrong here: a prompt floor IS "
+            "established in this application, and the region below it still contains the app's own "
+            "chrome, so the reconstruction returned, as an eight-line answer to a three-name "
+            "question: 'Copy', 'Share', 'Create or select a file to start', 'Your chats will "
+            "appear here', 'Update', 'Instant', 'High', 'AI-generated, for reference only'. "
+            "Those divide into copy/share ACTION LABELS, left-sidebar chrome (x < 240, i.e. "
+            "outside the transcript column) and a footer disclaimer. What is NOT yet known is the "
+            "structural property that separates the transcript column from that chrome — a "
+            "horizontal band would be geometry guessing, and the reply's own container has not "
+            "been located in this application's tree. Until it is, this provider's whole-reply "
+            "capture is not trustworthy."
         ),
         knowledge_type=KnowledgeType.OBSERVED,
         source=(
             "live UIA read, this session (docs/audits/REASONING_SESSION_E2E_ACCEPTANCE_3.md) — the "
             "finding behind `find_new_content()` replacing `find_main_content()` for response "
-            "discovery."
+            "discovery; whole-reply reconstruction measured live 2026-08-26 via "
+            "scripts/live_acceptance/p0_3_complete_response.py."
         ),
     ),
     persists_unsent_drafts=Fact(

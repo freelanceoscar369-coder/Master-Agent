@@ -109,7 +109,21 @@ CODING_AGENT_NOT_A_REASONING_PROVIDER = (
 #: Three consecutive matches (roughly 3 poll intervals of true silence)
 #: gives meaningfully more margin against that same coincidence without
 #: turning this into an unbounded wait.
-_RESPONSE_STABILITY_POLLS = 3
+#: Raised from 3 once the reply became a RECONSTRUCTION rather than a
+#: single region. Three polls is 4.5 seconds of no change, which is ample
+#: for one region that either exists or does not, and too short for a
+#: multi-line answer whose lines arrive as separate elements: measured
+#: live on the founder's own acceptance prompt, a run settled at
+#:
+#:     GardenLog
+#:     SproutNote
+#:
+#: and returned two names of three, because the pause before the third
+#: line exceeded the window. Five polls is 7.5 seconds. It is still a
+#: bounded settle rather than a guess about any application's wording,
+#: and it is still the *whole* reconstruction being compared -- never one
+#: child that happens to be stable.
+_RESPONSE_STABILITY_POLLS = 5
 _RESPONSE_POLL_TIMEOUT_SECONDS = 45.0
 _RESPONSE_POLL_INTERVAL_SECONDS = 1.5
 _LAUNCH_TIMEOUT_SECONDS = 30.0
@@ -596,8 +610,16 @@ class DesktopAppReasoningProvider(ModelProvider):
         while time.monotonic() < deadline:
             time.sleep(_RESPONSE_POLL_INTERVAL_SECONDS)
             try:
-                element = self._uia.find_new_content(handle, baseline, exclude_text=prompt)
-                text = self._uia.read_text(element) if element is not None else None
+                # The whole reply, reconstructed from its rendered leaves in
+                # reading order. `find_new_content()` answers "which single
+                # region", and in a transcript exposed as flat sibling leaves
+                # -- ChatGPT Desktop's is 2196 of them under one parent --
+                # that question has no answer: it returned 'GardenLog', one
+                # line of a three-line reply, perfectly stable and two thirds
+                # missing. The stability check below now compares the whole
+                # reconstruction, so a streaming answer settles only once
+                # every line has arrived.
+                text = self._uia.find_new_response(handle, baseline, exclude_text=prompt)
             except (UiaUnavailable, UiaTargetNotFound):
                 text = None
             if not text or not text.strip() or _normalize_whitespace(text) == prompt_norm:
