@@ -374,12 +374,28 @@ class FindTargetAction(_VerifiedInteractionAction):
         correctly refuses to guess at it -- so this capability could
         not be planned without a model, however fully the founder
         spelled the request out."""
-        return []
+        return [
+            {
+                "name": "control_type",
+                "type": "integer",
+                "description": (
+                    "The UIA control type id of the target, for pages where "
+                    "several elements share one accessible name. Found live: a "
+                    "modal dialog, its heading and its edit box all carried the "
+                    "same name, and the name alone resolved the dialog. Omit it "
+                    "unless a name is genuinely ambiguous."
+                ),
+                "default": None,
+            }
+        ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
         errors = self._require_known_application(parameters)
         if not isinstance(parameters.get("name_contains"), str) or not parameters.get("name_contains", "").strip():
             errors.append("'name_contains' must be a non-empty string")
+        control_type = parameters.get("control_type")
+        if control_type is not None and not isinstance(control_type, int):
+            errors.append("'control_type' must be an integer if provided")
         return errors
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
@@ -389,7 +405,11 @@ class FindTargetAction(_VerifiedInteractionAction):
         window = resolved.output["window"]
 
         try:
-            element = _uia_bridge.find(window["handle"], name_contains=parameters["name_contains"])
+            element = _uia_bridge.find(
+                window["handle"],
+                name_contains=parameters["name_contains"],
+                control_type=parameters.get("control_type"),
+            )
         except (UiaUnavailable, UiaTargetNotFound) as exc:
             return ExecutionResult(success=False, errors=[str(exc)])
 
@@ -586,6 +606,16 @@ class TypeIntoWindowAction(_VerifiedInteractionAction):
                 "description": "Append to the control's existing text instead of replacing it.",
                 "default": False,
             },
+            {
+                "name": "control_type",
+                "type": "integer",
+                "description": (
+                    "The UIA control type id of the target, for windows where "
+                    "several elements share one accessible name. Omit it unless "
+                    "the name alone is ambiguous."
+                ),
+                "default": None,
+            },
         ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
@@ -608,6 +638,7 @@ class TypeIntoWindowAction(_VerifiedInteractionAction):
         name_contains = parameters.get("target_name_contains") or None
         append = bool(parameters.get("append", False))
 
+        control_type = parameters.get("control_type")
         interface = "classic" if control_class else classify_window(window["handle"], Win32ChildEnumBackend())
         if interface == "classic":
             classic_result = self._type_classic(window, control_class, name_contains, text, append)
@@ -617,7 +648,7 @@ class TypeIntoWindowAction(_VerifiedInteractionAction):
             # fall through to UIA rather than giving up (Section 7:
             # recover, don't just fail).
 
-        uia_result = self._type_uia(window, name_contains, text, append)
+        uia_result = self._type_uia(window, name_contains, text, append, control_type)
         if uia_result is not None:
             return uia_result
 
@@ -684,10 +715,12 @@ class TypeIntoWindowAction(_VerifiedInteractionAction):
             },
         )
 
-    def _type_uia(self, window, name_contains, text, append) -> ExecutionResult | None:
+    def _type_uia(self, window, name_contains, text, append, control_type=None) -> ExecutionResult | None:
         try:
             if name_contains:
-                element = _uia_bridge.find(window["handle"], name_contains=name_contains)
+                element = _uia_bridge.find(
+                    window["handle"], name_contains=name_contains, control_type=control_type
+                )
             else:
                 element = _uia_bridge.find_composer(window["handle"])
         except (UiaUnavailable, UiaTargetNotFound):

@@ -403,6 +403,7 @@ class UiaAutomationBridge:
         name_contains: str | None = None,
         name_exact: str | None = None,
         automation_id: str | None = None,
+        control_type: int | None = None,
         visible_only: bool = False,
         retries: int = 2,
         retry_delay_seconds: float = 0.4,
@@ -452,11 +453,26 @@ class UiaAutomationBridge:
                     continue
                 if automation_id and el_aid != automation_id:
                     continue
+                if control_type is not None:
+                    # The same discipline `name_exact` exists for, applied to
+                    # kind rather than to spelling. Found live: a modal dialog,
+                    # its heading and its edit box can all carry the SAME
+                    # accessible name, and a name match alone returns whichever
+                    # the tree lists first -- a Window, which has no value to
+                    # set and no TextPattern to read back, so the write is
+                    # reported as an unverifiable failure while the real field
+                    # sits untouched beside it.
+                    try:
+                        if element.CurrentControlType != control_type:
+                            continue
+                    except Exception:  # noqa: BLE001 - unreadable kind is not a match
+                        continue
                 if name_contains and name_contains.lower() not in el_name.lower():
                     continue
                 if name_exact and el_name.lower() != name_exact.lower():
                     continue
-                if not automation_id and not name_contains and not name_exact:
+                if not (automation_id or name_contains or name_exact
+                        or control_type is not None):
                     continue
                 if visible_only:
                     try:

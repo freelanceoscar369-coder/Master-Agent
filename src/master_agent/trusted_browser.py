@@ -222,11 +222,21 @@ class TrustedBrowserPort(Protocol):
         the past, and this lane acts only on the present."""
         ...
 
-    def find(self, name_contains: str) -> PageElement | None:
-        """Locate one element by its accessible name, or None."""
+    def find(self, name_contains: str, control_type: int | None = None) -> PageElement | None:
+        """Locate one element by its accessible name, or None.
+
+        `control_type` disambiguates when several elements share a name.
+        Measured live: a modal dialog, its heading and its edit box all
+        carried the same accessible name, and the name alone resolved the
+        dialog -- which has no value to set and no text to read back, so
+        the write looked like an unverifiable failure while the real field
+        sat untouched beside it.
+        """
         ...
 
-    def type_into(self, name_contains: str, text: str) -> TrustedBrowserResult:
+    def type_into(
+        self, name_contains: str, text: str, control_type: int | None = None
+    ) -> TrustedBrowserResult:
         """Type into a semantically identified element, confirming the
         window is foreground as part of the same operation."""
         ...

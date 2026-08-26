@@ -297,9 +297,10 @@ class DesktopTrustedBrowser:
             return False
         return bool(handle is not None and active.output.get("handle") == handle)
 
-    def find(self, name_contains: str) -> PageElement | None:
+    def find(self, name_contains: str, control_type: int | None = None) -> PageElement | None:
         found = self._run(
-            "find_target", application=self._application, name_contains=name_contains
+            "find_target", application=self._application, name_contains=name_contains,
+            control_type=control_type,
         )
         if not found.success or not found.output:
             return None
@@ -315,7 +316,9 @@ class DesktopTrustedBrowser:
 
     # ---- acting ---------------------------------------------------------
 
-    def type_into(self, name_contains: str, text: str) -> TrustedBrowserResult:
+    def type_into(
+        self, name_contains: str, text: str, control_type: int | None = None
+    ) -> TrustedBrowserResult:
         """Take the foreground and type, immediately, as one operation.
 
         The retry loop is not politeness -- it is the measured behaviour
@@ -333,6 +336,7 @@ class DesktopTrustedBrowser:
             typed = self._run(
                 "type_text", application=self._application,
                 text=text, target_name_contains=name_contains,
+                control_type=control_type,
             )
             if typed.success:
                 return TrustedBrowserResult(True, f"typed into {name_contains!r}")

@@ -109,6 +109,7 @@ class WebAiSite:
         "new_chat",
         "page_markers",
         "rename_field",
+        "rename_field_control_type",
         "rename_item",
         "response_noise",
         "response_role",
@@ -131,6 +132,7 @@ class WebAiSite:
         conversation_menu: str = "",
         rename_item: str = "",
         rename_field: str = "",
+        rename_field_control_type: int | None = None,
         new_chat: str = "",
     ) -> None:
         self.label = label
@@ -163,6 +165,11 @@ class WebAiSite:
         #: menu item -- a MenuItem, which cannot be typed into. Targeting
         #: the shorter name is a silent no-op that looks like a rename.
         self.rename_field = rename_field
+        #: 50004 is UIA's Edit. Named because the dialog, its heading and
+        #: its edit box all answer to "Rename this chat", and the name
+        #: alone resolves the dialog -- observed live, and the reason four
+        #: rename attempts reported an unverifiable write.
+        self.rename_field_control_type = rename_field_control_type
         self.new_chat = new_chat
 
 
@@ -183,6 +190,7 @@ GEMINI_WEB = WebAiSite(
     conversation_menu="Open menu for conversation actions",
     rename_item="Rename",
     rename_field="Rename this chat",
+    rename_field_control_type=50004,
     new_chat="New chat",
     response_noise=(
         "ask gemini",
@@ -546,11 +554,12 @@ class TrustedWebAiProvider:
         # read-only rather than guessed, because "Rename" matches both and
         # only one of them can be typed into.
         target = self._site.rename_field or self._site.rename_item
-        if self._browser.find(target) is None:
+        kind = self._site.rename_field_control_type
+        if self._browser.find(target, kind) is None:
             self._browser.press("escape")
             return (False, title(), f"rename dialog never showed {target!r}")
 
-        typed = self._browser.type_into(target, self._conversation_title)
+        typed = self._browser.type_into(target, self._conversation_title, kind)
         if not typed.ok:
             self._browser.press("escape")
             return (False, title(), f"could not type the new name: {typed.detail}")

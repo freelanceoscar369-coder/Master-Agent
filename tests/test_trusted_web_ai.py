@@ -138,7 +138,7 @@ class FakeBrowser:
             observed_at=1.0,
         )
 
-    def find(self, name_contains):
+    def find(self, name_contains, control_type=None):
         if not self.page.usable:
             return None
         for name in self.page.controls:
@@ -147,7 +147,7 @@ class FakeBrowser:
         return None
 
     # -- acting
-    def type_into(self, name_contains, text):
+    def type_into(self, name_contains, text, control_type=None):
         if not self.foreground:
             return TrustedBrowserResult(False, "the window is not in front; nothing was typed")
         self.typed.append((name_contains, text))
