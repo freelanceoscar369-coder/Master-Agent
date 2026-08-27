@@ -472,7 +472,8 @@ class TestIntentLayerClarifyIsTheProductionPath:
         calls = []
 
         class Recording(IntentLayer):
-            def clarify(self, original, answer, question=None, supplied=None):
+            def clarify(self, original, answer, question=None, supplied=None,
+                        evidence=None):
                 calls.append((original, answer, question))
                 return super().clarify(original, answer, question, supplied)
 

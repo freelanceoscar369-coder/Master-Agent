@@ -166,6 +166,21 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
         covering = by_requirement.get(requirement_id, [])
         ids = tuple(str(getattr(t, "task_id", "")) for t in covering)
 
+        if str(_field(requirement, "interpretation", "known")) != "known":
+            # The system is not sure it understood this. Whatever
+            # execution proved, it proved it about a reading nobody
+            # confirmed -- and reporting that as satisfied is the
+            # circular validation this module exists to end.
+            outcomes.append(RequirementOutcome(
+                requirement_id=requirement_id,
+                description=description,
+                required=required,
+                state=UNKNOWN,
+                covered_by=ids,
+                reason="what the founder meant here was never settled",
+            ))
+            continue
+
         if not covering:
             outcomes.append(RequirementOutcome(
                 requirement_id=requirement_id,

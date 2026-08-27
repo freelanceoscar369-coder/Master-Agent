@@ -51,6 +51,13 @@ class IntentResult:
     intent: Intent | None = None
     clarification: ClarificationQuestion | None = None
     raw_input: str = ""
+    #: The founder's own words for every field resolved so far.
+    #:
+    #: Carried beside `resolved` for the same reason `resolved` exists at
+    #: all: without it, a value settled two turns ago arrives with
+    #: nothing to audit it against, and a requirement built from it can
+    #: only compare the interpretation with itself.
+    evidence: dict[str, dict[str, str]] = field(default_factory=dict)
     #: Every field resolved so far, canonically, across all rounds.
     #:
     #: The caller carries this into the next round instead of
@@ -163,6 +170,26 @@ def _unaccounted(text: str, value: str) -> set[str]:
 #: What joins one clause to another. A reply built out of two clauses may
 #: be saying two things, and is worth reading properly.
 _CLAUSE_JOINS: tuple[str, ...] = (",", ";", " and ", " but ", " then ")
+
+
+def _said_for(recorded: Mapping[str, Any], field_name: str, value: Any) -> str:
+    """The founder's own words behind one resolved argument.
+
+    Matched by field name first, and by VALUE second, because the two
+    vocabularies legitimately differ: the parser gathers `folder_name`
+    and the capability's argument is `name`. A lookup that only tried the
+    argument name silently returned nothing for the one field a founder
+    always supplies -- so the requirement carried the interpretation with
+    nothing to audit it against, which is the circularity being removed.
+    """
+    row = recorded.get(field_name)
+    if isinstance(row, Mapping) and row.get("evidence"):
+        return str(row["evidence"])
+    wanted = str(value)
+    for candidate in recorded.values():
+        if isinstance(candidate, Mapping) and str(candidate.get("value")) == wanted:
+            return str(candidate.get("evidence") or "")
+    return ""
 
 
 def _is_single_clause(text: str) -> bool:
@@ -967,6 +994,11 @@ class IntentLayer:
                     f'    "{name}": exactly one of '
                     f'{", ".join(sorted(vocabulary))} -- or omit it'
                 )
+            elif name == PARENT:
+                lines.append(
+                    '    "parent": if they named a folder INSIDE one of '
+                    "those places to put it in, its name -- otherwise omit it"
+                )
             else:
                 lines.append(f'    "{name}": the founder\'s own words for it')
         already = (
@@ -1166,12 +1198,22 @@ class IntentLayer:
             # Every argument the founder supplied is a condition on that
             # effect. Ordered by the payload's own key order so the ids
             # are deterministic for the same Intent.
+            #
+            # Each carries the founder's OWN WORDS for that field beside
+            # the resolved value. Without both, conformance compares the
+            # execution against the interpretation and calls agreement
+            # with itself success -- which it did, twice, about a folder
+            # on the wrong drive.
+            recorded = dict(
+                (getattr(intent, "context", None) or {}).get("field_evidence") or {}
+            )
             for index, (name, value) in enumerate(payload.items(), start=2):
                 found.append(SemanticRequirement(
                     requirement_id=f"req_{index}",
                     kind=CONSTRAINT,
                     description=f"{name} = {value}",
                     provenance=evidence,
+                    founder_evidence=_said_for(recorded, name, value),
                 ))
             return tuple(found)
 
@@ -1450,6 +1492,7 @@ class IntentLayer:
         answer: str,
         question: ClarificationQuestion | None = None,
         supplied: Mapping[str, str] | None = None,
+        evidence: Mapping[str, Mapping[str, str]] | None = None,
     ) -> IntentResult:
         """Resolve a pending clarification with the founder's answer.
 
@@ -1497,6 +1540,11 @@ class IntentLayer:
             # re-parsed, so anything they stated themselves continues to
             # win over anything reconstructed.
             answers: dict[str, str] = dict(supplied or {})
+            # What the founder said for each field ALREADY settled. The
+            # turns before this one are part of the record too.
+            said: dict[str, dict[str, str]] = {
+                name: dict(row) for name, row in (evidence or {}).items()
+            }
 
             # The answer is EVIDENCE, not a value.
             #
@@ -1550,6 +1598,7 @@ class IntentLayer:
                     ),
                     raw_input=original,
                     resolved=dict(answers),
+                    evidence=dict(said),
                 )
             if question.key not in understood.fields:
                 if question.key in self._vocabularies:
@@ -1568,16 +1617,16 @@ class IntentLayer:
                         ),
                         raw_input=original,
                         resolved=dict(answers),
+                        evidence=dict(said),
                     )
                 # An open field -- a name -- that this layer has no
                 # vocabulary to check. The founder's own words are the
                 # value, which is what "Research" has always been.
                 answers[question.key] = answer
-            evidence: dict[str, dict[str, str]] = {}
             for name, found in understood.fields.items():
                 previous = answers.get(name, "")
                 answers[name] = found.value
-                evidence[name] = FieldEvidence(
+                said[name] = FieldEvidence(
                     value=found.value,
                     evidence=found.evidence,
                     source=found.source,
@@ -1591,14 +1640,27 @@ class IntentLayer:
             # Canonical, and carried whether this round finished the job
             # or asked another question.
             result.resolved = dict(answers)
+            result.evidence = dict(said)
             if result.intent is not None:
-                if evidence:
+                if said:
                     # Provenance for every field this turn established:
                     # the words it came from, whether structure or
                     # reasoning read it, and what it replaced.
                     carried = dict(result.intent.context.get("field_evidence") or {})
-                    carried.update(evidence)
+                    carried.update(said)
                     result.intent.context["field_evidence"] = carried
+                    # Re-derive the requirements now that the founder's
+                    # own words are on the Intent.
+                    #
+                    # `parse()` stamped them a moment ago, before this
+                    # turn's evidence existed -- so they carried the
+                    # resolved value and nothing else, which is exactly
+                    # the circularity being removed. Derived again here,
+                    # each requirement keeps what was SAID beside what it
+                    # was read as.
+                    result.intent.requirements = self.requirements_for(
+                        result.intent, raw=original
+                    )
                 # Provenance, not contract. The founder's ORIGINAL sentence
                 # stays the raw input -- overwriting it with "Research"
                 # would lose what was actually asked for -- and the answer
@@ -1656,7 +1718,24 @@ class BaseIntentParser:
 #: Declared once, and carried on every question it asks, so a founder who
 #: answers "where?" with "actually call it Finance and put it in
 #: Documents" has both fields read rather than one.
-_FOLDER_FIELDS: tuple[str, ...] = ("folder_name", "location")
+_FOLDER_FIELDS: tuple[str, ...] = ("folder_name", "location", "parent")
+
+#: A folder INSIDE the named location -- "d drive in onkar folder".
+#:
+#: Not a new capability and not an overloaded field by accident. Source,
+#: at `executor/action.py::is_unsafe_relative_path`, names
+#: `CreateFolderAction`'s `name` among the arguments that are "a relative
+#: path/name meant to be joined onto a configured location's base
+#: directory"; `run()` does `base / name` and then
+#: `mkdir(parents=True)`; and `validate()`'s own comment contemplates
+#: multi-segment values like "MyProject/src" from
+#: `WorkspaceBootstrapAction`. A parent folder is therefore something the
+#: existing contract already expresses safely -- `..` and anchored paths
+#: are rejected by the same guard.
+#:
+#: The parser composes it, not the Intent Layer: only the parser knows
+#: what its capability's arguments mean.
+PARENT = "parent"
 
 
 class CreateFolderIntent(BaseIntentParser):
@@ -1781,6 +1860,20 @@ class CreateFolderIntent(BaseIntentParser):
             # before `supplied` was built, so what arrives here is a value
             # the capability accepts -- not a phrase to be de-grammared.
             location = self._answer(supplied, "location")
+
+        # A folder inside that place, when the founder named one.
+        #
+        # "d drive in onkar folder" means D:\Onkar\<name>, and the
+        # capability expresses that today: `name` is a relative path
+        # joined onto the location. Composing it here rather than in the
+        # Intent Layer keeps capability knowledge with the parser that
+        # owns the capability.
+        parent = self._answer(supplied, PARENT)
+        if parent and name:
+            leaf = name.strip().strip("/\\")
+            branch = parent.strip().strip("/\\").replace("\\", "/")
+            if branch and leaf:
+                name = f"{branch}/{leaf}"
         if location is None:
             return IntentResult(
                 clarification=ClarificationQuestion(

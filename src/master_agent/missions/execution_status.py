@@ -130,6 +130,14 @@ class PendingClarification:
     #: the objective, the raw input and the clarification correlation are
     #: unchanged -- not a second Intent built from replies.
     supplied: dict[str, str] = field(default_factory=dict)
+    #: The founder's own words behind each settled value.
+    #:
+    #: Carried beside `supplied` so a requirement built from a value
+    #: settled two turns ago still has something to be audited against.
+    #: Without it, outcome conformance compares an interpretation with
+    #: itself -- which is how a folder on the wrong drive was reported as
+    #: doing what the founder asked.
+    evidence: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {

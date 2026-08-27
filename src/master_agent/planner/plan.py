@@ -113,6 +113,15 @@ CONSTRAINT = "constraint"
 
 REQUIREMENT_KINDS: tuple[str, ...] = (EFFECT, INFORMATION, DELIVERABLE, CONSTRAINT)
 
+#: Whether the system is confident it understood the evidence.
+#:
+#: Closed, and load-bearing: `UNCERTAIN` may not execute and may not be
+#: reported as satisfied. The two are the same rule seen from either end
+#: of the mission.
+KNOWN = "known"
+UNCERTAIN = "uncertain"
+INTERPRETATION_STATES: tuple[str, ...] = (KNOWN, UNCERTAIN)
+
 
 @dataclass(frozen=True)
 class SemanticRequirement:
@@ -144,6 +153,7 @@ class SemanticRequirement:
 
     requirement_id: str
     kind: str
+    #: The system's CURRENT INTERPRETATION -- "location = d_drive".
     description: str
     #: False for something the founder mentioned but did not require.
     #: An unmet optional requirement never fails a mission.
@@ -153,6 +163,30 @@ class SemanticRequirement:
     #: transcript: "this fact came from this evidence", not "here is the
     #: hidden reasoning that produced it".
     provenance: str = ""
+    #: The founder's OWN WORDS for this particular field.
+    #:
+    #: ## Why this is not the same as `description`
+    #:
+    #: `description` is what the system decided. This is what the founder
+    #: said. Keeping only the first makes outcome conformance CIRCULAR --
+    #: it compares execution against an interpretation, and proves
+    #: consistency with itself rather than correspondence with meaning.
+    #:
+    #: Measured, live, twice. The founder said "d drive in onkar folder";
+    #: the Brain resolved `location = d_drive`; the requirement was
+    #: written from the RESOLVED value; execution created `D:\Rudra`;
+    #: Verification confirmed it existed; and conformance reported
+    #: SATISFIED about a folder in the wrong place -- because both sides
+    #: of its comparison came from the same wrong reading.
+    #:
+    #: With the founder's words kept beside the interpretation, an audit
+    #: can ask the question that matters: does what we did correspond to
+    #: what they said?
+    founder_evidence: str = ""
+    #: Whether the interpretation of that evidence is settled.
+    #: `UNCERTAIN` may never reach execution and may never be reported as
+    #: satisfied.
+    interpretation: str = "known"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -161,6 +195,8 @@ class SemanticRequirement:
             "description": self.description,
             "required": self.required,
             "provenance": self.provenance,
+            "founder_evidence": self.founder_evidence,
+            "interpretation": self.interpretation,
         }
 
 

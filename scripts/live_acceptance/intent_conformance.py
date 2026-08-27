@@ -279,6 +279,19 @@ def main() -> int:
         )
         known = dict(getattr(result, "resolved", None) or known)
     executed.notes["payload"] = dict(result.intent.payload or {}) if result.intent else None
+    # A precondition observation, before anything runs.
+    #
+    # The second live acceptance "passed" its verification because
+    # `D:/Rudra` already existed -- created by the FIRST failed run.
+    # CreateFolder is idempotent by design and verification confirmed a
+    # real folder, so an artefact from an earlier wrong answer made a
+    # later wrong answer look verified. An acceptance that cannot tell
+    # "this exists" from "this run created it" is not evidence.
+    target = DESKTOP / f"KVIntent_{STAMP}_G"
+    executed.check(
+        not target.exists(),
+        f"precondition: {target} did not exist before this run",
+    )
     if result.intent is None:
         executed.check(False, "the conversation never resolved, so nothing ran")
     else:
@@ -298,7 +311,6 @@ def main() -> int:
             ]
         else:
             executed.check(False, f"the mission was refused: {outcome.refusal}")
-        target = DESKTOP / f"KVIntent_{STAMP}_G"
         executed.check(target.is_dir(), f"the folder is on disk: {target}")
     executed.report()
     cases.append(executed)

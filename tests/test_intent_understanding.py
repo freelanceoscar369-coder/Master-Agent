@@ -59,7 +59,9 @@ from master_agent.brain.intent import (
 #: the founder's D: drive as the composition root widens it.
 PLACES = ("d_drive", "desktop", "documents", "downloads")
 
-FOLDER_FIELDS = ("folder_name", "location")
+#: Everything the folder parser gathers, including the parent folder a
+#: founder may name inside a location -- "d drive in onkar folder".
+FOLDER_FIELDS = ("folder_name", "location", "parent")
 
 
 def name_question() -> ClarificationQuestion:

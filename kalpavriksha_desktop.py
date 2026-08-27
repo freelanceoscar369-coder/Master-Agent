@@ -1960,6 +1960,11 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             # no name in it, so the founder would be asked for the name
             # they had already given.
             supplied=dict(getattr(pending, "supplied", {}) or {}),
+            # The founder's own words for what earlier turns settled.
+            # Carried for the same reason the values are: a requirement
+            # built from a value with no evidence behind it can only
+            # compare the interpretation with itself.
+            evidence=dict(getattr(pending, "evidence", {}) or {}),
         )
         # The objective under way is still the founder's ORIGINAL request.
         # Reporting the answer as the objective would lose what they asked
@@ -1998,6 +2003,8 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         resolved.update(getattr(intent_result, "resolved", None) or {})
         if pending is not None and pending.key and pending.key not in resolved:
             resolved[pending.key] = text
+        spoken: dict[str, Any] = dict(getattr(pending, "evidence", {}) or {}) if pending else {}
+        spoken.update(getattr(intent_result, "evidence", None) or {})
         status.pending_clarification = PendingClarification(
             question=question.question,
             key=question.key,
@@ -2005,6 +2012,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             options=tuple(question.options),
             required=question.required,
             supplied=resolved,
+            evidence=spoken,
         )
         return _founder_reply(status, question.question,
                               interaction_type="clarification_question")

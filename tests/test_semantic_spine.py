@@ -402,3 +402,151 @@ class TestBrainBoundaries:
             for provider in ("gemini", "openrouter", "chatgpt", "ollama",
                              "perplexity", "claude-desktop"):
                 assert provider not in source, f"{module.__name__}: {provider}"
+
+
+# =====================================================================
+# The circular validation this spine exists to end
+# =====================================================================
+
+
+class TestConformanceIsNotCircular:
+    r"""The failure that invalidated the guarantee, twice.
+
+        Founder meant   D:\Onkar\Rudra
+        Brain resolved  location = d_drive
+        Execution made  D:\Rudra
+        Verification    MATCHED  (it does exist)
+        Conformance     SATISFIED
+
+    Both sides of that comparison came from the same wrong reading. The
+    requirement had been written from the RESOLVED value, so it agreed
+    with itself — the system proved consistency with its own
+    interpretation and called it correspondence with meaning.
+
+    A requirement now carries what the founder SAID beside what it was
+    read as, and an interpretation that was never settled can never be
+    reported as satisfied.
+    """
+
+    def test_a_requirement_keeps_the_founders_own_words(self):
+        from master_agent.brain.intent import ClarificationQuestion
+
+        brain = layer()
+        fields = ("folder_name", "location", "parent")
+        first = brain.clarify(
+            "create a folder", "Rudra",
+            ClarificationQuestion(question="What?", key="folder_name",
+                                  gathering=fields),
+            supplied={}, evidence={},
+        )
+        second = brain.clarify(
+            "create a folder", "on my desktop",
+            ClarificationQuestion(question="Where?", key="location",
+                                  gathering=fields),
+            supplied=first.resolved, evidence=first.evidence,
+        )
+        said = {
+            r.description: r.founder_evidence
+            for r in second.intent.requirements
+        }
+        assert said["location = desktop"] == "on my desktop"
+        # And a value settled a TURN EARLIER still has its evidence --
+        # partial survival is not survival.
+        assert said["name = Rudra"] == "Rudra"
+
+    def test_an_uncertain_interpretation_is_never_satisfied(self):
+        """Whatever execution proved, it proved it about a reading nobody
+        confirmed."""
+        from master_agent.planner.plan import UNCERTAIN
+
+        requirement = SemanticRequirement(
+            "req_1", EFFECT, "location = d_drive",
+            founder_evidence="d drive in onkar folder",
+            interpretation=UNCERTAIN,
+        )
+        outcome = assess((requirement,), [Task("a", ("req_1",), "matched")])
+        assert outcome.state == UNKNOWN, (
+            "a verified step made an unsettled interpretation look satisfied"
+        )
+        assert "never settled" in outcome.requirements[0].reason
+
+    def test_a_settled_interpretation_with_evidence_can_be_satisfied(self):
+        requirement = SemanticRequirement(
+            "req_1", EFFECT, "location = desktop",
+            founder_evidence="on my desktop",
+        )
+        assert assess((requirement,), [Task("a", ("req_1",), "matched")]).state == (
+            SATISFIED
+        )
+
+    def test_interpretation_defaults_to_known_so_nothing_silently_degrades(self):
+        from master_agent.planner.plan import KNOWN
+
+        assert SemanticRequirement("req_1", EFFECT, "x").interpretation == KNOWN
+
+
+class TestNestedDestinationsAreExpressible:
+    r"""Source adjudication, not a guess.
+
+    `executor/action.py::is_unsafe_relative_path` names
+    `CreateFolderAction`'s `name` among the arguments that are "a
+    relative path/name meant to be joined onto a configured location's
+    base directory". `run()` does ``base / name`` then
+    ``mkdir(parents=True)``. `validate()`'s own comment contemplates
+    multi-segment values like "MyProject/src".
+
+    So "d drive in onkar folder" is expressible through the EXISTING
+    contract, and the founder's meaning must reach it rather than being
+    refused as unsupported.
+    """
+
+    def test_the_capability_contract_permits_a_relative_path(self):
+        from master_agent.executor.action import is_unsafe_relative_path
+
+        assert is_unsafe_relative_path("Onkar/Rudra") is False
+        # And the guard that makes that safe is still doing its job.
+        assert is_unsafe_relative_path("../escape") is True
+        assert is_unsafe_relative_path("/etc/passwd") is True
+        assert is_unsafe_relative_path("D:config") is True
+
+    def test_a_parent_folder_becomes_a_relative_name(self):
+        from master_agent.brain.intent import ClarificationQuestion
+
+        brain = IntentLayer(
+            reasoner=_Reasoner('{"fields": {"location": "d_drive", '
+                               '"parent": "onkar"}}'),
+            vocabularies={"location": PLACES},
+        )
+        result = brain.clarify(
+            "create a folder", "d drive in onkar folder",
+            ClarificationQuestion(question="Where?", key="location",
+                                  gathering=("folder_name", "location", "parent")),
+            supplied={"folder_name": "Rudra"}, evidence={},
+        )
+        assert result.intent is not None, "the founder's meaning was refused"
+        payload = dict(result.intent.payload)
+        assert payload["location"] == "d_drive"
+        assert payload["name"] == "onkar/Rudra"
+
+    def test_no_second_filesystem_capability_was_built(self):
+        """The existing contract expresses this. A new capability would
+        be a second way to do one thing."""
+        from master_agent.plugins.filesystem_plugin import FilesystemPlugin
+        from master_agent.executor.executor import LocalExecutor
+        from master_agent.permissions.permission_system import PermissionSystem
+
+        actions = FilesystemPlugin(LocalExecutor(PermissionSystem()))._actions
+        assert not any("nested" in name.lower() for name in actions)
+        assert not any("subfolder" in name.lower() for name in actions)
+
+
+class _Reasoner:
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+
+    def run(self, prompt, request, **kwargs):
+        class Outcome:
+            ok = True
+            text = self.reply
+
+        return Outcome()
