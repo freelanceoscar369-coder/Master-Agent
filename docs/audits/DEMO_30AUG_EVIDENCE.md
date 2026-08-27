@@ -16,11 +16,10 @@ python scripts/live_acceptance/demo_30aug_battery.py
 
 ```
 source branch     claude/founder-browser-identity
-source HEAD       2b4b174a51f658caff89ff57561e986c26577ef4
+source HEAD       f5f0a4b468f44c2d20e4110abc641e84102d6db4
 package           dist/Kalpavriksha/Kalpavriksha.exe
-built             2026-08-27T15:52:48
-sha256            91c78d03924a01a5d51a587a378dc80b111ce5c1e7a54bba023f517534dd56c2
-bytes             36,973,553
+built             2026-08-27T16:16:55
+sha256            0cdb11d02d16861919a4caddcfc0efd715b1a6403d4f1ed0ce1264e802251cb8
 
 self-check        RESULT: OK
   packaged        True
@@ -219,3 +218,51 @@ it is not enabled yet. Every consequential outcome on the demo paths
 terminates in canonical Verification; the two `none` verdicts in golden
 path 2 are the deliberate delivery-only actions described above, not this
 debt in disguise.
+
+
+---
+
+## Late defect, found by the founder during acceptance
+
+The most basic interaction there is, and it failed.
+
+```
+10:36:38  founder   create a folder
+          somesh    What should the folder be called?          clarification
+10:36:50  founder   Abhishek
+          somesh    Where should I create the Abhishek folder?  clarification
+10:37:00  founder   on desktop
+10:37:00  retry 1 of 3   unknown location 'on desktop'
+                         (known: d_drive, desktop, documents, downloads)
+10:37:01  retry 2 of 3   same
+10:37:01  escalated      same
+10:37:01  task_failed → objective_failed
+          somesh    "That didn't complete. I've kept the details for review."
+```
+
+**Boundary.** `CreateFolderIntent.parse()` — `location = self._answer(
+supplied, "location")`. Every inline pattern in that class strips
+`(?:on|in)\s+(?:my\s+|the\s+)?`, which is why the dictated form has
+always worked. A clarification answer never goes through a pattern, so
+the founder's words reached the capability verbatim. Two paths into one
+capability, two ideas of what a place is.
+
+**Fixed** by normalising the grammar and only the grammar. The Brain does
+not acquire the capability's vocabulary; an unknown place still travels
+on and the capability answers for itself.
+
+**Second defect, same failure.** The founder-facing sentence flattened an
+actionable validation error to "That didn't complete". It now repeats the
+capability's own list back, read out of the error rather than written
+into the surface.
+
+**Third finding, recorded not fixed.** A deterministic argument-validation
+error was retried three times before escalating. Retrying something that
+can never succeed is wasted work and delays the founder's answer.
+Post-demo: retry policy should distinguish a transient failure from a
+rejected argument.
+
+**What worked in the same exchange.** The founder then asked *"whats the
+challange?"* and was correctly answered as a FOLLOW_UP — because by then
+a real mission stood behind the question. The morning's P0 fix, working
+from the other side.

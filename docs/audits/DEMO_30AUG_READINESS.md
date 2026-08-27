@@ -215,6 +215,15 @@ hours.
 
 ## 9 · Known debt, carried forward and not hidden
 
+**Retrying a rejected argument.** `Filesystem.CreateFolder` rejected
+`unknown location 'on desktop'` and the Runtime retried it three times
+before escalating. A deterministic validation failure cannot succeed on
+a second attempt; retrying it wastes work and delays the founder's
+answer. Recorded **post-demo**: retry policy should distinguish a
+transient failure from a rejected argument. Not touched during the
+sprint — retry policy is not a demo blocker and is not a place to make
+an unscoped change.
+
 **Failed-mission browser session cleanup.** When a Browser mission fails
 before `CloseBrowserSession`, the close step never runs and the
 Playwright session survives until the process exits. Observed twice —
