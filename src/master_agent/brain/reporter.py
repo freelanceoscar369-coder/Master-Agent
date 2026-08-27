@@ -223,6 +223,8 @@ class Reporter:
                         f"{evidence.verdict.value}"
                     )
 
+        conformance = self._conformance(record)
+
         return Report(
             title=title,
             body=" ".join(lines) if ctx.tone == ReportTone.CONCISE else "\n".join(lines),
@@ -234,11 +236,42 @@ class Reporter:
                 "steps_verified": len(verified),
                 "steps_unverified": len(unverified),
                 "steps_contradicted": len(contradicted),
-                # Stated explicitly so no consumer can read verification
-                # coverage as a claim about the founder's objective.
-                "founder_outcome_conformance": "not_evaluated",
+                # Never read verification coverage as a claim about the
+                # founder's objective: these are two different facts and
+                # they are reported as two.
+                #
+                # This said `"not_evaluated"` unconditionally, which was
+                # honest and useless -- the Reporter could say every step
+                # was independently verified without being able to say
+                # whether the thing that was ASKED FOR happened. It is
+                # evaluated now when the mission carries a semantic
+                # trace, and stays unevaluated when it does not: a legacy
+                # record gets no correspondence invented for it
+                # retrospectively.
+                "founder_outcome_conformance": (
+                    conformance.state if conformance is not None else "not_evaluated"
+                ),
+                "founder_outcome_detail": (
+                    conformance.as_dict() if conformance is not None else None
+                ),
             },
         )
+
+    @staticmethod
+    def _conformance(record: Any):
+        """The mission's founder-outcome conformance, or `None`.
+
+        `None` means the mission carries no recorded requirements -- a
+        legacy plan, or one built by hand. Deliberately distinct from
+        `UNKNOWN`, which means requirements exist and the evidence does
+        not settle them.
+        """
+        from master_agent.brain.conformance import assess
+
+        requirements = tuple(getattr(record, "requirements", ()) or ())
+        if not requirements:
+            return None
+        return assess(requirements, tuple(getattr(record, "steps", ()) or ()))
 
     def report_plan_result(
         self,

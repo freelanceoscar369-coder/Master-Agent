@@ -1,6 +1,6 @@
 # ADR-0024: Intent Resolution, Clarification, and Planner Admission
 
-Status: Proposed (2026-08-14) — codifies the Intent Layer contract that commits `8c47621`, `fea7ee2` and `bb36c9f` implemented against without a written contract to implement against.
+Status: Accepted / Founder-ratified — 2026-08-27 (proposed 2026-08-14) — codifies the Intent Layer contract that commits `8c47621`, `fea7ee2` and `bb36c9f` implemented against without a written contract to implement against.
 
 Refines ADR-0010 (Brain / Shared Infrastructure / Operator layering) by specifying the **internal** boundary between two Brain components ADR-0010 places in the same column. Relates to ADR-0012 (Knowledge Lifecycle) for the acquisition gap named in §12. Changes no frozen Constitution text: `KALPAVRIKSHA_VISION_V2.md` §2.1, §3.1, §3.2 and §3.5 are **FROZEN** and this ADR is written to be read *through* them, the same way ADR-0010 refined the two-column model without rewriting it.
 

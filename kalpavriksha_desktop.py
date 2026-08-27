@@ -419,6 +419,130 @@ def _browser_identity_store():
     )
 
 
+
+def _current_system_facts(capability_index, runner, history) -> dict:
+    """What is true about this installation, right now.
+
+    Assembled from the registries that already own these answers. The
+    Brain may not read the environment and does not: it is handed facts
+    that Shared Infrastructure already holds, which is why no mission is
+    needed to answer "what can you do?".
+
+    ## The distinction that matters
+
+    KNOWN is not EXECUTABLE. A provider can be registered, configured and
+    completely unusable -- no binary installed, no credential, an
+    application that is not running. Telling a founder they can use it
+    would be a promise this machine cannot keep, so every provider is
+    reported with all four facts rather than as a name on a list.
+
+    Every failure here is swallowed to an omission rather than an
+    exception: a founder asking a question must not be shown a crash
+    because one registry was mid-write. What cannot be read is left out,
+    and the answer says what it does not know.
+    """
+    facts: dict[str, str] = {}
+
+    try:
+        by_domain: dict[str, list[str]] = {}
+        for entry in capability_index.entries:
+            by_domain.setdefault(entry.domain, []).append(entry.canonical_id)
+        facts["What this system can do right now"] = "\n".join(
+            f"  {domain}: {', '.join(sorted(names))}"
+            for domain, names in sorted(by_domain.items())
+        )
+    except Exception:  # noqa: BLE001 -- an unreadable registry is an omission
+        logging.exception("could not read the capability index for grounding")
+
+    try:
+        # The SAME four facts the packaged self-check prints, read from
+        # the same places. One derivation, so what a founder is told and
+        # what an operator sees cannot disagree.
+        executor = runner._executor
+        executable_ids = {p.provider_id for p in executor._providers.all_plugins()}
+        configured_ids = set(_configured_cloud_providers())
+        source = executor._service.providers
+        profiles = {p.provider_id: p for p in source.profiles()}
+        registry = source.registry
+
+        rows = []
+        for record in sorted(registry.all() if registry else (),
+                             key=lambda d: d.provider_id):
+            pid = record.provider_id
+            profile = profiles.get(pid)
+            rows.append(
+                f"  {pid}: known=yes"
+                f" configured={'yes' if pid in configured_ids else 'n/a'}"
+                f" executable={'yes' if pid in executable_ids else 'no'}"
+                f" available={'yes' if profile and profile.available else 'no'}"
+            )
+        if rows:
+            facts["Reasoning providers (known is not the same as usable)"] = (
+                chr(10).join(rows)
+            )
+    except Exception:  # noqa: BLE001
+        logging.exception("could not read the provider registry for grounding")
+
+    try:
+        record = history.latest() if hasattr(history, "latest") else None
+        if record is not None:
+            facts["The most recent mission"] = _mission_facts(record)
+    except Exception:  # noqa: BLE001
+        logging.exception("could not read plan history for grounding")
+
+    return facts
+
+
+def _mission_facts(record) -> str:
+    """The last mission, as recorded -- including whether it satisfied
+    what was asked, which is the question a founder actually means."""
+    from master_agent.brain.conformance import assess
+
+    lines = [f"  objective: {getattr(record, 'objective', '')}"]
+    requirements = tuple(getattr(record, "requirements", ()) or ())
+    for requirement in requirements:
+        lines.append(
+            f"    required: {requirement.get('description', '')}"
+            f" [{requirement.get('kind', '')}]"
+        )
+    for step in getattr(record, "steps", ()) or ():
+        covers = ", ".join(getattr(step, "covers", ()) or ()) or "-"
+        lines.append(
+            f"    step {getattr(step, 'capability', '?')}"
+            f" verdict={getattr(step, 'verdict', '') or 'none'} covers={covers}"
+        )
+        reason = getattr(step, "selection_reason", "")
+        if reason:
+            lines.append(f"      chosen because: {reason}")
+    if requirements:
+        # The Brain's own conformance state, computed from what was
+        # recorded. Never a Verification verdict -- see ADR-0026.
+        conformance = assess(
+            [_Requirement(r) for r in requirements],
+            getattr(record, "steps", ()) or (),
+        )
+        lines.append(f"    did it satisfy the request: {conformance.state}")
+        lines.append(f"      because: {conformance.reason}")
+    return "\n".join(lines)
+
+
+class _Requirement:
+    """A stored requirement row, read back as the shape conformance wants.
+
+    History stores plain JSON; conformance takes objects. This adapts one
+    to the other without a second dataclass or a parallel schema.
+    """
+
+    __slots__ = ("requirement_id", "kind", "description", "required", "provenance")
+
+    def __init__(self, row: dict) -> None:
+        self.requirement_id = str(row.get("requirement_id", ""))
+        self.kind = str(row.get("kind", ""))
+        self.description = str(row.get("description", ""))
+        self.required = bool(row.get("required", True))
+        self.provenance = str(row.get("provenance", ""))
+
+
 def _build_mission_pipeline():
     """The minimal Planner -> Broker -> Gemini -> MissionPlan -> Mission
     Control -> Browser Executive assembly Founder Edition needs for one
@@ -1195,6 +1319,14 @@ def _build_mission_pipeline():
         # ordinary answer still costs nothing.
         intent_layer=IntentLayer(
             reasoner=tiered_runner,
+            # This machine's own current facts, for a founder question
+            # about this machine. Read at ASK time, never captured now:
+            # a provider's availability changes during a session, and an
+            # answer built from a snapshot taken at boot would be stale
+            # in exactly the way that misleads.
+            grounding=lambda: _current_system_facts(
+                capability_index, tiered_runner, plan_history
+            ),
             # The places a filesystem capability can actually reach --
             # the SAME table the plugin was built with, including the
             # founder's D: drive. Handed over rather than re-derived: a

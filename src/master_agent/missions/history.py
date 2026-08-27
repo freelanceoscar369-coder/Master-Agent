@@ -96,6 +96,21 @@ class StepRecord:
     #: from?".
     input_bindings: dict[str, Any] = field(default_factory=dict)
     founder_checkpoint: str = ""
+    #: The founder requirement ids this step took responsibility for.
+    #:
+    #: Kept durably so a founder can ask, after the fact, *"did it
+    #: actually do what I asked?"* and be answered from what was
+    #: recorded rather than from a model re-reading their sentence.
+    covers: list[str] = field(default_factory=list)
+    #: Why this capability was chosen for those requirements, composed
+    #: from planning-time FACTS: the requirement, the capability's own
+    #: published description, and its argument contract.
+    #:
+    #: Recorded rather than reconstructed. A founder asking "why did you
+    #: use that tool?" a day later must not be answered by a model
+    #: inventing a plausible reason -- the reason existed at planning
+    #: time and this is where it survives.
+    selection_reason: str = ""
     #: Which step and field actually supplied each bound input, and under
     #: which Evidence, recorded when the step started.
     input_provenance: list[dict[str, Any]] = field(default_factory=list)
@@ -125,6 +140,8 @@ class StepRecord:
             "evidence": self.evidence,
             "input_bindings": dict(self.input_bindings),
             "founder_checkpoint": self.founder_checkpoint,
+            "covers": list(self.covers),
+            "selection_reason": self.selection_reason,
             "input_provenance": list(self.input_provenance),
             "errors": list(self.errors),
             "started_at": self.started_at,
@@ -151,6 +168,8 @@ class StepRecord:
             evidence=document.get("evidence"),
             input_bindings=document.get("input_bindings") or {},
             founder_checkpoint=document.get("founder_checkpoint") or "",
+            covers=list(document.get("covers") or []),
+            selection_reason=document.get("selection_reason") or "",
             input_provenance=document.get("input_provenance") or [],
             errors=list(document.get("errors") or []),
             started_at=document.get("started_at"),
@@ -165,6 +184,13 @@ class PlanRecord:
     plan_id: str
     objective: str
     steps: list[StepRecord] = field(default_factory=list)
+    #: What the founder required, as the Intent Layer extracted it.
+    #:
+    #: The other half of the semantic trace. Coverage on a step says
+    #: which requirement it answered for; this says what the
+    #: requirements WERE, so the pair can be read back without the
+    #: original sentence being re-interpreted by anything.
+    requirements: list[dict[str, Any]] = field(default_factory=list)
     state: str = PLANNED
     planned_at: str = ""
     finished_at: str | None = None
@@ -279,6 +305,7 @@ class PlanRecord:
             "mode_reason": self.mode_reason,
             "attempts": [dict(a) for a in self.attempts],
             "steps": [record.as_dict() for record in self.steps],
+            "requirements": [dict(r) for r in self.requirements],
         }
 
     @classmethod
@@ -287,6 +314,7 @@ class PlanRecord:
             plan_id=document["plan_id"],
             objective=document.get("objective", ""),
             steps=[StepRecord.from_dict(row) for row in document.get("steps") or []],
+            requirements=[dict(r) for r in document.get("requirements") or []],
             state=document.get("state", PLANNED),
             planned_at=document.get("planned_at", ""),
             finished_at=document.get("finished_at"),
@@ -467,6 +495,7 @@ class PlanHistory:
             attempts=[dict(a) for a in (attempts or ())],
             entry_id=entry_id,
             steps=[_step_record(step) for step in plan.steps],
+            requirements=[r.as_dict() for r in getattr(plan, "requirements", ()) or ()],
         )
         self._records[plan_id] = record
         self._flush()
@@ -657,4 +686,6 @@ def _step_record(step: Any) -> StepRecord:
         checks=[check.description for check in getattr(expected, "checks", ())],
         priority=getattr(step, "priority", "normal"),
         estimated_complexity=getattr(step, "estimated_complexity", "moderate"),
+        covers=list(getattr(step, "covers", ()) or ()),
+        selection_reason=str(getattr(step, "selection_reason", "") or ""),
     )

@@ -123,6 +123,9 @@ def task_from_step(step: Any) -> Task:
         # Which observed value answers the founder. Copied like everything
         # else here -- translation stays 1:1 and derives nothing.
         answers_founder=str(getattr(step, "answers_founder", "") or ""),
+        # Which founder requirements this step answers for. Copied, never
+        # derived -- translation stays 1:1.
+        covers=tuple(getattr(step, "covers", ()) or ()),
         task_id=step.step_id,
     )
 

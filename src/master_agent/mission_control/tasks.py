@@ -68,6 +68,10 @@ class Task:
     #: task, and read by `_last_result()` alone -- it changes which result
     #: is reported, never which task runs or in what order.
     answers_founder: str = ""
+    #: The semantic requirement ids this task is responsible for, carried
+    #: from the Step. Descriptive: the dispatcher never reads it, and a
+    #: test asserts so. Outcome conformance does.
+    covers: tuple[str, ...] = ()
     #: The canonical Evidence projection Verification produced for THIS
     #: task, stored by Mission Control when it transports the verification
     #: event.
@@ -101,6 +105,7 @@ class Task:
             "input_bindings": dict(self.input_bindings),
             "founder_checkpoint": self.founder_checkpoint,
             "answers_founder": self.answers_founder,
+            "covers": list(self.covers),
             "evidence": self.evidence,
             "errors": list(self.errors),
             "duration_seconds": self.duration_seconds,

@@ -15,6 +15,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from master_agent.brain.agency import roles
+from master_agent.planner.plan import (
+    CONSTRAINT,
+    EFFECT,
+    INFORMATION,
+    REQUIREMENT_KINDS,
+    SemanticRequirement,
+)
 from master_agent.brain.utterance import UtteranceRole, structural_role
 from master_agent.planner.plan import Intent
 
@@ -344,6 +351,28 @@ _ROLE_BY_WORD = {
 #: `Reasoning.Transform`, named the way every other intent names a
 #: capability -- unqualified, since `find_option` normalises. The Planner
 #: still confirms it is registered before planning anything.
+#: A question about this system, with this system's own facts attached.
+#:
+#: The rules matter more than the framing. A provider that answers from
+#: memory about "Kalpavriksha" is answering about a product, not about
+#: this installation on this machine at this moment -- and the two differ
+#: in exactly the way a founder would care about: a capability that is
+#: registered but not executable is not something to offer them.
+_GROUNDED_QUESTION = """Answer the founder's question about this system.
+
+These are its CURRENT facts, read from its own registries a moment ago:
+
+{facts}
+
+The founder asks: {question}
+
+Answer only from the facts above. If they do not settle the question, say
+what is missing rather than filling the gap -- do not rely on anything you
+remember about a system with this name, because these facts are about this
+installation right now. Do not offer anything the facts do not show as
+usable. Speak plainly to the founder; do not quote internal identifiers at
+them unless one is genuinely the answer."""
+
 _TRANSFORM_CAPABILITY = "transform"
 #: The output field it publishes, and the one an answer is read from.
 _TRANSFORM_ANSWER_FIELD = "text"
@@ -356,23 +385,42 @@ class IntentLayer:
     ambiguous input that could map to multiple valid intents, it asks the
     founder rather than guessing.
 
-    ## The one thing this layer reasons about
+    ## What this layer reasons about, and what it never does
 
     `reasoner` is the Brain's Model Router door (`VISION_V2` §3.3 — *"the
     Brain's single door to reasoning"*, which ADR-0024 Decision 7 states
     normatively is not the Planner's alone). It is optional: omitted, this
-    layer behaves exactly as it did before, entirely on structure.
+    layer still resolves everything structure can settle, and asks rather
+    than guesses for the rest.
 
-    It is consulted for **one** decision and one shape of it — see
-    `decide_role()`. Not for parsing, not for clarification wording, and
-    never on the ordinary path, so a founder answering "Research" pays no
-    latency and no tokens for a harder case existing elsewhere.
+    It is consulted for exactly two narrow judgements, both of them about
+    MEANING and neither about what to do:
+
+    * `decide_role()` — what an utterance is DOING, when structure was
+      falling back to a default rather than reading a signal.
+    * `understand()` — which of the fields we are gathering an utterance
+      supplies, when the capability's own vocabulary and sentence shape
+      could not settle it.
+
+    Both are structured extractions with validated output. Neither is
+    asked what to do, which capability to use, or which provider to ask —
+    those belong to the Planner and the Broker respectively.
+
+    Never on the ordinary path. A founder answering "Research", or
+    naming a place the capability publishes, pays no latency and no
+    tokens for a harder case existing elsewhere.
+
+    **This docstring said "one decision, and not for parsing or
+    clarification" until `understand()` was added.** It is corrected here
+    rather than left to mislead the next reader: a comment describing
+    behaviour the code no longer has is worse than no comment.
     """
 
     def __init__(
         self,
         reasoner: Any = None,
         vocabularies: Mapping[str, Sequence[str]] | None = None,
+        grounding: Any = None,
     ) -> None:
         #: Injected, never constructed here: a second provider path is
         #: exactly what ADR-0024 Decision 7 forbids. The composition root
@@ -394,6 +442,19 @@ class IntentLayer:
             name: tuple(str(value) for value in values)
             for name, values in (vocabularies or {}).items()
         }
+        #: A callable returning CURRENT authoritative facts about this
+        #: system: what it can do, which providers are usable, what the
+        #: last mission did. Injected, never gathered here -- the Brain
+        #: may not read the environment, and these facts belong to Shared
+        #: Infrastructure.
+        #:
+        #: Why it exists. A founder asking "what can you do right now?"
+        #: was previously answered by a provider reasoning from whatever
+        #: it remembered about a product called Kalpavriksha, which is
+        #: not a source of truth about THIS machine at THIS moment. A
+        #: capability that is known but not executable is not something
+        #: to promise, and only the registry knows which is which.
+        self._grounding = grounding
         # Patterns are tried in order; first match wins
         # More specific patterns first
         self._patterns: list[tuple[str, type]] = [
@@ -920,6 +981,154 @@ class IntentLayer:
             text,
         )
 
+
+    # ---- what the founder requires -----------------------------------
+
+    def requirements_for(self, intent: Any, *, raw: str = "") -> tuple:
+        """The founder's requirements, as facts rather than prose.
+
+        ## Why this lives here
+
+        Meaning is understood here, so meaning is extracted here. The
+        alternative -- letting the Planner or the Reporter re-derive it
+        from the sentence later -- is what let three separate defects
+        share one shape: the founder's meaning was never a first-class
+        object, so every layer had its own private reading of it.
+
+        ## Deterministic first, and usually only
+
+        A typed intent has already been parsed. Its goal IS the effect,
+        its payload entries ARE the constraints, and a question's answer
+        IS the information required. Nothing about that needs a model,
+        and asking one would be paying to rediscover what the parser
+        already knows.
+
+        Reasoning is reached only for a generic objective -- prose no
+        parser claimed -- and even then it is asked what the founder
+        REQUIRES, never which capability should run.
+        """
+        evidence = (raw or getattr(intent, "goal", "") or "").strip()
+
+        answers = str(getattr(intent, "answers_founder", "") or "")
+        capability = str(getattr(intent, "capability", "") or "")
+        payload = dict(getattr(intent, "payload", None) or {})
+
+        if answers:
+            # A question. The requirement is that the founder be TOLD
+            # something -- not that anything change.
+            return (SemanticRequirement(
+                requirement_id="req_1",
+                kind=INFORMATION,
+                description=f"answer the founder's question: {evidence}",
+                provenance=evidence,
+            ),)
+
+        if capability:
+            found = [SemanticRequirement(
+                requirement_id="req_1",
+                kind=EFFECT,
+                description=evidence or f"perform {capability}",
+                provenance=evidence,
+            )]
+            # Every argument the founder supplied is a condition on that
+            # effect. Ordered by the payload's own key order so the ids
+            # are deterministic for the same Intent.
+            for index, (name, value) in enumerate(payload.items(), start=2):
+                found.append(SemanticRequirement(
+                    requirement_id=f"req_{index}",
+                    kind=CONSTRAINT,
+                    description=f"{name} = {value}",
+                    provenance=evidence,
+                ))
+            return tuple(found)
+
+        return self._reasoned_requirements(evidence)
+
+    def _reasoned_requirements(self, objective: str) -> tuple:
+        """A compound objective's requirements, or `()`.
+
+        Asked narrowly: *what does the founder require?* Never *which
+        tool should we use* -- that question invites a model to choose
+        capabilities, which is the Planner's job and which ADR-0026
+        rejects by name.
+
+        `()` on anything unusable: no reasoner, a refusal, output that is
+        not JSON, an unknown kind. An objective with no extracted
+        requirements is admitted exactly as it was before this existed --
+        the Planner still plans it, and conformance later reports
+        `UNKNOWN` rather than inventing correspondence.
+        """
+        if not objective or self._reasoner is None:
+            return ()
+
+        from master_agent.ai_infrastructure.budgeted_request import (
+            BudgetedSelectionRequest,
+        )
+        from master_agent.ai_infrastructure.workload import INTERACTIVE
+        from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+
+        prompt = (
+            "A founder has asked an assistant to do something. Break their "
+            "request into the separate things they REQUIRE.\n\n"
+            f"    The founder said: {objective}\n\n"
+            "Report each requirement with a kind:\n"
+            "    effect      - something in the world must change\n"
+            "    information - the founder must be TOLD something\n"
+            "    deliverable - an artefact must be produced for them\n"
+            "    constraint  - a condition another requirement must meet\n\n"
+            "Reply with JSON and nothing else:\n"
+            '    {"requirements": [{"kind": "...", "description": "..."}]}\n\n'
+            "Rules. Describe WHAT they require, never HOW to do it, and "
+            "never name a tool, capability, program or website. Include "
+            "only what their own words establish -- do not add steps that "
+            "would be sensible, and do not merge two things they asked "
+            "for into one. Keep each description short and in their own "
+            "terms."
+        )
+        context = RoutingContext(
+            is_online=True,
+            requires_strong_reasoning=False,
+            capability=REASONING_CAPABILITY,
+            requester="brain_semantic_requirements",
+        )
+        request = BudgetedSelectionRequest(
+            **vars(SelectionRequest.from_context(context)),
+            request_class=INTERACTIVE,
+            prompt=prompt,
+        )
+        try:
+            outcome = self._reasoner.run(prompt, request)
+        except Exception:  # noqa: BLE001 -- a dead ladder is a default, not a crash
+            return ()
+        if outcome is None or not getattr(outcome, "ok", False):
+            return ()
+
+        document = _parsed_json(getattr(outcome, "text", "") or "")
+        if document is None:
+            return ()
+        offered = document.get("requirements")
+        if not isinstance(offered, list):
+            return ()
+
+        found = []
+        for item in offered:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("kind", "") or "").strip().lower()
+            description = str(item.get("description", "") or "").strip()
+            if kind not in REQUIREMENT_KINDS or not description:
+                # An unknown kind is not a new kind. The vocabulary is
+                # closed, and output that does not fit it is output that
+                # was not understood.
+                continue
+            found.append(SemanticRequirement(
+                requirement_id=f"req_{len(found) + 1}",
+                kind=kind,
+                description=description,
+                provenance=objective,
+            ))
+        return tuple(found)
+
     def answer_question(self, text: str) -> IntentResult:
         """A question the founder wants ANSWERED, as an Intent.
 
@@ -945,17 +1154,31 @@ class IntentLayer:
         and calls this only for the role that means it.
         """
         goal = (text or "").strip()
+        facts, sources = self._grounded_facts()
+        # The founder's question, with this machine's own current facts
+        # attached. Not a system prompt and not a persona -- evidence,
+        # so the answer is about what is true here now rather than what
+        # a provider remembers about a product with this name.
+        instruction = (
+            f"{_GROUNDED_QUESTION.format(facts=facts, question=goal)}"
+            if facts else goal
+        )
+        context: dict[str, Any] = {"raw_input": goal}
+        if sources:
+            # Kept for the audit trail, not shown to the founder: which
+            # internal fact sources this answer was allowed to rely on.
+            context["grounding_sources"] = list(sources)
         return self._with_roles(
             IntentResult(
                 intent=Intent(
                     goal=goal,
                     constraints=[],
-                    context={"raw_input": goal},
+                    context=context,
                     # Stated, and checkable: the founder asked something
                     # and an answer either exists or it does not.
                     success_criteria=["A reasoned answer to the question is produced."],
                     capability=_TRANSFORM_CAPABILITY,
-                    payload={"instruction": goal},
+                    payload={"instruction": instruction},
                     answers_founder=_TRANSFORM_ANSWER_FIELD,
                 ),
                 raw_input=goal,
@@ -963,21 +1186,58 @@ class IntentLayer:
             goal,
         )
 
-    @staticmethod
-    def _with_roles(result: IntentResult, text: str) -> IntentResult:
-        """Stamp derived agency onto whatever a parser produced.
+    def _grounded_facts(self) -> tuple[str, tuple[str, ...]]:
+        """This machine's current facts, and which sources supplied them.
+
+        `("", ())` when nothing is wired, which is every test that does
+        not care and the honest state of a layer with no grounding
+        source: the question still travels, ungrounded, exactly as before
+        this existed.
+        """
+        if self._grounding is None:
+            return "", ()
+        try:
+            facts = self._grounding()
+        except Exception:  # noqa: BLE001 -- grounding is evidence, not control flow
+            return "", ()
+        if not isinstance(facts, Mapping) or not facts:
+            return "", ()
+        rendered = "\n\n".join(
+            f"{name}:\n{value}" for name, value in facts.items() if value
+        )
+        return rendered, tuple(facts)
+
+    def _with_roles(self, result: IntentResult, text: str) -> IntentResult:
+        """Stamp derived agency and semantic requirements onto whatever a
+        parser produced.
 
         Applied HERE rather than inside each of the twelve parsers: agency
         is a property of the founder's sentence, not of which action the
         sentence happened to name, so deriving it once at the one entry
         point keeps a single implementation and makes it impossible for a
-        new parser to be added without it.
+        new parser to be added without it. Requirements are stamped in the
+        same place, for the same reason.
+
+        **Only what is free.** A typed intent already knows its effect and
+        its constraints, and a question already knows what must be
+        answered; both are derived from what the parser produced, with no
+        provider involved. Generic prose is left with no requirements
+        here: extracting them would cost a call on every objective, and
+        the deterministic planner is about to read the same sentence
+        clause by clause anyway. It attaches them from what it compiled.
 
         A clarification result carries no `Intent` to stamp and is returned
         untouched -- there is no agency to preserve on a question.
         """
         if result.intent is None:
             return result
+        if not getattr(result.intent, "requirements", ()) and (
+            getattr(result.intent, "capability", "")
+            or getattr(result.intent, "answers_founder", "")
+        ):
+            result.intent.requirements = self.requirements_for(
+                result.intent, raw=text
+            )
         actor, beneficiary = roles(text)
         result.intent.actor = actor
         result.intent.beneficiary = beneficiary

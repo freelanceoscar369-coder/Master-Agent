@@ -92,6 +92,86 @@ UNKNOWN_ROLE = "unknown"
 ROLES = (SYSTEM, FOUNDER, BOTH, UNKNOWN_ROLE)
 
 
+#: What a requirement IS, closed like every other vocabulary here.
+#:
+#: Four kinds, and the boundary between them is what the founder would
+#: notice if it were missing:
+#:
+#: * `EFFECT`      -- the world must change. A folder exists that did not.
+#: * `INFORMATION` -- the founder must be TOLD something.
+#: * `DELIVERABLE` -- an artefact must exist and be handed over.
+#: * `CONSTRAINT`  -- a condition another requirement must satisfy.
+#:
+#: Deliberately not a taxonomy of domains. "filesystem", "browser" and
+#: "research" are things the Planner reasons about from the capability
+#: catalogue; a requirement describes WHAT the founder wants, and naming
+#: a domain here would be the semantic layer starting to choose tools.
+EFFECT = "effect"
+INFORMATION = "information"
+DELIVERABLE = "deliverable"
+CONSTRAINT = "constraint"
+
+REQUIREMENT_KINDS: tuple[str, ...] = (EFFECT, INFORMATION, DELIVERABLE, CONSTRAINT)
+
+
+@dataclass(frozen=True)
+class SemanticRequirement:
+    """One thing the founder requires, as a fact rather than as prose.
+
+    ## Why this exists
+
+    Three defects in three days had one shape in common: the founder's
+    meaning was never a first-class object. It was prose at the front,
+    arguments in the middle, verdicts at the end, and nothing carried it
+    across. So a mission could report every step verified without being
+    able to say whether the thing that was asked for happened -- which
+    `reporter.py` admitted in as many words, reporting
+    `founder_outcome_conformance: "not_evaluated"`.
+
+    A requirement is what survives. It is extracted once, at the layer
+    that understands language, and everything downstream refers to it by
+    id rather than re-deriving it from the sentence.
+
+    ## What it deliberately is not
+
+    It names no capability. "Create a folder called Research on the
+    Desktop" yields *an effect: the requested folder exists*, and two
+    constraints -- not `Filesystem.CreateFolder`. Requirements describe
+    WHAT; the Planner joins them to contracts and decides HOW. A
+    requirement that named a capability would make the semantic layer a
+    second tool selector, which ADR-0026 rejects by name.
+    """
+
+    requirement_id: str
+    kind: str
+    description: str
+    #: False for something the founder mentioned but did not require.
+    #: An unmet optional requirement never fails a mission.
+    required: bool = True
+    #: Which founder evidence established this -- their original sentence,
+    #: a clarification answer, a correction. Provenance, never a provider
+    #: transcript: "this fact came from this evidence", not "here is the
+    #: hidden reasoning that produced it".
+    provenance: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "requirement_id": self.requirement_id,
+            "kind": self.kind,
+            "description": self.description,
+            "required": self.required,
+            "provenance": self.provenance,
+        }
+
+
+def requirement_ids(requirements: Any) -> tuple[str, ...]:
+    return tuple(r.requirement_id for r in (requirements or ()))
+
+
+def required_ids(requirements: Any) -> tuple[str, ...]:
+    return tuple(r.requirement_id for r in (requirements or ()) if r.required)
+
+
 @dataclass
 class Intent:
     """Structured intent -- the output of the Intent Layer, the input to
@@ -110,15 +190,6 @@ class Intent:
     actor: str = UNKNOWN_ROLE
     #: Who receives, learns, or benefits from the result. One of `ROLES`.
     beneficiary: str = UNKNOWN_ROLE
-    #: A dot-path into the named capability's OUTPUT that answers the
-    #: founder, when the Intent Layer knows they asked a question rather
-    #: than ordered work. `"text"` for `Reasoning.Transform`.
-    #:
-    #: Empty for every ordinary intent. Carried here rather than derived
-    #: in the Planner because "this founder asked a question" is what the
-    #: Intent Layer determined; the Planner's job is to check the
-    #: capability actually publishes the field before promising it.
-    answers_founder: str = ""
     #: A dot-path into the named capability's OUTPUT that answers the
     #: founder, when the Intent Layer knows they asked a question rather
     #: than ordered work. `"text"` for `Reasoning.Transform`.
@@ -147,6 +218,14 @@ class Intent:
     #: published argument names (`name`, `location`, ...), never by the
     #: parser's internal vocabulary. Becomes `Step.payload` verbatim.
     payload: dict[str, Any] = field(default_factory=dict)
+    #: What the founder requires, in the order they said it.
+    #:
+    #: Empty is legitimate and means "nobody has extracted these yet" --
+    #: a hand-built Intent in a test, or a legacy record. It never means
+    #: "the founder required nothing", and downstream code must not read
+    #: it that way: an absent trace yields `UNKNOWN` conformance, never
+    #: `SATISFIED`.
+    requirements: tuple[SemanticRequirement, ...] = ()
 
 
 #: MB037. Closed vocabularies, both of them, for the same reason every
@@ -226,6 +305,25 @@ class Step:
     #: lifecycle, which the Constitution gives to Mission Control alone.
     #: These two exist so a founder reading a plan knows what matters and
     #: what is big -- and a test asserts the dispatcher ignores them.
+    #: The semantic requirement ids this step is responsible for.
+    #:
+    #: **Descriptive, never directive** -- the same discipline `priority`
+    #: carries. Mission Control resolves execution order from
+    #: `depends_on` and permission from the capability's risk tier;
+    #: neither reads this, and a test asserts the dispatcher ignores it.
+    #:
+    #: It is a claim of RESPONSIBILITY, not a claim about reality. A plan
+    #: saying "step_2 covers req_4" has said only that it intends step_2
+    #: to satisfy req_4. Whether it did is Evidence's answer, later.
+    covers: tuple[str, ...] = ()
+    #: Why this capability was chosen for those requirements, composed at
+    #: planning time from published FACTS -- the requirement, the
+    #: capability's own description, its argument contract.
+    #:
+    #: Recorded so that "why did you use that tool?" is answered from what
+    #: was decided, not by a model inventing a plausible reason after the
+    #: fact. Descriptive, like `covers`: nothing dispatches on it.
+    selection_reason: str = ""
     priority: str = DEFAULT_PRIORITY
     estimated_complexity: str = DEFAULT_COMPLEXITY
 
@@ -236,6 +334,13 @@ class MissionPlan:
     #: The goal these steps were derived from, carried so a stored plan
     #: explains itself without needing the Intent that produced it.
     objective: str = ""
+    #: The founder requirements this plan was built against.
+    #:
+    #: Carried on the plan as well as the Intent because a stored plan
+    #: must explain itself: conformance later asks "which requirements
+    #: did this mission owe?", and answering from the plan means the
+    #: answer cannot drift from the coverage the steps declare.
+    requirements: tuple[SemanticRequirement, ...] = ()
 
 
 @dataclass(frozen=True)

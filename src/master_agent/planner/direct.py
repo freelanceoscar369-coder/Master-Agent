@@ -54,7 +54,15 @@ from typing import Any
 from uuid import uuid4
 
 from master_agent.planner.outcomes import SuccessSpec
-from master_agent.planner.plan import Intent, MissionPlan, Step
+from master_agent.planner.plan import (
+    CONSTRAINT,
+    EFFECT,
+    INFORMATION,
+    Intent,
+    MissionPlan,
+    SemanticRequirement,
+    Step,
+)
 
 
 def _normalised(name: str) -> str:
@@ -79,6 +87,78 @@ def find_option(capability: str, options) -> Any | None:
         if _normalised(option.name) == wanted:
             return option
     return None
+
+
+
+# ─────────────────────── semantic coverage ───────────────────────
+#
+# A deterministic plan does not need to be ASKED what it covers. It read
+# the founder's sentence clause by clause to compile itself, so it knows
+# which requirement each step exists for -- and coverage attached at
+# construction is proven rather than claimed, which is the difference
+# between this and an AI plan that has to be validated.
+
+
+def _selection_reason(
+    option: Any, requirements: Any, covered: tuple[str, ...]
+) -> str:
+    """Why this capability, for these requirements -- from facts only.
+
+    Every clause is something already published: the requirement the
+    Intent Layer extracted, the capability's own registered description,
+    and the argument contract it declares. Nothing here is composed by a
+    model, and nothing is inferred.
+
+    That matters a day later. A founder asking *"why did you use that
+    tool?"* must be answered from what was actually decided at planning
+    time -- a model asked the same question afterwards would produce a
+    plausible reason, and a plausible reason is indistinguishable from
+    the real one exactly when it is wrong.
+    """
+    wanted = [r for r in (requirements or ()) if r.requirement_id in set(covered)]
+    if not wanted:
+        return ""
+    described = "; ".join(f"{r.requirement_id} ({r.description})" for r in wanted)
+    required_args = ", ".join(getattr(option, "required_args", ()) or ()) or "none"
+    summary = (getattr(option, "description", "") or "").strip().rstrip(".")
+    reason = f"{option.name} was selected for {described}"
+    if summary:
+        reason += f" because the registered capability {summary.lower()}"
+    return f"{reason}. Its contract requires: {required_args}."
+
+
+def _requirements_from(intent: Intent) -> tuple[SemanticRequirement, ...]:
+    """What the founder required, as the Intent already recorded it."""
+    return tuple(getattr(intent, "requirements", ()) or ())
+
+
+def _dictated_requirements(
+    intent: Intent, described: list[tuple[str, str]]
+) -> tuple[SemanticRequirement, ...]:
+    """Requirements for a workflow the founder dictated operation by
+    operation.
+
+    One requirement per operation THEY named, in the order they named it.
+    That is faithful here in a way it would not be for prose: a dictated
+    workflow's operations are not implementation detail the founder is
+    indifferent to -- they are the request.
+
+    Reuses whatever the Intent already carries. A typed intent arrives
+    with requirements derived from its payload, and re-deriving them from
+    the compiled steps would be a second reading of the same sentence.
+    """
+    existing = _requirements_from(intent)
+    if existing:
+        return existing
+    return tuple(
+        SemanticRequirement(
+            requirement_id=f"req_{index}",
+            kind=kind,
+            description=description,
+            provenance=intent.goal,
+        )
+        for index, (kind, description) in enumerate(described, start=1)
+    )
 
 
 def _single_capability_plan(intent: Intent, options) -> MissionPlan | None:
@@ -136,6 +216,7 @@ def _single_capability_plan(intent: Intent, options) -> MissionPlan | None:
         (c for c in (intent.success_criteria or []) if c and c.strip()),
         f"{option.name} completes for {intent.goal}".strip(),
     )
+    covered = tuple(r.requirement_id for r in _requirements_from(intent))
     # The id must be unique across every mission this process runs, not
     # merely within this plan.
     #
@@ -158,6 +239,13 @@ def _single_capability_plan(intent: Intent, options) -> MissionPlan | None:
         payload=payload,
         expected_outcome=SuccessSpec(description=description).to_expected_outcome(),
         answers_founder=answers,
+        # One step doing the whole job covers every requirement there is,
+        # including the constraints -- they are conditions ON this
+        # effect, satisfied by the same call that performs it.
+        covers=covered,
+        selection_reason=_selection_reason(
+            option, _requirements_from(intent), covered
+        ),
     )
     return MissionPlan(steps=[step], objective=intent.goal)
 
@@ -980,6 +1068,23 @@ def _read_browser_workflow(goal: str) -> list[_Operation] | None:
 #: nothing. Writing "the text is in the field" here would be asserting an
 #: outcome from the act of acting -- the same conflation the desktop mouse
 #: closure removed. The observation that follows owns the page effect.
+#: What the FOUNDER required, per dictated operation -- kind, and a
+#: description in their terms. Distinct from `_BROWSER_EXPECTATION`
+#: below, which says what a STEP promises: one is the request, the other
+#: is the machine's claim about a call.
+_BROWSER_REQUIREMENT = {
+    _OPEN: (EFFECT, lambda p: "a browser session is open"),
+    _NAVIGATE: (EFFECT, lambda p: f"the browser is at {p['url']}"),
+    _TYPE_TEXT: (EFFECT, lambda p: f"{p['text']!r} is entered into {p['selector']}"),
+    _CLICK: (EFFECT, lambda p: f"{p['selector']} is clicked"),
+    _OBSERVE: (
+        INFORMATION,
+        lambda p: (f"the founder is told what {p['selectors'][0]} shows"
+                   if p.get("selectors") else "the page is read"),
+    ),
+    _CLOSE: (EFFECT, lambda p: "the browser session is closed"),
+}
+
 _BROWSER_EXPECTATION = {
     _OPEN: lambda p: "A browser session is open and visible to the founder.",
     _NAVIGATE: lambda p: f"The browser session's current page is {p['url']}.",
@@ -1024,6 +1129,24 @@ def _browser_workflow(intent: Intent, options) -> MissionPlan | None:
     # Planner makes rather than a default it inherits.
     extras: dict[str, dict[str, Any]] = {_OPEN: {"headless": False}}
 
+    # What the founder required, one entry per operation they dictated.
+    # `TYPE_TEXT` and `CLICK` are effects they asked for; they are also
+    # the two this architecture cannot verify directly, which is why the
+    # observation below is made to cover them as well.
+    described = [(_BROWSER_REQUIREMENT[op.kind][0],
+                  _BROWSER_REQUIREMENT[op.kind][1](op.payload))
+                 for op in operations]
+    requirements = _dictated_requirements(intent, described)
+    ids = [r.requirement_id for r in requirements]
+    # Every delivery-only operation before the observation that reads the
+    # page. Its Evidence is what shows they took effect -- the same
+    # delivery/outcome split the expectations below state, expressed as
+    # coverage so conformance can use it.
+    delivered_before_observation: list[str] = []
+    for index, op in enumerate(operations):
+        if op.kind in (_TYPE_TEXT, _CLICK) and index < len(ids):
+            delivered_before_observation.append(ids[index])
+
     steps: list[Step] = []
     previous: str = ""
 
@@ -1048,6 +1171,14 @@ def _browser_workflow(intent: Intent, options) -> MissionPlan | None:
             return None
 
         step_id = f"{op.kind}-{mark}-{index}"
+        covered_by_this_step = (
+            # The observation answers for itself AND for everything
+            # delivered before it: a click's effect on the page is
+            # exactly what this step re-reads.
+            tuple([ids[index]] + delivered_before_observation)
+            if op.kind == _OBSERVE and index < len(ids)
+            else (ids[index],) if index < len(ids) else ()
+        )
         steps.append(Step(
             step_id=step_id,
             capability=option.name,
@@ -1060,10 +1191,16 @@ def _browser_workflow(intent: Intent, options) -> MissionPlan | None:
                 description=_BROWSER_EXPECTATION[op.kind](payload)
             ).to_expected_outcome(),
             answers_founder=_ELEMENT_TEXT if reports else "",
+            covers=covered_by_this_step,
+            selection_reason=_selection_reason(
+                option, requirements, covered_by_this_step
+            ),
         ))
         previous = step_id
 
-    return MissionPlan(steps=steps, objective=intent.goal)
+    return MissionPlan(
+        steps=steps, objective=intent.goal, requirements=requirements
+    )
 
 
 _GENERATE = re.compile(
