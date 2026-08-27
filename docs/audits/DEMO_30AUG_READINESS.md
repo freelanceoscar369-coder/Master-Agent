@@ -691,8 +691,12 @@ The grammar list carries prepositions, determiners, politeness, the
 copula and generic verbs — and no place and no thing, pinned by a test.
 Its failure direction is safe: an unknown word escalates, never settles.
 
-The question now names the places it can use and says plainly that it
-cannot yet put a folder inside another one.
+The question now names the places it can use.
+
+> **Superseded below.** It also said *"(I can't put it inside another
+> folder yet.)"* — true when written, false as soon as the nested
+> destination worked, and steering the founder away from the phrasing
+> that had just been built for them. See *Semantic correspondence*.
 
 ## Proof
 
@@ -709,7 +713,131 @@ FULL SUITE  75 failed · 8406 passed · 2 skipped · ZERO new failure IDs
 `D:\Rudra` was left on disk. Deleting founder data to tidy away my own
 mistake is not mine to decide.
 
-Nested destinations are still unsupported. `CreateFolder` accepts a
-multi-segment `name`, so `name="Onkar/Rudra", location="d_drive"` is a
-legal call the machine could make — the Intent Layer cannot yet express
-it. **Next P0 after the demo gates**, not improvised at midnight.
+Nested destinations were still unsupported at this point. **Closed in the
+section below** — source-adjudicated, not improvised: `CreateFolder`'s
+own contract already expresses a multi-segment `name` joined onto a
+location's base directory, and the parser composes it.
+
+---
+
+# SEMANTIC CORRESPONDENCE — 28 AUG 2026
+
+The final acceptance was stopped before a third attempt because the two
+failures had disproved something deeper than either fix addressed.
+
+## What was actually wrong
+
+Requirements were derived from what the Brain **RESOLVED**. That makes
+this representable, and it is what happened twice:
+
+    founder utterance -> incorrect interpretation -> requirement derived
+    from that interpretation -> execution matches it -> Verification
+    MATCHED -> OutcomeConformance SATISFIED
+
+Every link sound, the chain internally consistent, the conclusion false.
+Both sides of the final comparison came from the same misreading, so the
+only thing it could discover was that the system agreed with itself.
+**Consistency with an interpretation is not correspondence with meaning.**
+
+Recorded as a decision in ADR-0026 (*Two artefacts, never one*).
+
+## What changed
+
+**Two artefacts preserved.** `SemanticRequirement` carries
+`founder_evidence` (what was said) beside `description` (the system's
+reading) and `interpretation` (`known` / `uncertain`). No hidden
+chain-of-thought — provenance, not a provider transcript.
+
+**Completeness checked after EVERY interpretation source.** Structural
+and reasoned alike. A model returning a legitimate vocabulary value is
+not sufficient: asked *"d drive in onkar folder"* the production model
+returned `{"location": "d_drive"}`, a legal member of the capability's
+own vocabulary, and validation passed. **An instruction to a model is
+not a constraint.**
+
+**Uncertainty fails toward clarification.** An unsettled interpretation
+may not execute and may not be reported as satisfied — the same rule
+seen from either end of a mission.
+
+**Nested destination, source-adjudicated.** `executor/action.py::
+is_unsafe_relative_path` names `CreateFolderAction`'s `name` among the
+arguments that are a relative path joined onto a configured location's
+base directory; `run()` does `base / name` then `mkdir(parents=True)`;
+`validate()` already contemplates multi-segment values. So the existing
+contract expresses this and `..`/anchored paths stay rejected by the same
+guard. The parser composes it, because only the parser knows what its
+capability's arguments mean.
+
+## The audit the brief asked for by name
+
+*Where does founder evidence first become only the resolved value?*
+Measured, not reasoned about:
+
+```
+req_1  create a folder            evidence=''
+req_2  name = Onkar/Rudra         evidence=''
+req_3  location = d_drive         evidence='d drive in Onkar folder'
+```
+
+`req_2`, the composed argument — and it was **the requirement encoding
+the nested destination**, precisely what both failed acceptances got
+wrong. Fixed; the audit is kept executable. Full detail and what still
+has coarser evidence in `FOUNDER_SEMANTIC_EVIDENCE_AUDIT.md`.
+
+## Two defects found in my own test harness
+
+Both are the failure mode of testing around a defect, and both are worth
+more than the fixes:
+
+- The stub reasoner returned a bare field dict, not the `{"fields": ...}`
+  envelope the reasoning door validates. Malformed output is rejected
+  *before* any semantic check runs, so four cases were passing without
+  the guard they existed to prove. There is now a control case that must
+  resolve.
+- The clarification's *"(I can't put it inside another folder yet.)"*
+  became false the moment the feature landed. A capability statement is a
+  claim about the system; a stale one misleads exactly like a wrong one.
+
+## Proof
+
+```
+10/10 production intent conformance, including the executed on-disk case
+3/3   demo battery golden paths (local · browser · reasoning+file)
+15    semantic-correspondence matrix cases
+```
+
+Live ledger from the executed acceptance, evidence distinct from
+interpretation on every row:
+
+```
+('create a folder',            'create a folder',    'known')
+('name = KVIntent_020813_G',   'KVIntent_020813_G',  'known')
+('location = desktop',         'on my desktop',      'known')
+founder outcome: satisfied
+```
+
+The harness asks the three questions **separately**, because an answer to
+one is not an answer to another:
+
+```
+[PASS] precondition: ...KVIntent_020813_G did not exist before this run
+[PASS] the folder is on disk
+[PASS] this run is what created it (it was absent beforehand)
+[PASS] every requirement carries the founder's words, not only the reading
+[PASS] no requirement reached execution on an unsettled interpretation
+[PASS] founder outcome conformance: satisfied
+```
+
+`CreateFolder` idempotency was **not** broken to make this testable; the
+harness carries that burden with a precondition instead.
+
+## Not done, deliberately
+
+`D:\Rudra` remains on disk, founder-owned. Deleting founder-created data
+to arrange a clean test is not mine to decide.
+
+Two findings recorded rather than chased — the Steam 5s Navigate timeout
+(browser policy) and `ctreate` (language robustness). See
+`OPEN_FINDINGS_SEMANTIC_STRIKE.md`. Neither is answered with a regex.
+
+Main is untouched. DEMO_READY is **not** declared.
