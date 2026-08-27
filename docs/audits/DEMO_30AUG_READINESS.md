@@ -449,3 +449,178 @@ reaches the AI Planner.
   it, asserted
 * no provider is named in Brain semantics, asserted
 * no environment access from Brain semantics, asserted
+
+
+---
+
+# SHUTDOWN CHECKPOINT — 27 AUG 2026
+
+```
+TIME                 2026-08-27, end of session (laptop powering off)
+BRANCH               claude/founder-browser-identity
+HEAD                 cea97094e9fa7b63170d330b64ca8151e8cc504c
+REMOTE HEAD          cea97094e9fa7b63170d330b64ca8151e8cc504c   (verified equal)
+origin/main          60dbaa0147b81bc8fae10e684d0fd7e2b4fe84dc   (unchanged)
+AHEAD / BEHIND       37 ahead - 0 behind - merge-base = origin/main
+WORKTREE             clean - no dirty files, no untracked files
+```
+
+**CURRENT MISSION — BRAIN SEMANTIC INTELLIGENCE + 30 AUG DEMO
+CONVERGENCE.** Do not restart it as a new investigation.
+
+## Inherited and COMPLETE — do not rebuild
+
+Confirmed at this HEAD, not merely reported:
+
+* natural multi-turn Intent understanding (`IntentLayer.understand`)
+* canonical clarification resolution — answers are evidence, not field
+  values; `IntentResult.resolved` carries canonical values between turns
+* provenance (`FieldEvidence`: value, evidence, source, replaced)
+* deterministic first, reasoning only where structure cannot settle it
+* parser claim discipline (`_may_claim`)
+* infinite-clarification loop guard, with an empty reply explicitly not
+  counting as an answer
+* CreateFolder natural acceptance — **live, founder-run**: "create a
+  folder" then "Vikrant" then "on desktop" produced the folder on disk
+  with verdict matched
+* GP1 / GP2 / GP3 green, now with `founder outcome: satisfied`
+* truthful anti-bot failure on a public search engine
+* no-Ollama Founder Edition; Browser lane separation
+* UI/UX excluded — Hyper Agent scope
+
+## Completed THIS session
+
+* ADR-0024 moved to Accepted / Founder-ratified
+* ADR-0026 written and accepted
+* two hygiene defects fixed: a duplicate `answers_founder` declaration,
+  and an `IntentLayer` docstring made false by this session's own change
+* `SemanticRequirement` on the canonical Intent; closed kind vocabulary
+* `Step.covers` and `Step.selection_reason`, attached by construction in
+  **all four** deterministic lanes
+* `brain/conformance.py` — SATISFIED / NOT_SATISFIED / UNKNOWN
+* Reporter integration: `founder_outcome_conformance` is evaluated, and
+  the founder reads a conformance sentence
+* grounded self-query: capability index, provider four-state, and the
+  last mission, read at ask time from the self-check's own derivation
+* `tests/test_semantic_spine.py` — 29 tests
+* durable trace: `PlanRecord.requirements`, `StepRecord.covers`,
+  `StepRecord.selection_reason`
+
+## LAST COMPLETED BOUNDARY
+
+Reporter integration and the conformance sentence, proven live: all three
+golden paths report `founder outcome: satisfied` with per-requirement
+detail, every requirement independently verified.
+
+## FIRST UNFINISHED BOUNDARY
+
+**Full-suite regression diff for `cea9709`.** The run was interrupted at
+52% by the shutdown.
+
+    INCOMPLETE — DO NOT CLAIM PASS
+
+## NEXT EXACT ACTION ON RESUME
+
+1. `PYTHONPATH=<worktree>/src python -m pytest tests/ -q --tb=no` (the
+   Windows path separator is `;`), diff failing IDs against the baseline
+   below, require ZERO new.
+2. Rebuild the package — **PACKAGE IS STALE**.
+3. Then the semantic acceptance window (brief sections 32-34), then main.
+
+## Test state
+
+```
+FOCUSED (this session)     test_semantic_spine.py            29 passed
+                           test_intent_understanding.py      60 passed
+                           test_question_routing.py          30 passed
+                           test_brain_non_execution_routing  46 passed
+                           intent/planner/reporter/missions  ZERO new vs baseline
+FULL SUITE at cea9709      INCOMPLETE - interrupted at 52%
+LAST COMPLETE FULL SUITE   at ae6735d: 77 failed, 8336 passed, 2 skipped
+BASELINE (b4a9cfe)         90 failed  - the acceptance baseline
+NEW REGRESSIONS at ae6735d ZERO. Two clipboard tests fail identically at
+                           the untouched baseline right now - the Windows
+                           clipboard was held by another process, and
+                           nothing changed here mentions the clipboard.
+```
+
+An interim run at `2b5b3b9` showed 7 failures that **all pass in
+isolation** — order/state-dependent, not believed real, and the reason
+the full diff at `cea9709` must be redone rather than inferred.
+
+## Package state
+
+```
+LATEST PACKAGE SOURCE SHA   3d916ca16fe392b02e75575f508f527b6edf8afb
+PACKAGE SHA256              bc4b7ee472fd39726e7d2293d03300036764f466daa216acd5a7854eb2a8c64b
+BUILT                       2026-08-27T20:22:18
+SELF-CHECK                  RESULT OK, 48 capabilities
+NO-OLLAMA                   constructed=no, candidate=no
+FMEA                        UNSET
+CURRENT WITH SOURCE         NO
+```
+
+    PACKAGE STALE — REBUILD REQUIRED ON RESUME
+
+Four commits landed after it. The founder must not be asked to accept
+that binary.
+
+## Live-only state — will NOT survive shutdown
+
+Recorded so none of it is mistaken for a resumable product fact:
+
+* packaged Founder Edition process — gone on power-off
+* any Playwright session or driver — gone
+* loopback acceptance fixture server — gone; the battery starts its own
+  on an ephemeral port, so nothing needs restoring
+
+## MUST survive, and was not touched
+
+`~/.master_agent`, `%LOCALAPPDATA%\Kalpavriksha\state` (events, plan
+history, broker decisions, founder interactions, snapshot), provider
+registry state, Evidence, founder memory, the Gemini **Kalpavriksha**
+conversation, founder Chrome/Comet profiles, credentials. No application
+state was cleared to manufacture a clean test.
+
+## Known non-blocking debt
+
+* failed-mission browser session cleanup (the close step never runs)
+* runtime absent-Evidence fall-open
+* a deterministic validation error is retried three times before
+  escalating
+* `brain/advisory.py` is dead production code, still passing its own
+  tests
+* semantic assessment of an AI plan or AI answer: specified in ADR-0026,
+  deliberately not implemented — no demo path needs it
+
+## Known demo P0 still open
+
+1. full-suite regression diff at `cea9709`
+2. package rebuild from final source
+3. semantic acceptance window (sections 32-34)
+4. canonical main integration
+5. one normal instance, FMEA unset
+
+## DO NOT REPEAT
+
+* do not re-derive the intent/clarification work — it is done and
+  founder-proven live
+* do not add English phrase tables to production
+* do not point ordinary web automation at the founder's signed-in browser
+* do not use a public search engine on the demo critical path
+* do not treat a semantic assessment as Verification or Evidence
+* do not fast-forward main before the P0 gates pass
+
+---
+
+## RESUME DIRECTIVE
+
+1. Read Git truth first; trust no SHA written anywhere, including here.
+2. Read this shutdown checkpoint.
+3. Read the Brain Semantic Intelligence + 30 Aug Demo Convergence brief.
+4. Do not restart completed work; the inherited list above is proven.
+5. Resume at: full-suite regression diff for the current HEAD, then
+   package rebuild, then the semantic acceptance window.
+6. The 30 August deadline does not move.
+7. UI/UX remains Hyper Agent scope.
+8. No main integration until every P0 package acceptance gate passes.
