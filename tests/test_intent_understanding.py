@@ -361,13 +361,37 @@ class TestAnAnswerMayCarryMoreThanWasAsked:
         assert evidence["replaced"] == "desktop"
 
     def test_a_reasoned_field_is_recorded_as_reasoned(self):
-        reasoner = Reasoner(json.dumps({"fields": {"location": "documents"}}))
+        """The fixture changed, and the reason matters.
+
+        It used to be *"same place as the report from last week"* with a
+        stub returning `documents` — which is a model GUESSING, since
+        nothing in the system knows where last week's report went. That
+        reply is now correctly uncertain: its words are not explained by
+        anything resolved, so the founder is asked.
+
+        A reply whose words ARE explained still records its source.
+        """
+        reasoner = Reasoner(json.dumps({
+            "fields": {"folder_name": "Finance", "location": "documents"},
+        }))
         result = layer(reasoner).clarify(
-            "create a folder", "same place as the report from last week",
+            "create a folder", "call it Finance and put it in Documents",
             where_question("Notes"), supplied={"folder_name": "Notes"},
         )
-        evidence = result.intent.context["field_evidence"]["location"]
-        assert evidence["source"] == REASONED
+        evidence = result.intent.context["field_evidence"]
+        assert evidence["folder_name"]["source"] == REASONED
+
+    def test_a_contextual_reference_nothing_can_resolve_is_asked_about(self):
+        """"the same place as last week's report" names somewhere only
+        the founder knows. A model answering it is inventing, and an
+        invented location puts their work somewhere they did not ask
+        for."""
+        reasoner = Reasoner(json.dumps({"fields": {"location": "documents"}}))
+        payload, asked = resolve(
+            "same place as the report from last week", reasoner=reasoner,
+        )
+        assert payload is None
+        assert asked
 
     def test_the_reasoning_prompt_asks_for_extraction_not_for_a_decision(self):
         """The failure mode this avoids is documented in
@@ -744,6 +768,30 @@ class TestAMatchMustAccountForTheWholeReply:
         prompt = reasoner.prompts[0]
         assert "NARROWER" in prompt
         assert "rather than picking the closest one" in prompt
+
+    def test_a_model_returning_a_legitimate_value_is_still_checked(self):
+        """The second live failure, and the sharper lesson.
+
+        The prompt asks a model not to pick the closest value when the
+        reply names something narrower. Asked *"d drive in onkar
+        folder"*, the production model returned `d_drive` anyway — and
+        because `d_drive` IS a legitimate value, the vocabulary check
+        accepted it. A folder was created in the wrong place for the
+        second time, and the founder was told it went well.
+
+        **An instruction to a model is not a constraint.** The accounting
+        runs over whatever comes back, from wherever: every word the
+        founder used must be explained by a value that was resolved, or
+        by grammar.
+        """
+        reasoner = Reasoner(json.dumps({"fields": {"location": "d_drive"}}))
+        payload, asked = resolve("d drive in onkar folder", reasoner=reasoner)
+        assert payload is None, (
+            "a compliant-looking answer that ignored half the sentence "
+            "was accepted"
+        )
+        assert asked
+        assert reasoner.prompts, "reasoning was never consulted"
 
     def test_a_model_naming_a_narrower_place_is_still_refused(self):
         """Belt and braces: if reasoning ignores the instruction and

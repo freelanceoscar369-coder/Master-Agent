@@ -108,7 +108,35 @@ _GRAMMAR_WORDS: frozenset[str] = frozenset({
     "folder", "directory", "dir", "location", "place",
     # assent
     "fine", "good", "great", "right", "sure", "yes", "yeah", "instead",
+    # conjunctions, and the verbs of NAMING -- "call it X" says nothing
+    # about X beyond that it is the name
+    "and", "then", "also", "plus", "with", "call", "called", "name",
+    "named", "title", "titled",
 })
+
+
+def _unaccounted_by(text: str, values: Any) -> set[str]:
+    """The founder's words that NOTHING resolved so far explains.
+
+    The same accounting as `_unaccounted`, over every value settled
+    rather than one -- because the question is not "did this match
+    explain the sentence" but "does what we now believe explain it".
+    """
+    leftover = _tokens_of(text)
+    for value in values:
+        leftover -= {part for part in str(value).replace("_", " ").lower().split()}
+    return leftover - _GRAMMAR_WORDS
+
+
+def _tokens_of(text: str) -> set[str]:
+    # Apostrophes are removed rather than listed: "let's" and "lets" are
+    # one word wearing two spellings, and a grammar list that has to
+    # carry both is a list that will miss the third.
+    return {
+        word.strip(_VALUE_STRIP).lower().replace("'", "").replace("’", "")
+        for word in (text or "").split()
+        if word.strip(_VALUE_STRIP)
+    }
 
 
 def _unaccounted(text: str, value: str) -> set[str]:
@@ -129,15 +157,7 @@ def _unaccounted(text: str, value: str) -> set[str]:
     out; anything remaining is a fact nobody has accounted for, and the
     caller must not settle the field on structure alone.
     """
-    # Apostrophes are removed rather than listed: "let's" and "lets" are
-    # one word wearing two spellings, and a grammar list that has to
-    # carry both is a list that will miss the third.
-    spoken = {
-        word.strip(_VALUE_STRIP).lower().replace("'", "").replace("’", "")
-        for word in (text or "").split()
-    }
-    consumed = {part for part in value.replace("_", " ").lower().split()}
-    return {word for word in spoken - consumed - _GRAMMAR_WORDS if word}
+    return _unaccounted_by(text, (value,))
 
 
 #: What joins one clause to another. A reply built out of two clauses may
@@ -810,6 +830,28 @@ class IntentLayer:
             )
         merged = dict(stated.fields)
         merged.update(reasoned.fields)
+
+        # Does what we now believe explain what the founder SAID?
+        #
+        # The prompt asks a model not to pick the closest value when the
+        # reply names something narrower. Asked "d drive in onkar
+        # folder", the production model returned `d_drive` anyway -- and
+        # because `d_drive` is a legitimate value, the vocabulary check
+        # accepted it and a folder was created in the wrong place for the
+        # second time.
+        #
+        # An instruction to a model is not a constraint. This is: every
+        # word the founder used must be explained by a value we resolved
+        # or by grammar, whoever resolved it. A leftover word is a fact
+        # nobody has accounted for, and acting on a partial reading is
+        # how the founder gets told "This did what you asked for" about
+        # work that did not.
+        leftover = _unaccounted_by(text, [f.value for f in merged.values()])
+        if leftover:
+            return Understanding(
+                fields={}, uncertain=True,
+                reason=f"{' '.join(sorted(leftover))} was not understood",
+            )
         return Understanding(
             fields=merged, uncertain=reasoned.uncertain, reason=reasoned.reason
         )
