@@ -655,3 +655,112 @@ class TestAParserOnlyClaimsWhatItCanRead:
                           {"folder_name": "   "}) is True
         assert _may_claim("create a folder", "create a folder", Asking(),
                           {"folder_name": "Research"}) is False
+
+
+# =====================================================================
+# A match that ignores half the sentence is not a match
+# =====================================================================
+
+
+class TestAMatchMustAccountForTheWholeReply:
+    r"""The live acceptance failure, and the worst one this system has
+    produced.
+
+        Somesh: Where should I create the Rudra folder?
+        Onkar:  d drive in Onkar folder
+        → created D:\Rudra
+        → "Work finished. All 1 executed step(s) were independently
+           verified. This did what you asked for."
+
+    `D:\Onkar` existed. The founder said where. The vocabulary scan
+    found `d drive`, settled `location` confidently, and silently
+    discarded "in Onkar folder" -- and because the requirement was then
+    derived from the RESOLVED payload rather than from what was said,
+    conformance agreed with itself and reported SATISFIED about a folder
+    in the wrong place.
+
+    Matching part of a sentence is not understanding it. The same
+    discipline the parser claim guard already enforces, applied to the
+    matcher itself.
+    """
+
+    @pytest.mark.parametrize("answer", [
+        "d drive in Onkar folder",
+        "D drive, Onkar folder",
+        "the Onkar folder on D",
+        "desktop in the Projects folder",
+        "documents under Archive",
+    ])
+    def test_a_reply_naming_somewhere_narrower_is_never_settled(self, answer):
+        """It may mention a place this machine has, and still not BE that
+        place. Choosing the closest one puts the founder's work somewhere
+        they did not ask for."""
+        payload, asked = resolve(answer)
+        assert payload is None, f"settled on a partial match: {payload}"
+        assert asked
+
+    def test_the_question_says_what_it_can_actually_do(self):
+        """Repeating the same words at a founder who has already answered
+        is how a clarification becomes a loop. Naming the places turns an
+        unanswerable question into a choice."""
+        _payload, asked = resolve("d drive in Onkar folder")
+        for place in ("d drive", "desktop", "documents", "downloads"):
+            assert place in asked.lower()
+        assert "inside another folder" in asked.lower()
+
+    @pytest.mark.parametrize("answer", [
+        "desktop", "on my desktop", "put it on the desktop please",
+        "Desktop is fine", "let's use my Desktop",
+        "I'd like it on the Desktop, thanks", "inside my desktop directory",
+        "to the desktop", "use Desktop",
+    ])
+    def test_ordinary_phrasings_still_resolve_with_no_provider(self, answer):
+        """The guard must not cost what already worked. Every one of
+        these is grammar around a place the machine has, and none of them
+        is written down in `src/`."""
+        payload, asked = resolve(answer)
+        assert asked is None, asked
+        assert payload["location"] == "desktop"
+
+    def test_leftover_words_escalate_rather_than_refuse(self):
+        """Unaccounted words mean the sentence needs READING, not that it
+        cannot be read. Reasoning gets it next; only if that fails does
+        the founder get asked."""
+        reasoner = Reasoner(json.dumps({
+            "fields": {"folder_name": "Finance", "location": "documents"},
+        }))
+        payload, asked = resolve(
+            "actually call it Finance and put it in Documents",
+            known={"folder_name": "Notes"}, reasoner=reasoner,
+        )
+        assert asked is None, asked
+        assert payload["name"] == "Finance"
+        assert payload["location"] == "documents"
+        assert reasoner.prompts, "the reasoning door was never reached"
+
+    def test_reasoning_is_told_not_to_pick_the_closest_value(self):
+        reasoner = Reasoner(json.dumps({"fields": {}}))
+        resolve("d drive in Onkar folder", reasoner=reasoner)
+        prompt = reasoner.prompts[0]
+        assert "NARROWER" in prompt
+        assert "rather than picking the closest one" in prompt
+
+    def test_a_model_naming_a_narrower_place_is_still_refused(self):
+        """Belt and braces: if reasoning ignores the instruction and
+        returns the closest value anyway, the vocabulary check rejects
+        anything outside the list -- and `d_drive` IS in the list, so the
+        guard that matters is the model being told to say ambiguous."""
+        reasoner = Reasoner(json.dumps({"fields": {"location": "onkar"}}))
+        payload, asked = resolve("d drive in Onkar folder", reasoner=reasoner)
+        assert payload is None
+        assert asked
+
+    def test_the_grammar_list_names_no_place_and_no_thing(self):
+        """The moment it did, it would be the phrase table that must not
+        exist. It carries prepositions, determiners, politeness and
+        generic verbs -- nothing that identifies a location."""
+        from master_agent.brain.intent import _GRAMMAR_WORDS
+
+        for place in ("desktop", "documents", "downloads", "drive", "onkar",
+                      "projects", "archive", "home", "temp"):
+            assert place not in _GRAMMAR_WORDS, place

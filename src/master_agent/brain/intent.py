@@ -76,6 +76,70 @@ _VALUE_STRIP = " \t.,!?;:'\"()"
 _BARE_VALUE_WORDS = 4
 
 
+#: Words that carry no fact of their own around a value.
+#:
+#: Grammar, not phrasings. Prepositions, determiners, politeness, the
+#: copula, the generic verbs of putting and choosing, and the generic
+#: nouns for a container. Nothing here names a PLACE or a THING; the
+#: moment it did, this would be the phrase table that must not exist.
+#:
+#: It exists so that a vocabulary match can be checked for having
+#: accounted for the whole utterance. Its failure direction is the safe
+#: one: a word this list does not know makes the reply UNACCOUNTED FOR,
+#: which escalates to reasoning or to a question -- never to a confident
+#: wrong answer.
+_GRAMMAR_WORDS: frozenset[str] = frozenset({
+    # prepositions
+    "on", "in", "at", "to", "into", "inside", "under", "within", "from",
+    "for", "onto", "of",
+    # determiners and pronouns
+    "the", "a", "an", "my", "your", "our", "its", "it", "this", "that",
+    "there", "i", "we", "you",
+    # politeness and filler
+    "please", "thanks", "thank", "ok", "okay", "just", "actually",
+    "really", "maybe", "perhaps", "well",
+    # copula and auxiliaries
+    "is", "are", "be", "will", "would", "could", "can", "should",
+    "lets", "let", "s", "d", "id", "ill",
+    # generic verbs of placing or choosing
+    "put", "place", "use", "using", "stick", "save", "keep", "make",
+    "create", "go", "set", "like", "want", "prefer", "drop",
+    # generic container nouns
+    "folder", "directory", "dir", "location", "place",
+    # assent
+    "fine", "good", "great", "right", "sure", "yes", "yeah", "instead",
+})
+
+
+def _unaccounted(text: str, value: str) -> set[str]:
+    """The founder's words this match did NOT explain.
+
+    A vocabulary scan finds a value the capability accepts ANYWHERE in a
+    reply. That is what makes "put it on my desktop please" work without
+    any phrasing being enumerated -- and it is also what let
+
+        d drive in Onkar folder
+
+    resolve to `d_drive` while silently discarding "in Onkar folder".
+    The folder was created in the wrong place and the founder was told
+    "This did what you asked for."
+
+    Matching part of a sentence is not understanding it. This returns
+    what is left over once the matched value and pure grammar are taken
+    out; anything remaining is a fact nobody has accounted for, and the
+    caller must not settle the field on structure alone.
+    """
+    # Apostrophes are removed rather than listed: "let's" and "lets" are
+    # one word wearing two spellings, and a grammar list that has to
+    # carry both is a list that will miss the third.
+    spoken = {
+        word.strip(_VALUE_STRIP).lower().replace("'", "").replace("’", "")
+        for word in (text or "").split()
+    }
+    consumed = {part for part in value.replace("_", " ").lower().split()}
+    return {word for word in spoken - consumed - _GRAMMAR_WORDS if word}
+
+
 #: What joins one clause to another. A reply built out of two clauses may
 #: be saying two things, and is worth reading properly.
 _CLAUSE_JOINS: tuple[str, ...] = (",", ";", " and ", " but ", " then ")
@@ -797,6 +861,20 @@ class IntentLayer:
                     if "_" in value else value.lower() in tokens)
             ]
             if len(mentioned) == 1:
+                if _unaccounted(text, mentioned[0]):
+                    # The reply names something this match did not
+                    # explain. Settling the field here would DISCARD it,
+                    # which is exactly how a folder ended up on the wrong
+                    # drive with the founder told it went well.
+                    #
+                    # Left outstanding rather than refused: leftover words
+                    # are the signal that a sentence needs reading, not
+                    # that it cannot be read. Reasoning gets it next, and
+                    # only if that cannot settle it does the founder get
+                    # asked -- so "call it Finance and put it in
+                    # Documents" resolves while "d drive in Onkar folder"
+                    # asks.
+                    continue
                 found[name] = FieldEvidence(
                     value=mentioned[0], evidence=text, source=STATED
                 )
@@ -869,8 +947,12 @@ class IntentLayer:
             "it -- never because it would be convenient or likely. Omit "
             "anything they did not say. If their reply points at something "
             "with no clear referent (\"put it there\", \"the usual place\") "
-            'set "ambiguous": true and return no fields. If they corrected '
-            "something they said earlier, report the NEW value."
+            'set "ambiguous": true and return no fields. If a field has a '
+            "listed set of values and their reply names something NARROWER "
+            "or DIFFERENT -- a folder inside one of them, a path, somewhere "
+            "not on the list -- that is not one of those values: set "
+            '"ambiguous": true rather than picking the closest one. If they '
+            "corrected something they said earlier, report the NEW value."
         )
         context = RoutingContext(
             is_online=True,
@@ -1400,9 +1482,25 @@ class IntentLayer:
             if understood.uncertain:
                 # Nothing was established. Ask again rather than proceed
                 # on something nobody said -- accuracy over completion.
+                #
+                # And ask BETTER. Repeating the same words at a founder
+                # who has already answered once is how a clarification
+                # becomes a loop they can only escape by giving up. When
+                # the field has a known set of values, saying what they
+                # are turns an unanswerable question into a choice.
+                asked = question.question
+                vocabulary = self._vocabularies.get(question.key)
+                if vocabulary:
+                    places = ", ".join(
+                        value.replace("_", " ") for value in sorted(vocabulary)
+                    )
+                    asked = (
+                        f"{question.question} I can use: {places}. "
+                        f"(I can't put it inside another folder yet.)"
+                    )
                 return IntentResult(
                     clarification=ClarificationQuestion(
-                        question=question.question,
+                        question=asked,
                         key=question.key,
                         options=question.options,
                         required=question.required,
