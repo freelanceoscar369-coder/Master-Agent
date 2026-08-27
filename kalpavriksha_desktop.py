@@ -1193,7 +1193,17 @@ def _build_mission_pipeline():
         # Brain exactly one door for that. Consulted for one narrow
         # decision only -- see `IntentLayer.decide_role` -- so the
         # ordinary answer still costs nothing.
-        intent_layer=IntentLayer(reasoner=tiered_runner), reporter=Reporter(),
+        intent_layer=IntentLayer(
+            reasoner=tiered_runner,
+            # The places a filesystem capability can actually reach --
+            # the SAME table the plugin was built with, including the
+            # founder's D: drive. Handed over rather than re-derived: a
+            # second copy is a copy that drifts, and the Intent Layer's
+            # job is mapping the founder's meaning onto values the
+            # machine can act on.
+            vocabularies={"location": tuple(sorted(_locations))},
+        ),
+        reporter=Reporter(),
         history=plan_history,
     )
 
@@ -1699,8 +1709,16 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # next question. This is the same logical Intent being resolved
         # field by field -- the objective and the clarification thread are
         # unchanged -- not a new objective built out of replies.
+        # What the Intent Layer actually UNDERSTOOD, carried forward --
+        # not what the founder typed.
+        #
+        # This used to read `resolved[pending.key] = text`, which threw
+        # the understanding away between turns: `clarify()` could resolve
+        # "on my desktop" to `desktop`, and the next round was handed the
+        # sentence again. Canonical values in, canonical values out.
         resolved: dict[str, str] = dict(getattr(pending, "supplied", {}) or {}) if pending else {}
-        if pending is not None and pending.key:
+        resolved.update(getattr(intent_result, "resolved", None) or {})
+        if pending is not None and pending.key and pending.key not in resolved:
             resolved[pending.key] = text
         status.pending_clarification = PendingClarification(
             question=question.question,

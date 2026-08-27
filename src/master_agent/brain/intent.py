@@ -26,6 +26,16 @@ class ClarificationQuestion:
     key: str
     options: tuple[str, ...] = ()
     required: bool = True
+    #: EVERY field this parser is gathering, not only the one being asked
+    #: about right now.
+    #:
+    #: A founder answering "where?" with *"actually call it Finance and
+    #: put it in Documents"* has settled two fields and revised one. The
+    #: layer can only notice that if it knows which fields are in play --
+    #: and only the parser knows, because only the parser knows what its
+    #: capability needs. Empty means "just the one being asked", which is
+    #: the historical behaviour.
+    gathering: tuple[str, ...] = ()
 
 
 @dataclass
@@ -34,10 +44,138 @@ class IntentResult:
     intent: Intent | None = None
     clarification: ClarificationQuestion | None = None
     raw_input: str = ""
+    #: Every field resolved so far, canonically, across all rounds.
+    #:
+    #: The caller carries this into the next round instead of
+    #: accumulating raw replies. Without it the surface rebuilt
+    #: `supplied` from what the founder typed -- so even once `clarify()`
+    #: understood "on my desktop" as `desktop`, the NEXT round was handed
+    #: the sentence again and the understanding was thrown away between
+    #: turns. The same defect, one layer up.
+    resolved: dict[str, str] = field(default_factory=dict)
 
     @property
     def needs_clarification(self) -> bool:
         return self.clarification is not None
+
+
+#: Punctuation a founder wraps a value in without meaning it.
+_VALUE_STRIP = " \t.,!?;:'\"()"
+
+#: How long a reply can be and still read as a plain value rather than a
+#: sentence. "Quarterly Report", "the second one", "C:/Users/Onkar" are
+#: values; anything longer is doing something a value does not do, and
+#: belongs to the stage that can read it.
+_BARE_VALUE_WORDS = 4
+
+
+#: What joins one clause to another. A reply built out of two clauses may
+#: be saying two things, and is worth reading properly.
+_CLAUSE_JOINS: tuple[str, ...] = (",", ";", " and ", " but ", " then ")
+
+
+def _is_single_clause(text: str) -> bool:
+    """Does this reply say one thing?
+
+    Not a judgement about meaning -- a judgement about shape, used only
+    to decide whether a second reading could find anything the first one
+    missed. Being wrong costs a provider call, never a wrong answer.
+    """
+    lowered = f" {(text or '').strip().lower()} "
+    return not any(join in lowered for join in _CLAUSE_JOINS)
+
+
+def _is_bare_value(text: str) -> bool:
+    """Is this reply a value, rather than a sentence about one?
+
+    Short, and not built out of clauses. Deliberately crude, because it
+    is only ever a FAST PATH: everything it declines goes to the stage
+    that can actually read a sentence, so being wrong here costs a
+    provider call rather than a wrong answer.
+    """
+    stripped = (text or "").strip()
+    if not stripped or len(stripped.split()) > _BARE_VALUE_WORDS:
+        return False
+    return not any(mark in stripped for mark in (",", ";", " and ", " but "))
+
+
+def _parsed_json(text: str) -> dict[str, Any] | None:
+    """The JSON object in a reply, or `None`.
+
+    Tolerates a fenced block and surrounding prose, because a model
+    routinely wraps JSON in both. Refuses everything else: output that
+    cannot be parsed is output that never becomes Intent.
+    """
+    import json as _json
+
+    body = (text or "").strip()
+    if "```" in body:
+        parts = body.split("```")
+        body = max(parts, key=len)
+        if body.lstrip().lower().startswith("json"):
+            body = body.lstrip()[4:]
+    start, end = body.find("{"), body.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        document = _json.loads(body[start:end + 1])
+    except Exception:  # noqa: BLE001 -- unparseable output is not a crash
+        return None
+    return document if isinstance(document, dict) else None
+
+
+#: How a field's value came to be established.
+STATED = "stated"
+REASONED = "reasoned"
+
+
+@dataclass(frozen=True)
+class FieldEvidence:
+    """One field the founder supplied, and how it came to be known.
+
+    Provenance rather than decoration. A canonical Intent assembled over
+    several turns has to stay explainable: which utterance supplied this,
+    was it read structurally or reasoned about, and did it replace
+    something said earlier. Without that, a corrected value and an
+    original one are indistinguishable in the record.
+    """
+
+    value: str
+    #: The founder's own words this was read out of.
+    evidence: str
+    source: str
+    #: The value this superseded, when the founder changed their mind.
+    replaced: str = ""
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "value": self.value,
+            "evidence": self.evidence,
+            "source": self.source,
+            "replaced": self.replaced,
+        }
+
+
+@dataclass(frozen=True)
+class Understanding:
+    """What one utterance told us, against what we were trying to learn.
+
+    Deliberately allows **zero or many** fields from a single answer. The
+    assumption that an answer resolves exactly the field that was asked
+    is what made *"actually call it Finance and put it in Documents"*
+    impossible to express.
+    """
+
+    fields: dict[str, FieldEvidence] = field(default_factory=dict)
+    #: True when the utterance carries meaning this layer could not pin
+    #: down -- two candidate places, a referent with nothing to refer to.
+    #: Uncertainty is a reason to ASK, never a reason to pick.
+    uncertain: bool = False
+    reason: str = ""
+
+    @property
+    def resolved(self) -> dict[str, str]:
+        return {name: found.value for name, found in self.fields.items()}
 
 
 #: Connectives with which a founder strings requirements together. Their
@@ -163,11 +301,31 @@ class IntentLayer:
     latency and no tokens for a harder case existing elsewhere.
     """
 
-    def __init__(self, reasoner: Any = None) -> None:
+    def __init__(
+        self,
+        reasoner: Any = None,
+        vocabularies: Mapping[str, Sequence[str]] | None = None,
+    ) -> None:
         #: Injected, never constructed here: a second provider path is
         #: exactly what ADR-0024 Decision 7 forbids. The composition root
         #: hands in the SAME `TieredPromptRunner` the Planner uses.
         self._reasoner = reasoner
+        #: Field -> the canonical values that field can actually take, for
+        #: the fields whose vocabulary is closed. `{"location":
+        #: ("d_drive", "desktop", "documents", "downloads")}`.
+        #:
+        #: Injected for the same reason the reasoner is. The capability
+        #: owns this list -- the composition root widens it with the
+        #: founder's D: drive at runtime -- and a second copy here would
+        #: be a copy that drifts. What the Intent Layer does with it is
+        #: its own business: mapping the founder's meaning onto the values
+        #: the machine can act on is precisely this layer's job, and it is
+        #: why `Filesystem` never has to understand "on my desktop
+        #: please".
+        self._vocabularies: dict[str, tuple[str, ...]] = {
+            name: tuple(str(value) for value in values)
+            for name, values in (vocabularies or {}).items()
+        }
         # Patterns are tried in order; first match wins
         # More specific patterns first
         self._patterns: list[tuple[str, type]] = [
@@ -339,6 +497,295 @@ class IntentLayer:
             if word in _ROLE_BY_WORD:
                 return _ROLE_BY_WORD[word]
         return None
+
+
+    # ---- understanding an utterance against what we need to learn ----
+
+    def understand(
+        self,
+        utterance: str,
+        *,
+        gathering: Sequence[str],
+        asked: str = "",
+        known: Mapping[str, str] | None = None,
+        objective: str = "",
+        question: str = "",
+    ) -> Understanding:
+        """What this utterance tells us about the fields we still need.
+
+        ## The defect this replaces
+
+        A clarification answer used to become the field value directly:
+
+            answers[question.key] = answer
+
+        so the founder's words travelled, untouched, into a capability
+        argument. Measured live, on the simplest interaction the product
+        has:
+
+            Somesh: Where should I create the Abhishek folder?
+            Onkar:  on desktop
+            -> unknown location 'on desktop'
+
+        The founder had answered the question correctly. Nothing had
+        *understood* the answer, because nothing was asked to -- the
+        layer whose constitutional job is turning language into structure
+        was copying a string.
+
+        The repair is not a bigger phrase list. It is to treat an answer
+        as what it is: **new natural-language evidence**, from which the
+        Intent Layer updates its understanding of every field in play.
+
+        ## Two stages, cheapest first
+
+        **Stated.** For a field whose vocabulary is closed, the founder's
+        words are matched against *the values the machine can actually
+        act on* -- not against a table of English phrasings. "put it on
+        the desktop please" mentions `desktop`; so does "Desktop"; so does
+        "let's use my Desktop". None of those is enumerated anywhere,
+        because what is enumerated is the capability's own vocabulary,
+        which it has to publish regardless. Two candidates mentioned is
+        ambiguity, and ambiguity is a question rather than a coin toss.
+
+        For an open field -- a folder's name -- a short reply carrying no
+        clause structure is the value, which is what "Research" has always
+        been.
+
+        **Reasoned.** When structure cannot settle it, the Brain's
+        existing reasoning door interprets the utterance against the
+        objective, the question asked, what is already known, and what
+        remains. It returns a narrow structured extraction that is
+        validated before it is believed. It may fill fields. It may not
+        invent them.
+
+        Neither stage guesses. An utterance this layer cannot pin down
+        returns `uncertain`, and the caller asks.
+        """
+        text = (utterance or "").strip()
+        wanted = tuple(dict.fromkeys([name for name in gathering if name]))
+        if not text or not wanted:
+            return Understanding()
+
+        stated = self._stated_fields(text, wanted=wanted, asked=asked)
+        if stated.uncertain:
+            # Structure found genuine ambiguity -- two places named, say.
+            # Reasoning cannot resolve what the founder has not decided.
+            return stated
+
+        outstanding = [name for name in wanted if name not in stated.fields]
+        answered_the_question = bool(asked) and asked in stated.fields
+        if not outstanding:
+            return stated
+        if answered_the_question and _is_single_clause(text):
+            # One clause, and it settled what was asked. A sentence that
+            # says one thing cannot also be saying a second, so paying a
+            # provider to confirm that is the unnecessary-AI cost this
+            # ladder exists to avoid. "put it on my desktop please" ends
+            # here; "call it Finance and put it in Documents" does not.
+            return stated
+
+        reasoned = self._reasoned_fields(
+            text,
+            wanted=tuple(outstanding),
+            known={**dict(known or {}), **stated.resolved},
+            objective=objective,
+            question=question,
+        )
+        if reasoned is None:
+            # No usable interpretation -- a dead ladder, a refusal, or
+            # output that failed validation.
+            if answered_the_question:
+                # The question that was asked HAS been answered. Whatever
+                # else the sentence may have carried is unread, and the
+                # remaining fields get asked for in the ordinary way --
+                # which is a worse conversation than understanding it in
+                # one go, and a truthful one.
+                return stated
+            return Understanding(
+                fields=dict(stated.fields),
+                uncertain=True,
+                reason="the answer could not be interpreted",
+            )
+        merged = dict(stated.fields)
+        merged.update(reasoned.fields)
+        return Understanding(
+            fields=merged, uncertain=reasoned.uncertain, reason=reasoned.reason
+        )
+
+    def _stated_fields(
+        self, text: str, *, wanted: Sequence[str], asked: str
+    ) -> Understanding:
+        """What structure alone can settle, at no cost."""
+        found: dict[str, FieldEvidence] = {}
+
+        # The question that was asked is part of the meaning.
+        #
+        # "Desktop" answering *"What should the folder be called?"* is a
+        # NAME. The identical word answering *"Where should I create
+        # it?"* is a PLACE. A vocabulary scan that ran regardless would
+        # read both out of one word and quietly file the founder's chosen
+        # name as a location -- so a plain reply to an open-vocabulary
+        # question settles that question and is not mined for anything
+        # else.
+        if (
+            asked
+            and asked in wanted
+            and asked not in self._vocabularies
+            and _is_bare_value(text)
+        ):
+            return Understanding(
+                fields={asked: FieldEvidence(
+                    value=text.strip(), evidence=text, source=STATED
+                )}
+            )
+
+        tokens = {word.strip(_VALUE_STRIP).lower() for word in text.split()}
+        joined = " ".join(
+            word.strip(_VALUE_STRIP).lower() for word in text.split()
+        )
+
+        for name in wanted:
+            vocabulary = self._vocabularies.get(name)
+            if not vocabulary:
+                continue
+            # Which of the values this capability actually accepts did the
+            # founder mention? Multi-word values ("d drive" for `d_drive`)
+            # are matched on the phrase, single words on the token, so a
+            # folder called "Desktop Backup" cannot be read as a place by
+            # accident when the place is not what was asked.
+            mentioned = [
+                value for value in vocabulary
+                if (value.replace("_", " ") in joined
+                    if "_" in value else value.lower() in tokens)
+            ]
+            if len(mentioned) == 1:
+                found[name] = FieldEvidence(
+                    value=mentioned[0], evidence=text, source=STATED
+                )
+            elif len(mentioned) > 1:
+                return Understanding(
+                    fields=found,
+                    uncertain=True,
+                    reason=f"more than one {name} was named: "
+                           f"{', '.join(sorted(mentioned))}",
+                )
+
+        return Understanding(fields=found)
+
+    def _reasoned_fields(
+        self,
+        text: str,
+        *,
+        wanted: Sequence[str],
+        known: Mapping[str, str],
+        objective: str,
+        question: str,
+    ) -> Understanding | None:
+        """The Brain's existing door, asked for a narrow extraction.
+
+        Not "what should we do?" -- that question invites a model to
+        propose actions, which is the failure `_submit_objective` records
+        at length. This asks only: *which of these named fields does this
+        sentence supply, and with what value.*
+
+        `None` means no usable answer: a dead ladder, a refusal, output
+        that is not JSON, or values that fail validation. It is never an
+        exception and never a guess.
+        """
+        if self._reasoner is None:
+            return None
+
+        from master_agent.ai_infrastructure.budgeted_request import (
+            BudgetedSelectionRequest,
+        )
+        from master_agent.ai_infrastructure.workload import INTERACTIVE
+        from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+
+        lines = []
+        for name in wanted:
+            vocabulary = self._vocabularies.get(name)
+            if vocabulary:
+                lines.append(
+                    f'    "{name}": exactly one of '
+                    f'{", ".join(sorted(vocabulary))} -- or omit it'
+                )
+            else:
+                lines.append(f'    "{name}": the founder\'s own words for it')
+        already = (
+            "\n".join(f"    {name} = {value}" for name, value in known.items())
+            or "    (nothing yet)"
+        )
+        prompt = (
+            "A founder is talking to an assistant that is collecting a few "
+            "specific pieces of information.\n\n"
+            f"    What they originally asked for: {objective.strip()}\n"
+            f"    Already established:\n{already}\n"
+            f"    The assistant just asked: {question.strip()}\n"
+            f"    The founder replied: {text.strip()}\n\n"
+            "Read ONLY what the founder actually said. Report which of "
+            "these fields their reply supplies:\n\n"
+            + "\n".join(lines)
+            + "\n\nReply with JSON and nothing else:\n"
+            '    {"fields": {...}, "ambiguous": false}\n\n'
+            "Rules. Include a field ONLY if the founder's words establish "
+            "it -- never because it would be convenient or likely. Omit "
+            "anything they did not say. If their reply points at something "
+            "with no clear referent (\"put it there\", \"the usual place\") "
+            'set "ambiguous": true and return no fields. If they corrected '
+            "something they said earlier, report the NEW value."
+        )
+        context = RoutingContext(
+            is_online=True,
+            # Reading a sentence for named fields is a small judgement.
+            # Asking for strong reasoning would push a cheap,
+            # latency-sensitive call up the ladder for no gain.
+            requires_strong_reasoning=False,
+            capability=REASONING_CAPABILITY,
+            requester="brain_intent_fields",
+        )
+        request = BudgetedSelectionRequest(
+            **vars(SelectionRequest.from_context(context)),
+            request_class=INTERACTIVE,
+            prompt=prompt,
+        )
+        try:
+            outcome = self._reasoner.run(prompt, request)
+        except Exception:  # noqa: BLE001 -- a dead ladder is a default, not a crash
+            return None
+        if outcome is None or not getattr(outcome, "ok", False):
+            return None
+
+        document = _parsed_json(getattr(outcome, "text", "") or "")
+        if document is None:
+            # Unverified output never becomes Intent.
+            return None
+        if document.get("ambiguous") is True:
+            return Understanding(
+                uncertain=True, reason="the reply did not name a clear value"
+            )
+
+        offered = document.get("fields")
+        if not isinstance(offered, dict):
+            return None
+        accepted: dict[str, FieldEvidence] = {}
+        for name in wanted:
+            value = offered.get(name)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            value = value.strip()
+            vocabulary = self._vocabularies.get(name)
+            if vocabulary:
+                # A closed field may only take a value the capability
+                # accepts. A model naming somewhere plausible but
+                # non-existent is exactly what validation is for.
+                match = {v.lower(): v for v in vocabulary}.get(value.lower())
+                if match is None:
+                    continue
+                value = match
+            accepted[name] = FieldEvidence(
+                value=value, evidence=text, source=REASONED
+            )
+        return Understanding(fields=accepted)
 
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         """Parse raw input into Intent or clarification request."""
@@ -513,9 +960,92 @@ class IntentLayer:
             # re-parsed, so anything they stated themselves continues to
             # win over anything reconstructed.
             answers: dict[str, str] = dict(supplied or {})
-            answers[question.key] = answer
+
+            # The answer is EVIDENCE, not a value.
+            #
+            # This line used to read `answers[question.key] = answer`, and
+            # that assignment was the defect: the founder's words became a
+            # capability argument without anything understanding them.
+            # "on desktop" reached `Filesystem.CreateFolder` verbatim and
+            # was refused, for a question the founder had answered
+            # correctly.
+            #
+            # `understand()` reads the reply against every field this
+            # parser is gathering, so one answer may settle several, and a
+            # correction may revise one already given. It resolves closed
+            # fields against the capability's own vocabulary, reaches the
+            # Brain's reasoning door only when structure cannot, and
+            # returns uncertainty rather than a guess.
+            understood = self.understand(
+                answer,
+                gathering=question.gathering or (question.key,),
+                asked=question.key,
+                known=answers,
+                objective=original,
+                question=question.question,
+            )
+            if understood.uncertain:
+                # Nothing was established. Ask again rather than proceed
+                # on something nobody said -- accuracy over completion.
+                return IntentResult(
+                    clarification=ClarificationQuestion(
+                        question=question.question,
+                        key=question.key,
+                        options=question.options,
+                        required=question.required,
+                        gathering=question.gathering,
+                    ),
+                    raw_input=original,
+                    resolved=dict(answers),
+                )
+            if question.key not in understood.fields:
+                if question.key in self._vocabularies:
+                    # A field whose values the capability fixes, and the
+                    # founder named none of them. Passing the words
+                    # through anyway is exactly the defect this replaces:
+                    # it is how "on desktop" reached the capability and
+                    # was refused. Ask instead.
+                    return IntentResult(
+                        clarification=ClarificationQuestion(
+                            question=question.question,
+                            key=question.key,
+                            options=question.options,
+                            required=question.required,
+                            gathering=question.gathering,
+                        ),
+                        raw_input=original,
+                        resolved=dict(answers),
+                    )
+                # An open field -- a name -- that this layer has no
+                # vocabulary to check. The founder's own words are the
+                # value, which is what "Research" has always been.
+                answers[question.key] = answer
+            evidence: dict[str, dict[str, str]] = {}
+            for name, found in understood.fields.items():
+                previous = answers.get(name, "")
+                answers[name] = found.value
+                evidence[name] = FieldEvidence(
+                    value=found.value,
+                    evidence=found.evidence,
+                    source=found.source,
+                    # A founder who changes their mind must not leave a
+                    # stale value behind, and the record must show which
+                    # value moved.
+                    replaced=previous if previous and previous != found.value else "",
+                ).as_dict()
+
             result = self.parse(original, supplied=answers)
+            # Canonical, and carried whether this round finished the job
+            # or asked another question.
+            result.resolved = dict(answers)
             if result.intent is not None:
+                if evidence:
+                    # Provenance for every field this turn established:
+                    # the words it came from, whether structure or
+                    # reasoning read it, and what it replaced.
+                    carried = dict(result.intent.context.get("field_evidence") or {})
+                    carried.update(evidence)
+                    result.intent.context["field_evidence"] = carried
                 # Provenance, not contract. The founder's ORIGINAL sentence
                 # stays the raw input -- overwriting it with "Research"
                 # would lose what was actually asked for -- and the answer
@@ -533,19 +1063,6 @@ class IntentLayer:
 
 
 # --- Specific Intent Parsers ---
-
-#: The grammar a founder wraps a place in when answering "where?".
-#:
-#: A leading preposition and article, and a trailing "folder"/"directory"
-#: -- the same words every inline location pattern already strips. Only
-#: the grammar: the place itself is left exactly as typed, because which
-#: places exist belongs to the capability.
-_PLACE_GRAMMAR = re.compile(
-    r"^(?:(?:on|in|at|to|into|inside)\s+)?(?:my\s+|the\s+)?|"
-    r"\s+(?:folder|directory)\s*$",
-    re.IGNORECASE,
-)
-
 
 class BaseIntentParser:
     """Base class for specific intent parsers.
@@ -567,42 +1084,6 @@ class BaseIntentParser:
         raise NotImplementedError
 
     @staticmethod
-    def _place(value: str | None) -> str | None:
-        r"""A founder's spoken place, as the place itself.
-
-        "on desktop", "in my Documents", "to the Downloads folder" all
-        name one location and carry a preposition, an article and
-        sometimes the word "folder" around it. The inline patterns
-        already strip exactly this -- `(?:on|in)\s+(?:my\s+|the\s+)?`
-        is written into every one of them -- but a CLARIFICATION ANSWER
-        never went through a pattern, so whatever the founder typed
-        reached the capability verbatim.
-
-        Measured live, on the simplest interaction there is:
-
-            Onkar:  create a folder
-            Somesh: What should the folder be called?
-            Onkar:  Abhishek
-            Somesh: Where should I create the Abhishek folder?
-            Onkar:  on desktop
-            -> unknown location 'on desktop'
-               (known: d_drive, desktop, documents, downloads)
-
-        Answering a "where?" question with a preposition is not a
-        mistake a founder made. It is how the question invites you to
-        answer, and the two paths simply normalised differently.
-
-        Deliberately NOT validation. Which places exist is the
-        capability's vocabulary, not the Brain's -- a founder who names
-        somewhere unknown still gets the capability's own answer, which
-        names what it does know. This only removes the grammar.
-        """
-        if value is None:
-            return None
-        text = _PLACE_GRAMMAR.sub("", value.strip()).strip().strip(".,")
-        return text or None
-
-    @staticmethod
     def _answer(supplied: Mapping[str, str] | None, key: str) -> str | None:
         """The founder's answer for `key`, or `None` if they gave none.
 
@@ -616,6 +1097,13 @@ class BaseIntentParser:
             return None
         value = str(supplied.get(key, "") or "").strip()
         return value or None
+
+
+#: Everything `CreateFolderIntent` needs before it can produce an Intent.
+#: Declared once, and carried on every question it asks, so a founder who
+#: answers "where?" with "actually call it Finance and put it in
+#: Documents" has both fields read rather than one.
+_FOLDER_FIELDS: tuple[str, ...] = ("folder_name", "location")
 
 
 class CreateFolderIntent(BaseIntentParser):
@@ -699,6 +1187,7 @@ class CreateFolderIntent(BaseIntentParser):
                     question="What should the folder be called?",
                     key="folder_name",
                     required=True,
+                    gathering=_FOLDER_FIELDS,
                 ),
                 raw_input=text,
             )
@@ -734,10 +1223,11 @@ class CreateFolderIntent(BaseIntentParser):
         # that default to Documents tomorrow must not change what Onkar is
         # asked today.
         if location is None:
-            # Normalised the same way the inline patterns normalise it.
-            # Two paths reaching one capability must agree about what a
-            # place is.
-            location = self._place(self._answer(supplied, "location"))
+            # Already canonical. `IntentLayer.understand()` resolved the
+            # founder's words against this capability's own vocabulary
+            # before `supplied` was built, so what arrives here is a value
+            # the capability accepts -- not a phrase to be de-grammared.
+            location = self._answer(supplied, "location")
         if location is None:
             return IntentResult(
                 clarification=ClarificationQuestion(
@@ -750,6 +1240,7 @@ class CreateFolderIntent(BaseIntentParser):
                     question=f"Where should I create the {name} folder?",
                     key="location",
                     required=True,
+                    gathering=_FOLDER_FIELDS,
                 ),
                 raw_input=text,
             )
@@ -790,6 +1281,11 @@ class CreateFolderIntent(BaseIntentParser):
         )
 
 
+#: Everything `CreateProjectIntent` gathers. One field today; declared
+#: the same way so a second one costs a constant rather than a rewrite.
+_PROJECT_FIELDS: tuple[str, ...] = ("project_name",)
+
+
 class CreateProjectIntent(BaseIntentParser):
     """Parse 'create a [type] project called X'."""
 
@@ -801,11 +1297,21 @@ class CreateProjectIntent(BaseIntentParser):
             re.IGNORECASE,
         )
         if not match:
+            # No project pattern at all -- but a name may have arrived
+            # from an earlier round, and re-asking for something the
+            # founder already gave is the loop this whole correction
+            # exists to end.
+            answered = self._answer(supplied, "project_name")
+            if answered:
+                return self.parse(
+                    f"create a project called {answered}", supplied=supplied
+                )
             return IntentResult(
                 clarification=ClarificationQuestion(
                     question="What should the project be called?",
                     key="project_name",
                     required=True,
+                    gathering=_PROJECT_FIELDS,
                 ),
                 raw_input=text,
             )
@@ -814,11 +1320,18 @@ class CreateProjectIntent(BaseIntentParser):
         name = match.group(2).strip()
 
         if not name:
+            # The founder may already have answered this exact question.
+            # Read like every other resolved field -- this parser asked
+            # for it, so this parser reads it.
+            name = self._answer(supplied, "project_name") or ""
+
+        if not name:
             return IntentResult(
                 clarification=ClarificationQuestion(
                     question="What should the project be called?",
                     key="project_name",
                     required=True,
+                    gathering=_PROJECT_FIELDS,
                 ),
                 raw_input=text,
             )
@@ -983,6 +1496,12 @@ class DeleteIntent(BaseIntentParser):
         )
 
 
+#: Everything `ListDirectoryIntent` gathers -- one field, and it shares
+#: the closed vocabulary `CreateFolderIntent` uses, which is what makes
+#: this a proof that the correction is shared rather than folder-shaped.
+_LIST_FIELDS: tuple[str, ...] = ("location",)
+
+
 class ListDirectoryIntent(BaseIntentParser):
     """Parse 'list files inside X'."""
 
@@ -993,17 +1512,23 @@ class ListDirectoryIntent(BaseIntentParser):
             text,
             re.IGNORECASE,
         )
-        if not match:
+        answered = self._answer(supplied, "location")
+        if not match and not answered:
             return IntentResult(
                 clarification=ClarificationQuestion(
                     question="Which folder should I list?",
                     key="location",
                     required=True,
+                    gathering=_LIST_FIELDS,
                 ),
                 raw_input=text,
             )
 
-        raw_location = match.group("location").strip()
+        # An answer resolved against the capability's vocabulary beats a
+        # phrase scraped out of the original sentence: it is already the
+        # value the capability accepts, and it is the more recent thing
+        # the founder said.
+        raw_location = answered or match.group("location").strip()
         location_key = raw_location.lower()
 
         return IntentResult(
