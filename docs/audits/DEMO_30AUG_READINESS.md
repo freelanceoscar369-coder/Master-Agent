@@ -624,3 +624,92 @@ state was cleared to manufacture a clean test.
 6. The 30 August deadline does not move.
 7. UI/UX remains Hyper Agent scope.
 8. No main integration until every P0 package acceptance gate passes.
+
+
+---
+
+# ACCEPTANCE A FAILURE — 27 AUG, 18:10
+
+The worst failure this system has produced, and my work produced it.
+
+```
+18:10:27  founder  create a folder
+          somesh   What should the folder be called?
+18:10:34  founder  Rudra
+          somesh   Where should I create the Rudra folder?
+18:10:46  founder  d drive in Onkar folder
+18:10:58  somesh   "Work finished. All 1 executed step(s) were
+                    independently verified. This did what you asked for."
+
+WANTED   D:\Onkar\Rudra     (D:\Onkar exists — the founder has that folder)
+CREATED  D:\Rudra           WRONG PLACE
+CLAIMED  "This did what you asked for."
+```
+
+## First correct boundary
+
+The conversation. Name asked, name carried, place asked — all correct.
+
+## First broken boundary
+
+`IntentLayer._stated_fields`. The vocabulary scan finds a value the
+capability accepts ANYWHERE in the reply. It found `d drive`, settled
+`location` **confidently**, and silently discarded *"in Onkar folder"*.
+
+Matching part of a sentence is not understanding it. This is the same
+class as the parser claim-discipline defect fixed the day before — which
+I enforced for parsers and never applied to my own matcher.
+
+## The second, more serious failure
+
+Conformance reported **SATISFIED** about a folder in the wrong place.
+
+The requirement had been derived from the **resolved payload**
+(`location = d_drive`) rather than from what the founder **said**, so it
+agreed with itself. A requirement traceable only to what we resolved
+cannot detect a misunderstanding of the words.
+
+That is a hole in the spine's design, not merely a bug in the matcher,
+and it is recorded here as such. The matcher fix closes the path that
+exposed it; it does not close the hole. **Post-demo P0: requirement
+provenance must be checkable against the founder's utterance, not only
+against the resolved value.**
+
+## Smallest fix
+
+A vocabulary match must ACCOUNT for the whole reply — matched value plus
+grammar explaining every word. Anything left over means the sentence was
+not understood, so the field is left **outstanding** rather than settled.
+
+Outstanding, not refused: leftover words signal that a sentence needs
+reading, not that it cannot be read. Reasoning gets it next, so
+*"actually call it Finance and put it in Documents"* still resolves while
+*"d drive in Onkar folder"* reaches a question. Reasoning is told that a
+reply naming something NARROWER than a listed value is not that value.
+
+The grammar list carries prepositions, determiners, politeness, the
+copula and generic verbs — and no place and no thing, pinned by a test.
+Its failure direction is safe: an unknown word escalates, never settles.
+
+The question now names the places it can use and says plainly that it
+cannot yet put a folder inside another one.
+
+## Proof
+
+```
+19/19 previously proven phrasings still resolve deterministically
+5/5   nested-destination phrasings now ask instead of guessing
+79    tests in test_intent_understanding.py
+10/10 production intent conformance
+FULL SUITE  75 failed · 8406 passed · 2 skipped · ZERO new failure IDs
+```
+
+## Not done
+
+`D:\Rudra` was left on disk. Deleting founder data to tidy away my own
+mistake is not mine to decide.
+
+Nested destinations are still unsupported. `CreateFolder` accepts a
+multi-segment `name`, so `name="Onkar/Rudra", location="d_drive"` is a
+legal call the machine could make — the Intent Layer cannot yet express
+it. **Next P0 after the demo gates**, not improvised at midnight.
