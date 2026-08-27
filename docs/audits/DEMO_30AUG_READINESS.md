@@ -215,46 +215,71 @@ hours.
 
 ## 9 · Known debt, carried forward and not hidden
 
-**A clarification answer can be a sentence, and nothing notices.**
-Found during acceptance. Asked *"Where should I create the Abhishek
-folder?"*, the founder answered:
+**A clarification answer was a field value, not evidence — FIXED.**
+Found by the founder during acceptance, and the first repair was
+rejected, correctly.
 
-    in d drive there is a folder onkar createthis folder in it
-
-That is a nested destination — `D:\onkar\Abhishek` — described in
-prose. What happened:
+The failing exchange:
 
 ```
-_place()   strips the leading "in ", leaving the rest intact
-location = "d drive there is a folder onkar createthis folder in it"
-CreateFolder → unknown location (known: d_drive, desktop, documents, downloads)
-founder    → I don't know where "..." is. I can use: d drive, desktop,
-             documents, downloads.
+Somesh: Where should I create the Abhishek folder?
+Onkar:  on desktop
+→ unknown location 'on desktop' (known: d_drive, desktop, documents, downloads)
 ```
 
-Every layer behaved correctly in isolation. `_place()` normalises grammar
-and deliberately does not validate; the capability refused a place it
-does not have; the surface named the places it does. The failure is that
-**a sentence was accepted as a field value** and nobody asked whether it
-was one.
+**Root defect, one line** — `IntentLayer.clarify()`:
 
-Worth stating plainly: the capability can already do what was asked.
-`CreateFolderAction.validate()` accepts a multi-segment relative `name`
-(`"MyProject/src"` — Mission Brief 003), and publishes `location`, so
-`name="onkar/Abhishek", location="d_drive"` is a legal call today. An
-objective phrased as a fresh instruction would reach the AI Planner,
-which can see both arguments in the contract. Only the
-clarification-answer path cannot express it, because `_answer()` takes
-whatever arrives as the value of one field.
+```python
+answers[question.key] = answer      # the founder's words, verbatim
+```
 
-Classified **POST-DEMO P0 · Intent Layer**. Deliberately not fixed during
-the sprint: telling a value from a description is a judgement, and
-inventing a length-or-verb heuristic at the end of a five-hour window is
-exactly the kind of guess this codebase spends its comments warning
-about. The honest options are (a) recognise that an answer is not a
-simple value and ask again, or (b) route such an answer through the
-reasoning path that already exists — and choosing between them is a
-design decision, not a repair.
+The layer whose constitutional job is turning language into structure was
+copying a string. The founder had answered correctly.
+
+**The rejected repair.** A regex stripping prepositions. It makes one
+phrasing work and leaves the next for the founder to find. Removed
+entirely, along with its tests.
+
+**The same defect one layer up.** `_submit_objective` rebuilt `supplied`
+from what the founder typed, so even once `clarify()` understood an
+answer, the next round was handed the raw sentence again.
+`IntentResult.resolved` now carries canonical values between turns.
+
+**What replaces it.** `IntentLayer.understand()` reads an utterance
+against *every field the parser is gathering*:
+
+* **Stated** — a closed field is matched against the values the
+  capability can actually act on. The vocabulary is **injected by the
+  composition root** from the same table the plugin was built with, so
+  the founder's D: drive is included and there is no second copy to
+  drift. No English is enumerated anywhere in `src/`.
+* **Reasoned** — the Brain's existing door, asked for a narrow structured
+  extraction (*which of these named fields does this sentence supply*),
+  validated against the vocabulary before it is believed. Never "what
+  should we do?", which is the question that invites a model to propose
+  actions.
+
+Neither stage guesses. Ambiguity, an unreachable place, malformed output
+and a dead ladder all ask rather than pick.
+
+**The question asked is part of the meaning.** "Desktop" answering *what
+should it be called* is a NAME; the same word answering *where* is a
+PLACE.
+
+**Cost discipline.** A single-clause reply that settles what was asked
+ends there, with no provider. Only a reply that may be saying more than
+one thing is read twice.
+
+**Generalised.** `CreateProject` and `ListDirectory` asked questions and
+never read the replies — the same defect in an open field and in a shared
+closed field. Both now consume their answers through the one
+implementation in `clarify()`.
+
+**Proven** at three levels: 47 unit tests written by semantic class and
+metamorphic equivalence rather than by phrase; 10 conformance cases
+against the **production composition** with the real vocabulary and the
+real ladder (`scripts/live_acceptance/intent_conformance.py`); and a real
+folder on disk from a multi-turn conversation.
 
 **Retrying a rejected argument.** `Filesystem.CreateFolder` rejected
 `unknown location 'on desktop'` and the Runtime retried it three times
