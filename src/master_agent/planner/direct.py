@@ -117,6 +117,17 @@ def _single_capability_plan(intent: Intent, options) -> MissionPlan | None:
     if not set(required) <= set(payload):
         return None
 
+    # The founder asked a question, and the Intent Layer said which output
+    # field answers it. Checked against what the capability actually
+    # publishes -- promising a field nobody declared is the same guess
+    # `args_complete` exists to stop, pointed at outputs instead of
+    # inputs.
+    answers = str(getattr(intent, "answers_founder", "") or "").strip()
+    if answers and answers.split(".")[0] not in set(
+        getattr(option, "output_fields", ()) or ()
+    ):
+        return None
+
     # Stated before the step runs, from what the Intent Layer already said
     # success looks like -- never composed here, and never left empty:
     # `objective_from_plan()` rejects a step with no expectation, and
@@ -146,6 +157,7 @@ def _single_capability_plan(intent: Intent, options) -> MissionPlan | None:
         capability=option.name,
         payload=payload,
         expected_outcome=SuccessSpec(description=description).to_expected_outcome(),
+        answers_founder=answers,
     )
     return MissionPlan(steps=[step], objective=intent.goal)
 

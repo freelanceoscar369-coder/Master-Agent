@@ -79,7 +79,30 @@ class UtteranceRole(str, Enum):
     ANSWER_TO_CLARIFICATION = "answer_to_clarification"
     #: A question back at us — about the question, or about something
     #: already said. Never field data.
+    #:
+    #: A follow-up needs something to follow. This role is only correct
+    #: when a referent exists: an open question, or a mission that has
+    #: actually run. Without one there is nothing to report on, and
+    #: answering as though there were produces "Nothing has run yet, so
+    #: there's nothing to report on" to a founder who asked about the
+    #: future — see `INFORMATIONAL_QUESTION`.
     FOLLOW_UP = "follow_up"
+    #: A question that wants an ANSWER rather than a report: "what is
+    #: required to make this self-improving?", "how should we sequence
+    #: the next three milestones?".
+    #:
+    #: Distinct from `FOLLOW_UP` by referent, not by wording — the same
+    #: sentence is a follow-up when there is a mission behind it and an
+    #: informational question when there is not. Distinct from
+    #: `NEW_OBJECTIVE` by what satisfies it: nothing is created, moved or
+    #: changed; thinking is the whole of the work.
+    #:
+    #: Distinct from `ORDINARY_CONVERSATION` because it is NOT free. It
+    #: needs the Reasoning Executive, a Provider the Broker chooses, and
+    #: a verified answer. `ConversationEngine` owns the six shapes it can
+    #: answer for nothing and escalates everything else; this is what
+    #: some of that escalation actually is.
+    INFORMATIONAL_QUESTION = "informational_question"
     #: Abandon what is pending. Not a failure and not an answer.
     CANCEL_OR_STOP = "cancel_or_stop"
     #: A different or altered objective, stated while something else was
@@ -122,6 +145,23 @@ _LEAD = frozenset({
     "finally", "afterwards", "after", "so", "just",
 })
 
+#: Politeness in front of an instruction: "could you create...", "can you
+#: open...", "would you please write...".
+#:
+#: The same grammatical job `_LEAD` already does, for a shape `_LEAD`
+#: cannot express because it spans two words. It matters more now that a
+#: referent-less question is answered rather than reported on: without
+#: this, "could you create a folder called Notes?" would be read as a
+#: question to think about instead of work to do, because its first token
+#: is a modal rather than a verb.
+#:
+#: Still word order, not meaning. What follows the modal must still open
+#: an instruction on its own; stripping "could you" from "could you tell
+#: me what happened" leaves "tell me what happened", which opens nothing.
+_MODAL_REQUEST = re.compile(
+    r"^(?:could|can|would|will|wo?nt|please)\s+(?:you\s+)?(?:please\s+)?", re.I
+)
+
 _STRIP = ".,!?;:'\"()"
 
 
@@ -142,7 +182,7 @@ def opens_an_instruction(clause: str) -> bool:
     is entirely word order, which is why this is structural rather than a
     membership test over the whole clause.
     """
-    tokens = _tokens(clause)
+    tokens = _tokens(_MODAL_REQUEST.sub("", clause.strip()))
     while tokens and tokens[0] in _LEAD:
         tokens = tokens[1:]
     if not tokens:
@@ -224,8 +264,23 @@ def structural_role(
     *,
     awaiting_answer: bool = False,
     options: Sequence[str] = (),
+    has_referent: bool = False,
 ) -> tuple[UtteranceRole, bool]:
     """`(role, confident)` from sentence shape alone. No model call.
+
+    `has_referent` is the caller's statement that something exists to
+    follow up ON -- a mission that has run. It is deliberately a FACT
+    passed in rather than a guess made here: whether a founder's question
+    is about the past is a question about the conversation, and this
+    module can only see one sentence of it.
+
+    Without it, every interrogative was a follow-up. A founder asking
+    "whats required to achieve state kalpavriksha builds kalpavriksha?"
+    on a fresh session was told "Nothing has run yet, so there's nothing
+    to report on" three milliseconds later, having reached no Planner, no
+    Broker and no reasoning at all. The question mark was read as
+    evidence about history, which is not something a question mark can
+    be evidence of.
 
     `confident` is False for exactly one shape: a longer statement
     arriving while a question is open, which is neither a question, an
@@ -264,7 +319,15 @@ def structural_role(
     if any(opens_an_instruction(clause) for clause in clauses(lowered)):
         return UtteranceRole.NEW_OBJECTIVE, True
     if _is_question(lowered):
-        return UtteranceRole.FOLLOW_UP, True
+        # The one line this whole distinction turns on. A question about
+        # something that happened is a follow-up; the identical sentence
+        # with nothing behind it is a question that wants an answer.
+        # Shape cannot tell them apart and never could -- the referent
+        # can, and it is a fact rather than an inference.
+        return (
+            UtteranceRole.FOLLOW_UP if has_referent
+            else UtteranceRole.INFORMATIONAL_QUESTION
+        ), True
     return UtteranceRole.NEW_OBJECTIVE, True
 
 
@@ -273,6 +336,7 @@ def role_of(
     *,
     awaiting_answer: bool = False,
     options: Sequence[str] = (),
+    has_referent: bool = False,
 ) -> UtteranceRole:
     """What role this utterance plays, from structure alone.
 
@@ -298,5 +362,6 @@ def role_of(
     """
     role, _confident = structural_role(
         text, awaiting_answer=awaiting_answer, options=options,
+        has_referent=has_referent,
     )
     return role

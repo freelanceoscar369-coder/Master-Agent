@@ -133,14 +133,33 @@ def refusal(code: str, reason: str = "because") -> PlanRefusal:
 
 
 def submit(text: str, *, refusal_code: str | None = None, ladder=None,
-           accepted: bool = False, reason: str = "because"):
-    """One founder utterance through the real `_submit_objective()`."""
+           accepted: bool = False, reason: str = "because",
+           previous_objective_id: str | None = None):
+    """One founder utterance through the real `_submit_objective()`.
+
+    `ladder` is accepted and ignored. It used to be passed as
+    `reasoning_runner=`, and that parameter no longer exists: the
+    advisory route was removed from production deliberately, with the
+    reason recorded in `_submit_objective` itself -- an unconstrained
+    reasoner asked "what should I say about this request?" proposes a next
+    action, and a founder was told their CV files were being catalogued by
+    a mission that had no plan and no tasks. The signature change is what
+    made every test in this module that called it die at once, which is
+    why the family had been structurally dead rather than merely red.
+
+    Kept as a parameter so the call sites that document "no provider was
+    reached" still read that way; what proves it now is that there is
+    nowhere to reach one from.
+    """
     outcome = _FakeOutcome(
         accepted=accepted,
         objective_id="obj-1" if accepted else None,
         refusal=refusal(refusal_code, reason) if refusal_code else None,
     )
     status = ExecutionStatus()
+    # A referent, when the caller states one: the surface reads it off the
+    # status, and it is what separates a follow-up from a question.
+    status.objective_id = previous_objective_id
     reply = kd._submit_objective(
         _FakeMissionService(outcome),
         _FakeRuntime(),
@@ -148,7 +167,6 @@ def submit(text: str, *, refusal_code: str | None = None, ladder=None,
         status,
         text,
         timeout_seconds=1.0,
-        reasoning_runner=ladder,
     )
     return reply["reply"], status
 
@@ -185,78 +203,82 @@ class TestClassC_ClearAndDirectlyExecutable:
     it. Nothing in this mission may divert that to reasoning."""
 
     def test_c_accepted_objective_never_reaches_the_advisor(self):
-        ladder = Ladder()
-        reply, status = submit("Open github.com", accepted=True, ladder=ladder)
-        assert ladder.calls == [], (
-            "an executable objective was sent to the reasoning door -- the "
-            "execution path must be untouched by this change"
-        )
+        reply, status = submit("Open github.com", accepted=True)
         assert status.status != FAILED
 
+    def test_c_the_surface_has_no_advisory_door_to_reach(self):
+        """Stronger than counting calls on a stub. `_submit_objective`
+        takes no reasoning runner at all, so an executable objective
+        cannot be diverted to reasoning by any code path -- the guarantee
+        is structural rather than observed."""
+        parameters = set(inspect.signature(kd._submit_objective).parameters)
+        assert "reasoning_runner" not in parameters
+        assert not (parameters & {"advisor", "runner", "ladder"})
 
-class TestClassD_ClearButMaterialistic:
-    """*"Buy a house for me."* The founder's own acceptance probe. Goal
-    understood: yes. Directly executable: no. Both are true at once, and
-    the second must not be spoken as though it were the first."""
 
-    GOAL = "Buy a house for me"
+class TestClassD_And_E_UnderstoodButUnplannable:
+    """*"Buy a house for me."* *"Learn trading."* Understood: yes.
+    Directly executable: no.
 
-    def test_d_is_not_refused(self):
-        reply, _ = submit(self.GOAL, refusal_code=NO_STEPS, ladder=Ladder())
-        assert REFUSAL_SENTENCE not in reply
-        assert "can't do that" not in reply.lower()
-        assert "cannot do that" not in reply.lower()
+    ## What changed, and why these assertions inverted
 
-    def test_d_is_answered_by_the_brains_reasoning(self):
-        ladder = Ladder()
-        reply, _ = submit(self.GOAL, refusal_code=NO_STEPS, ladder=ladder)
-        assert len(ladder.calls) == 1, "the Brain's reasoning door was not used"
-        assert self.GOAL in ladder.calls[0][0], (
-            "the founder's own words were not carried into the reasoning prompt"
+    This pair used to be answered by `brain/advisory.py` -- a provider
+    asked what to say about a goal it could not plan. Production removed
+    that call, and `_submit_objective` records the reason where the call
+    used to be: the live CV mission told a founder *"I am taking full
+    responsibility for evaluating all your resume files... Shall I start
+    cataloging those files now?"* about a mission with no plan, no tasks
+    and nothing waiting on an answer. Nothing was cataloguing anything.
+
+    The diagnosis in that comment is the load-bearing part: *an
+    unconstrained reasoner asked "what should I say about this request?"
+    will propose a next action, because that is what the question
+    invites. It cannot promise otherwise, so it is not asked.*
+
+    So the honest outcome for this class is now a sentence composed from
+    what the Planner actually reported, and a terminal `FAILED` -- this
+    attempt did not succeed and nothing is pending. These tests hold that
+    in place, including the part that is uncomfortable: the founder is
+    told plainly that no plan could be built, rather than being
+    encouraged by a model that cannot do the thing either.
+
+    `brain/advisory.py` still exists and its own unit tests below still
+    pass. Nothing in production calls it. That is recorded rather than
+    quietly tidied away -- see the sprint ledger.
+    """
+
+    GOALS = ("Buy a house for me", "Learn trading")
+
+    @pytest.mark.parametrize("goal", GOALS)
+    def test_no_provider_is_asked_what_to_say(self, goal):
+        """The property the removal was for. There is no runner parameter
+        to hand a provider through, so this cannot regress by someone
+        re-adding a call -- they would have to re-add the door first."""
+        assert "reasoning_runner" not in inspect.signature(
+            kd._submit_objective
+        ).parameters
+        reply, _ = submit(goal, refusal_code=NO_STEPS)
+        assert reply
+
+    @pytest.mark.parametrize("goal", GOALS)
+    def test_the_founder_is_told_what_the_planner_actually_reported(self, goal):
+        reply, status = submit(goal, refusal_code=NO_STEPS)
+        assert status.status == FAILED, (
+            "an attempt that produced no plan is not a completed turn"
         )
-        assert reply == ladder._outcome.text
+        assert reply.strip()
 
-    def test_d_does_not_end_as_a_failure(self):
-        """A failed status makes the surface render this as something that
-        went wrong. Nothing went wrong -- the founder was answered."""
-        _, status = submit(self.GOAL, refusal_code=NO_STEPS, ladder=Ladder())
-        assert status.status == COMPLETED
-        assert status.status != FAILED
-
-
-class TestClassE_ClearButKnowledgeShaped:
-    """*"Learn trading."* The founder's other acceptance probe, and the
-    one the brief is explicit about: this IS a command. The absence of a
-    'learn trading' capability is not evidence the intent was unclear."""
-
-    GOAL = "Learn trading"
-
-    def test_e_is_not_refused(self):
-        reply, _ = submit(self.GOAL, refusal_code=NO_STEPS, ladder=Ladder())
-        assert REFUSAL_SENTENCE not in reply
-        assert "can't do that" not in reply.lower()
-
-    def test_e_does_not_ask_a_clarifying_question(self):
-        """The other wrong answer. "Learn trading" is not ambiguous, so
-        turning it into a question would be the opposite error -- and the
-        brief forbids that as explicitly as it forbids the refusal."""
-        reply, _ = submit(self.GOAL, refusal_code=NO_STEPS, ladder=Ladder())
-        # An answer may *end* by offering to start -- that is engagement,
-        # not clarification. What must not happen is the reply OPENING by
-        # asking what the founder meant, which is the shape a clarifying
-        # question takes.
-        first_sentence = reply.split(".")[0].strip()
-        assert not first_sentence.endswith("?"), (
-            "a clear command was answered by asking what it meant"
-        )
-        assert len(reply.split()) > 15, "a clear command got a one-line brush-off"
-
-    def test_e_reaches_reasoning_not_the_execution_refusal(self):
-        ladder = Ladder()
-        reply, status = submit(self.GOAL, refusal_code=NO_STEPS, ladder=ladder)
-        assert len(ladder.calls) == 1
-        assert status.status == COMPLETED
-        assert reply == ladder._outcome.text
+    @pytest.mark.parametrize("goal", GOALS)
+    def test_the_founder_is_never_coached(self, goal):
+        """The founder's own correction, which outlived the module it was
+        written for: *"Learn trading" means Kalpavriksha must learn
+        trading.* Whatever this path says, it must not tell the founder
+        what THEY should go and do."""
+        reply, _ = submit(goal, refusal_code=NO_STEPS)
+        lowered = reply.lower()
+        for coaching in ("you should", "you could start", "why don't you",
+                         "i'd suggest you", "you might want to"):
+            assert coaching not in lowered, reply
 
 
 class TestClassF_GenuinelyAmbiguous:
@@ -275,12 +297,11 @@ class TestClassF_GenuinelyAmbiguous:
         unreachable and the question is asked before a mission exists.
         """
         status = ExecutionStatus()
-        ladder = Ladder()
         service = _FakeMissionService(_FakeOutcome(accepted=True, objective_id="never"))
         reply = kd._submit_objective(
             service, _FakeRuntime(),
             _FakeMissionControl([_FakeObjective(complete=True)], _FakeFounderState()),
-            status, "Create a folder", timeout_seconds=1.0, reasoning_runner=ladder,
+            status, "Create a folder", timeout_seconds=1.0,
         )["reply"]
 
         assert reply == "What should the folder be called?"
@@ -288,11 +309,6 @@ class TestClassF_GenuinelyAmbiguous:
             "an under-specified request became a mission -- ADR-0024 §10 "
             "requires MissionService = 0 and Planner = 0 when clarification "
             "is required"
-        )
-        assert ladder.calls == [], (
-            "an ambiguous request was reasoned about instead of asked about -- "
-            "clarification means 'I don't know enough about what you want', "
-            "and no amount of reasoning substitutes for the founder's answer"
         )
 
 
@@ -302,22 +318,13 @@ class TestClassG_GenuineFailure:
     and dressing them up as advice would hide a real fault."""
 
     @pytest.mark.parametrize("code", [MALFORMED, UNKNOWN_CAPABILITY, NO_CAPABILITIES])
-    def test_g_real_faults_are_not_rerouted_to_reasoning(self, code):
-        ladder = Ladder()
-        _, status = submit("Do the thing", refusal_code=code, ladder=ladder)
-        assert ladder.calls == [], (
-            f"{code} is a fault, not a goal that is merely too large; routing "
-            "it to advice would hide a broken system behind encouragement"
-        )
+    def test_g_real_faults_are_reported_as_faults(self, code):
+        """A fault is not a goal that is merely too large. Dressing one up
+        as advice would hide a broken system behind encouragement -- which
+        is now structurally impossible, since there is no advice path, but
+        the terminal state still has to be honest."""
+        _, status = submit("Do the thing", refusal_code=code)
         assert status.status == FAILED
-
-    def test_g_a_dead_reasoning_ladder_still_never_refuses_the_goal(self):
-        """The environmental case: the goal was understood and the ladder
-        is unreachable. Still not a refusal of the goal."""
-        reply, _ = submit("Learn trading", refusal_code=NO_STEPS, ladder=DeadLadder())
-        assert reply == UNREACHABLE
-        assert REFUSAL_SENTENCE not in reply
-        assert "understand what you're asking me to take on" in reply
 
 
 # =========================================================================
@@ -408,14 +415,15 @@ class TestNoParallelBrain:
             )
 
     def test_an_unseen_goal_takes_the_identical_path(self):
-        ladder = Ladder()
+        """The acceptance probes are probes, not implementation. A goal
+        this codebase has never seen reaches the same outcome as the ones
+        it has -- which is the whole point of not special-casing them."""
         reply, status = submit(
             "Get me fluent in Portuguese before the Lisbon trip",
-            refusal_code=NO_STEPS, ladder=ladder,
+            refusal_code=NO_STEPS,
         )
-        assert len(ladder.calls) == 1
-        assert status.status == COMPLETED
-        assert REFUSAL_SENTENCE not in reply
+        assert status.status == FAILED
+        assert reply.strip()
 
     def test_exactly_one_refusal_code_routes_to_reasoning(self):
         """Stated as a whitelist in the source, so widening it is a
@@ -470,26 +478,21 @@ class TestKalpavrikshaIsTheOneWhoLearns:
     system to learn. These tests hold the subject in place.
     """
 
-    def test_a_coaching_answer_never_reaches_the_founder(self):
-        """The exact answer this module used to give, fed back in. It must
-        not survive, whatever the provider thinks of it."""
-        reply, _ = submit(
-            "Learn trading", refusal_code=NO_STEPS,
-            ladder=Ladder(Answer(COACHING_ANSWER)),
-        )
-        assert reply == UNREACHABLE, (
-            "the founder was coached about a goal they instructed this "
-            "system to take on -- advice is the failure mode here"
-        )
+    def test_a_coaching_answer_cannot_reach_the_founder_at_all(self):
+        """The strongest form this can now take. The coaching answer
+        cannot be produced by the surface, because the surface asks no
+        provider what to say -- the register guard below still protects
+        `advise()` itself for any caller that returns."""
+        reply, _ = submit("Learn trading", refusal_code=NO_STEPS)
+        assert reply != COACHING_ANSWER
+        assert "you should" not in reply.lower()
 
-    def test_a_correctly_framed_answer_passes_through_untouched(self):
-        """The guard must reject the wrong register without also rejecting
-        the right one -- otherwise it is just a mute button."""
-        reply, status = submit(
-            "Learn trading", refusal_code=NO_STEPS, ladder=Ladder(Answer(CORRECT_ANSWER)),
-        )
-        assert reply == CORRECT_ANSWER
-        assert status.status == COMPLETED
+    def test_the_register_guard_still_rejects_coaching(self):
+        """`advise()` is no longer wired into the surface, and its guard is
+        still the thing that would hold if it were. Tested directly rather
+        than through a route that no longer passes through it."""
+        assert advise("Learn trading", Ladder(Answer(COACHING_ANSWER))) == UNREACHABLE
+        assert advise("Learn trading", Ladder(Answer(CORRECT_ANSWER))) == CORRECT_ANSWER
 
     @pytest.mark.parametrize("marker", advisory.COACHING_MARKERS)
     def test_every_coaching_marker_is_actually_enforced(self, marker):

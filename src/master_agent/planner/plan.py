@@ -110,6 +110,24 @@ class Intent:
     actor: str = UNKNOWN_ROLE
     #: Who receives, learns, or benefits from the result. One of `ROLES`.
     beneficiary: str = UNKNOWN_ROLE
+    #: A dot-path into the named capability's OUTPUT that answers the
+    #: founder, when the Intent Layer knows they asked a question rather
+    #: than ordered work. `"text"` for `Reasoning.Transform`.
+    #:
+    #: Empty for every ordinary intent. Carried here rather than derived
+    #: in the Planner because "this founder asked a question" is what the
+    #: Intent Layer determined; the Planner's job is to check the
+    #: capability actually publishes the field before promising it.
+    answers_founder: str = ""
+    #: A dot-path into the named capability's OUTPUT that answers the
+    #: founder, when the Intent Layer knows they asked a question rather
+    #: than ordered work. `"text"` for `Reasoning.Transform`.
+    #:
+    #: Empty for every ordinary intent. Carried here rather than derived
+    #: in the Planner because "this founder asked a question" is what the
+    #: Intent Layer determined; the Planner's job is to check the
+    #: capability actually publishes the field before promising it.
+    answers_founder: str = ""
     #: The capability this intent names, when the Intent Layer recognised
     #: a typed action rather than free prose -- e.g. `"create_folder"`.
     #: Empty whenever nothing was recognised, which is most input.

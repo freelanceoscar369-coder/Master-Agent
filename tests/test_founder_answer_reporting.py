@@ -90,7 +90,7 @@ class TestTheDesignatedAnswerIsReported:
             "close", "Browser.CloseBrowserSession", {"closed": True},
             at=NOW + timedelta(seconds=1),
         )
-        assert state_for(answer, close).result == "accepted"
+        assert state_for(answer, close).answer == "accepted"
 
     def test_the_value_comes_from_evidence_not_from_the_executives_claim(self):
         """The Action reported one thing and an independent observation
@@ -105,7 +105,7 @@ class TestTheDesignatedAnswerIsReported:
             ),
             answers="elements.0.text",
         )
-        assert state_for(task).result == "what was actually there"
+        assert state_for(task).answer == "what was actually there"
 
     def test_a_designated_task_with_no_evidence_answers_nothing(self):
         """Nothing independently observed the value, so there is no
@@ -120,7 +120,9 @@ class TestTheDesignatedAnswerIsReported:
             "close", "Browser.CloseBrowserSession", {"closed": True},
             at=NOW + timedelta(seconds=1),
         )
-        assert state_for(answer, close).result == {"closed": True}
+        state = state_for(answer, close)
+        assert state.answer is None
+        assert state.result == {"closed": True}
 
     def test_a_designated_path_that_is_not_there_answers_nothing(self):
         """A selector matching nothing still produces an entry, so this is
@@ -132,7 +134,9 @@ class TestTheDesignatedAnswerIsReported:
             evidence=observation_evidence(url="http://x.test", title="x", elements=[]),
             answers="elements.0.text",
         )
-        assert state_for(answer).result == "step result"
+        state = state_for(answer)
+        assert state.answer is None
+        assert state.result == "step result"
 
     def test_a_plan_that_designates_nothing_behaves_exactly_as_before(self):
         first = completed("a", "Filesystem.CreateFolder", "/Desktop/KV", at=NOW)
@@ -140,12 +144,15 @@ class TestTheDesignatedAnswerIsReported:
             "b", "Filesystem.WriteFile", "/Desktop/KV/notes.txt",
             at=NOW + timedelta(seconds=1),
         )
-        assert state_for(first, second).result == "/Desktop/KV/notes.txt"
+        state = state_for(first, second)
+        assert state.answer is None
+        assert state.result == "/Desktop/KV/notes.txt"
 
     def test_an_unfinished_mission_still_reports_nothing(self):
-        assert state_for(
+        state = state_for(
             Task(capability="Browser.Navigate", task_id="a", state=TaskState.RUNNING)
-        ).result is None
+        )
+        assert state.result is None and state.answer is None
 
 
 class TestTheFounderReadsIt:

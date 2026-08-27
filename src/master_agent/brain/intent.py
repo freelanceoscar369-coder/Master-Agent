@@ -134,6 +134,14 @@ _ROLE_BY_WORD = {
 }
 
 
+#: `Reasoning.Transform`, named the way every other intent names a
+#: capability -- unqualified, since `find_option` normalises. The Planner
+#: still confirms it is registered before planning anything.
+_TRANSFORM_CAPABILITY = "transform"
+#: The output field it publishes, and the one an answer is read from.
+_TRANSFORM_ANSWER_FIELD = "text"
+
+
 class IntentLayer:
     """Parses raw input into structured Intent.
 
@@ -240,6 +248,7 @@ class IntentLayer:
         objective: str = "",
         task_id: str = "",
         objective_id: str | None = None,
+        has_referent: bool = False,
     ) -> UtteranceRole:
         """What role the founder's utterance plays.
 
@@ -258,6 +267,7 @@ class IntentLayer:
         """
         role, confident = structural_role(
             text, awaiting_answer=awaiting_answer, options=options,
+            has_referent=has_referent,
         )
         if confident or self._reasoner is None:
             return role
@@ -384,6 +394,49 @@ class IntentLayer:
                 raw_input=text,
             ),
             text,
+        )
+
+    def answer_question(self, text: str) -> IntentResult:
+        """A question the founder wants ANSWERED, as an Intent.
+
+        Thinking is work, and this codebase already has a capability for
+        it: `Reasoning.Transform(instruction) -> text`. So an
+        informational question needs no new subsystem, no advisory layer
+        and no second brain -- it is one registered capability, chosen by
+        the Broker, verified by `TextVerifier`, reported like anything
+        else. The Planner's ordinary one-step path plans it without a
+        model, because the capability is NAMED here rather than guessed
+        there.
+
+        `answers_founder` is what makes the answer reach the founder
+        instead of stopping at a Task result. It is `"text"` because that
+        is the field `Reasoning.Transform` publishes; the Planner still
+        checks the contract says so before promising it.
+
+        Deliberately not routed through `parse()`. The typed parsers
+        there recognise ACTIONS -- create a folder, read a file -- and a
+        question is not one; adding it to that ladder would put "is this
+        a question?" in a place that has no idea what came before.
+        `_submit_objective` asks the Brain for the utterance's role first,
+        and calls this only for the role that means it.
+        """
+        goal = (text or "").strip()
+        return self._with_roles(
+            IntentResult(
+                intent=Intent(
+                    goal=goal,
+                    constraints=[],
+                    context={"raw_input": goal},
+                    # Stated, and checkable: the founder asked something
+                    # and an answer either exists or it does not.
+                    success_criteria=["A reasoned answer to the question is produced."],
+                    capability=_TRANSFORM_CAPABILITY,
+                    payload={"instruction": goal},
+                    answers_founder=_TRANSFORM_ANSWER_FIELD,
+                ),
+                raw_input=goal,
+            ),
+            goal,
         )
 
     @staticmethod

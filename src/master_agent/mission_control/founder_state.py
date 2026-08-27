@@ -39,6 +39,18 @@ class FounderState:
     # what happened, it does not compute a judgment about what a whole
     # objective "means" -- that is the Brain's job (Constitution §3.4).
     result: Any = None
+    # The value the founder actually ASKED FOR, when a Step designated one
+    # and Verification independently observed it.
+    #
+    # Deliberately separate from `result` rather than replacing it.
+    # `result` means "the last completed task's outcome" and other
+    # consumers legitimately want exactly that; an answer is a different
+    # fact, is present on almost no mission, and comes from Evidence
+    # rather than from what an Executive reported. Collapsing the two
+    # would make "what did the last step return" and "what did the
+    # founder want to know" the same question, which they are not -- a
+    # browser workflow's last step is closing the browser.
+    answer: Any = None
     evidence: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     eta_seconds: float | None = None

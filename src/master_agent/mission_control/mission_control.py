@@ -545,6 +545,10 @@ class MissionControl:
             current_capability=active.capability if active else None,
             progress=objective.progress,
             result=self._last_result(objective),
+            answer=self._designated_answer([
+                task for task in objective.tasks
+                if task.state is TaskState.COMPLETED and task.ended_at is not None
+            ]),
             evidence=[task.evidence_id for task in objective.tasks if task.evidence_id],
             errors=[error for task in objective.tasks for error in task.errors],
             eta_seconds=estimate_eta_seconds(durations, remaining),
@@ -555,24 +559,12 @@ class MissionControl:
         )
 
     def _last_result(self, objective: Objective) -> Any:
-        """What this objective produced — the answer the plan designated
-        if it designated one, otherwise the most recently completed task's
-        result, reported as the Executive returned it.
+        """The most recently completed task's result — reported as the
+        Executive returned it, never re-interpreted.
 
-        The last completed task is the right answer for a single-step
-        mission and the wrong one for any mission that tidies up after
-        itself: a browser workflow ending in `CloseBrowserSession`
-        reported the close. So a Step may name the field of its own
-        observation that answers the founder's question, and that
-        designation is honoured here.
-
-        Two properties keep this reporting rather than judging. The value
-        comes from **Evidence** — an independent fresh observation — and
-        not from the task's own `result`, so what the founder is told is
-        what was verified rather than what the Executive claimed. And a
-        designated task with no Evidence yields nothing: absence falls
-        back to the ordinary behaviour rather than quietly promoting an
-        unverified claim to "the answer".
+        Unchanged, and deliberately so. What the founder is TOLD comes
+        from `answer` above when a Step designated one; this stays the
+        plain fact it has always been, for the consumers that want it.
         """
         completed = [
             task
@@ -581,15 +573,19 @@ class MissionControl:
         ]
         if not completed:
             return None
-
-        designated = self._designated_answer(completed)
-        if designated is not None:
-            return designated
         return max(completed, key=lambda task: task.ended_at).result
 
     @staticmethod
     def _designated_answer(completed: list[Task]) -> Any:
         """The value a Step named as the founder's answer, or `None`.
+
+        Two properties keep this reporting rather than judging. The value
+        comes from **Evidence** — an independent fresh observation — not
+        from the task's own `result`, so the founder is told what was
+        verified rather than what the Executive claimed. And a designated
+        task with no Evidence yields nothing, so absence never quietly
+        promotes an unverified claim to "the answer".
+
 
         `get_field` is the codebase's one dot-path walker — the same
         function Verification uses to evaluate `elements.0.text` in a

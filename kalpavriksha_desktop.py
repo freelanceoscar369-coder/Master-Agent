@@ -1479,6 +1479,10 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # Read the open question BEFORE `begin()` clears it: the founder's
     # answer arrives as the next message, so the turn that resolves a
     # clarification is the same turn that would otherwise reset it.
+    #: Set by the informational-question branch below, when the founder
+    #: asked something rather than ordered something. `None` everywhere
+    #: else, so the ordinary clarify/parse fork is untouched.
+    intent_result = None
     pending = status.pending_clarification
     # The mission this founder turn FOLLOWS, for the same reason -- a
     # question about what just happened is answered from the record of
@@ -1505,6 +1509,11 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         question=pending.question if pending is not None else "",
         objective=pending.objective if pending is not None else "",
         objective_id=getattr(status, "objective_id", None),
+        # Whether there is anything to follow up ON. A question about the
+        # past needs a past; without one, an interrogative is a question
+        # to ANSWER, not a report to fetch. The surface holds this fact --
+        # the Brain sees one sentence, not the conversation.
+        has_referent=previous_objective_id is not None,
     )
 
     status.begin(text, timeout_seconds=timeout_seconds)
@@ -1559,7 +1568,26 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         status.message = reply
         return _founder_reply(status, reply, interaction_type="follow_up")
 
-    if role is UtteranceRole.MODIFY_OR_REDIRECT and pending is not None:
+    if role is UtteranceRole.INFORMATIONAL_QUESTION and pending is None:
+        # A question with nothing behind it. It used to be answered from
+        # the mission record -- "Nothing has run yet, so there's nothing
+        # to report on" -- which is a true sentence about the wrong
+        # question, delivered in three milliseconds without reaching a
+        # Planner, a Broker or any reasoning at all.
+        #
+        # Thinking is work. `Reasoning.Transform` is the capability for
+        # it, so this becomes an ordinary objective naming that
+        # capability, planned deterministically, executed by the Reasoning
+        # Executive, and verified by `TextVerifier` like any other
+        # generated text. Nothing new is built and nothing is bypassed:
+        # this line chooses which Intent to ask for, and every layer below
+        # behaves exactly as it always has.
+        #
+        # `pending is None` because a question asked while a clarification
+        # is open is a question ABOUT that clarification -- the branch
+        # above already answers it, and that referent is real.
+        intent_result = mission_service.intent_layer.answer_question(text)
+    elif role is UtteranceRole.MODIFY_OR_REDIRECT and pending is not None:
         # The founder changed what they want while a question was open.
         # The old question yields -- `begin()` already cleared it -- and
         # the new sentence is parsed as what it is, a fresh objective,
@@ -1623,7 +1651,11 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # asserted in `tests/test_utterance_role.py` rather than left to be
     # rediscovered, and populating `options` removes it wherever a
     # producer can enumerate the choices.
-    if pending is not None:
+    if intent_result is not None:
+        # Already decided above: the founder asked a question and the
+        # Intent Layer built the Intent that answers it.
+        pass
+    elif pending is not None:
         intent_result = mission_service.intent_layer.clarify(
             pending.objective,
             text,
@@ -1770,8 +1802,27 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # want the last Task result -- but it is no longer what the founder
         # is told the MISSION did.
         status.result = state.result
-        status.message = _mission_report(mission_service, status.objective_id) or (
+        report = _mission_report(mission_service, status.objective_id) or (
             "The work finished, but I can't reconstruct a verified mission summary."
+        )
+        # If the founder ASKED for a value, tell them the value. The
+        # verification summary follows it rather than replacing it.
+        #
+        # This is the last joint in the chain and the one that used to
+        # drop the answer on the floor: a browser workflow that observed
+        # `#state` as `accepted`, verified it against a fresh
+        # observation, and then told the founder "Work finished. 4 of 6
+        # steps were independently verified." True, and not what they
+        # asked. `state.answer` is present only when a Step named the
+        # field and Verification actually observed it, so this cannot
+        # invent an answer for a mission that produced none -- and it is
+        # a deterministic projection of canonical Evidence, never
+        # something composed.
+        answer = getattr(state, "answer", None)
+        status.message = (
+            _ANSWER_THEN_SUMMARY.format(answer=answer, report=report)
+            if answer is not None
+            else report
         )
         return _founder_reply(status, status.message)
     # Waiting on the founder is not slowness. `AWAITING_APPROVAL` means
@@ -1982,6 +2033,19 @@ def _founder_failure_sentence(errors: str) -> str:
     if any(marker in lowered for marker in _BUSY_MARKERS):
         return "A service I needed was temporarily busy, so that didn't finish."
     return "That didn't complete. I've kept the details for review."
+
+
+#: The answer the founder asked for, then how far it was verified.
+#:
+#: Two facts, in the order a founder wants them: what the machine found,
+#: and how much of the work stands on independent observation. Neither
+#: replaces the other -- an answer with no verification summary hides how
+#: it was established, and a verification summary with no answer is what
+#: this codebase shipped, and it left "tell me the text shown by #state"
+#: answered with "4 of 6 steps were independently verified".
+_ANSWER_THEN_SUMMARY = """{answer}
+
+{report}"""
 
 
 def _describe_result(result, objective: str = "") -> str:

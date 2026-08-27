@@ -53,13 +53,24 @@ class TestTheBriefsExactRegressions:
         """Pending: "Where should I create it?" / Founder: "Desktop"."""
         assert role_of("Desktop", awaiting_answer=True) is UtteranceRole.ANSWER_TO_CLARIFICATION
 
-    def test_what_is_ready_asks_about_what_was_just_said(self):
+    def test_what_is_ready_depends_on_whether_anything_ran(self):
         """Somesh: "...Everything is ready." / Founder: "what is ready?"
 
-        Nothing is pending, so this is not a clarification answer; it is a
-        question about the previous turn, and must not become mission work.
+        This used to assert `FOLLOW_UP` unconditionally, and that was the
+        assumption that produced the live defect: a founder on a fresh
+        session asking about the FUTURE was answered from a mission record
+        that did not exist -- "Nothing has run yet, so there's nothing to
+        report on", in three milliseconds, having reached no Planner and
+        no reasoning.
+
+        A follow-up needs something to follow. With a mission behind it
+        the sentence is still a follow-up and still answered from the
+        record; without one it is a question that wants an answer. Same
+        words, two roles, decided by the referent rather than by the
+        question mark.
         """
-        assert role_of("what is ready?") is UtteranceRole.FOLLOW_UP
+        assert role_of("what is ready?", has_referent=True) is UtteranceRole.FOLLOW_UP
+        assert role_of("what is ready?") is UtteranceRole.INFORMATIONAL_QUESTION
 
 
 class TestAPendingQuestionIsContextNotOwnership:
@@ -114,12 +125,19 @@ class TestWithNothingPending:
         ("open example.com", UtteranceRole.NEW_OBJECTIVE),
         ("create a folder called Research", UtteranceRole.NEW_OBJECTIVE),
         ("read my notes", UtteranceRole.NEW_OBJECTIVE),
-        ("what is ready?", UtteranceRole.FOLLOW_UP),
-        ("why did that fail?", UtteranceRole.FOLLOW_UP),
+        # No pending question AND no prior mission -- so there is nothing
+        # to follow up ON, and an interrogative is a question to answer.
+        # See `test_what_is_ready_depends_on_whether_anything_ran`.
+        ("what is ready?", UtteranceRole.INFORMATIONAL_QUESTION),
+        ("why did that fail?", UtteranceRole.INFORMATIONAL_QUESTION),
         ("never mind", UtteranceRole.CANCEL_OR_STOP),
     ])
     def test_roles(self, text, expected):
         assert role_of(text) is expected
+
+    @pytest.mark.parametrize("text", ["what is ready?", "why did that fail?"])
+    def test_the_same_questions_are_follow_ups_once_a_mission_has_run(self, text):
+        assert role_of(text, has_referent=True) is UtteranceRole.FOLLOW_UP
 
     def test_empty_input_is_not_an_objective(self):
         assert role_of("") is UtteranceRole.ORDINARY_CONVERSATION
