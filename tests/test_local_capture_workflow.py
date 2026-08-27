@@ -22,7 +22,7 @@ from master_agent.executor.executor import LocalExecutor
 from master_agent.mission_control.capabilities import qualified_name
 from master_agent.permissions.permission_system import PermissionSystem
 from master_agent.planner.catalogue import catalogue_from_index
-from master_agent.planner.direct import direct_plan
+from master_agent.planner.direct import _local_capture_workflow, direct_plan
 from master_agent.planner.modes import LOCAL
 from master_agent.planner.plan import Intent
 from master_agent.planner.planner import Planner
@@ -165,12 +165,43 @@ class TestItIsNotKeyedOnTheSite:
 class TestAnythingElseStillAsksAProvider:
 
     @pytest.mark.parametrize("missing", [
-        "Open a browser and navigate to https://example.com. Then close the browser.",
         "Create a folder called Notes on Desktop and a file called a.txt in it.",
         "Research our competitors and write a summary to my Desktop.",
     ])
     def test_an_undictated_objective_gets_no_direct_plan(self, missing, options):
         assert direct_plan(Intent(goal=missing), options) is None
+
+    def test_a_dictated_browser_sequence_now_plans_locally(self, options):
+        """This case used to sit in the list above, asserting that
+
+            Open a browser and navigate to https://example.com. Then close
+            the browser.
+
+        reached a provider. That was true, and it was never right: the
+        founder named the operation, the address and the close, and
+        nothing in the sentence needs judgement. What it actually recorded
+        was the LIMIT of the capture workflow this module tests -- that
+        shape needs a folder, a file and a place, and this objective has
+        none -- not a claim that browser work is unplannable.
+
+        `_browser_workflow` claims it now. The capture workflow below is
+        unchanged and still refuses it, which is the property this module
+        exists to protect; the objective simply reaches a lane that
+        understands it. See tests/test_deterministic_browser_workflow.py.
+        """
+        objective = (
+            "Open a browser and navigate to https://example.com. Then close "
+            "the browser."
+        )
+        assert _local_capture_workflow(Intent(goal=objective), options) is None
+
+        plan = direct_plan(Intent(goal=objective), options)
+        assert plan is not None
+        assert [step.capability for step in plan.steps] == [
+            "Browser.OpenBrowserSession",
+            "Browser.Navigate",
+            "Browser.CloseBrowserSession",
+        ]
 
 
 class TestLocalModeNeedsNoProvider:

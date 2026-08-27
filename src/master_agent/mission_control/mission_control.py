@@ -555,8 +555,25 @@ class MissionControl:
         )
 
     def _last_result(self, objective: Objective) -> Any:
-        """The most recently completed task's result — reported as the
-        Executive returned it, never re-interpreted."""
+        """What this objective produced — the answer the plan designated
+        if it designated one, otherwise the most recently completed task's
+        result, reported as the Executive returned it.
+
+        The last completed task is the right answer for a single-step
+        mission and the wrong one for any mission that tidies up after
+        itself: a browser workflow ending in `CloseBrowserSession`
+        reported the close. So a Step may name the field of its own
+        observation that answers the founder's question, and that
+        designation is honoured here.
+
+        Two properties keep this reporting rather than judging. The value
+        comes from **Evidence** — an independent fresh observation — and
+        not from the task's own `result`, so what the founder is told is
+        what was verified rather than what the Executive claimed. And a
+        designated task with no Evidence yields nothing: absence falls
+        back to the ordinary behaviour rather than quietly promoting an
+        unverified claim to "the answer".
+        """
         completed = [
             task
             for task in objective.tasks
@@ -564,7 +581,38 @@ class MissionControl:
         ]
         if not completed:
             return None
+
+        designated = self._designated_answer(completed)
+        if designated is not None:
+            return designated
         return max(completed, key=lambda task: task.ended_at).result
+
+    @staticmethod
+    def _designated_answer(completed: list[Task]) -> Any:
+        """The value a Step named as the founder's answer, or `None`.
+
+        `get_field` is the codebase's one dot-path walker — the same
+        function Verification uses to evaluate `elements.0.text` in a
+        check. Imported inside the method rather than at module scope so
+        the mission_control *models* keep the independence `Task`'s own
+        note describes: this borrows one pure projection function, and no
+        verification type enters Mission Control's data.
+        """
+        from master_agent.verification.evaluator import get_field
+
+        for task in sorted(completed, key=lambda t: t.ended_at):
+            path = (getattr(task, "answers_founder", "") or "").strip()
+            if not path:
+                continue
+            observation = (task.evidence or {}).get("observation")
+            if not isinstance(observation, dict):
+                # Designated, but nothing independently observed it. There
+                # is no verified answer to give, so none is invented.
+                continue
+            found, value = get_field(observation, path)
+            if found and value is not None:
+                return value
+        return None
 
     def _active_task(self, objective: Objective) -> Task | None:
         for state in (TaskState.RUNNING, TaskState.DISPATCHED, TaskState.READY):

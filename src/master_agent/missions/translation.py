@@ -120,6 +120,9 @@ def task_from_step(step: Any) -> Task:
         # never inferred: a checkpoint exists because an objective
         # asked for one.
         founder_checkpoint=str(getattr(step, "founder_checkpoint", "") or ""),
+        # Which observed value answers the founder. Copied like everything
+        # else here -- translation stays 1:1 and derives nothing.
+        answers_founder=str(getattr(step, "answers_founder", "") or ""),
         task_id=step.step_id,
     )
 

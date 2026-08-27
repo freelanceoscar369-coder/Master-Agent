@@ -63,6 +63,11 @@ class Task:
     #: the Step. Empty for almost every task. Never a permission
     #: concept -- satisfying it grants no capability authority.
     founder_checkpoint: str = ""
+    #: The dot-path into this task's OBSERVATION that answers the
+    #: founder's question, carried from the Step. Empty on almost every
+    #: task, and read by `_last_result()` alone -- it changes which result
+    #: is reported, never which task runs or in what order.
+    answers_founder: str = ""
     #: The canonical Evidence projection Verification produced for THIS
     #: task, stored by Mission Control when it transports the verification
     #: event.
@@ -95,6 +100,7 @@ class Task:
             "evidence_id": self.evidence_id,
             "input_bindings": dict(self.input_bindings),
             "founder_checkpoint": self.founder_checkpoint,
+            "answers_founder": self.answers_founder,
             "evidence": self.evidence,
             "errors": list(self.errors),
             "duration_seconds": self.duration_seconds,

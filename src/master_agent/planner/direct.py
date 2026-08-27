@@ -722,6 +722,338 @@ def _explicit_workflow(intent: Intent, options) -> MissionPlan | None:
 #: origination, not of retrieval: "think of", "come up with",
 #: "generate", "invent", "suggest", "brainstorm", "write me". These are
 #: the openings that mean the answer is not in the sentence.
+# --------------- dictated browser interaction workflows ---------------
+#
+# The failure this compiles away, in full. A founder typed:
+#
+#     Open a browser session and navigate to <url>. Type the text
+#     acceptance into the element matching #acceptance-box, click the
+#     element matching #apply, observe the page and tell me the current
+#     text shown by #state, then close the browser session.
+#
+# Every material fact is in that sentence: the URL, both selectors, the
+# text to type, which element to read, and the close. Nothing needs
+# judgement. It nevertheless reached the AI Planner, because
+# `_read_explicit_workflow` above refuses anything matching
+# `_FOREIGN_OPERATION` -- and "Open a browser" matches it at offset 0.
+#
+# That refusal was right for THAT lane, which compiles filesystem work and
+# would have dropped four browser clauses on the floor. It was never a
+# statement that browser work is unplannable; it was a statement that the
+# filesystem compiler must not pretend to understand it. So the answer is
+# a lane that does, not a loosened guard on the one that does not.
+#
+# What it cost, measured from the ledger rather than guessed. Three
+# desktop reasoning providers were walked -- one returned a plan the text
+# verifier only PARTIALLY matched, one could not confirm its own prompt
+# had landed in the composer, one could not establish conversation
+# isolation -- before a cloud model produced a seven-step plan that read
+# the page with `ReadPageText`, piped it into `Reasoning.Transform`, and
+# failed on a binding because `ReadPageText` publishes no verified output
+# to bind to. Roughly two minutes, four providers, and a browser window
+# left open because the closing step never ran -- to answer a question the
+# machine had already been told the answer to.
+#
+# ## Why clause-by-clause, rather than a pattern for the whole sentence
+#
+# `_local_capture_workflow` recognises one dictated workflow by matching
+# its parts anywhere in the text. That works while there is one shape. It
+# does not generalise, because "matched somewhere" cannot tell you what
+# was NOT matched -- and the danger with a dictated sequence is never the
+# clause you understood, it is the clause you silently ignored.
+#
+# So this splits the objective into clauses and requires EVERY clause to
+# be claimed, in full, by exactly one recogniser. An unclaimed clause
+# returns `None` and the ladder handles the objective exactly as before.
+# The partial-plan guard is then structural rather than a list of things
+# somebody has to remember to check when adding the next operation.
+
+_CLICK = "click"
+_TYPE_TEXT = "type_text"
+
+#: How a founder separates dictated steps: sentence and list punctuation,
+#: or the words "then" / "and".
+#:
+#: Punctuation only counts when whitespace follows it, which is what keeps
+#: `http://127.0.0.1:8731/acceptance.html` in one piece -- its dots and
+#: colons are internal. The final clause's trailing period is stripped
+#: separately.
+_CLAUSE_BREAK = re.compile(r"[.;,]\s+|\s+then\s+|\s+and\s+", re.I)
+
+#: A CSS selector as founders actually write one: an id, a class, or an
+#: attribute selector. Deliberately narrow. A bare word is never accepted
+#: as a selector, because "click the button" names an intention while
+#: `#submit` names an element, and only one of those is a fact the founder
+#: supplied.
+_SELECTOR = re.compile(r"^(?:[#.][A-Za-z_][A-Za-z0-9_-]*|\[[^\]]+\])$")
+
+#: One recogniser per operation, every one applied with `fullmatch`, so a
+#: clause is claimed only when it is understood END TO END. A clause that
+#: is half-recognised is not recognised -- that is the whole point.
+#: A word that only says "the next thing" -- it carries no material fact.
+#:
+#: Needed because the separators overlap: in ", then close the browser
+#: session" the comma splits first, so the clause still begins with the
+#: connective the other alternative would have consumed. Left in place it
+#: made a perfectly ordinary close clause unclaimable, and the whole
+#: objective was refused for a comma.
+#:
+#: Stripping is safe in a way inferring never is: removing "then" cannot
+#: invent a URL, a selector or a value. If what remains still matches no
+#: recogniser, the objective is refused exactly as before.
+_LEADING_CONNECTIVE = re.compile(r"^(?:and|then|after\s+that|finally)\s+", re.I)
+
+_C_OPEN = re.compile(r"open\s+(?:a|the)\s+browser(?:\s+session|\s+window|\s+tab)?", re.I)
+_C_CLOSE = re.compile(r"close\s+(?:the\s+)?browser(?:\s+session|\s+window|\s+tab)?", re.I)
+_C_NAVIGATE = re.compile(r"(?:navigate|go|browse)\s+to\s+(\S+)", re.I)
+_C_TYPE = re.compile(
+    r"type\s+(?:the\s+(?:text|value)\s+)?(.+?)\s+(?:in|into)\s+(?:the\s+)?"
+    r"(?:element\s+(?:matching\s+|with\s+selector\s+)?)?(\S+)",
+    re.I,
+)
+_C_CLICK = re.compile(
+    r"click\s+(?:on\s+)?(?:the\s+)?"
+    r"(?:element\s+(?:matching\s+|with\s+selector\s+)?)?(\S+)",
+    re.I,
+)
+_C_OBSERVE = re.compile(r"(?:observe|look\s+at|examine)\s+(?:the\s+)?page", re.I)
+#: The founder asking to be TOLD a value the page is showing. This clause
+#: designates the mission's answer -- see `Step.answers_founder`.
+_C_TELL = re.compile(
+    r"(?:tell|show)\s+me\s+(?:the\s+)?(?:current\s+)?(?:text|value|contents?)\s+"
+    r"(?:(?:shown|displayed|held|contained)\s+)?(?:by|in|of|at|on)\s+(\S+)",
+    re.I,
+)
+
+#: Entry 0 of `elements` is the first selector this step asked for: the
+#: observation contract guarantees one entry per requested selector, in
+#: the order requested. Built as a path, never parsed out of prose.
+_ELEMENT_TEXT = "elements.0.text"
+_ELEMENTS = "elements"
+
+
+def _clauses(goal: str) -> list[str]:
+    """The founder's sentence as the separate instructions they wrote.
+
+    Empty fragments are dropped and nothing else is: a clause that
+    survives here must be claimed by a recogniser or the whole objective
+    is refused, so discarding anything with content would defeat the very
+    guard this exists to provide.
+    """
+    text = (goal or "").strip()
+    if not text:
+        return []
+    parts = (
+        _LEADING_CONNECTIVE.sub("", part.strip().strip(".;,").strip()).strip()
+        for part in _CLAUSE_BREAK.split(text)
+    )
+    return [part for part in parts if part]
+
+
+def _clean(value: str) -> str:
+    return value.strip().strip("`'\"").rstrip(".,;?")
+
+
+def _read_browser_workflow(goal: str) -> list[_Operation] | None:
+    """The dictated browser sequence in the founder's own order, or `None`.
+
+    Every clause must be claimed and every value must be theirs.
+    """
+    clauses = _clauses(goal)
+    if not clauses:
+        return None
+
+    operations: list[_Operation] = []
+    opens = closes = answers = 0
+
+    for clause in clauses:
+        if _C_OPEN.fullmatch(clause):
+            opens += 1
+            operations.append(_Operation(kind=_OPEN, payload={}))
+            continue
+
+        if _C_CLOSE.fullmatch(clause):
+            closes += 1
+            operations.append(_Operation(kind=_CLOSE, payload={}))
+            continue
+
+        match = _C_NAVIGATE.fullmatch(clause)
+        if match:
+            url = _clean(match.group(1))
+            if not _URL.fullmatch(url):
+                # "go to the settings page" names a destination nobody
+                # stated as an address. Inventing one is the guess this
+                # lane exists to refuse.
+                return None
+            operations.append(_Operation(kind=_NAVIGATE, payload={"url": url}))
+            continue
+
+        match = _C_TYPE.fullmatch(clause)
+        if match:
+            text = match.group(1).strip().strip("`'\"")
+            selector = _clean(match.group(2))
+            if not text or text.lower() in _PRONOUNS or _REFERENCE.search(text):
+                # No literal was supplied, or the sentence points at a
+                # value another step produces. Either way there is nothing
+                # here to type, and predicting it is forbidden.
+                return None
+            if not _SELECTOR.fullmatch(selector):
+                return None
+            operations.append(_Operation(
+                kind=_TYPE_TEXT, payload={"selector": selector, "text": text}
+            ))
+            continue
+
+        match = _C_CLICK.fullmatch(clause)
+        if match:
+            selector = _clean(match.group(1))
+            if not _SELECTOR.fullmatch(selector):
+                return None
+            operations.append(_Operation(kind=_CLICK, payload={"selector": selector}))
+            continue
+
+        if _C_OBSERVE.fullmatch(clause):
+            operations.append(_Operation(kind=_OBSERVE, payload={"selectors": []}))
+            continue
+
+        match = _C_TELL.fullmatch(clause)
+        if match:
+            selector = _clean(match.group(1))
+            if not _SELECTOR.fullmatch(selector):
+                # "tell me what happened" asks for a summary, not for a
+                # named element's text. Summarising is reasoning, and
+                # reasoning is the ladder's job.
+                return None
+            answers += 1
+            if answers > 1:
+                # Two values requested, one place to report an answer.
+                # Rather than choose which the founder meant, refuse.
+                return None
+            last = operations[-1] if operations else None
+            if last is not None and last.kind == _OBSERVE and not last.payload["selectors"]:
+                # "observe the page and tell me the text in #state" is one
+                # instruction said twice. Attach the selector rather than
+                # read the same page twice in a row.
+                last.payload["selectors"].append(selector)
+            else:
+                operations.append(_Operation(
+                    kind=_OBSERVE, payload={"selectors": [selector]}
+                ))
+            continue
+
+        # Unclaimed. The founder said something this lane does not
+        # understand, and compiling the rest would drop it.
+        return None
+
+    # ---- shape rules, every one of them about what was actually said ---
+    if opens != 1 or closes > 1:
+        return None
+    if operations[0].kind != _OPEN:
+        # Nothing can act on a session that is not open yet, and this lane
+        # does not reorder the founder's sequence to make it work.
+        return None
+    if closes and operations[-1].kind != _CLOSE:
+        return None
+    if not [op for op in operations if op.kind not in (_OPEN, _CLOSE)]:
+        # "Open a browser and close it" is not work. There is nothing here
+        # worth a mission, so there is nothing to claim.
+        return None
+    return operations
+
+
+#: What each step promises, stated before it runs.
+#:
+#: Type and click say DELIVERY and nothing more, deliberately. A page may
+#: accept typed input and then reject it; a click may land and change
+#: nothing. Writing "the text is in the field" here would be asserting an
+#: outcome from the act of acting -- the same conflation the desktop mouse
+#: closure removed. The observation that follows owns the page effect.
+_BROWSER_EXPECTATION = {
+    _OPEN: lambda p: "A browser session is open and visible to the founder.",
+    _NAVIGATE: lambda p: f"The browser session's current page is {p['url']}.",
+    _TYPE_TEXT: lambda p: (
+        f"The text was typed into {p['selector']}. Whether the page kept it "
+        f"is a later observation's question, not this step's claim."
+    ),
+    _CLICK: lambda p: (
+        f"The click was delivered to {p['selector']}. What it changed is a "
+        f"later observation's question, not this step's claim."
+    ),
+    _OBSERVE: lambda p: (
+        f"The page was read and {p['selectors'][0]} was observed."
+        if p.get("selectors")
+        else "The page's current title and URL are reported."
+    ),
+    _CLOSE: lambda p: "The browser session is closed.",
+}
+
+
+def _browser_workflow(intent: Intent, options) -> MissionPlan | None:
+    """A dictated browser interaction sequence, compiled locally."""
+    operations = _read_browser_workflow(getattr(intent, "goal", "") or "")
+    if operations is None:
+        return None
+
+    found = {op.kind: find_option(op.kind, options) for op in operations}
+    if any(option is None for option in found.values()):
+        # A capability this objective needs is not registered. Half a
+        # dictated sequence is not a smaller version of it.
+        return None
+
+    # The session is environment identity, not a founder fact -- nobody
+    # types a session id -- and `_local_capture_workflow` has generated one
+    # exactly this way since it was written.
+    session_id = f"kv-{uuid4().hex[:8]}"
+    mark = uuid4().hex[:8]
+
+    # `headless` is False because the founder said "open a browser": an
+    # instruction about something they expect to watch happen. The
+    # contract publishes the argument precisely so this is a choice the
+    # Planner makes rather than a default it inherits.
+    extras: dict[str, dict[str, Any]] = {_OPEN: {"headless": False}}
+
+    steps: list[Step] = []
+    previous: str = ""
+
+    for index, op in enumerate(operations):
+        option = found[op.kind]
+        payload: dict[str, Any] = {
+            "session_id": session_id, **extras.get(op.kind, {}), **op.payload
+        }
+        reports = bool(op.kind == _OBSERVE and op.payload.get("selectors"))
+        if op.kind == _OBSERVE and not payload["selectors"]:
+            # An observation of the page as a whole. Passing an empty list
+            # would be supplying an argument in order to say nothing.
+            payload.pop("selectors")
+        if not _usable(option, payload):
+            # The contract does not publish an argument this step needs to
+            # pass, so passing it would be guessing at the contract -- the
+            # exact failure this module exists to prevent.
+            return None
+        if reports and _ELEMENTS not in set(getattr(option, "output_fields", ()) or ()):
+            # The founder's answer would be read out of a field the
+            # capability never promised. Refuse rather than depend on one.
+            return None
+
+        step_id = f"{op.kind}-{mark}-{index}"
+        steps.append(Step(
+            step_id=step_id,
+            capability=option.name,
+            payload=payload,
+            # The founder dictated one sequence, so each step waits for the
+            # one before it. `depends_on` stays the sole ordering
+            # authority, exactly as it is everywhere else.
+            depends_on=[previous] if previous else [],
+            expected_outcome=SuccessSpec(
+                description=_BROWSER_EXPECTATION[op.kind](payload)
+            ).to_expected_outcome(),
+            answers_founder=_ELEMENT_TEXT if reports else "",
+        ))
+        previous = step_id
+
+    return MissionPlan(steps=steps, objective=intent.goal)
+
+
 _GENERATE = re.compile(
     r"\b(?:think(?:\s+up|\s+of)?|come\s+up\s+with|generate|invent|"
     r"make\s+up|suggest|brainstorm|draft|compose)\b",
@@ -910,16 +1242,20 @@ def _generate_then_write(intent: Intent, options) -> MissionPlan | None:
 def direct_plan(intent: Intent, options) -> MissionPlan | None:
     """A plan written without a model, or `None` when one is genuinely needed.
 
-    Three shapes qualify: a single capability the Intent Layer already
-    named, the dictated browser-observe-write workflow, and any explicitly
-    dictated sequence whose operations, arguments and ordering the founder
-    has already supplied in full. All three answer `None` on any doubt, and
-    the Planner then asks a provider exactly as it always has.
+    Four shapes qualify: a single capability the Intent Layer already
+    named, the dictated browser-observe-write workflow, a dictated browser
+    interaction sequence, and any explicitly dictated filesystem sequence
+    whose operations, arguments and ordering the founder has already
+    supplied in full. All four answer `None` on any doubt, and the Planner
+    then asks a provider exactly as before.
     """
     plan = _single_capability_plan(intent, options)
     if plan is not None:
         return plan
     plan = _local_capture_workflow(intent, options)
+    if plan is not None:
+        return plan
+    plan = _browser_workflow(intent, options)
     if plan is not None:
         return plan
     plan = _generate_then_write(intent, options)

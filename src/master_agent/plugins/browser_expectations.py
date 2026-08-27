@@ -118,16 +118,44 @@ def bind_for_environment(
     # read. Checking that a url and a title were captured establishes
     # exactly that and nothing more -- this step promises an observation,
     # not a particular page.
-    return ExpectedOutcome(
-        description=description,
-        checks=[
-            ObservationCheck(
-                field="url", operator="exists",
-                description="a page URL could be observed",
-            ),
-            ObservationCheck(
-                field="title", operator="exists",
-                description="a page title could be observed",
-            ),
-        ],
-    )
+    checks = [
+        ObservationCheck(
+            field="url", operator="exists",
+            description="a page URL could be observed",
+        ),
+        ObservationCheck(
+            field="title", operator="exists",
+            description="a page title could be observed",
+        ),
+    ]
+
+    # When the step named selectors, the promise is larger by exactly one
+    # thing: those selectors were the ones looked at. The verifier
+    # re-observes the page from scratch and passes the same selectors, so
+    # position `i` answers request `i` -- asserting that identity is what
+    # stops a fresh observation of the WRONG element from reading as
+    # proof about the right one.
+    #
+    # What is deliberately NOT asserted here is that the element was
+    # found. `_observe_elements()` reports a selector that matches
+    # nothing as `is_visible=False` with null text, on the stated
+    # principle that an absence IS an observation -- and a step whose
+    # whole purpose may be to confirm something is gone must not be
+    # failed for succeeding. Whether a particular element should be
+    # present, and what it should say, is a claim about a particular
+    # page; this module states what a browser observation means, and
+    # inventing a page-specific postcondition here is how fixture
+    # semantics leak into product code.
+    requested = payload.get("selectors")
+    if isinstance(requested, list):
+        for index, selector in enumerate(requested):
+            if not isinstance(selector, str) or not selector.strip():
+                continue
+            checks.append(ObservationCheck(
+                field=f"elements.{index}.selector",
+                operator="equals",
+                value=selector,
+                description=f"'{selector}' is the element that was observed",
+            ))
+
+    return ExpectedOutcome(description=description, checks=checks)

@@ -179,6 +179,29 @@ class Step:
     #: at run time, so what they read is what the earlier steps actually
     #: produced rather than what the plan predicted.
     founder_checkpoint: str = ""
+    #: A dot-path into THIS step's observation naming the value the
+    #: founder asked to be told -- `"elements.0.text"` for "tell me the
+    #: current text shown by #state". Empty on every step of almost every
+    #: plan, exactly like `founder_checkpoint` above, and for the same
+    #: reason: it exists because an objective asked for it.
+    #:
+    #: The defect it removes is a reporting one. `FounderState.result` is
+    #: the LAST COMPLETED task's result, which for any mission that tidies
+    #: up after itself is the cleanup step -- a browser workflow ending in
+    #: `CloseBrowserSession` reported the close, never the answer. The
+    #: founder asked a question and was told "Done".
+    #:
+    #: Deliberately a path and not a sentence: selecting a named field
+    #: from an observation is projection, and projection is deterministic.
+    #: The moment this held prose, something would have to compose it, and
+    #: composing an answer is precisely the authority the reporting path
+    #: does not have.
+    #:
+    #: Set only by the deterministic lane, which knows what the founder
+    #: dictated. The planning prompt does not mention it and the plan
+    #: parser does not read it, so a model cannot designate an answer for
+    #: work it merely guessed the shape of.
+    answers_founder: str = ""
     #: MB037. **Descriptive, never directive.** Mission Control owns
     #: execution order and resolves it from `depends_on`; a Planner that
     #: could reorder execution by labelling a step `critical` would own
