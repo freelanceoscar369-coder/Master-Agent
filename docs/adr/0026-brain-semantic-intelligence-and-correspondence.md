@@ -79,6 +79,61 @@ extraction — *what does the founder require* — never *which tool should
 we use*. Malformed extraction is not admitted; material uncertainty is
 clarified rather than guessed.
 
+### Two artefacts, never one
+
+A requirement carries **both** sides of the correspondence question:
+
+| field | what it holds | example |
+|---|---|---|
+| `founder_evidence` | Founder Semantic Evidence — what was said | `"d drive in Onkar folder"` |
+| `description` | Canonical Execution Interpretation — the system's reading | `location = d_drive` |
+| `interpretation` | whether that reading is settled | `known` / `uncertain` |
+
+**Conformance may not derive both sides from the interpretation.** This
+is the decision the two failed acceptances forced, and it is not a
+refinement of the previous design — it corrects a hole in it.
+
+Requirements were being derived from what the Brain RESOLVED. That makes
+this representable, and it happened twice:
+
+    founder utterance
+      -> incorrect interpretation
+        -> requirement derived from the incorrect interpretation
+          -> execution matches the incorrect interpretation
+            -> Verification MATCHED
+              -> OutcomeConformance SATISFIED
+                -> "This did what you asked for."
+
+Every link is sound. The chain is internally consistent end to end and
+the conclusion is false, because the requirement and the execution came
+from the same misreading, so the comparison at the end could only ever
+discover that the system agreed with itself. **Consistency with an
+interpretation is not correspondence with meaning**, and a system that
+spells them the same way will keep certifying its own mistakes.
+
+Two rules follow, and both fail toward asking rather than acting:
+
+1.  **Nothing is settled while a word of the founder's reply is
+    unexplained** — by a value that was resolved or by pure grammar,
+    whoever resolved it. This is checked after EVERY interpretation
+    source, structural and reasoned alike. A model returning a
+    legitimate vocabulary value is not evidence that the value is the
+    whole answer: asked *"d drive in onkar folder"*, the production
+    model returned `{"location": "d_drive"}` — a legal member of the
+    capability's own vocabulary — and validation passed. **An
+    instruction to a model is not a constraint.** Prompt compliance
+    never becomes one.
+
+2.  **An unsettled interpretation may not execute and may not be
+    reported as satisfied.** Those are the same rule seen from either
+    end of a mission. `UNKNOWN` is a real answer and is never rounded
+    up.
+
+The accounting is over MATERIAL meaning, not literal tokens: grammar is
+allowed to disappear, facts are not. The word list that defines grammar
+contains no place and no thing, pinned by test — the moment it did, it
+would be the phrase table this ADR exists to prevent.
+
 ### Plan coverage
 
 `Step.covers` names the requirement ids a step is responsible for.
