@@ -248,7 +248,17 @@ def _single_capability_plan(intent: Intent, options) -> MissionPlan | None:
             option, _requirements_from(intent), covered
         ),
     )
-    return MissionPlan(steps=[step], objective=intent.goal)
+    # The plan carries the requirements its step covers.
+    #
+    # Without this the coverage is an orphaned reference: `covers` names
+    # `req_1`, nothing records what `req_1` WAS, and conformance
+    # correctly reports "no recorded founder requirements" for a mission
+    # that had them all along. Caught by rehearsing the founder's own
+    # question against real stored history.
+    return MissionPlan(
+        steps=[step], objective=intent.goal,
+        requirements=_requirements_from(intent),
+    )
 
 
 # ---------------------------------------------------------------------
@@ -498,6 +508,17 @@ def _local_capture_workflow(intent: Intent, options) -> MissionPlan | None:
         }
     }
 
+    order = (_OPEN, _NAVIGATE, _OBSERVE, _CREATE_FOLDER, _WRITE_FILE, _CLOSE)
+    # One requirement per operation the founder dictated, in their order
+    # -- the same reading every other deterministic lane uses.
+    requirements = _dictated_requirements(
+        intent, [(EFFECT, expectations[name]) for name in order]
+    )
+    covered = {
+        name: (requirement.requirement_id,)
+        for name, requirement in zip(order, requirements)
+    }
+
     steps = [
         Step(
             step_id=ids[name],
@@ -508,10 +529,16 @@ def _local_capture_workflow(intent: Intent, options) -> MissionPlan | None:
             expected_outcome=SuccessSpec(
                 description=expectations[name]
             ).to_expected_outcome(),
+            covers=covered[name],
+            selection_reason=_selection_reason(
+                found[name], requirements, covered[name]
+            ),
         )
-        for name in (_OPEN, _NAVIGATE, _OBSERVE, _CREATE_FOLDER, _WRITE_FILE, _CLOSE)
+        for name in order
     ]
-    return MissionPlan(steps=steps, objective=intent.goal)
+    return MissionPlan(
+        steps=steps, objective=intent.goal, requirements=requirements
+    )
 
 
 # ─────────────────── deterministic explicit workflows ───────────────────

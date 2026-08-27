@@ -373,6 +373,15 @@ installation right now. Do not offer anything the facts do not show as
 usable. Speak plainly to the founder; do not quote internal identifiers at
 them unless one is genuinely the answer."""
 
+#: How a question's own requirement is described.
+#:
+#: Named rather than spelled out twice, because something has to be able
+#: to recognise it: a mission whose whole purpose was to ANSWER a
+#: question is not work the founder commissioned, and "did the last
+#: mission satisfy what I asked?" means the last thing they asked FOR,
+#: not the last thing they asked ABOUT.
+QUESTION_REQUIREMENT = "answer the founder's question:"
+
 _TRANSFORM_CAPABILITY = "transform"
 #: The output field it publishes, and the one an answer is read from.
 _TRANSFORM_ANSWER_FIELD = "text"
@@ -1019,7 +1028,7 @@ class IntentLayer:
             return (SemanticRequirement(
                 requirement_id="req_1",
                 kind=INFORMATION,
-                description=f"answer the founder's question: {evidence}",
+                description=f"{QUESTION_REQUIREMENT} {evidence}",
                 provenance=evidence,
             ),)
 
@@ -1128,6 +1137,74 @@ class IntentLayer:
                 provenance=objective,
             ))
         return tuple(found)
+
+
+    def question_subject(self, text: str) -> str:
+        """What a founder's question about this system is ABOUT.
+
+        A closed vocabulary (`brain/self_query.QUESTION_SUBJECTS`), so the
+        answer can only be one of the things this machine actually keeps
+        records of.
+
+        Asked of the Brain's existing door rather than matched against a
+        phrase list, because a phrase list has a cliff edge one word away
+        and a founder does not know where it is. Only the question text
+        is sent -- no mission content, no file paths, no evidence -- so
+        this carries none of the founder's private material.
+
+        `OTHER` on anything unusable: no reasoner, a refusal, an
+        unrecognised word. `OTHER` means "the records do not answer this",
+        and the ordinary reasoning path handles it with its careful
+        sensitivity default intact.
+        """
+        from master_agent.brain.self_query import OTHER, QUESTION_SUBJECTS
+
+        question = (text or "").strip()
+        if not question or self._reasoner is None:
+            return OTHER
+
+        from master_agent.ai_infrastructure.budgeted_request import (
+            BudgetedSelectionRequest,
+        )
+        from master_agent.ai_infrastructure.workload import INTERACTIVE
+        from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+
+        prompt = (
+            "A founder is asking an assistant a question about the "
+            "assistant itself.\n\n"
+            f"    They asked: {question}\n\n"
+            "Which ONE of these is the question about?\n\n"
+            "    capabilities    - what it is able to do\n"
+            "    providers       - which AI providers it can use\n"
+            "    plan_rationale  - why it chose a particular tool or "
+            "capability for work it did\n"
+            "    outcome         - whether work it did actually satisfied "
+            "what was asked\n"
+            "    other           - anything else at all\n\n"
+            "Reply with exactly one of those five words and nothing else."
+        )
+        context = RoutingContext(
+            is_online=True,
+            requires_strong_reasoning=False,
+            capability=REASONING_CAPABILITY,
+            requester="brain_question_subject",
+        )
+        request = BudgetedSelectionRequest(
+            **vars(SelectionRequest.from_context(context)),
+            request_class=INTERACTIVE,
+            prompt=prompt,
+        )
+        try:
+            outcome = self._reasoner.run(prompt, request)
+        except Exception:  # noqa: BLE001 -- a dead ladder is a default, not a crash
+            return OTHER
+        if outcome is None or not getattr(outcome, "ok", False):
+            return OTHER
+        answer = (getattr(outcome, "text", "") or "").strip().lower()
+        for word in answer.replace(".", " ").replace(",", " ").split():
+            if word in QUESTION_SUBJECTS:
+                return word
+        return OTHER
 
     def answer_question(self, text: str) -> IntentResult:
         """A question the founder wants ANSWERED, as an Intent.

@@ -524,6 +524,152 @@ def _mission_facts(record) -> str:
     return "\n".join(lines)
 
 
+
+def _answers_a_question(record) -> bool:
+    """Was this mission itself a founder QUESTION rather than work?
+
+    A question that reasoning had to answer becomes a mission like any
+    other, and then becomes "the last mission". Asked *"did the last
+    mission satisfy what I asked for?"*, a founder means the last thing
+    they asked FOR -- not the last thing they asked ABOUT.
+    """
+    from master_agent.brain.intent import QUESTION_REQUIREMENT
+
+    requirements = list(getattr(record, "requirements", ()) or ())
+    if requirements:
+        return all(
+            str(r.get("description", "")).startswith(QUESTION_REQUIREMENT)
+            for r in requirements
+        )
+
+    # No semantic trace -- a record written before requirements existed,
+    # and this founder's history holds a hundred of them. Fall back to
+    # what the SHAPE says: a mission that is one `Reasoning.Transform`
+    # and nothing else changed nothing in the world. It produced text,
+    # which is what answering a question looks like. Real generate-then-
+    # write work has a second step that hands the text over.
+    steps = list(getattr(record, "steps", ()) or ())
+    return len(steps) == 1 and str(
+        getattr(steps[0], "capability", "")
+    ).endswith("Reasoning.Transform")
+
+
+def _latest_commissioned(history, usable):
+    """The most recent mission the founder asked FOR that can answer this.
+
+    Two filters, and both are needed against a real history. A mission
+    that was itself a QUESTION is not what "the last mission" means. And
+    a record from before the semantic trace existed carries no
+    requirements and no recorded rationale, so it cannot answer either --
+    this founder's history holds a hundred of them, and picking one would
+    produce silence dressed as an answer.
+
+    `None` when nothing qualifies, and the caller says so plainly rather
+    than reaching for a provider to fill the gap.
+    """
+    try:
+        records = list(history.all())
+    except Exception:  # noqa: BLE001 -- an unreadable history is an omission
+        logging.exception("could not read plan history")
+        return None
+    for record in reversed(records):
+        if not _answers_a_question(record) and usable(record):
+            return record
+    return None
+
+
+def _grounded_answer(mission_service, question: str, objective_id) -> str:
+    """A question about this system, answered from this system's records.
+
+    Returns `""` when the records do not answer it, and the caller falls
+    through to the ordinary path.
+
+    ## Why this comes first
+
+    Asked *"What can you do right now?"*, the surface previously built a
+    `Reasoning.Transform` mission with the last mission's contents
+    attached as grounding. That action defaults to `sensitive=True` --
+    correctly, because its context is normally private founder material
+    -- so the Broker looked for a PRIVATE-locality provider, found none
+    running, and the question failed outright.
+
+    Every layer was right. The mistake was upstream of all of them: none
+    of these questions needed a provider. What this machine can do, which
+    providers are usable, why a capability was chosen, whether the last
+    mission satisfied the request -- all four are already recorded, and
+    reading a record is not reasoning.
+
+    Answering here removes three failure modes at once: the sensitivity
+    block, the latency, and the chance of a model inventing a reason that
+    sounds right.
+    """
+    from master_agent.brain import self_query
+
+    # Everything comes from the one service the surface already holds.
+    # `_submit_objective` is not handed the pipeline's locals, and
+    # threading three more parameters through it to reach facts the
+    # service already owns would be plumbing for its own sake.
+    history = getattr(mission_service, "history", None)
+    planner = getattr(mission_service, "planner", None)
+    capability_index = getattr(planner, "_catalogue", None)
+    runner = getattr(planner, "_runner", None)
+    if history is None or capability_index is None:
+        return ""
+
+    try:
+        subject = mission_service.intent_layer.question_subject(question)
+    except Exception:  # noqa: BLE001 -- classification is a shortcut, not a gate
+        logging.exception("could not classify the founder's question")
+        return ""
+    if subject == self_query.OTHER:
+        return ""
+
+    record = None
+    conformance = None
+    if subject in (self_query.PLAN_RATIONALE, self_query.OUTCOME):
+        # What this subject needs the record to actually carry.
+        usable = (
+            (lambda r: bool(getattr(r, "requirements", ()) or ()))
+            if subject == self_query.OUTCOME
+            else (lambda r: any(
+                getattr(s, "selection_reason", "") for s in getattr(r, "steps", ()) or ()
+            ))
+        )
+        try:
+            record = history.get(objective_id) if objective_id else None
+            if record is None or _answers_a_question(record) or not usable(record):
+                record = _latest_commissioned(history, usable)
+        except Exception:  # noqa: BLE001
+            logging.exception("could not read plan history for a founder question")
+            return ""
+        if record is None:
+            # Nothing recorded can answer this. The ordinary path takes
+            # it from here rather than this inventing correspondence.
+            return ""
+        if subject == self_query.OUTCOME:
+            from master_agent.brain.conformance import assess
+
+            conformance = assess(
+                tuple(getattr(record, "requirements", ()) or ()),
+                getattr(record, "steps", ()) or (),
+            )
+
+    capabilities = providers = ()
+    if subject == self_query.CAPABILITIES:
+        capabilities = getattr(capability_index, "entries", ()) or ()
+    if subject == self_query.PROVIDERS:
+        try:
+            providers = runner._executor._service.providers.profiles()
+        except Exception:  # noqa: BLE001
+            logging.exception("could not read provider profiles for a founder question")
+            return ""
+
+    return self_query.answer(
+        subject, capabilities=capabilities, providers=providers,
+        record=record, conformance=conformance,
+    )
+
+
 def _build_mission_pipeline():
     """The minimal Planner -> Broker -> Gemini -> MissionPlan -> Mission
     Control -> Browser Executive assembly Founder Edition needs for one
@@ -1687,7 +1833,15 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # answers here rather than this surface composing a second account
         # -- and when there is no record it says so plainly instead of
         # inventing mission work out of a question.
-        told = _mission_report(mission_service, previous_objective_id)
+        # A question about the last mission may be answerable from what
+        # was RECORDED -- why a capability was chosen, whether the work
+        # satisfied the request. Those are projections of the plan and
+        # its Evidence, and reading them needs no provider and cannot
+        # invent a reason after the fact.
+        grounded = _grounded_answer(
+            mission_service, text, previous_objective_id
+        )
+        told = grounded or _mission_report(mission_service, previous_objective_id)
         reply = told or "Nothing has run yet, so there's nothing to report on."
         status.message = reply
         return _founder_reply(status, reply, interaction_type="follow_up")
@@ -1710,6 +1864,17 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # `pending is None` because a question asked while a clarification
         # is open is a question ABOUT that clarification -- the branch
         # above already answers it, and that referent is real.
+        grounded = _grounded_answer(
+            mission_service, text, previous_objective_id
+        )
+        if grounded:
+            # Answered from what this machine already knows. No mission is
+            # created to read facts Shared Infrastructure already holds.
+            status.status = COMPLETED
+            status.message = grounded
+            return _founder_reply(
+                status, grounded, interaction_type="follow_up"
+            )
         intent_result = mission_service.intent_layer.answer_question(text)
     elif role is UtteranceRole.MODIFY_OR_REDIRECT and pending is not None:
         # The founder changed what they want while a question was open.
