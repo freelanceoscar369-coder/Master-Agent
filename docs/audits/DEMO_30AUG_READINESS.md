@@ -281,6 +281,44 @@ against the **production composition** with the real vocabulary and the
 real ladder (`scripts/live_acceptance/intent_conformance.py`); and a real
 folder on disk from a multi-turn conversation.
 
+**A parser claimed a sentence it could not read — FIXED.** The second
+defect the founder found during acceptance, and worse than the first.
+
+```
+you    search for new 2026 action rpg games and give me demo version
+       download links
+app    What should I search for?          ← asked what the sentence says
+you    Action RPG games released in 2026
+app    What should I search for?
+you    Action RPG games released in 2026
+app    What should I search for?
+you    stop                                ← the only exit
+```
+
+Two defects at once.
+
+**Routing.** Parsers are selected by substring (`if pattern in
+text.lower()`), so the FILESYSTEM search parser claimed a WEB research
+request because "search for" appears in it. The same request phrased
+*"find latest action rpg games…"* had reached the Planner correctly
+hours earlier; the words "search for" were the only difference.
+
+**The loop.** `SearchFilesIntent` never read `supplied`, so every answer
+was discarded and the question could return forever.
+
+**Fixed at the shared dispatch**, not in the two parsers that failed. A
+parser may claim a sentence when it can READ it, or when the sentence is
+essentially its trigger with a field missing. It may not claim a sentence
+it cannot read that says far more than its trigger — declining sends it
+to the Planner, which holds the whole catalogue and owns decomposition.
+And a parser already given an answer that still cannot read the sentence
+declines rather than asking again, which ends the loop class for every
+parser in one place. An empty reply explicitly does not count as an
+answer.
+
+Guards are over the whole pattern table: *every parser that asks a
+question must be able to use the answer.*
+
 **Retrying a rejected argument.** `Filesystem.CreateFolder` rejected
 `unknown location 'on desktop'` and the Runtime retried it three times
 before escalating. A deterministic validation failure cannot succeed on
