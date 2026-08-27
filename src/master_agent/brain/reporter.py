@@ -60,6 +60,30 @@ class Report:
         }
 
 
+def _unmet_sentence(conformance: Any) -> str:
+    named = conformance.unmet or conformance.requirements
+    first = named[0].description if named else "part of what you asked for"
+    return f"It did not do what you asked: {first}."
+
+
+def _unproven_sentence(conformance: Any) -> str:
+    named = conformance.unproven
+    first = named[0].description if named else "part of what you asked for"
+    return (
+        f"I can't confirm it did what you asked: {first} — "
+        f"nothing independently observed that."
+    )
+
+
+#: One sentence per conformance state. `UNKNOWN` is never rendered as
+#: done: a mission the machine cannot vouch for is one it says so about.
+_CONFORMANCE_SENTENCE = {
+    "satisfied": lambda c: "This did what you asked for.",
+    "not_satisfied": _unmet_sentence,
+    "unknown": _unproven_sentence,
+}
+
+
 class Reporter:
     """Generates founder-facing reports from Mission outcomes and Evidence.
 
@@ -224,6 +248,14 @@ class Reporter:
                     )
 
         conformance = self._conformance(record)
+        if conformance is not None:
+            # What the founder actually asked about. The step tally above
+            # says how much of the WORK stands on independent
+            # observation; this says whether the REQUEST was met, and a
+            # founder told "all steps verified" about a mission that
+            # missed what they wanted has been told something true and
+            # useless.
+            lines.append(_CONFORMANCE_SENTENCE[conformance.state](conformance))
 
         return Report(
             title=title,

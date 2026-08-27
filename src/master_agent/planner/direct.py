@@ -56,6 +56,7 @@ from uuid import uuid4
 from master_agent.planner.outcomes import SuccessSpec
 from master_agent.planner.plan import (
     CONSTRAINT,
+    DELIVERABLE,
     EFFECT,
     INFORMATION,
     Intent,
@@ -769,6 +770,15 @@ def _explicit_workflow(intent: Intent, options) -> MissionPlan | None:
         ),
     }
 
+    # One requirement per operation the founder dictated -- the same
+    # reading the browser lane uses, and faithful for the same reason:
+    # in a dictated workflow the operations ARE the request, not
+    # implementation detail the founder is indifferent to.
+    requirements = _dictated_requirements(
+        intent, [(EFFECT, descriptions[op.kind](op)) for op in operations]
+    )
+    requirement_ids = [r.requirement_id for r in requirements]
+
     return MissionPlan(
         steps=[
             Step(
@@ -783,10 +793,15 @@ def _explicit_workflow(intent: Intent, options) -> MissionPlan | None:
                     description=descriptions[op.kind](op)
                 ).to_expected_outcome(),
                 founder_checkpoint=op.checkpoint,
+                covers=(requirement_ids[position],),
+                selection_reason=_selection_reason(
+                    found[op.kind], requirements, (requirement_ids[position],)
+                ),
             )
             for position, op in enumerate(operations)
         ],
         objective=intent.goal,
+        requirements=requirements,
     )
 
 
@@ -1385,7 +1400,29 @@ def _generate_then_write(intent: Intent, options) -> MissionPlan | None:
             ).to_expected_outcome(),
         ),
     ]
-    return MissionPlan(steps=steps, objective=intent.goal)
+    # Two requirements, and they are genuinely different kinds. The
+    # founder wants text THOUGHT OF -- that is information they did not
+    # have -- and they want it HANDED OVER as a file. A plan that
+    # produced the text and failed to write it has met one and not the
+    # other, and conformance should be able to say so.
+    requirements = _dictated_requirements(intent, [
+        (INFORMATION, f"text is produced for: {instruction}"),
+        (DELIVERABLE, f"{filename} on the {place} holds that text"),
+    ])
+    steps[0].covers = (requirements[0].requirement_id,)
+    steps[0].selection_reason = _selection_reason(
+        found[_TRANSFORM], requirements, steps[0].covers
+    )
+    # The write answers for BOTH: it is the only step that can show the
+    # produced text actually reached the founder, and its content is
+    # bound from the reasoning step's verified Evidence.
+    steps[1].covers = tuple(r.requirement_id for r in requirements)
+    steps[1].selection_reason = _selection_reason(
+        found[_WRITE_FILE], requirements, steps[1].covers
+    )
+    return MissionPlan(
+        steps=steps, objective=intent.goal, requirements=requirements
+    )
 
 
 def direct_plan(intent: Intent, options) -> MissionPlan | None:

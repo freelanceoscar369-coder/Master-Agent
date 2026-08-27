@@ -517,30 +517,11 @@ def _mission_facts(record) -> str:
     if requirements:
         # The Brain's own conformance state, computed from what was
         # recorded. Never a Verification verdict -- see ADR-0026.
-        conformance = assess(
-            [_Requirement(r) for r in requirements],
-            getattr(record, "steps", ()) or (),
-        )
+        # Stored rows read directly -- `assess` takes either shape.
+        conformance = assess(requirements, getattr(record, "steps", ()) or ())
         lines.append(f"    did it satisfy the request: {conformance.state}")
         lines.append(f"      because: {conformance.reason}")
     return "\n".join(lines)
-
-
-class _Requirement:
-    """A stored requirement row, read back as the shape conformance wants.
-
-    History stores plain JSON; conformance takes objects. This adapts one
-    to the other without a second dataclass or a parallel schema.
-    """
-
-    __slots__ = ("requirement_id", "kind", "description", "required", "provenance")
-
-    def __init__(self, row: dict) -> None:
-        self.requirement_id = str(row.get("requirement_id", ""))
-        self.kind = str(row.get("kind", ""))
-        self.description = str(row.get("description", ""))
-        self.required = bool(row.get("required", True))
-        self.provenance = str(row.get("provenance", ""))
 
 
 def _build_mission_pipeline():

@@ -74,6 +74,8 @@ import kalpavriksha_desktop as kd  # noqa: E402
 from master_agent.missions.execution_status import (  # noqa: E402
     AWAITING_APPROVAL,
     AWAITING_FOUNDER_COMPLETION,
+    COMPLETED,
+    FAILED,
 )
 
 DESKTOP = Path(os.path.expanduser("~")) / "Desktop"
@@ -288,13 +290,22 @@ def run_objective(pipeline, objective: str, result: Result, timeout: float = 300
             mission_control.confirm_completion(status.completion_id)
         else:
             break
-        deadline = time.monotonic() + 90
-        objective_record = mission_control.dispatcher.objective(status.objective_id)
-        while time.monotonic() < deadline and not (
-            objective_record.is_complete or objective_record.has_failure
-        ):
+        # Turn the runtime until THIS objective settles.
+        #
+        # Bounded at 30s and exiting on the founder-facing status as well
+        # as the record: an objective whose only outstanding item was a
+        # completion confirmation is finished the moment that is given,
+        # and waiting for `is_complete` to flip as well span the loop for
+        # ninety seconds a round. A harness that hangs is a harness bug,
+        # which is what this was the first time too.
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            record = mission_control.dispatcher.objective(status.objective_id)
+            if record.is_complete or record.has_failure:
+                break
+            if status.status in (COMPLETED, FAILED):
+                break
             runtime.run_once()
-            objective_record = mission_control.dispatcher.objective(status.objective_id)
             if status.status in (AWAITING_APPROVAL, AWAITING_FOUNDER_COMPLETION):
                 break
             time.sleep(0.2)
@@ -302,6 +313,14 @@ def run_objective(pipeline, objective: str, result: Result, timeout: float = 300
     result.seconds = time.monotonic() - started
     new_rows = _ledger_rows(runner)[before:]
 
+    state, detail = conformance_of(mission_service, status.objective_id)
+    if state is not None:
+        result.fact("founder outcome", state)
+        for row in (detail or {}).get("requirements", []):
+            result.fact(
+                f"  {row['requirement_id']} {row['state']}",
+                f"{row['description']}  ({row['reason']})",
+            )
     result.fact("mission id", status.objective_id)
     result.fact("status", status.status)
     result.fact("founder result", (status.message or "").replace("\n", " ")[:160])
@@ -313,6 +332,27 @@ def run_objective(pipeline, objective: str, result: Result, timeout: float = 300
             getattr(row, "provider_id", None) for row in other
         ])
     return reply, status, new_rows
+
+
+def conformance_of(mission_service, objective_id):
+    """What the Brain says about whether the founder got what they asked.
+
+    Read through the real Reporter, from the real stored record -- the
+    same path the founder's own sentence comes from, so this cannot pass
+    while what they read says something else.
+    """
+    history = getattr(mission_service, "history", None)
+    reporter = getattr(mission_service, "reporter", None)
+    if history is None or reporter is None or not objective_id:
+        return None, None
+    record = history.get(objective_id)
+    if record is None:
+        return None, None
+    report = reporter.report_plan_record_outcome(record)
+    return (
+        report.metadata.get("founder_outcome_conformance"),
+        report.metadata.get("founder_outcome_detail"),
+    )
 
 
 def capabilities_run(mission_control, objective_id) -> list[str]:

@@ -44,6 +44,7 @@ built to end.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -105,6 +106,27 @@ class OutcomeConformance:
         }
 
 
+def _field(row: Any, name: str, default: Any = "") -> Any:
+    """One field of a requirement, however it arrived.
+
+    Durable history stores requirements as plain JSON; the Planner holds
+    them as `SemanticRequirement`. Both are legitimate shapes of the same
+    fact, and reading them through one accessor is cheaper -- and harder
+    to get wrong -- than a parallel adapter class that has to be
+    remembered at every call site.
+
+    It was got wrong: `assess()` took attributes only, the Reporter
+    handed it stored rows, the `AttributeError` was swallowed by the
+    reporting path's own guard, and a mission that had genuinely
+    succeeded reported "I can't reconstruct a verified mission summary".
+    """
+    if isinstance(row, Mapping):
+        value = row.get(name, default)
+    else:
+        value = getattr(row, name, default)
+    return default if value is None else value
+
+
 def _verdict_of(task: Any) -> str:
     evidence = getattr(task, "evidence", None) or {}
     return str(evidence.get("verdict") or "")
@@ -138,14 +160,17 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
 
     outcomes: list[RequirementOutcome] = []
     for requirement in requirements:
-        covering = by_requirement.get(requirement.requirement_id, [])
+        requirement_id = str(_field(requirement, "requirement_id"))
+        description = str(_field(requirement, "description"))
+        required = bool(_field(requirement, "required", True))
+        covering = by_requirement.get(requirement_id, [])
         ids = tuple(str(getattr(t, "task_id", "")) for t in covering)
 
         if not covering:
             outcomes.append(RequirementOutcome(
-                requirement_id=requirement.requirement_id,
-                description=requirement.description,
-                required=bool(requirement.required),
+                requirement_id=requirement_id,
+                description=description,
+                required=required,
                 state=UNKNOWN,
                 reason="no step took responsibility for this",
             ))
@@ -154,9 +179,9 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
         verdicts = [_verdict_of(task) for task in covering]
         if any(v and v != _MATCHED for v in verdicts):
             outcomes.append(RequirementOutcome(
-                requirement_id=requirement.requirement_id,
-                description=requirement.description,
-                required=bool(requirement.required),
+                requirement_id=requirement_id,
+                description=description,
+                required=required,
                 state=NOT_SATISFIED,
                 covered_by=ids,
                 reason="what was observed did not match what was expected",
@@ -170,9 +195,9 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
             # requirement covered by several steps needs only one of them
             # to have actually observed the world.
             outcomes.append(RequirementOutcome(
-                requirement_id=requirement.requirement_id,
-                description=requirement.description,
-                required=bool(requirement.required),
+                requirement_id=requirement_id,
+                description=description,
+                required=required,
                 state=SATISFIED,
                 covered_by=ids,
                 reason="independently verified",
@@ -180,9 +205,9 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
             continue
 
         outcomes.append(RequirementOutcome(
-            requirement_id=requirement.requirement_id,
-            description=requirement.description,
-            required=bool(requirement.required),
+            requirement_id=requirement_id,
+            description=description,
+            required=required,
             state=UNKNOWN,
             covered_by=ids,
             reason="the steps responsible for this produced no independent evidence",
