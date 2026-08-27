@@ -9,6 +9,7 @@ This replaces the regex-based parse_intent() stand-in from cli.py.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -533,6 +534,19 @@ class IntentLayer:
 
 # --- Specific Intent Parsers ---
 
+#: The grammar a founder wraps a place in when answering "where?".
+#:
+#: A leading preposition and article, and a trailing "folder"/"directory"
+#: -- the same words every inline location pattern already strips. Only
+#: the grammar: the place itself is left exactly as typed, because which
+#: places exist belongs to the capability.
+_PLACE_GRAMMAR = re.compile(
+    r"^(?:(?:on|in|at|to|into|inside)\s+)?(?:my\s+|the\s+)?|"
+    r"\s+(?:folder|directory)\s*$",
+    re.IGNORECASE,
+)
+
+
 class BaseIntentParser:
     """Base class for specific intent parsers.
 
@@ -551,6 +565,42 @@ class BaseIntentParser:
 
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         raise NotImplementedError
+
+    @staticmethod
+    def _place(value: str | None) -> str | None:
+        r"""A founder's spoken place, as the place itself.
+
+        "on desktop", "in my Documents", "to the Downloads folder" all
+        name one location and carry a preposition, an article and
+        sometimes the word "folder" around it. The inline patterns
+        already strip exactly this -- `(?:on|in)\s+(?:my\s+|the\s+)?`
+        is written into every one of them -- but a CLARIFICATION ANSWER
+        never went through a pattern, so whatever the founder typed
+        reached the capability verbatim.
+
+        Measured live, on the simplest interaction there is:
+
+            Onkar:  create a folder
+            Somesh: What should the folder be called?
+            Onkar:  Abhishek
+            Somesh: Where should I create the Abhishek folder?
+            Onkar:  on desktop
+            -> unknown location 'on desktop'
+               (known: d_drive, desktop, documents, downloads)
+
+        Answering a "where?" question with a preposition is not a
+        mistake a founder made. It is how the question invites you to
+        answer, and the two paths simply normalised differently.
+
+        Deliberately NOT validation. Which places exist is the
+        capability's vocabulary, not the Brain's -- a founder who names
+        somewhere unknown still gets the capability's own answer, which
+        names what it does know. This only removes the grammar.
+        """
+        if value is None:
+            return None
+        text = _PLACE_GRAMMAR.sub("", value.strip()).strip().strip(".,")
+        return text or None
 
     @staticmethod
     def _answer(supplied: Mapping[str, str] | None, key: str) -> str | None:
@@ -684,7 +734,10 @@ class CreateFolderIntent(BaseIntentParser):
         # that default to Documents tomorrow must not change what Onkar is
         # asked today.
         if location is None:
-            location = self._answer(supplied, "location")
+            # Normalised the same way the inline patterns normalise it.
+            # Two paths reaching one capability must agree about what a
+            # place is.
+            location = self._place(self._answer(supplied, "location"))
         if location is None:
             return IntentResult(
                 clarification=ClarificationQuestion(

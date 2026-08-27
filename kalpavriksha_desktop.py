@@ -12,6 +12,7 @@ import argparse
 import json
 import logging
 import os
+import re as _re
 import random
 import socket
 import sys
@@ -2018,6 +2019,11 @@ def _capability_domains(mission_control) -> list[str]:
     return [_EXECUTIVE_DOMAINS[e] for e in executives if e in _EXECUTIVE_DOMAINS]
 
 
+#: A capability reporting a place it does not know, and the places it
+#: does. Matched rather than reproduced -- see `_founder_failure_sentence`.
+_UNKNOWN_PLACE = _re.compile(r"unknown location '([^']*)'[^(]*\(known:\s*([^)]*)\)")
+
+
 def _founder_failure_sentence(errors: str) -> str:
     """The execution-side counterpart to `_founder_refusal_sentence` — a
     task that was planned, ran, and did not finish. Same rule: the founder
@@ -2032,6 +2038,25 @@ def _founder_failure_sentence(errors: str) -> str:
         return "That took too long to finish, so I stopped."
     if any(marker in lowered for marker in _BUSY_MARKERS):
         return "A service I needed was temporarily busy, so that didn't finish."
+
+    # A place the machine does not recognise. The founder can fix this in
+    # one word, and only if they are told which words work -- so the
+    # capability's own list is repeated back rather than swallowed.
+    #
+    # Read out of the error rather than written here on purpose. A second
+    # copy of "Desktop, Documents, Downloads" in the surface is a
+    # vocabulary that drifts from the one that actually decides, and the
+    # founder would eventually be offered a place that no longer exists.
+    place = _UNKNOWN_PLACE.search(errors or "")
+    if place:
+        known = ", ".join(
+            word.strip().replace("_", " ") for word in place.group(2).split(",")
+        )
+        return (
+            f"I don't know where \"{place.group(1)}\" is. "
+            f"I can use: {known}."
+        )
+
     return "That didn't complete. I've kept the details for review."
 
 
