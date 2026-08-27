@@ -215,6 +215,47 @@ hours.
 
 ## 9 · Known debt, carried forward and not hidden
 
+**A clarification answer can be a sentence, and nothing notices.**
+Found during acceptance. Asked *"Where should I create the Abhishek
+folder?"*, the founder answered:
+
+    in d drive there is a folder onkar createthis folder in it
+
+That is a nested destination — `D:\onkar\Abhishek` — described in
+prose. What happened:
+
+```
+_place()   strips the leading "in ", leaving the rest intact
+location = "d drive there is a folder onkar createthis folder in it"
+CreateFolder → unknown location (known: d_drive, desktop, documents, downloads)
+founder    → I don't know where "..." is. I can use: d drive, desktop,
+             documents, downloads.
+```
+
+Every layer behaved correctly in isolation. `_place()` normalises grammar
+and deliberately does not validate; the capability refused a place it
+does not have; the surface named the places it does. The failure is that
+**a sentence was accepted as a field value** and nobody asked whether it
+was one.
+
+Worth stating plainly: the capability can already do what was asked.
+`CreateFolderAction.validate()` accepts a multi-segment relative `name`
+(`"MyProject/src"` — Mission Brief 003), and publishes `location`, so
+`name="onkar/Abhishek", location="d_drive"` is a legal call today. An
+objective phrased as a fresh instruction would reach the AI Planner,
+which can see both arguments in the contract. Only the
+clarification-answer path cannot express it, because `_answer()` takes
+whatever arrives as the value of one field.
+
+Classified **POST-DEMO P0 · Intent Layer**. Deliberately not fixed during
+the sprint: telling a value from a description is a judgement, and
+inventing a length-or-verb heuristic at the end of a five-hour window is
+exactly the kind of guess this codebase spends its comments warning
+about. The honest options are (a) recognise that an answer is not a
+simple value and ask again, or (b) route such an answer through the
+reasoning path that already exists — and choosing between them is a
+design decision, not a repair.
+
 **Retrying a rejected argument.** `Filesystem.CreateFolder` rejected
 `unknown location 'on desktop'` and the Runtime retried it three times
 before escalating. A deterministic validation failure cannot succeed on
