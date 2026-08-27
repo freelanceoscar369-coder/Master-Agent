@@ -249,3 +249,75 @@ class TestConformanceMayNotCompareAReadingWithItself:
 
         assert SemanticRequirement("r", CONSTRAINT, "x").interpretation == KNOWN
         assert set(INTERPRETATION_STATES) == {KNOWN, UNCERTAIN}
+
+
+# =====================================================================
+# The audit: where does founder evidence stop existing?
+# =====================================================================
+
+
+class TestFounderEvidenceReachesEveryRequirement:
+    """The question the brief asks by name -- *what is the FIRST point
+    where founder evidence becomes only the resolved value?* -- answered
+    by measuring rather than by reading the code hopefully.
+
+    It had an answer. Two turns of clarification, a nested destination,
+    and the ledger came out:
+
+        req_1  create a folder        evidence=''
+        req_2  name = Onkar/Rudra     evidence=''
+        req_3  location = d_drive     evidence='d drive in Onkar folder'
+
+    `req_2` is the composed argument: `CreateFolder` takes one `name`,
+    and a nested destination builds it from two fields supplied in two
+    different turns, so the lookup could match it neither by field name
+    nor by value. The one requirement with no founder evidence was the
+    one encoding the nested destination -- exactly what both failed
+    acceptances got wrong.
+
+    This test is the audit, kept executable so the answer stays no."""
+
+    def build(self):
+        layer = IntentLayer(
+            reasoner=Reasoner(json.dumps(
+                {"fields": {"location": "d_drive", "parent": "Onkar"},
+                 "ambiguous": False}
+            )),
+            vocabularies={"location": PLACES},
+        )
+        first = layer.clarify(
+            "create a folder", "Rudra",
+            ClarificationQuestion(
+                question="What should the folder be called?",
+                key="folder_name", gathering=FIELDS,
+            ),
+            supplied={}, evidence={},
+        )
+        second = layer.clarify(
+            "create a folder", "d drive in Onkar folder", first.clarification,
+            supplied=first.resolved, evidence=first.evidence,
+        )
+        return layer.requirements_for(second.intent, raw="create a folder")
+
+    def test_no_requirement_carries_the_interpretation_alone(self):
+        for requirement in self.build():
+            assert requirement.founder_evidence, (
+                f"{requirement.requirement_id} ({requirement.description}) "
+                "has only the resolved value -- an audit asking whether "
+                "this corresponds to what the founder said would have "
+                "nothing to compare it against but the answer"
+            )
+
+    def test_the_composed_argument_keeps_the_words_of_both_its_parts(self):
+        composed = [r for r in self.build() if "/" in r.description]
+        assert composed, "expected a nested destination in this ledger"
+        said = composed[0].founder_evidence
+        assert "Rudra" in said
+        assert "d drive in Onkar folder" in said
+
+    def test_evidence_from_an_earlier_turn_is_not_lost_by_the_later_one(self):
+        """The name was said one turn before the place. A requirement
+        built at the end of the conversation must still be able to reach
+        it, or every multi-turn mission loses its earliest facts."""
+        names = [r for r in self.build() if r.description.startswith("name = ")]
+        assert names and "Rudra" in names[0].founder_evidence

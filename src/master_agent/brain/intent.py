@@ -238,6 +238,34 @@ def _said_for(recorded: Mapping[str, Any], field_name: str, value: Any) -> str:
     for candidate in recorded.values():
         if isinstance(candidate, Mapping) and str(candidate.get("value")) == wanted:
             return str(candidate.get("evidence") or "")
+
+    # A COMPOSED argument, whose parts were each evidenced separately.
+    #
+    # `CreateFolder` takes one `name`, and a nested destination makes it
+    # "Onkar/Rudra" out of two fields the founder supplied in two
+    # different turns. Neither lookup above can see that: the argument
+    # is not called `parent` and its value equals nothing recorded.
+    #
+    # Measured, and it is the worst possible field to lose. The audit of
+    # "where does founder evidence become only the resolved value" found
+    # its FIRST and only point here -- on the requirement encoding the
+    # nested destination, which is precisely what both failed
+    # acceptances got wrong. A requirement carrying "name = Onkar/Rudra"
+    # and nothing else can only be checked against the reading that
+    # produced it.
+    segments = [part for part in wanted.replace(chr(92), "/").split("/") if part]
+    if len(segments) > 1:
+        spoken: list[str] = []
+        for candidate in recorded.values():
+            if not isinstance(candidate, Mapping):
+                continue
+            if str(candidate.get("value")) not in segments:
+                continue
+            said = str(candidate.get("evidence") or "")
+            if said and said not in spoken:
+                spoken.append(said)
+        if spoken:
+            return "; ".join(spoken)
     return ""
 
 
@@ -1260,6 +1288,10 @@ class IntentLayer:
                 kind=EFFECT,
                 description=evidence or f"perform {capability}",
                 provenance=evidence,
+                # The objective IS the founder's words here. Leaving the
+                # field empty made the effect requirement the one place
+                # an audit had only the interpretation to look at.
+                founder_evidence=evidence,
             )]
             # Every argument the founder supplied is a condition on that
             # effect. Ordered by the payload's own key order so the ids

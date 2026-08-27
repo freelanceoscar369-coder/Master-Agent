@@ -40,6 +40,7 @@ sys.path.insert(0, str(REPO / "src"))
 os.environ.setdefault("KALPAVRIKSHA_DISABLE_MIC", "1")
 
 import kalpavriksha_desktop as kd  # noqa: E402
+from master_agent.brain.conformance import assess  # noqa: E402
 
 DESKTOP = Path(os.path.expanduser("~")) / "Desktop"
 STAMP = time.strftime("%H%M%S")
@@ -271,13 +272,19 @@ def main() -> int:
     (service, runtime, control, status, _runner,
      _mode, _interactions, _approve) = pipeline
     result = service.intent_layer.parse(executed.opening)
-    known = {}
+    known: dict = {}
+    # The founder's own words, carried turn to turn exactly as the
+    # surface carries them. An acceptance that dropped this would
+    # exercise a shorter path than production and prove less than it
+    # appeared to.
+    spoken: dict = {}
     for reply in executed.replies:
         question = result.clarification
         result = service.intent_layer.clarify(
-            executed.opening, reply, question, supplied=known
+            executed.opening, reply, question, supplied=known, evidence=spoken
         )
         known = dict(getattr(result, "resolved", None) or known)
+        spoken = dict(getattr(result, "evidence", None) or spoken)
     executed.notes["payload"] = dict(result.intent.payload or {}) if result.intent else None
     # A precondition observation, before anything runs.
     #
@@ -311,7 +318,48 @@ def main() -> int:
             ]
         else:
             executed.check(False, f"the mission was refused: {outcome.refusal}")
+        # Three questions, asked separately -- an answer to one is not an
+        # answer to another.
+        #
+        # 1. did reality change?
         executed.check(target.is_dir(), f"the folder is on disk: {target}")
+        # 2. did THIS RUN cause it? The precondition above and this
+        #    observation are the pair. Idempotency is a virtue of
+        #    `CreateFolder` and must not be broken for a test, so the
+        #    harness carries the burden instead: the second live
+        #    acceptance "passed" only because `D:/Rudra` was already
+        #    there from the first failed one.
+        executed.check(
+            bool(executed.checks and executed.checks[0][0]),
+            "this run is what created it (it was absent beforehand)",
+        )
+        # 3. does what happened correspond to what the founder SAID?
+        #    Not "did the steps verify" -- a wrong reading verifies
+        #    perfectly. Every requirement must carry the founder's own
+        #    words beside the resolved value, or the conformance verdict
+        #    below is the system agreeing with itself.
+        requirements = service.intent_layer.requirements_for(
+            result.intent, raw=executed.opening
+        )
+        executed.notes["requirements"] = [
+            (r.description, r.founder_evidence, r.interpretation)
+            for r in requirements
+        ]
+        executed.check(
+            bool(requirements)
+            and all(r.founder_evidence for r in requirements),
+            "every requirement carries the founder's words, not only the reading",
+        )
+        executed.check(
+            all(r.interpretation == "known" for r in requirements),
+            "no requirement reached execution on an unsettled interpretation",
+        )
+        conformance = assess(requirements, record.tasks)
+        executed.notes["founder outcome"] = conformance.state
+        executed.check(
+            conformance.state == "satisfied",
+            f"founder outcome conformance: {conformance.state}",
+        )
     executed.report()
     cases.append(executed)
 
