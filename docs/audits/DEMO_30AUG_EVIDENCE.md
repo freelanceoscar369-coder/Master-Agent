@@ -336,3 +336,42 @@ did the last mission satisfy what I asked for?
 "The last mission" excludes missions that were themselves questions —
 by requirement marker, and for the hundred legacy records predating the
 semantic trace, by shape.
+
+---
+
+# PACKAGE IDENTITY — 28 AUG 2026, 02:21
+
+The build the semantic acceptance should be run against.
+
+```
+source        4e5b00e  (branch claude/founder-browser-identity)
+artefact      dist/Kalpavriksha/Kalpavriksha.exe
+sha256        b2bdadf05d1683a04a10f9fcf518d0d1c3a4f4e1d971fabbe0bcf8b76a211769
+size          37,020,448 bytes
+built         2026-08-28 02:21
+supersedes    9d984a5bf02ae60d42d93ca91c45326759019027b5b8d768a110b31a39efede2 (01:39)
+```
+
+The hash is recorded because a PyInstaller build that fails on a locked
+file **leaves the previous executable in place and still exits 0**. The
+artefact is the evidence; the exit code is not. This one genuinely
+changed.
+
+## Packaged self-check
+
+```
+packaged: True
+capabilities registered: 48
+executives:              browser, desktop, document, filesystem, reasoning
+runtime-reachable:       browser, desktop, document, filesystem, reasoning
+approval wired:          True
+no-ollama:               constructed=no, candidate=no
+deterministic planning:  Filesystem.CreateFolder -> Filesystem.WriteFile
+founder checkpoint:      True
+RESULT: OK
+```
+
+Providers usable at build time: `gemini.api`, `openrouter.api`,
+`trusted-founder-web`. Everything else is known and honestly reported as
+not currently available — which is the distinction the grounded
+self-query answers with, rather than naming a provider it cannot run.
