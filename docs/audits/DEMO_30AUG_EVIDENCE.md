@@ -375,3 +375,55 @@ Providers usable at build time: `gemini.api`, `openrouter.api`,
 `trusted-founder-web`. Everything else is known and honestly reported as
 not currently available — which is the distinction the grounded
 self-query answers with, rather than naming a provider it cannot run.
+
+## Full suite — clean run, settled tree
+
+```
+77 failed · 8431 passed · 2 skipped   (21m38s)
+baseline   75 failed · 8415 passed · 2 skipped
+```
+
+Reconciled exactly:
+
+```
+8415 + 18 new tests - 2 environmental = 8431 passed
+  75 +  2 environmental               =   77 failed
+```
+
+**New failure IDs attributable to this work: zero.**
+
+The two new IDs are both `test_win32_clipboard_backend.py::
+TestWin32ClipboardBackendLive`, failing with `BackendUnavailable: could
+not open the clipboard` — another process on this machine is holding the
+Windows clipboard lock. Not asserted, proved: a clean worktree at the
+baseline commit `a50e5e2` fails **both, identically**. The only source
+file changed across this work is `brain/intent.py`, which contains no
+clipboard reference.
+
+### A false regression, and why the run was repeated
+
+An earlier full run reported 76 vs 75 and named
+`TestThisIsNotAFolderPatch::test_all_three_families_share_one_implementation`
+— an architecture guard that passes in isolation.
+
+It failed because **I edited `intent.py` while that run was in flight**.
+The guard reads source through `inspect.getsource`, which loads from disk
+at test time; shifting line offsets under an already-imported module made
+it read the wrong slice. A 27-minute failure-ID diff is only evidence if
+the tree did not move during it, so the run was discarded and repeated on
+a frozen tree rather than argued about.
+
+Note it was again an architecture guard, not a unit test, that surfaced
+the anomaly — the same class of test as in Engineering Rule 001, and for
+a related reason: both read the filesystem rather than the imported
+object.
+
+## What this build was NOT proved against
+
+Stated because a boundary left unstated reads as coverage:
+
+- The packaged executable was exercised by `--self-check` (wiring,
+  registry, provider facts, deterministic planning) and by nothing else.
+  The semantic behaviour was proved against the same source the exe
+  bundles, through the real pipeline, not through the frozen binary.
+- The three live acceptances below ran from source.
