@@ -511,3 +511,147 @@ class TestTheFounderIsToldHowToFixIt:
         assert _founder_failure_sentence("disk exploded") == (
             "That didn't complete. I've kept the details for review."
         )
+
+
+# =====================================================================
+# A question you cannot answer is a trap
+# =====================================================================
+
+
+class TestNoParserCanAskForever:
+    """The loop a founder can only escape by giving up.
+
+        Onkar:  search for new 2026 action rpg games and give me demo
+                version download links
+        Somesh: What should I search for?
+        Onkar:  Action RPG games released in 2026
+        Somesh: What should I search for?
+        Onkar:  Action RPG games released in 2026
+        Somesh: What should I search for?
+        Onkar:  stop
+
+    Two defects at once. `SearchFilesIntent` claimed a WEB research
+    request because the substring "search for" appears in it — routing it
+    to the wrong capability family entirely — and then, having claimed
+    it, never read the answers, so the same question came back forever.
+
+    These are structural guards over the whole pattern table, not tests
+    of the two parsers that happened to fail. A parser added tomorrow is
+    held to the same rule.
+    """
+
+    def parsers(self):
+        return list(layer()._patterns)
+
+    def test_every_parser_that_asks_can_use_the_answer(self):
+        """If a parser asks for a field, giving it that field must move
+        the conversation forward. Asking again is the loop."""
+        brain = layer()
+        stuck = []
+        for trigger, _handler in self.parsers():
+            first = brain.parse(trigger)
+            if not first.needs_clarification:
+                continue
+            key = first.clarification.key
+            again = brain.parse(trigger, supplied={key: "AcceptanceValue"})
+            if (again.needs_clarification
+                    and again.clarification.key == key):
+                stuck.append(f"{trigger!r} keeps asking for {key!r}")
+        assert not stuck, "; ".join(stuck)
+
+    def test_a_parser_that_cannot_use_its_answer_declines_instead(self):
+        """The backstop, for a parser whose own reading genuinely fails.
+        It must hand the sentence on rather than ask a third time."""
+        from master_agent.brain.intent import _may_claim
+
+        class Stuck:
+            needs_clarification = True
+            clarification = ClarificationQuestion(
+                question="What should I search for?", key="pattern",
+            )
+
+        assert _may_claim("search for x", "search for", Stuck(),
+                          {"pattern": "already answered"}) is False
+
+    def test_a_first_question_is_still_allowed(self):
+        from master_agent.brain.intent import _may_claim
+
+        class Asking:
+            needs_clarification = True
+            clarification = ClarificationQuestion(
+                question="What should I search for?", key="pattern",
+            )
+
+        assert _may_claim("search for", "search for", Asking(), {}) is True
+
+
+class TestAParserOnlyClaimsWhatItCanRead:
+    def test_a_web_request_is_not_a_file_search(self):
+        """The founder's own sentence. It must not be claimed by the
+        filesystem parser merely because "search for" appears in it."""
+        result = layer().parse(
+            "search for new 2026 action rpg games and give me demo "
+            "version download links"
+        )
+        assert not result.needs_clarification, (
+            "a web research request was claimed by a filesystem parser"
+        )
+        assert result.intent is not None
+        assert result.intent.capability == "", (
+            "a typed capability was asserted over a request nobody parsed"
+        )
+
+    @pytest.mark.parametrize("sentence", [
+        "search for new 2026 action rpg games and give me demo version download links",
+        "delete everything we no longer need from last quarter's archive folder",
+        "read through the competitor pricing pages and tell me what changed",
+    ])
+    def test_a_sentence_saying_far_more_than_its_trigger_travels_on(self, sentence):
+        """Declining is safe: the sentence reaches the Planner, which
+        holds the whole capability catalogue and owns decomposition."""
+        result = layer().parse(sentence)
+        assert not result.needs_clarification
+        assert result.intent.capability == ""
+
+    @pytest.mark.parametrize("sentence,question", [
+        ("create a folder", "What should the folder be called?"),
+        ("create a folder on the Desktop", "What should the folder be called?"),
+        ("list files", "Which folder should I list?"),
+        ("search for", "What should I search for?"),
+    ])
+    def test_a_sentence_that_is_its_trigger_still_asks(self, sentence, question):
+        """The genuine missing-field case, which clarification exists
+        for, is untouched."""
+        result = layer().parse(sentence)
+        assert result.needs_clarification, sentence
+        assert result.clarification.question == question
+
+    def test_a_sentence_a_parser_can_read_is_still_claimed(self):
+        payload = dict(
+            layer().parse(
+                "create a folder called Research on the Desktop"
+            ).intent.payload
+        )
+        assert payload["name"] == "Research"
+
+
+    def test_an_empty_reply_is_not_an_answer_already_given(self):
+        """The loop-breaker must not fire on silence. A founder who
+        pressed enter on a blank line has said nothing, and the question
+        is still owed to them -- treating that as answered made a folder
+        request fall through to the project parser and get asked about a
+        project it never mentioned."""
+        from master_agent.brain.intent import _may_claim
+
+        class Asking:
+            needs_clarification = True
+            clarification = ClarificationQuestion(
+                question="What should the folder be called?", key="folder_name",
+            )
+
+        assert _may_claim("create a folder", "create a folder", Asking(),
+                          {"folder_name": ""}) is True
+        assert _may_claim("create a folder", "create a folder", Asking(),
+                          {"folder_name": "   "}) is True
+        assert _may_claim("create a folder", "create a folder", Asking(),
+                          {"folder_name": "Research"}) is False

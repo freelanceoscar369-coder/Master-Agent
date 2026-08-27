@@ -186,6 +186,74 @@ _SEQUENCING_CONNECTIVES: tuple[str, ...] = (
 )
 
 
+#: How much a sentence may say beyond a parser's trigger phrase and still
+#: be that parser's sentence with a field missing.
+#:
+#: A size gate, not a semantic judgement, and its failure mode is the
+#: safe one: a sentence this declines travels to the Planner, which holds
+#: the whole capability catalogue and owns decomposition. "create a
+#: folder on the Desktop" says three words beyond its trigger; "search
+#: for new 2026 action rpg games and give me demo version download links"
+#: says eleven, and is not a file search.
+_TRIGGER_SLACK_WORDS = 4
+
+
+def _may_claim(text: str, trigger: str, result: Any, supplied: Any) -> bool:
+    """May this parser own this sentence?
+
+    ## The defect
+
+    Parsers are selected by substring: `if pattern in text.lower()`. A
+    founder asked
+
+        search for new 2026 action rpg games and give me demo version
+        download links
+
+    and the FILESYSTEM search parser claimed it, because "search for"
+    appears in it. Unable to read the sentence, it asked *"What should I
+    search for?"* -- about a sentence that says exactly what to search
+    for, and means the web rather than their files.
+
+    Two things went wrong at once: a request was routed to the wrong
+    capability family, and having been routed there it asked for
+    something the founder had already given.
+
+    ## The rule
+
+    A parser may claim a sentence when it can READ it, or when the
+    sentence is essentially its trigger with a field missing -- which is
+    the case clarification exists for. It may not claim a sentence it
+    cannot read that plainly says much more than its trigger phrase.
+
+    Mid-conversation is always claimed: once a founder is answering this
+    parser's questions, the sentence being re-parsed is their original
+    one and the answers are arriving separately.
+    """
+    if not getattr(result, "needs_clarification", False):
+        return True
+
+    asked_again = getattr(getattr(result, "clarification", None), "key", "")
+    # A key present with an EMPTY value is not an answer. A founder who
+    # pressed enter on a blank line has said nothing, and the question
+    # must be asked again -- treating that as "already answered" made a
+    # folder request fall through to the project parser and be asked
+    # about a project it never mentioned.
+    if supplied and asked_again and str(supplied.get(asked_again, "") or "").strip():
+        # The founder has ALREADY answered this exact question and the
+        # parser still cannot read the sentence. Asking a third time is
+        # the loop a founder can only escape by giving up -- and one did,
+        # by typing "stop", after answering the same question twice.
+        #
+        # Declining is the honest move: this parser has had its answer
+        # and cannot use it, so the request travels on to the layer that
+        # owns decomposition instead of going round again.
+        return False
+    if supplied:
+        return True
+    beyond = len(text.split()) - len(trigger.split())
+    return beyond <= _TRIGGER_SLACK_WORDS
+
+
 def enumerates_multiple_requirements(text: str) -> bool:
     """Did the founder ask for more than one thing in this message?
 
@@ -813,8 +881,16 @@ class IntentLayer:
         # Planner -- the layer that owns decomposition -- plans it.
         if not enumerates_multiple_requirements(text):
             for pattern, handler in self._patterns:
-                if pattern in text.lower():
-                    return self._with_roles(handler().parse(text, supplied), text)
+                if pattern not in text.lower():
+                    continue
+                claimed = handler().parse(text, supplied)
+                if _may_claim(text, pattern, claimed, supplied):
+                    return self._with_roles(claimed, text)
+                # This parser recognised a phrase, could not read the
+                # sentence, and the sentence says much more than the
+                # phrase. Not its to claim -- try the next one, and
+                # otherwise travel on to the layer that owns
+                # decomposition.
 
         # Fallback: generic intent for any input (allows Planner to handle
         # it). ADR-0024 Decision 3: lexical unfamiliarity is not semantic
@@ -1356,17 +1432,19 @@ class ReadFileIntent(BaseIntentParser):
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^read\s+(?:the\s+file\s+)?(?P<path>\S+?)\.?\s*$", text, re.IGNORECASE)
-        if not match:
+        answered = self._answer(supplied, "file_path")
+        if not match and not answered:
             return IntentResult(
                 clarification=ClarificationQuestion(
                     question="Which file should I read?",
                     key="file_path",
                     required=True,
+                    gathering=("file_path",),
                 ),
                 raw_input=text,
             )
 
-        path = match.group("path").strip()
+        path = answered or match.group("path").strip()
         return IntentResult(
             intent=Intent(
                 goal=f"Read file '{path}'",
@@ -1548,17 +1626,23 @@ class SearchFilesIntent(BaseIntentParser):
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
         match = re.search(r"^search\s+for\s+(?P<pattern>\S+?)\.?\s*$", text, re.IGNORECASE)
-        if not match:
+        # The founder may already have answered this exact question. Taken
+        # as the value rather than round-tripped through the pattern
+        # above: an answer is not a command, and re-parsing it as one is
+        # how a parser asks the same question forever.
+        answered = self._answer(supplied, "pattern")
+        if not match and not answered:
             return IntentResult(
                 clarification=ClarificationQuestion(
                     question="What should I search for?",
                     key="pattern",
                     required=True,
+                    gathering=("pattern",),
                 ),
                 raw_input=text,
             )
 
-        pattern = match.group("pattern").strip()
+        pattern = answered or match.group("pattern").strip()
         return IntentResult(
             intent=Intent(
                 goal=f"Search for '{pattern}'",
