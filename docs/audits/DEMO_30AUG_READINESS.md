@@ -397,3 +397,55 @@ functional data contracts the surface depends on — founder input, mission
 state, approval state, failure state, completion state, verified output —
 are unchanged except for the **addition** of `FounderState.answer`, which
 adds a field and removes none.
+
+
+---
+
+# BRAIN SEMANTIC INTELLIGENCE
+
+Ratified 2026-08-27 (ADR-0026). Refines the inside of Constitution §3;
+amends nothing. ADR-0024 moved from Proposed to Accepted / Founder-
+ratified in the same pass.
+
+## The invariant
+
+> Founder meaning must remain traceable from input to verified outcome.
+
+## Boundaries
+
+| Boundary | Expected | Observed | Owner | Fix | Test | Live proof |
+|---|---|---|---|---|---|---|
+| Meaning → requirements | canonical `SemanticRequirement` on the existing Intent | was prose only | `IntentLayer.requirements_for` | derive deterministically from what the parser already knows; reason only for compound prose | `test_semantic_spine.py` A/B | all three golden paths |
+| Requirements → plan | every required requirement covered | no coverage existed | deterministic compilers in `planner/direct.py` | attach `Step.covers` at construction | `test_semantic_spine.py` E/F | GP1 2 reqs · GP2 6 · GP3 2 |
+| Capability → reason | a recorded, factual rationale | none | `_selection_reason` | compose from requirement + registered description + argument contract | `test_semantic_spine.py` G | `selection_reason` on every step |
+| Evidence → conformance | SATISFIED / NOT_SATISFIED / UNKNOWN | `not_evaluated` | `brain/conformance.py` | machine-checkable, no provider | `test_semantic_spine.py` I | all three `satisfied` |
+| Conformance → founder | they read whether they got it | step tally only | `Reporter` | one conformance sentence after the tally | live | *"This did what you asked for."* |
+| Question → grounded answer | live registry truth | provider memory | `IntentLayer.answer_question` + root grounding | facts read at ask time from the self-check's own derivation | live probe | capability index + provider four-state |
+
+## Deliberately not built
+
+**Semantic assessment of an AI plan / an AI answer.** The bounded
+critique ADR-0026 permits is specified and not implemented: every demo
+path plans deterministically, so no plan needed one, and building an
+unexercised admission gate before a deadline adds a code path nothing
+proves. The vocabulary (`ALIGNED` / `NOT_ALIGNED` / `UNCERTAIN`) and its
+boundary from Verification are recorded in the ADR so the next
+implementation cannot quietly reuse `Verdict`.
+
+**Semantic extraction for compound prose** is implemented
+(`_reasoned_requirements`) but unreached on the demo paths, because all
+three compile deterministically and the compilers derive requirements
+from what they read. It costs nothing until an objective genuinely
+reaches the AI Planner.
+
+## Boundaries held
+
+* no fourth architectural layer; no second Intent engine, Planner,
+  Broker, Verifier or Reporter
+* conformance consumes Evidence and produces none — `Evidence(` and
+  `Verdict.` do not appear in `brain/conformance.py`, asserted
+* the semantic and verification vocabularies do not overlap, asserted
+* `covers` is descriptive: `mission_control/dispatcher.py` never reads
+  it, asserted
+* no provider is named in Brain semantics, asserted
+* no environment access from Brain semantics, asserted
