@@ -9,14 +9,14 @@ That is MB022's lane and it stays Playwright.
 
 **Trusted authenticated web AI** — an AI *website* used as a reasoning
 Provider. The Broker selects `trusted-founder-web`; the provider drives
-the founder's own authenticated Chrome or Comet through
+the founder's own already-signed-in browser through
 `DesktopTrustedBrowser`. Playwright is forbidden here, because the
-founder's signed-in browser state IS the environment and an
+founder's authenticated browser state IS the environment and an
 automation-controlled context does not have it.
 
 ## Why guards rather than good intentions
 
-A live mission had Google redirect Playwright to its `/sorry/`
+A live mission had a large search engine redirect Playwright to its
 bot-detection interstitial. Verification caught it and the mission failed
 truthfully. The tempting repair — "we have a real authenticated browser
 right there, use that instead" — would have collapsed the two lanes into
@@ -29,7 +29,7 @@ These tests make each half of the separation a structural fact:
 * B · the trusted provider cannot reach Playwright at all
 * C · trusted execution reaches `DesktopTrustedBrowser`
 * D · the provider does not choose which browser
-* E · the Broker has never heard of Chrome or Comet
+* E · the Broker has never heard of any browser product
 * F · the Browser Executive does not fall back to the trusted lane
 * G · the trusted lane does not substitute another provider
 """
@@ -52,10 +52,19 @@ AUTOMATION_DRIVERS = (
     "CDP", "chrome_devtools",
 )
 
-#: Product names the lower layers must never contain. Which browser to
-#: use is resolved by the Trusted Browser layer, after and separately
-#: from which provider to use.
-BROWSER_PRODUCTS = ("chrome", "comet", "edge", "firefox", "brave")
+#: The browser products the lower layers must never name -- read from the
+#: adapter that legitimately knows them, never spelled out here.
+#:
+#: Two reasons, and the second is the interesting one. A hardcoded list
+#: would go stale the day a browser is added, silently guarding less than
+#: it claims. And this repository forbids product names in browser files
+#: outright (`test_browser_constitution_compliance.py`), including in
+#: tests -- a guard that had to break the rule to enforce it would be a
+#: poor guard.
+def browser_products() -> tuple[str, ...]:
+    from master_agent.desktop.trusted_browser_adapter import DEFAULT_CANDIDATES
+
+    return tuple(DEFAULT_CANDIDATES)
 
 
 def source_of(relative: str) -> str:
@@ -168,6 +177,13 @@ class TestTrustedExecutionReachesTheRealBrowser:
         # Constructed with the desktop adapter, not with anything else.
         assert "browser=DesktopTrustedBrowser(" in source
 
+    def test_the_adapter_is_the_only_layer_that_names_browsers(self):
+        """Somebody has to know. It is this layer, and only this layer."""
+        assert browser_products(), (
+            "the adapter names no browser candidates at all, so nothing "
+            "below it could be checked against them"
+        )
+
     def test_the_adapter_operates_windows_through_the_desktop_executive(self):
         source = source_of("desktop/trusted_browser_adapter.py")
         assert "master_agent.desktop" in source
@@ -187,27 +203,26 @@ class TestTrustedExecutionReachesTheRealBrowser:
 
 
 class TestNobodyElseChoosesTheBrowser:
-    @pytest.mark.parametrize("product", BROWSER_PRODUCTS)
-    def test_the_provider_names_no_browser_product(self, product):
-        assert product not in executable_source(
-            "providers/trusted_web_ai.py"
-        ).lower(), (
-            f"{product!r} in the provider -- the Broker chooses a PROVIDER "
-            "and the Trusted Browser layer resolves the ENVIRONMENT "
-            "afterwards; a provider naming a browser owns both"
-        )
-
-    @pytest.mark.parametrize("product", BROWSER_PRODUCTS)
-    def test_the_broker_names_no_browser_product(self, product):
-        for module in ("ai_infrastructure/broker.py", "ai_infrastructure/catalog.py"):
-            path = SRC / module
-            if not path.exists():
-                continue
-            assert product not in executable_source(module).lower(), (
-                f"{product!r} in {module} -- the Broker ranks providers on "
-                "economics and quality, and has no business knowing what a "
-                "browser is"
+    def test_the_provider_names_no_browser_product(self):
+        body = executable_source("providers/trusted_web_ai.py").lower()
+        for product in browser_products():
+            assert product.lower() not in body, (
+                "the provider names a browser -- the Broker chooses a "
+                "PROVIDER and the Trusted Browser layer resolves the "
+                "ENVIRONMENT afterwards; a provider naming a browser owns both"
             )
+
+    def test_the_broker_names_no_browser_product(self):
+        for module in ("ai_infrastructure/broker.py", "ai_infrastructure/catalog.py"):
+            if not (SRC / module).exists():
+                continue
+            body = executable_source(module).lower()
+            for product in browser_products():
+                assert product.lower() not in body, (
+                    f"{module} names a browser -- the Broker ranks providers "
+                    "on economics and quality, and has no business knowing "
+                    "what a browser is"
+                )
 
     def test_the_port_carries_candidates_without_ranking_them(self):
         """The port may carry candidate names -- that is the layer whose
@@ -241,7 +256,7 @@ class TestNeitherLaneFallsBackToTheOther:
             assert "TrustedWebAi" not in source, path.name
 
     def test_a_blocked_page_produces_evidence_rather_than_a_lane_change(self):
-        """The Google `/sorry/` case, as a rule rather than an anecdote.
+        """The bot-detection case, as a rule rather than an anecdote.
 
         `bind_for_environment` compares the destination by EQUALITY on a
         normalised URL. A `contains` test would have passed on the

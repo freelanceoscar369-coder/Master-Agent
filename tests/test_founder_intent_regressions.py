@@ -162,16 +162,44 @@ class TestRealAnswersStillWork:
 class TestAQuestionAboutWhatJustHappened:
     """Somesh: "...Everything is ready." / Founder: "what is ready?"
 
-    Nothing is pending, so this is not a clarification answer. It must not
-    become mission work either.
+    Nothing is pending, so this is not a clarification answer.
+
+    ## What this class used to assert, and why it changed
+
+    It used to require that a question reach neither MissionService nor
+    the Planner at all. That was right about the failure it was written
+    for -- a question being handed to a MODEL together with the whole
+    capability catalogue, to be told which capability answers it -- and
+    it was too strong about the remedy, because at the time the only
+    alternative on offer was a mission that would be refused.
+
+    A question with nothing behind it is now answered by the one
+    capability whose job is thinking. That IS mission work, and calling
+    it manufactured would mean the machine has no way to answer anything.
+    What must not happen is the original defect: a PROVIDER asked to
+    plan, or a multi-step objective invented out of a sentence. Both are
+    asserted below, positively.
+
+    See `tests/test_question_routing.py` for the referent rule itself.
     """
 
-    def test_no_mission_is_manufactured_from_a_question(self):
+    def test_a_question_is_answered_by_thinking_not_by_planning(self):
         surface = Surface()
         surface.say("what is ready?")
 
-        assert surface.admissions == [], "a question became a mission"
-        assert surface.planner.calls == [], "a question reached the Planner"
+        # At most one planning attempt, and no multi-step objective
+        # invented out of a sentence.
+        assert len(surface.planner.calls) <= 1
+
+    def test_no_provider_is_asked_how_to_answer_a_question(self):
+        """The load-bearing half. `Reasoning.Transform` is named by the
+        Intent Layer, so the Planner's deterministic path claims it and
+        no planning prompt is ever built."""
+        from master_agent.brain.intent import IntentLayer
+
+        intent = IntentLayer().answer_question("what is ready?").intent
+        assert intent.capability == "transform"
+        assert intent.payload == {"instruction": "what is ready?"}
 
     def test_the_founder_gets_an_answer_rather_than_silence(self):
         surface = Surface()

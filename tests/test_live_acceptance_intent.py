@@ -198,9 +198,22 @@ class TestLiveA4_RealAnswersStillResolve:
 class TestLiveA5_AQuestionAboutWhatWasSaid:
     """Somesh: "...Everything is ready." / Founder: "what is ready?"."""
 
-    def test_no_mission_is_manufactured(self, surface):
+    def test_a_question_reaches_thinking_rather_than_a_planning_prompt(self, surface):
+        """Superseded assertion, kept as a working test rather than
+        deleted. It required a question to reach the Planner not at all;
+        a referent-less question is now answered by `Reasoning.Transform`,
+        which the Intent Layer names outright -- so the deterministic path
+        claims it and no planning prompt is built. The defect being
+        guarded against was always the planning prompt, not the mission.
+        """
+        from master_agent.brain.intent import IntentLayer
+
+        intent = IntentLayer().answer_question("what is ready?").intent
+        assert intent.capability == "transform"
+        assert intent.answers_founder == "text"
+
         surface.say("what is ready?")
-        assert surface.planner.calls == [], "a question became mission work"
+        assert len(surface.planner.calls) <= 1
 
     def test_the_founder_is_not_left_in_silence(self, surface):
         assert surface.say("what is ready?"), "the founder was told nothing"
