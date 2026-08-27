@@ -1651,8 +1651,8 @@ class IntentLayer:
                         value.replace("_", " ") for value in sorted(vocabulary)
                     )
                     asked = (
-                        f"{question.question} I can use: {places}. "
-                        f"(I can't put it inside another folder yet.)"
+                        f"{question.question} I can use: {places} -- "
+                        f"or a folder inside one of those."
                     )
                 return IntentResult(
                     clarification=ClarificationQuestion(

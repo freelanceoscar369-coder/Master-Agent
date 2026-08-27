@@ -728,11 +728,19 @@ class TestAMatchMustAccountForTheWholeReply:
     def test_the_question_says_what_it_can_actually_do(self):
         """Repeating the same words at a founder who has already answered
         is how a clarification becomes a loop. Naming the places turns an
-        unanswerable question into a choice."""
+        unanswerable question into a choice.
+
+        And the offer must stay TRUE. This sentence once ended "(I can't
+        put it inside another folder yet.)", which was accurate when it
+        was written and became a lie the moment the nested destination
+        worked -- steering the founder away from the phrasing that had
+        just been built for them. A capability statement is a claim about
+        the system, and stale claims mislead exactly like wrong ones."""
         _payload, asked = resolve("d drive in Onkar folder")
         for place in ("d drive", "desktop", "documents", "downloads"):
             assert place in asked.lower()
-        assert "inside another folder" in asked.lower()
+        assert "folder inside one of those" in asked.lower()
+        assert "can't put it inside" not in asked.lower()
 
     @pytest.mark.parametrize("answer", [
         "desktop", "on my desktop", "put it on the desktop please",
