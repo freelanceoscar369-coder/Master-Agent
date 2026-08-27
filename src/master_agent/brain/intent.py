@@ -131,7 +131,14 @@ def _unaccounted_by(text: str, values: Any) -> set[str]:
     """
     leftover = _tokens_of(text)
     for value in values:
-        leftover -= {part for part in str(value).replace("_", " ").lower().split()}
+        spelled = str(value).lower()
+        # Both spellings. A capability value may use an underscore where
+        # the founder said two words (`d_drive` for "d drive"), and a
+        # founder's own value may contain one they typed (`KVIntent_C`).
+        # Subtracting only the expanded form left `kvintent_c` looking
+        # unexplained by its own name.
+        leftover -= {spelled}
+        leftover -= set(spelled.replace("_", " ").replace("/", " ").split())
     return leftover - _GRAMMAR_WORDS
 
 
@@ -170,6 +177,48 @@ def _unaccounted(text: str, value: str) -> set[str]:
 #: What joins one clause to another. A reply built out of two clauses may
 #: be saying two things, and is worth reading properly.
 _CLAUSE_JOINS: tuple[str, ...] = (",", ";", " and ", " but ", " then ")
+
+
+#: "call it X", "name it X", "called X" -- the founder NAMING something.
+#:
+#: Grammar, like the prepositions before it. The construction says only
+#: that what follows is the name; it carries no opinion about what the
+#: name is, which is why recognising it is not a phrase table.
+#:
+#: It earns its place by removing a model from the commonest multi-field
+#: reply. Asked to extract from "call it Finance and put it in
+#: Documents", the production reasoner returned the PLACE and not the
+#: name -- the accounting then correctly refused the half-answer, and the
+#: founder was asked something they had already answered. Structure can
+#: settle this, so structure should.
+#: A word boundary, spelled without an escape a heredoc can eat.
+_WORD = chr(92) + "b"
+_QUOTE = chr(91) + chr(34) + chr(39) + chr(93) + "?"
+_NOT_BREAK = chr(91) + "^" + chr(34) + chr(39) + ",;" + chr(93) + "+?"
+_NAME_ENDS = r"(?=\s+(?:and|then)\s|\s*[,;]|$)"
+
+_NAMING = re.compile(
+    _WORD + r"(?:call|name|title)\s+(?:it|them|this|that)?\s*"
+    + _QUOTE + r"(?P<value>" + _NOT_BREAK + r")" + _QUOTE + _NAME_ENDS,
+    re.IGNORECASE,
+)
+#: The same, said the other way round: "called X", "named X".
+_NAMED = re.compile(
+    _WORD + r"(?:called|named|titled)\s+"
+    + _QUOTE + r"(?P<value>" + _NOT_BREAK + r")" + _QUOTE + _NAME_ENDS,
+    re.IGNORECASE,
+)
+
+
+def _named_value(text: str) -> str:
+    """What the founder said to call it, or `""`."""
+    for pattern in (_NAMED, _NAMING):
+        found = pattern.search(text or "")
+        if found:
+            value = found.group("value").strip().strip("\"'")
+            if value:
+                return value
+    return ""
 
 
 def _said_for(recorded: Mapping[str, Any], field_name: str, value: Any) -> str:
@@ -910,6 +959,16 @@ class IntentLayer:
                 )}
             )
 
+        # "call it X" -- the founder naming the thing, inside a longer
+        # sentence that also says something else. Read structurally so
+        # the commonest multi-field reply needs no provider at all.
+        if asked and asked in wanted and asked not in self._vocabularies:
+            named = _named_value(text)
+            if named:
+                found[asked] = FieldEvidence(
+                    value=named, evidence=text, source=STATED
+                )
+
         tokens = {word.strip(_VALUE_STRIP).lower() for word in text.split()}
         joined = " ".join(
             word.strip(_VALUE_STRIP).lower() for word in text.split()
@@ -930,7 +989,14 @@ class IntentLayer:
                     if "_" in value else value.lower() in tokens)
             ]
             if len(mentioned) == 1:
-                if _unaccounted(text, mentioned[0]):
+                # Everything settled in this pass, not just the
+                # candidate. The name read a moment ago already accounts
+                # for its own words, and checking the place against the
+                # candidate alone made "call it X and put it in
+                # Documents" look unexplained by X's own name.
+                if _unaccounted_by(
+                    text, [f.value for f in found.values()] + [mentioned[0]]
+                ):
                     # The reply names something this match did not
                     # explain. Settling the field here would DISCARD it,
                     # which is exactly how a folder ended up on the wrong
