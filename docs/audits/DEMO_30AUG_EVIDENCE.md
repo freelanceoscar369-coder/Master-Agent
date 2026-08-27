@@ -266,3 +266,73 @@ rejected argument.
 challange?"* and was correctly answered as a FOLLOW_UP — because by then
 a real mission stood behind the question. The morning's P0 fix, working
 from the other side.
+
+
+---
+
+## Night session, 27 Aug — semantic spine, packaged
+
+```
+SOURCE HEAD    e240ec41251582e64f9ed555d59dcee2cba1e082
+PACKAGE        dist/Kalpavriksha/Kalpavriksha.exe
+BUILT          2026-08-27T23:36:56
+SHA256         f6d850619cb95e1f5be219ca7d424843e88261213d366334500c80a8796da4df
+SELF-CHECK     RESULT OK - 48 capabilities - 5 executives, all runtime-reachable
+NO-OLLAMA      constructed=no, candidate=no
+FMEA           UNSET (full production ladder shown)
+
+FULL SUITE     75 failed - 8387 passed - 2 skipped
+BASELINE       90 failed (b4a9cfe)
+NEW REGRESSIONS ZERO, diffed by test ID
+```
+
+The two clipboard tests that failed last night pass now — confirming they
+were environmental (the Windows clipboard was held by another process),
+exactly as recorded.
+
+### Golden paths, with conformance
+
+All three now carry the semantic spine end to end:
+
+```
+GP1 LOCAL      PASS 0.4s   founder outcome: satisfied
+GP2 BROWSER    PASS 3.1s   founder outcome: satisfied   (Playwright, deliberate)
+GP3 REASONING  PASS 12.3s  founder outcome: satisfied
+INTENT CONFORMANCE  PASS   10/10 against the production composition
+```
+
+### Grounded self-query — rehearsed before it was offered
+
+Three questions were run against the real composition before being put in
+front of the founder. Two failures were found and fixed that way:
+
+**A provider was being asked what the records already knew.** *"What can
+you do right now?"* built a `Reasoning.Transform` mission with the last
+mission attached as grounding; that action defaults to `sensitive=True`,
+correctly, so the Broker found no PRIVATE-locality provider and the
+question failed. None of these questions needed a provider —
+`brain/self_query.py` answers them from records.
+
+**Coverage without requirements.** The one-step and capture lanes set
+`Step.covers` but never published the requirements onto the plan, so
+conformance reported "no recorded founder requirements" for missions that
+had them. Caught only because the rehearsal read real stored history.
+
+Answers now, from records:
+
+```
+what can you do right now?
+  → 48 capabilities across 5 areas, by area, from the live index
+
+why did you choose that capability?
+  → the rationale recorded at PLANNING time, naming the requirement,
+    the registered description and the argument contract
+
+did the last mission satisfy what I asked for?
+  → Yes/No/can't-say from requirements + coverage + Evidence,
+    per requirement, with UNKNOWN never rounded up
+```
+
+"The last mission" excludes missions that were themselves questions —
+by requirement marker, and for the hundred legacy records predating the
+semantic trace, by shape.
