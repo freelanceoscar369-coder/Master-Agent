@@ -128,3 +128,53 @@ something only the Brain may decide. Architectural guards in
 - Do **not** run a second Kalpavriksha instance.
 - Do **not** use Google Search as a demo objective. It serves an anti-bot
   interstitial to automation, and that is outside our control.
+
+---
+
+## Final semantic acceptance — how to run it
+
+The point of this run is **not** whether a folder appears. It is whether
+what appeared corresponds to what you meant, and whether what you are
+told about it is true.
+
+### Ground rules
+
+1. **Use a name you have not used before.** Not `Rudra`. That name is on
+   two earlier runs, and `CreateFolder` is idempotent by design — a
+   folder that already exists verifies perfectly and proves nothing about
+   this run. A fresh name is the only way the machine can be caught.
+
+2. **Say the destination however you would naturally say it.** Nobody
+   will tell you a phrasing to use. If a suggested wording were needed to
+   make it work, the wording would be the feature and the understanding
+   would not exist. Say it the way you would say it to a person.
+
+3. **If it asks you something, answer it however you like** — including
+   correcting yourself, or naming a folder inside a place. Being asked is
+   not a failure. Being asked something you already answered is.
+
+### What to watch, in order
+
+| Question | Where the answer is | What wrong looks like |
+|---|---|---|
+| Did it understand? | the clarification it asks, or does not ask | it asks for something you already said |
+| Did it act on what you meant? | the path it reports | a folder in a place you did not name |
+| Did it check reality? | the verification line | a claim with no observation behind it |
+| Did it tell you the truth? | the closing summary | "this did what you asked for" about the wrong place |
+
+The last row is the one that failed twice. A folder really existed, it
+really was verified, and the answer was still false — because the thing
+being checked and the thing being checked against had both come from the
+same misreading.
+
+### If it gets it wrong
+
+Say so plainly and stop. Do **not** rephrase to help it along: a system
+that only works when the founder phrases things carefully has not
+understood anything, and a second attempt with better wording would hide
+exactly the defect this run exists to expose.
+
+### Afterwards
+
+Nothing is deleted to tidy up. `D:\Rudra` from the first failed run stays
+where it is unless you ask for it to go — it is yours, not test scaffolding.
