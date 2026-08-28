@@ -427,3 +427,91 @@ Stated because a boundary left unstated reads as coverage:
   The semantic behaviour was proved against the same source the exe
   bundles, through the real pipeline, not through the frozen binary.
 - The three live acceptances below ran from source.
+
+
+---
+
+# FINAL — 28 AUG 2026, 09:57
+
+Re-adjudicated against source rather than against my own summary, which
+changed two answers.
+
+## Two gaps the re-audit found
+
+**A stated invariant nothing enforced.** `SemanticRequirement` carried
+the comment *"UNCERTAIN may never reach execution"*, and no code checked
+it. Conformance refused to REPORT satisfaction for an uncertain
+requirement — that closes the back door and leaves the front one open. A
+plan carrying one would still have run, and the founder would have been
+told about real work done on a reading the system did not stand behind.
+
+Now enforced in `MissionService._admit`, which ADR-0024 Decision 1
+already makes the single admission boundary to the Planner, so this is
+one policy and not a second to drift from the first. The refusal quotes
+the founder's own sentence back — nobody can resolve "something was
+unclear".
+
+**A contract that contradicted itself.** `CreateFolderAction.description`
+— the line the Planner reads to fill arguments — said `name` is *"the
+folder's own name only"*. The code says otherwise, deliberately.
+
+## Nested destination — source classification
+
+**ALREADY EXPRESSIBLE.** Exact contract evidence, at HEAD:
+
+- `executor/action.py::is_unsafe_relative_path` docstring: shared by
+  every action accepting *"a relative path/name meant to be joined onto
+  a configured location's base directory (**CreateFolderAction's
+  `name`**, WriteFileAction's `path`, …)"*. The argument is named, by
+  the guard that defines its safety.
+- `actions/create_folder.py::validate()` admits multi-segment values,
+  with a comment recording that the guard was closed here for a *direct*
+  caller too, not only composite ones.
+- `actions/create_folder.py::run()`: `target = base / name` then
+  `mkdir(parents=True)`. `parents=True` is a no-op unless `name` may
+  carry more than one segment — it is positive evidence of intent, not
+  an accident.
+- Safety unchanged: `..`, absolute, and drive-anchored values are
+  rejected identically on both path flavours.
+
+So this is not an implementation accident being promoted to
+architecture. The **description** was the thing out of step, and it was
+telling the Planner the opposite of what the code accepts — refusing a
+founder a target the capability can already reach safely. Corrected to
+state the real rule, which was always about a LOCATION phrase; the
+original defect it guarded (`name="Research on my Desktop"`) stays closed
+and is pinned by test.
+
+Idempotency untouched: `expected_result` still declares it.
+
+## Full suite — clean run, frozen tree
+
+```
+75 failed · 8440 passed · 2 skipped   (24m39s)
+baseline   75 failed · 8415 passed · 2 skipped
+```
+
+```
+NEW FAILURE IDS: ZERO   (the ID sets are identical)
+8415 + 25 new tests = 8440 passed
+```
+
+The two live-clipboard failures seen in the previous run are gone. They
+were environmental, as reported — a stale `comtypes` generated typelib
+was also blocking desktop-pipeline construction, and clearing that
+regenerated cache resolved both. No product code was involved.
+
+## Package
+
+```
+source        e7c1f04
+sha256        fddf70b9535d9121889ddc442b9580d94ff3571faaaefcffcb3b5c7895481b91
+size          37,021,681 bytes
+built         2026-08-28 09:32
+supersedes    b2bdadf0…
+self-check    RESULT: OK · 48 capabilities · all five executives reachable
+              approval wired · no-ollama constructed=no candidate=no
+              deterministic planning: CreateFolder -> WriteFile
+FMEA tier     unset
+instances     none running
+```
