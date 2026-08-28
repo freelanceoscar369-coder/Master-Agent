@@ -40,6 +40,8 @@ from master_agent.missions.history import PlanHistory
 from master_agent.missions.translation import PlanIncomplete, objective_from_plan
 from master_agent.planner.plan import (
     BROKER_REFUSED,
+    KNOWN,
+    UNSETTLED_INTERPRETATION,
     NO_CAPABILITIES,
     NOT_JSON,
     PROVIDER_FAILED,
@@ -252,6 +254,47 @@ class MissionService:
         if description is None:
             description = str(intent.context.get("raw_input") or intent.goal)
         text = description
+
+        # An interpretation nobody settled may not become work.
+        #
+        # This was written as a comment on `SemanticRequirement`
+        # -- "UNCERTAIN may never reach execution" -- and enforced
+        # nowhere. Conformance refused to REPORT satisfaction for an
+        # uncertain requirement, which closes the back door and leaves
+        # the front one open: a plan carrying one would still have run,
+        # and the founder would have been told about real work done on a
+        # reading the system did not stand behind.
+        #
+        # It belongs here and only here. ADR-0024 Decision 1 already
+        # makes this the single admission boundary to the Planner, so
+        # the check has one owner rather than becoming a second policy
+        # that drifts from the first.
+        unsettled = [
+            requirement
+            for requirement in (getattr(intent, "requirements", None) or ())
+            if getattr(requirement, "required", True)
+            and str(getattr(requirement, "interpretation", KNOWN)) != KNOWN
+        ]
+        if unsettled:
+            unclear = "; ".join(
+                str(getattr(r, "founder_evidence", "") or getattr(r, "description", ""))
+                for r in unsettled
+            )
+            return MissionOutcome(
+                status=REFUSED,
+                refusal=PlanRefusal(
+                    code=UNSETTLED_INTERPRETATION,
+                    reason=(
+                        "I am not confident I understood part of this, so I "
+                        "have not acted on it."
+                    ),
+                    detail=(
+                        f"Unsettled: {unclear}. Asking is the correct outcome "
+                        "here -- acting on a reading nobody confirmed is how a "
+                        "mission gets verified against its own mistake."
+                    ),
+                ),
+            )
 
         self._publish_phase(EventType.MISSION_PLANNING_STARTED, task_id, objective_id, text)
         outcome = self.planner.plan(

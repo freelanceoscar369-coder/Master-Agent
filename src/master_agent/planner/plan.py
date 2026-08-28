@@ -118,6 +118,11 @@ REQUIREMENT_KINDS: tuple[str, ...] = (EFFECT, INFORMATION, DELIVERABLE, CONSTRAI
 #: Closed, and load-bearing: `UNCERTAIN` may not execute and may not be
 #: reported as satisfied. The two are the same rule seen from either end
 #: of the mission.
+#: Refusal code for a mission whose meaning was never settled. Not a
+#: planning failure -- the Planner is never reached -- so it is reported
+#: as its own thing rather than borrowing a capability refusal.
+UNSETTLED_INTERPRETATION = "unsettled_interpretation"
+
 KNOWN = "known"
 UNCERTAIN = "uncertain"
 INTERPRETATION_STATES: tuple[str, ...] = (KNOWN, UNCERTAIN)

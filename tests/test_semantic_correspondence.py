@@ -321,3 +321,120 @@ class TestFounderEvidenceReachesEveryRequirement:
         it, or every multi-turn mission loses its earliest facts."""
         names = [r for r in self.build() if r.description.startswith("name = ")]
         assert names and "Rudra" in names[0].founder_evidence
+
+
+# =====================================================================
+# An unsettled interpretation may not become work
+# =====================================================================
+
+
+class TestUncertaintyCannotReachExecution:
+    """The rule stated on `SemanticRequirement` -- *UNCERTAIN may never
+    reach execution* -- was enforced nowhere.
+
+    Conformance refused to REPORT satisfaction for an uncertain
+    requirement, which closes the back door and leaves the front one
+    open: a plan carrying one would still have run, and the founder
+    would have been told about real work done on a reading the system
+    did not stand behind. A comment is not a constraint, exactly as a
+    prompt is not one.
+
+    Enforced at ADR-0024's single admission boundary, so there is one
+    policy rather than two that drift."""
+
+    def service(self):
+        from master_agent.missions.service import MissionService
+
+        class Planner:
+            def __init__(self):
+                self.called = False
+
+            def plan(self, *a, **k):
+                self.called = True
+                raise AssertionError("the Planner was reached")
+
+        service = MissionService.__new__(MissionService)
+        service._counter = 0
+        service.planner = Planner()
+        service.reporter = None
+        service._publish_phase = lambda *a, **k: None
+        return service
+
+    def intent_with(self, interpretation):
+        from master_agent.planner.plan import Intent
+
+        intent = Intent(
+            goal="create a folder", constraints=[],
+            context={"raw_input": "create a folder"}, success_criteria=[],
+        )
+        intent.requirements = (SemanticRequirement(
+            "req_2", CONSTRAINT, "location = d_drive",
+            founder_evidence="d drive in Onkar folder",
+            interpretation=interpretation,
+        ),)
+        return intent
+
+    def test_an_uncertain_requirement_is_refused_before_planning(self):
+        from master_agent.planner.plan import UNSETTLED_INTERPRETATION
+
+        service = self.service()
+        outcome = service._admit(
+            self.intent_with(UNCERTAIN), task_id="plan-1", objective_id=None
+        )
+        assert outcome.status == "refused"
+        assert outcome.refusal.code == UNSETTLED_INTERPRETATION
+        assert service.planner.called is False, "it planned anyway"
+
+    def test_the_refusal_quotes_what_was_not_understood(self):
+        """A founder cannot resolve "something was unclear". They can
+        resolve their own sentence read back to them."""
+        outcome = self.service()._admit(
+            self.intent_with(UNCERTAIN), task_id="plan-1", objective_id=None
+        )
+        assert "d drive in Onkar folder" in outcome.refusal.detail
+
+    def test_a_settled_requirement_still_reaches_the_planner(self):
+        """The gate must not be a wall. Everything that was working has
+        to keep working, or this trades one failure for another."""
+        service = self.service()
+        with pytest.raises(AssertionError, match="the Planner was reached"):
+            service._admit(
+                self.intent_with(KNOWN), task_id="plan-1", objective_id=None
+            )
+
+
+class TestTheContractSaysWhatTheContractDoes:
+    """`name` is contractually a relative path under `location`, and the
+    Planner-facing description used to say the opposite."""
+
+    def action(self):
+        from master_agent.executor.actions.create_folder import CreateFolderAction
+
+        return CreateFolderAction
+
+    def test_the_description_no_longer_contradicts_validate(self):
+        described = self.action().description
+        assert "own name only" not in described
+        assert "relative path" in described
+
+    def test_it_still_says_a_location_phrase_belongs_in_location(self):
+        """The original defect -- name="Research on my Desktop" -- must
+        stay closed. Correcting an overstatement is not licence to drop
+        the rule it was protecting."""
+        described = self.action().description
+        assert "belongs in 'location'" in described
+        assert "never in 'name'" in described
+
+    def test_validate_admits_the_nested_target_and_still_rejects_escape(self):
+        from pathlib import Path
+
+        action = self.action()({"d_drive": Path("D:/")})
+        assert action.validate({"name": "Onkar/Rudra", "location": "d_drive"}) == []
+        assert action.validate({"name": "../escape", "location": "d_drive"})
+        assert action.validate({"name": "/etc/passwd", "location": "d_drive"})
+        assert action.validate({"name": "D:config", "location": "d_drive"})
+
+    def test_idempotency_is_still_the_contract(self):
+        """Not broken for a test. The acceptance harness carries that
+        burden with a precondition instead."""
+        assert "idempotent" in self.action().expected_result
