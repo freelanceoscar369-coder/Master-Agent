@@ -228,9 +228,21 @@ class _FakeMissionService:
 
 
 class _FakeObjective:
-    def __init__(self, complete=False, failed=False):
+    def __init__(self, complete=False, failed=False, runnable=False):
         self.is_complete = complete
         self.has_failure = failed
+        # A stand-in for `Objective` has to carry `Objective`'s contract.
+        #
+        # `has_runnable_work` is the fact Mission Control uses to decide
+        # whether a failed objective is actually finished -- a failed step
+        # alongside work that can still run is not a failed mission. A
+        # fake that omitted it made the drive loop raise rather than
+        # answering the question, which is the double drifting from the
+        # thing it doubles, not the product being wrong.
+        #
+        # Defaults to False so these fixtures keep meaning what they
+        # meant: `failed=True` here is a mission with nothing left to try.
+        self.has_runnable_work = runnable
 
 
 class _FakeDispatcher:
@@ -607,3 +619,36 @@ class TestClarificationReachesTheFounder:
         result, service = self._submit(outcome, text="Open github.com")
         assert service.started, "an understood objective never reached MissionService"
         assert result["reply"] == "I can't do that with what I'm currently able to do."
+
+
+def test_a_failed_step_does_not_abandon_work_that_can_still_run():
+    """One site refusing us must not end a mission with other sources
+    left to try.
+
+    Measured on the founder's own research objective: `step_2` Navigate
+    verified `not_matched` while `step_5` and `step_6` -- two DIFFERENT
+    sources for the same requirement -- sat READY and were never
+    dispatched, because this loop stopped at `has_failure`.
+
+    The first objective here is failed WITH runnable work, so the loop
+    must turn the Runtime again; the second has nothing left, so it
+    stops.
+    """
+    import kalpavriksha_desktop as kd
+
+    turned = []
+
+    class Runtime:
+        def run_once(self):
+            turned.append(1)
+
+    still_going = _FakeObjective(failed=True, runnable=True)
+    settled = _FakeObjective(failed=True, runnable=False)
+    mission_control = _FakeMissionControl(
+        [still_going, settled], _FakeFounderState(errors=("a source failed",))
+    )
+
+    kd._drive_until_settled(
+        Runtime(), mission_control, ExecutionStatus(), "obj-1", 5.0
+    )
+    assert turned, "the mission was abandoned while work could still run"
