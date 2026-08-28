@@ -194,3 +194,100 @@ reproduction test against the real `BrowserSessionManager`, GP2 through
 the real composition, and the repair's presence in the frozen entry
 script above. A packaged live research run is the remaining proof and is
 listed as an open blocker, not glossed.
+
+
+---
+
+# CONTINUATION FROM b71aa9a — 28 AUG 2026
+
+Git truth confirmed the lead exactly: branch `claude/brain-wisdom`, HEAD
+`b71aa9a`, `origin/main` still `6349eb1`, worktree clean, evidence
+intact.
+
+## The founder's objective, run end to end
+
+Run repeatedly through the real production composition. The trace is
+what found every defect below — none of them came from reading code.
+
+**The original blocker is gone.** `Browser.OpenBrowserSession` now
+verifies `matched`. The mission reaches the web.
+
+## Four defects found by running it
+
+**1. AI plans declared no coverage at all.** The planner prompt never
+mentioned `covers`; `parsing.py` never read it. ADR-0026's rule that AI
+plans must state coverage was never implemented, so every research step
+came back `covers=[]` and conformance answered "no step took
+responsibility" — a research mission could only ever be UNKNOWN however
+well it ran. Fixed: requirements are now named by id in the prompt and
+each step declares what it is for.
+
+**2. One failed step abandoned steps that could still run.** The drive
+loop stopped at `has_failure`. On the founder's objective that ended a
+mission with `step_5` and `step_6` — two different sources for the same
+requirement — sitting READY, never dispatched. `MissionDispatcher`
+always knew better; the fact lived inside one method. Now
+`Objective.has_runnable_work`, one owner, used by both. **Measured after
+the fix: step_2 failed and step_4 was tried.**
+
+**3. A false completion — the worst kind.** Conformance treated "any
+covering step matched" as satisfied. Right for ALTERNATIVES, wrong for
+STAGES, and an AI plan is stages. Measured: step 1 opened a browser and
+verified, step 2 failed, steps 4–6 never ran, and *"give me free demo
+download links"* was reported **SATISFIED** on the strength of a browser
+having opened. A requirement whose covering steps did not all report is
+now UNKNOWN.
+
+**4. `decision_frame` was being pasted into the planning prompt** as a
+raw dict, along with `field_evidence`. Brain bookkeeping the Planner
+cannot act on.
+
+## Deliberation
+
+`Observation -> Candidate -> adjudicate -> shortlist -> sufficiency ->
+DeliberationResult` is complete and tested (70 cases). The model reads
+prose into structure and decides nothing; every `met` must cite an
+evidence id that was actually supplied, and one that was not is
+**downgraded to unverified**.
+
+**It is not yet called by the product.** `MissionService` invokes
+`frame_for`; nothing invokes `deliberate`. The end-to-end runs above
+called it from the probe, not from the mission path. Stated plainly
+because "the faculty exists" is exactly the claim this mission was told
+not to make.
+
+## Regression
+
+```
+77 failed  8525 passed  2 skipped   (35m46s, frozen tree)
+baseline   75 failed  8440 passed
+
+NEW FAILURE IDS ATTRIBUTABLE TO THIS WORK: ZERO
+```
+
+The two extra IDs are the live Windows-clipboard pair. They **pass in
+isolation** on this same tree, and the whole branch diff contains zero
+clipboard references; an earlier session proved they fail identically at
+the baseline commit in a clean worktree when another process holds the
+clipboard lock.
+
+One genuinely new failure did appear mid-session and was the guard doing
+its job: `_FakeObjective` had not grown `has_runnable_work`, so the
+double had drifted from the contract it stands in for. Fixed on the test
+side, and the behaviour is now pinned.
+
+## Still open
+
+- `deliberate()` is not invoked by the mission path.
+- Coverage is model-dependent: measured across runs, the Planner emitted
+  `covers` twice and omitted it once. Conformance then reports UNKNOWN,
+  which is honest but useless. ADR-0026's *rejection* rule is still
+  unimplemented — refusing such a plan would turn a reporting gap into
+  an inability to act, so it was not done unilaterally.
+- Both Navigate steps failed on the live web: one verified `not_matched`,
+  the other hit the 5s timeout on Steam. That timeout is the
+  browser-policy finding the founder ring-fenced, and it is now the
+  blocker for a live research answer.
+- No-progress/loop detection, replan preserving verified work,
+  environment precedence, material-support boundary, capability-gap
+  recognition: unbuilt.
