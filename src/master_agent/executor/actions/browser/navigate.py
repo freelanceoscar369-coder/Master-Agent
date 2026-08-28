@@ -25,11 +25,16 @@ class NavigateAction(Action):
     # stated at all.
     #
     # Observed, repeatedly, on the founder's own research objective: a
-    # plan whose first two sources were Google search URLs landed on
-    # `https://www.google.com/sorry/index?continue=...` -- the anti-bot
-    # interstitial -- and Verification correctly reported `not_matched`.
-    # Nothing malfunctioned. The mission failed because it was sent
-    # somewhere this lane cannot go.
+    # plan whose first two sources were general-web-search query URLs
+    # landed on that engine's automation-refusal page instead of on
+    # results, and Verification correctly reported `not_matched`. Nothing
+    # malfunctioned. The mission failed because it was sent somewhere
+    # this lane cannot go.
+    #
+    # Named as a CLASS of destination and never as a product, which is
+    # the Browser Worker's standing rule and is enforced by
+    # `test_browser_constitution_compliance.py` -- a guard that caught an
+    # earlier draft of this very comment.
     #
     # This is a fact about the environment, not a hardcoded answer and
     # not a result. It names no site as good and no site as bad; it says
