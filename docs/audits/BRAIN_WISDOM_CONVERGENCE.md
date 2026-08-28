@@ -1,0 +1,151 @@
+# Brain / Wisdom intelligence convergence
+
+The single ledger for the `claude/brain-wisdom` mission. ADR-0027 holds
+the decision; this holds the evidence.
+
+---
+
+## CURRENT_GIT_TRUTH
+
+```
+branch          claude/brain-wisdom
+starting HEAD   c1d1760   (verified, not assumed)
+origin/main     6349eb1   untouched
+merge-base      6349eb1
+worktree        clean
+stashes         none
+```
+
+The reported starting point was treated as a lead and confirmed from Git
+before anything was built on it. The preserved acceptance evidence was
+re-read and is intact: four plan records, the failing step's error string
+verbatim, and `requirements: 0` on the failed record.
+
+## INHERITED_WORK — verified from source, not from the report
+
+| Claimed | Verified |
+|---|---|
+| `deliberation.py` contracts exist | yes — `DecisionFrame`, `EvidenceAssessment`, `Candidate`, `RecoveryDecision`, `shortlist`, `adjudicate`, `sufficient`, `serves`, `depth_for` |
+| research objectives derive requirements | yes |
+| requirements carry founder evidence | yes, both lanes |
+| **deliberation live-wired** | **no** — a repo-wide grep returned only the module itself. The reported P0.7 gap was real. |
+| thread-affinity failure open | yes, and now reproduced deliberately |
+
+---
+
+## ARCHITECTURE_OWNERSHIP
+
+| Concern | Owner | Changed here |
+|---|---|---|
+| Founder meaning | `IntentLayer` / `MissionService` | requirements now derived for compound objectives |
+| Requirements + provenance | `SemanticRequirement` | founder evidence on both lanes |
+| Planning | `Planner` (`direct` + AI) | AI lane now carries requirements onto the plan |
+| Deliberation | `brain/deliberation.py` | framed at admission |
+| Mission lifecycle | Mission Control | **unchanged** |
+| Execution | Workers / Executives | **unchanged** |
+| Verification | independent | **unchanged** |
+| Recovery decision | Brain | added; relayed by the surface |
+| Provider selection | Broker | **unchanged** |
+| Execution thread | desktop composition root | pinned to one thread |
+
+No second scheduler, dispatcher, mission-state authority, Verification
+authority, memory store or orchestrator was created.
+
+---
+
+## INTELLIGENCE_GAP_MATRIX — external mechanisms reconciled
+
+Mature systems used to pressure-test what exists, never to be rebuilt
+inside Kalpavriksha.
+
+| Source | Mechanism | Classification | Consequence |
+|---|---|---|---|
+| **NASA Remote Agent / Livingstone** | goal-directed planning, executive control, model-based diagnosis, replanning | PARTIAL — extend existing owner | Planner + Mission Control + Verification already express the separation. What was missing was the *diagnosis* step between failure and terminal state. Added as a Brain decision, not a new executive. |
+| **Soar** | working / semantic / episodic / procedural knowledge, impasse-driven reasoning | ALREADY EXISTS, PROOF INCOMPLETE | Used as a lens, not a design. It exposed that Kalpavriksha does distinguish mission state from memory from capability — but that *episodic* experience is not yet consulted at decision time. Recorded, not built. |
+| **Magentic-One** | persistent task/progress state, stall detection, replanning | PARTIAL | Kalpavriksha is deliberately stronger: progress is derived from Verification, never from a model's belief that it finished. Stall detection is the genuine gap (below). |
+| **LongHorizon-Harness** | task state outside the executor; only verified environmental facts advance it | ALREADY EXISTS + WIRED | Evidence/Verdict/conformance already do exactly this. No Task Manager added. |
+| **Recuris** | working vs experiential memory, localized failure, validation-gated updates | PARTIAL / DEFER | Existing Memory + Knowledge own this. No duplicate store. |
+| **AgentRewind** | aligned checkpoints, recovery to an earlier state | REJECT as a generic primitive | External side effects are not reversible. A folder created on the founder's disk cannot be un-created by rewinding agent state. Logical mission recovery is what was built; whole-world rollback was not. |
+| **Voyager** | retrieve → execute → critic → verify → promote a reusable skill | EXISTING DECISION, IMPLEMENTATION MISSING | ADR-0012's Knowledge Lifecycle already specifies a *stricter* gate. Seam preserved; not built in this mission. |
+| **Reflexion** | failure → structured lesson → improved future decision | GENUINELY MISSING | `RecoveryDecision` records a classification and reason; nothing yet persists it as a reusable lesson. No chain-of-thought would be stored if it did. |
+| **PAST-Bench** | prove save → retrieve → reuse → measurable improvement | NOT CLAIMED | Kalpavriksha has memory. This mission does **not** claim learning works, because no paired with/without proof has been run. |
+| **Agent-as-a-Judge** | independent requirement-by-requirement evaluation | ALREADY EXISTS + WIRED | `conformance.assess()`, and deliberately without a model. |
+| **OSWorld-Verified / V2** | bad evaluators create bad conclusions | ALREADY STRONGER | ADR-0011 keeps Verification independent of the executor; ADR-0026 stops conformance grading its own interpretation. |
+| **Anthropic eval practice** | test when behaviour should NOT happen | ADOPTED | The asymmetry tests: a folder must not deliberate. |
+
+---
+
+## IMPLEMENTED_SLICES
+
+**1 — Playwright thread ownership repaired.** `sync_playwright()` binds to
+its creating thread; the manager caches the driver for the process; the
+founder surface answers each message on a different short-lived HTTP
+worker thread. Reproduced against the real manager first, and the
+reproduction is kept as a test so "fixed" cannot quietly become "no
+longer reproduces by accident". Repaired by giving mission execution one
+stable thread — **not** by marshalling inside the browser code, which
+would not work, because the actions hold `Page` objects and call
+`page.goto(...)` themselves.
+
+**2 — The semantic spine reaches every lane.** `requirements_for()` was
+gated on the intent carrying a capability, making `_reasoned_requirements`
+unreachable for the objectives it was written for; and the AI plan path
+never carried requirements onto the plan.
+
+**3 — Founder evidence on both paths.** Reasoned requirements carried
+none, and `description` there is a model's paraphrase — so conformance
+would have compared a reading against itself on every compound objective.
+The one-sentence path had the same hole.
+
+**4 — Deliberation live-wired**, framed at `MissionService._admit`.
+
+**5 — Brain-owned recovery** at the failure point.
+
+---
+
+## TEST_EVIDENCE
+
+```
+brain deliberation            55 passed
+execution thread affinity     10 passed  (incl. the real defect reproduction)
+focused spine regression     393 passed
+GP1 / GP2 / GP3              PASS
+intent conformance           16/16 PASS
+```
+
+## FULL_REGRESSION
+
+```
+75 failed  8511 passed  2 skipped   (25m09s, frozen tree)
+baseline   75 failed  8440 passed
+NEW FAILURE IDS: ZERO  -- the failure-ID sets are identical
+                 8440 + 71 new tests = 8511
+```
+
+## LIVE_EVIDENCE
+
+```
+'search for action rpg games released in 2026 ...'  -> frame, 4 criteria
+'create a folder called FrameProbe on my desktop'   -> NO FRAME
+```
+
+Stable across repeated runs — after a fragility was found and removed
+(framing had keyed off requirement KIND, and the extractor labelled the
+same objective differently on two runs).
+
+---
+
+## OPEN_BLOCKERS
+
+1. **Replan does not preserve verified work.** Recovery therefore runs
+   only when nothing has been verified. Needs the Planner to plan around
+   satisfied requirements. Deliberately not half-built: a half-build
+   could write a file twice.
+2. **No stall / no-progress detection.** Predicted-vs-verified delta is
+   not yet derived per step.
+3. **Deliberation frames but does not yet assess.** No live mission
+   produces `Candidate`s or a `DeliberationResult`.
+4. **No bounded critique.**
+5. **Environment resolution precedence** unproven.
+6. **Learning not claimed** — no paired proof.
+7. **Live research rehearsal not run.**
