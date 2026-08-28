@@ -427,6 +427,12 @@ class PlanOutcome:
     #: What the provider actually said. Kept so a malformed plan can be
     #: read by a founder rather than only described to them.
     raw: str = ""
+    #: True when the first proposal was rejected and a bounded correction
+    #: pass produced this plan instead. Recorded rather than hidden: a
+    #: plan that needed repairing is a fact about how it was made, and an
+    #: audit asking why planning took two provider calls deserves the
+    #: answer.
+    corrected: bool = False
     #: The founder's LOCAL / AI MODE / BOTH selection at plan time, and
     #: the mode this mission actually ran under. They differ when the
     #: objective required resources the selection did not name -- an AI

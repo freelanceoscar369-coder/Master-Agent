@@ -239,4 +239,24 @@ def resolve_inputs(task: Any, sources: dict[str, Any]) -> ResolvedInputs:
 
         provenance.append({"target": target, "sources": used})
 
+    # What the material IS decides how it may be handled.
+    #
+    # `sensitive` arrives in the plan payload, so a model could write
+    # `"sensitive": false` over a founder's private file and the request
+    # would go out. It could equally leave the conservative default on
+    # three public web pages and have the mission refused for material
+    # that was never private -- which is what happened.
+    #
+    # Derived here because this is the one place that knows where every
+    # bound value actually came from, and it runs after planning, so
+    # nothing a model wrote can reach past it. Raising is always allowed;
+    # lowering requires every bound source to be known-public.
+    from master_agent.runtime.sensitivity import apply_to
+
+    sources = [
+        str(getattr(sources.get(entry["step_id"]), "capability", "") or "")
+        for row in provenance for entry in row["sources"]
+    ]
+    apply_to(payload, [source for source in sources if source])
+
     return ResolvedInputs(payload=payload, provenance=provenance)

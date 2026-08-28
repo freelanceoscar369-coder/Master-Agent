@@ -254,6 +254,63 @@ _RULES = (
 )
 
 
+def build_correction_prompt(
+    intent: Intent,
+    options: tuple[CapabilityOption, ...] | list[CapabilityOption],
+    rejected: str,
+    reason: str,
+    detail: str,
+) -> str:
+    """The same request, plus exactly why the last answer was not a plan.
+
+    ## Why this exists
+
+    The identical objective produced, across eight runs: a valid plan, a
+    duplicate-argument plan, a plan binding to a step it did not depend
+    on, an empty plan, and plans that chained independent sources so one
+    block stalled the rest. Roughly half were refused before execution.
+
+    Every one of those was already DETECTED precisely -- `validate()`
+    names the step and the mistake. The refusal was then handed to the
+    founder as "I couldn't plan that just now", which spends a provider
+    call, tells the model nothing, and makes the founder the retry
+    button.
+
+    ## What it may and may not change
+
+    The objective, the requirements, the constraints and the catalogue
+    are repeated VERBATIM. The model is repairing its own representation
+    of a plan; it is not being invited to reconsider the request. That
+    boundary is the whole reason this is a separate prompt rather than a
+    free-form "try again".
+    """
+    sections = [
+        (
+            "Your previous reply was not a valid plan. Here is exactly what "
+            "was wrong with it. Correct THAT, and reply with the same JSON "
+            "shape."
+        ),
+        "",
+        f"What was rejected: {reason}",
+    ]
+    if detail:
+        sections.append(f"Specifically: {detail}")
+    sections += [
+        "",
+        "Your previous reply:",
+        (rejected or "").strip()[:4000],
+        "",
+        (
+            "Do not change the objective, the requirements or the "
+            "constraints -- they are unchanged below and are not yours to "
+            "revise. Fix only the plan."
+        ),
+        "",
+        build_prompt(intent, options),
+    ]
+    return "\n".join(sections)
+
+
 def build_prompt(
     intent: Intent, options: tuple[CapabilityOption, ...] | list[CapabilityOption]
 ) -> str:
