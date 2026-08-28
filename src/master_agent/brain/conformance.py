@@ -203,12 +203,47 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
             ))
             continue
 
+        silent = [task for task in covering if not _verdict_of(task)]
+        if silent and any(v == _MATCHED for v in verdicts):
+            # Some covering step never produced Evidence at all, so this
+            # is not known either way.
+            #
+            # "Any covering step matched" is right when the steps are
+            # ALTERNATIVES -- several ways to establish one fact, and one
+            # of them observed the world. It is wrong when they are
+            # STAGES, which is what an AI-planned mission produces: open
+            # a browser, navigate, read, write the answer. Every stage
+            # covers the same requirement and only the last one delivers
+            # it.
+            #
+            # Measured on the founder's own research objective. Step 1
+            # opened a browser and verified `matched`; step 2 failed;
+            # steps 4-6 never ran -- and "give me free demo download
+            # links" was reported SATISFIED, on the strength of a browser
+            # having opened. That is a false completion of exactly the
+            # kind a visible truthful failure is always preferable to.
+            #
+            # Failing toward UNKNOWN costs a founder a hedge on a mission
+            # that really did finish. The other direction costs them a
+            # dead link they were told was checked.
+            outcomes.append(RequirementOutcome(
+                requirement_id=requirement_id,
+                description=description,
+                required=required,
+                state=UNKNOWN,
+                covered_by=ids,
+                reason=(
+                    "some steps responsible for this never ran, so it "
+                    "cannot be confirmed"
+                ),
+            ))
+            continue
+
         if any(v == _MATCHED for v in verdicts):
-            # At least one covering step was independently verified, and
-            # none contradicted it. That is as strong as this can get:
-            # Evidence is what makes a requirement satisfied, and a
-            # requirement covered by several steps needs only one of them
-            # to have actually observed the world.
+            # Every covering step reported, and at least one was
+            # independently verified with nothing contradicting it. That
+            # is as strong as this can get: Evidence is what makes a
+            # requirement satisfied.
             outcomes.append(RequirementOutcome(
                 requirement_id=requirement_id,
                 description=description,

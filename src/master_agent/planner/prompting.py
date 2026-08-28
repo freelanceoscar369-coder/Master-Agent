@@ -30,6 +30,7 @@ PLAN_SHAPE = """{
     {
       "id": "step_1",
       "capability": "<exactly one name from the catalogue above>",
+      "covers": ["<requirement id this step is responsible for>"],
       "payload": {"<argument>": "<value>"},
       "input_bindings": {},
       "depends_on": [],
@@ -142,6 +143,14 @@ _RULES = (
         "the outcome that was asked for, not merely its first "
         "executable action. A plan that acquires the material and "
         "stops short of what was asked for is incomplete."
+    ),
+    (
+        "11b. Say which requirement each step is FOR. Every step carries "
+        "`covers`: the ids of the founder requirements it is responsible "
+        "for, taken from the list given above. A step that serves none of "
+        "them is a step nobody asked for. Between them the steps must "
+        "cover every requirement -- one step may cover several, and "
+        "several may cover one."
     ),
     (
         "11a. Medium objectives commonly run: acquire, inspect what "
@@ -275,13 +284,37 @@ def build_prompt(
         sections.append("The founder will consider this done when:")
         sections.extend(f"- {item}" for item in intent.success_criteria)
 
+    requirements = tuple(getattr(intent, "requirements", ()) or ())
+    if requirements:
+        # Named, with their ids, because `covers` has to refer to
+        # something. Before this the Planner was asked to "cover the whole
+        # request" (rule 11) with no idea what the requirements WERE --
+        # so every AI-planned step came back `covers=[]`, conformance
+        # found no step responsible for anything, and a research mission
+        # could only ever be reported UNKNOWN however well it ran.
+        sections.append("")
+        sections.append("Founder requirements. Every one must be covered:")
+        sections.extend(
+            f"- {getattr(r, 'requirement_id', '')}: "
+            f"{getattr(r, 'description', '')}"
+            for r in requirements
+        )
+
     if intent.context:
         sections.append("")
         sections.append("Context:")
         # Sorted, because a dict's insertion order is not a fact about the
         # work and would otherwise change the prompt between two runs that
         # asked the same question.
-        sections.extend(f"- {key}: {intent.context[key]}" for key in sorted(intent.context))
+        # Founder facts only. `field_evidence` and `decision_frame` are
+        # the Brain's own bookkeeping -- pasting either in as a raw dict
+        # tells the Planner nothing it can act on and buys a wall of
+        # JSON in the middle of the request.
+        _internal = {"field_evidence", "decision_frame", "requirements"}
+        sections.extend(
+            f"- {key}: {intent.context[key]}"
+            for key in sorted(intent.context) if key not in _internal
+        )
 
     sections.extend(
         [

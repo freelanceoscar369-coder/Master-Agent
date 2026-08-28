@@ -108,6 +108,20 @@ def _read_step(
     if not isinstance(capability, str) or not capability.strip():
         return None, _malformed(f"step `{step_id}` names no capability")
     capability = capability.strip()
+
+    # Which founder requirements this step claims responsibility for.
+    #
+    # A CLAIM, never proof -- Evidence still decides reality (ADR-0026).
+    # Read permissively and never fatal: a plan that omits it is the
+    # plan Kalpavriksha built for a year, and refusing it here would turn
+    # a reporting gap into an inability to act at all. What it costs
+    # instead is honest: conformance reports UNKNOWN for a requirement no
+    # step took responsibility for, which is exactly true.
+    covers = tuple(
+        str(item).strip()
+        for item in (entry.get("covers") or ())
+        if isinstance(item, (str, int)) and str(item).strip()
+    )
     if capability not in allowed:
         return None, PlanRefusal(
             code=UNKNOWN_CAPABILITY,
@@ -284,6 +298,7 @@ def _read_step(
             founder_checkpoint=str(entry.get("founder_checkpoint") or "").strip(),
             priority=priority,
             estimated_complexity=complexity,
+            covers=covers,
         ),
         None,
     )

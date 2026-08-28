@@ -182,6 +182,33 @@ class Objective:
         return any(task.state is TaskState.FAILED for task in self.tasks)
 
     @property
+    def has_runnable_work(self) -> bool:
+        """Is there anything left that could still run?
+
+        A failed task alongside work that can still run is not a failed
+        objective, and `MissionDispatcher` has always known that -- it
+        computes exactly this before publishing `OBJECTIVE_FAILED`. The
+        fact lived only inside that method, so everything else asked
+        `has_failure` instead and treated the first failure as the end.
+
+        Measured on the founder's own research objective: `step_2`
+        Navigate verified `not_matched`, while `step_5` and `step_6` --
+        two DIFFERENT sources for the same requirement -- sat READY and
+        were never dispatched, because the loop driving the Runtime
+        stopped at `has_failure`. One site refusing us ended a mission
+        that had two more places to look.
+
+        Stated here so the lifecycle fact has one owner and one
+        definition rather than a copy in every caller that needs it.
+        """
+        return any(
+            task.state not in {
+                TaskState.COMPLETED, TaskState.FAILED, TaskState.BLOCKED
+            }
+            for task in self.tasks
+        )
+
+    @property
     def progress(self) -> float:
         """Fraction of tasks in a terminal-success state, 0.0-1.0. An
         objective with no tasks is complete by definition, not divided by

@@ -1740,8 +1740,19 @@ def _drive_until_settled(runtime, mission_control, status, objective_id,
     deadline = _time.monotonic() + timeout_seconds
     mark = _progress_mark()
     objective = mission_control.dispatcher.objective(objective_id)
+    # A failed step is not a finished mission.
+    #
+    # This read `objective.has_failure`, so the first failure stopped the
+    # loop -- abandoning every step that could still run. On the founder's
+    # research objective that meant one site refusing us ended a mission
+    # with two more sources sitting READY and never dispatched.
+    #
+    # `has_runnable_work` is Mission Control's own fact, the same one it
+    # computes before declaring an objective failed, so the loop now stops
+    # exactly when the lifecycle authority says there is nothing left.
     while _time.monotonic() < deadline and not (
-        objective.is_complete or objective.has_failure
+        objective.is_complete
+        or (objective.has_failure and not objective.has_runnable_work)
     ):
         # On the one execution thread, always. See `_ExecutionThread`.
         _EXECUTION.run(runtime.run_once)
