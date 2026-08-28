@@ -796,9 +796,8 @@ def _build_mission_pipeline():
     # still wins, so the Planner can ask for an invisible session when an
     # objective genuinely does not want a window.
     browser_identities = _browser_identity_store()
-    browser_plugin = BrowserPlugin(
-        executor,
-        BrowserSessionManager(
+    global _BROWSER_SESSIONS
+    _BROWSER_SESSIONS = BrowserSessionManager(
             default_headless=False,
             default_channel="chrome",
             # Declared, not defaulted: a session stays anonymous unless an
@@ -806,8 +805,8 @@ def _build_mission_pipeline():
             # the *ability* to be the founder without making anything
             # silently become them.
             identities=browser_identities,
-        ),
     )
+    browser_plugin = BrowserPlugin(executor, _BROWSER_SESSIONS)
     registry.register(browser_plugin)
 
     # Desktop Executive Foundation 1.0: the Desktop Executive
@@ -1642,6 +1641,41 @@ class _ExecutionThread:
         return pool.submit(call).result()
 
 
+#: The ordinary Browser lane's session manager, held by the composition
+#: root that built it so a mission which ends without running its planned
+#: `CloseBrowserSession` can still have its environment released.
+#:
+#: `None` until the pipeline is built, and nothing here assumes it is not.
+_BROWSER_SESSIONS = None
+
+
+def _release_task_browsers() -> None:
+    """Let go of task-owned browser sessions after a mission ends.
+
+    A mission that failed before its planned `CloseBrowserSession` left
+    session `'main'` open; the next attempt planned its own
+    `OpenBrowserSession('main')` and died on `session already open`. One
+    attempt's leftovers made the next one impossible, which is what took
+    autonomous recovery off the table.
+
+    Anonymous sessions only -- the founder's signed-in browser is theirs
+    and is never touched. Best-effort and silent: releasing an
+    environment is housekeeping, and a warning about it does not belong
+    in a founder's reply.
+    """
+    manager = _BROWSER_SESSIONS
+    if manager is None:
+        return
+    try:
+        released = manager.close_anonymous()
+    except Exception:  # noqa: BLE001 -- cleanup never becomes the failure
+        logging.exception("browser session cleanup failed")
+        return
+    if released:
+        logging.info("released task-owned browser sessions: %s",
+                     ", ".join(sorted(released)))
+
+
 #: Process-wide, because the thread affinity being protected is
 #: process-wide: one Playwright driver, one browser, one execution
 #: thread. A per-mission thread would put the second mission back on a
@@ -2423,6 +2457,10 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         break
 
     state = mission_control.founder_state(objective_id)
+
+    # The mission is over one way or another. Whatever it opened and did
+    # not close is nobody's now.
+    _release_task_browsers()
 
     # The decision this mission was framed for, before the branch below.
     #
