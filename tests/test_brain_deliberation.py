@@ -557,3 +557,100 @@ class TestFramingFromCanonicalInformationOnly:
         assert "established" in joined
         assert "disagree" in joined
         assert "budget" in joined
+
+
+# =====================================================================
+# The failure point: what does a stopped mission MEAN?
+# =====================================================================
+
+
+class TestTheSurfaceAsksTheBrainAndDecidesNothing:
+    """`MissionDispatcher`'s own comment says auto-retry "would be a
+    strategic recovery decision, which belongs to the Brain". The surface
+    observes that a mission stopped, hands the Brain the facts, and
+    relays the answer to the lifecycle authority that already exists."""
+
+    class Task:
+        def __init__(self, task_id, covers, verdict):
+            self.task_id = task_id
+            self.covers = covers
+            self.evidence = {"verdict": verdict} if verdict else None
+
+    class Objective:
+        def __init__(self, tasks):
+            self.tasks = tasks
+
+    class Control:
+        def __init__(self, tasks):
+            self.dispatcher = type("D", (), {
+                "objective": lambda _self, _id, _t=tasks: TestTheSurfaceAsksTheBrainAndDecidesNothing.Objective(_t)
+            })()
+
+    def intent(self):
+        from master_agent.planner.plan import (
+            CONSTRAINT, EFFECT, Intent, SemanticRequirement,
+        )
+
+        intent = Intent(goal="research", constraints=[], context={},
+                        success_criteria=[])
+        intent.requirements = (
+            SemanticRequirement("req_1", EFFECT, "find the games",
+                                founder_evidence="search for action rpg games"),
+            SemanticRequirement("req_2", CONSTRAINT, "give demo links",
+                                founder_evidence="search for action rpg games"),
+        )
+        return intent
+
+    def test_a_mission_that_verified_nothing_is_worth_another_method(self):
+        """The founder's exact failure: step one could not open a
+        browser, and nine planned steps naming several sources never
+        ran."""
+        import kalpavriksha_desktop as kd
+
+        control = self.Control([self.Task("t1", ("req_1",), "not_matched")])
+        decision = kd._recovery_decision(control, self.intent(), "obj-1", 0)
+        assert decision is not None
+        assert decision.should_replan is True
+        assert decision.failure_class == "method_failure"
+
+    def test_recovery_is_bounded_by_the_brains_own_budget(self):
+        import kalpavriksha_desktop as kd
+
+        control = self.Control([self.Task("t1", ("req_1",), "not_matched")])
+        decision = kd._recovery_decision(control, self.intent(), "obj-1", 9)
+        assert decision.should_replan is False
+        assert "budget" in decision.reason
+
+    def test_verified_work_is_never_silently_redone(self):
+        """The boundary this deliberately stops at. Replanning from
+        scratch would re-run work reality has already confirmed -- and
+        for a capability with an external effect that is not a wasted
+        step, it is a second real change to the founder's machine."""
+        import kalpavriksha_desktop as kd
+
+        control = self.Control([
+            self.Task("t1", ("req_1",), "matched"),
+            self.Task("t2", ("req_2",), "not_matched"),
+        ])
+        assert kd._recovery_decision(control, self.intent(), "obj-1", 0) is None
+
+    def test_a_mission_with_no_requirements_decides_nothing(self):
+        import kalpavriksha_desktop as kd
+        from master_agent.planner.plan import Intent
+
+        bare = Intent(goal="x", constraints=[], context={}, success_criteria=[])
+        control = self.Control([self.Task("t1", (), "not_matched")])
+        assert kd._recovery_decision(control, bare, "obj-1", 0) is None
+
+    def test_the_surface_holds_no_recovery_policy_of_its_own(self):
+        """It must relay a decision, not make one. A threshold or a
+        retry count written here would be a second recovery policy
+        drifting from the Brain's."""
+        import inspect
+
+        import kalpavriksha_desktop as kd
+
+        source = inspect.getsource(kd._recovery_decision)
+        assert "recovery_for" in source
+        for invented in ("range(", "< 3", "<= 3", "max_retries", "MAX_"):
+            assert invented not in source, invented

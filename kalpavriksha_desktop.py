@@ -1649,6 +1649,56 @@ class _ExecutionThread:
 _EXECUTION = _ExecutionThread()
 
 
+def _recovery_decision(mission_control, intent, objective_id, attempts_used):
+    """Ask the Brain what a failed mission's failure MEANS.
+
+    The surface does not decide this and must not. It observes that a
+    mission stopped, hands the Brain the facts, and relays the answer to
+    the lifecycle authority that already exists. `MissionDispatcher`'s
+    own comment says auto-retry "would be a strategic recovery decision,
+    which belongs to the Brain"; this is the call it was waiting for.
+
+    Returns `None` when there is nothing to decide.
+    """
+    from master_agent.brain.conformance import SATISFIED, assess
+    from master_agent.brain.deliberation import recovery_for
+
+    requirements = tuple(getattr(intent, "requirements", ()) or ())
+    if not requirements:
+        return None
+    try:
+        objective = mission_control.dispatcher.objective(objective_id)
+        outcome = assess(requirements, objective.tasks)
+    except Exception:  # noqa: BLE001 -- an unreadable record decides nothing
+        return None
+
+    satisfied = tuple(
+        row.requirement_id for row in outcome.requirements
+        if row.state == SATISFIED
+    )
+    unmet = tuple(
+        row.requirement_id for row in outcome.requirements
+        if row.state != SATISFIED
+    )
+    if satisfied:
+        # **The boundary this stops at, deliberately.**
+        #
+        # Replanning from scratch would re-run work that reality has
+        # already confirmed -- and for a capability with an external
+        # effect that is not a wasted step, it is a second real change to
+        # the founder's machine. Preserving verified work across a replan
+        # needs the Planner to plan around satisfied requirements, which
+        # is a larger change than this one and is recorded as the next
+        # P0 rather than half-built here.
+        return None
+
+    return recovery_for(
+        unmet_requirements=unmet,
+        alternatives_available=True,
+        attempts_used=attempts_used,
+    )
+
+
 def _drive_until_settled(runtime, mission_control, status, objective_id,
                          timeout_seconds: float) -> None:
     """Turn the Runtime until this objective settles or waits on a human.
@@ -2168,6 +2218,43 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     objective_id = outcome.objective_id
     _drive_until_settled(runtime, mission_control, status, objective_id,
                          timeout_seconds)
+
+    # A method that failed is not an objective that failed.
+    #
+    # The founder was told "That didn't complete." about a mission whose
+    # very first step could not open a browser -- nine planned steps,
+    # naming several different sources, never ran. Mission Control was
+    # right to stop; nothing was there to decide what the stop MEANT.
+    #
+    # The surface does not decide it here either. It asks the Brain and
+    # relays the answer to the admission boundary that already exists,
+    # bounded by the Brain's own budget.
+    attempts = 0
+    while True:
+        state = mission_control.founder_state(objective_id)
+        if not state.errors:
+            break
+        decision = _recovery_decision(
+            mission_control, intent_result.intent, objective_id, attempts
+        )
+        if decision is None or not decision.should_replan:
+            if decision is not None:
+                logging.info(
+                    "recovery declined (%s): %s",
+                    decision.failure_class, decision.reason,
+                )
+            break
+        attempts += 1
+        logging.info(
+            "recovery attempt %s (%s): %s",
+            attempts, decision.failure_class, decision.reason,
+        )
+        retried = mission_service.start(intent_result.intent)
+        if not retried.accepted:
+            break
+        objective_id = retried.objective_id
+        _drive_until_settled(runtime, mission_control, status, objective_id,
+                             timeout_seconds)
 
     state = mission_control.founder_state(objective_id)
     if state.errors:
