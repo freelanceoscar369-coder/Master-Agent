@@ -1667,7 +1667,18 @@ def _release_task_browsers() -> None:
     if manager is None:
         return
     try:
-        released = manager.close_anonymous()
+        # ON THE EXECUTION THREAD, like every other Playwright call.
+        #
+        # Closing a session drives the same thread-affine driver that
+        # opened it, so doing it from whichever thread happened to reach
+        # the end of a mission corrupts the driver for every mission
+        # after it. Measured immediately after this cleanup was added and
+        # called inline: the next `OpenBrowserSession` failed with "It
+        # looks like you are using Playwright Sync API inside the asyncio
+        # loop", and every step behind it stayed pending.
+        #
+        # The invariant was already established and this call broke it.
+        released = _EXECUTION.run(manager.close_anonymous)
     except Exception:  # noqa: BLE001 -- cleanup never becomes the failure
         logging.exception("browser session cleanup failed")
         return

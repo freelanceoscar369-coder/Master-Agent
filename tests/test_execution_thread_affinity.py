@@ -194,3 +194,41 @@ class TestItIsNotASecondOrchestrator:
         source = inspect.getsource(kd._drive_until_settled)
         assert "_EXECUTION.run(runtime.run_once)" in source
         assert "\n        runtime.run_once()" not in source
+
+
+class TestEveryPlaywrightCallUsesTheOneThread:
+    """Including cleanup, which is easy to forget because it looks like
+    housekeeping rather than browser work.
+
+    It is browser work. Closing a session drives the same thread-affine
+    driver that opened it, and calling it inline corrupted the driver for
+    every mission afterwards -- the next `OpenBrowserSession` failed with
+    "It looks like you are using Playwright Sync API inside the asyncio
+    loop" and every step behind it stayed pending.
+    """
+
+    def test_browser_cleanup_goes_through_the_execution_thread(self):
+        import inspect
+
+        import kalpavriksha_desktop as kd
+
+        source = inspect.getsource(kd._release_task_browsers)
+        assert "_EXECUTION.run(" in source, (
+            "session cleanup drives Playwright from whatever thread "
+            "finished the mission"
+        )
+        assert "manager.close_anonymous()" not in source
+
+    def test_cleanup_still_cannot_raise(self):
+        import kalpavriksha_desktop as kd
+
+        class Exploding:
+            def close_anonymous(self):
+                raise RuntimeError("driver is gone")
+
+        original = kd._BROWSER_SESSIONS
+        kd._BROWSER_SESSIONS = Exploding()
+        try:
+            kd._release_task_browsers()
+        finally:
+            kd._BROWSER_SESSIONS = original
