@@ -1649,6 +1649,146 @@ class _ExecutionThread:
 _EXECUTION = _ExecutionThread()
 
 
+def _observations_from(mission_control, objective_id):
+    """Canonical Evidence, read as things that were actually seen.
+
+    Only Evidence carries an `evidence_id`, and only steps that produced
+    Evidence appear here -- so a claim can later be traced to an
+    independent observation rather than to a model's memory of one. A
+    step that ran and observed nothing contributes nothing, which is the
+    correct amount.
+    """
+    from master_agent.brain.deliberation import (
+        CORROBORATION, DISCOVERY, PRIMARY, Observation,
+    )
+
+    found = []
+    try:
+        objective = mission_control.dispatcher.objective(objective_id)
+    except Exception:  # noqa: BLE001 -- an unreadable record observes nothing
+        return ()
+    for task in objective.tasks:
+        evidence = getattr(task, "evidence", None) or {}
+        if not isinstance(evidence, dict):
+            continue
+        evidence_id = str(evidence.get("evidence_id") or "").strip()
+        if not evidence_id:
+            continue
+        observed = evidence.get("observation")
+        if not isinstance(observed, dict):
+            continue
+        text = ""
+        for key in ("text", "page_text", "content", "accessibility_tree"):
+            value = observed.get(key)
+            if isinstance(value, str) and value.strip():
+                text = value
+                break
+        if not text:
+            continue
+        url = str(observed.get("url") or "")
+        # Source class from what was observed, never from a hostname
+        # table. A page served by the party a claim is ABOUT is primary
+        # for that claim; a search or listing page is where candidates
+        # are FOUND, not where they are established.
+        lowered = url.lower()
+        if any(mark in lowered for mark in ("/search", "?q=", "&q=", "/browse")):
+            source_class = DISCOVERY
+        elif url:
+            source_class = PRIMARY
+        else:
+            source_class = CORROBORATION
+        found.append(Observation(
+            evidence_id=evidence_id, text=text,
+            source_class=source_class, url=url,
+        ))
+    return tuple(found)
+
+
+def _decide(mission_service, mission_control, intent, objective_id):
+    """Perform the decision this mission was framed for, or return None.
+
+    The frame was written at admission, before any evidence existed. This
+    is the other end of it: the same criteria, now answered against what
+    was actually observed.
+
+    `None` whenever there is nothing to decide -- no frame, or nothing
+    seen. Most missions are that, and they pay nothing for this.
+    """
+    frame_row = (getattr(intent, "context", None) or {}).get("decision_frame")
+    if not isinstance(frame_row, dict):
+        return None
+    observations = _observations_from(mission_control, objective_id)
+    if not observations:
+        return None
+
+    from master_agent.brain.deliberation import Criterion, DecisionFrame, deliberate
+
+    frame = DecisionFrame(
+        objective=str(frame_row.get("objective") or ""),
+        requirement_ids=tuple(frame_row.get("requirement_ids") or ()),
+        decision_type=str(frame_row.get("decision_type") or ""),
+        mandatory=tuple(
+            Criterion(
+                criterion_id=str(row.get("criterion_id") or ""),
+                description=str(row.get("description") or ""),
+                requirement_id=str(row.get("requirement_id") or ""),
+                mandatory=bool(row.get("mandatory", True)),
+            )
+            for row in (frame_row.get("mandatory") or [])
+        ),
+    )
+    try:
+        return deliberate(
+            frame, observations,
+            getattr(mission_service.intent_layer, "_reasoner", None),
+        )
+    except Exception:  # noqa: BLE001 -- an undecided mission still reports
+        logging.exception("deliberation failed")
+        return None
+
+
+def _decision_sentence(result) -> str:
+    """What the decision means, for a founder, in their terms.
+
+    Conclusions and the evidence behind them. Never the extraction
+    prompt, never a transcript, never internal scores -- a reviewable
+    answer is not a reasoning trace.
+    """
+    from master_agent.brain.deliberation import CONTESTED, DECIDED
+
+    if result is None:
+        return ""
+    if result.state == DECIDED and result.shortlist:
+        lines = [f"{len(result.shortlist)} of what I found meets everything you asked for:"]
+        for candidate in result.shortlist:
+            lines.append(f"  - {candidate.summary}")
+        if result.rejected:
+            lines.append(
+                f"I ruled out {len(result.rejected)}: "
+                + "; ".join(
+                    f"{r.summary} ({r.reason})" for r in result.rejected[:3]
+                )
+            )
+        return "\n".join(lines)
+    if result.state == CONTESTED:
+        return (
+            "Sources disagree and nothing authoritative settles it, so I "
+            "am not going to pick for you: "
+            + "; ".join(result.unresolved[:3])
+        )
+    # Nothing cleared the bar. Saying so is the useful answer -- an empty
+    # list presented as a result is how a founder ends up with nothing
+    # and the impression of something.
+    rejected = (
+        f" I looked at {len(result.rejected)} and none of them held up."
+        if result.rejected else ""
+    )
+    return (
+        f"I could not confirm anything that meets all of it.{rejected} "
+        f"{result.rationale}"
+    ).strip()
+
+
 def _recovery_decision(mission_control, intent, objective_id, attempts_used):
     """Ask the Brain what a failed mission's failure MEANS.
 
@@ -2256,18 +2396,52 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                 )
             break
         attempts += 1
+        # The decision is recorded. Acting on it by RE-SUBMITTING the
+        # same intent is not, and deliberately.
+        #
+        # Measured: re-submitting produced a fresh plan that opened a
+        # browser session the failed attempt had already opened, and the
+        # mission died on `session already open: 'main'`. The retry
+        # inherited the first attempt's environment and failed for a
+        # reason the founder's request had nothing to do with -- a worse
+        # outcome than the honest failure it was trying to improve on.
+        #
+        # `recovery_for` already says a new attempt must differ
+        # materially in source, method, capability, environment,
+        # evidence question or strategy. An identical intent differs in
+        # none of them, so the surface was violating the very rule it
+        # was relaying. Real recovery needs the Planner to plan AROUND
+        # what is already satisfied and around environment the last
+        # attempt left behind -- which is the next P0, not something to
+        # approximate here where approximating it costs the founder a
+        # second failure.
         logging.info(
-            "recovery attempt %s (%s): %s",
-            attempts, decision.failure_class, decision.reason,
+            "recovery available but not attempted (%s): %s",
+            decision.failure_class, decision.reason,
         )
-        retried = mission_service.start(intent_result.intent)
-        if not retried.accepted:
-            break
-        objective_id = retried.objective_id
-        _drive_until_settled(runtime, mission_control, status, objective_id,
-                             timeout_seconds)
+        status.recovery = decision.as_dict()
+        break
 
     state = mission_control.founder_state(objective_id)
+
+    # The decision this mission was framed for, before the branch below.
+    #
+    # It used to run only on the success path, which threw away the most
+    # useful half of a research mission: one that reached three sources,
+    # learned something real from two of them and then failed a fourth
+    # step told the founder "That didn't complete" and nothing else. What
+    # was actually established is still true, and still theirs.
+    decided = _decide(
+        mission_service, mission_control, intent_result.intent, objective_id
+    )
+    if decided is not None:
+        status.deliberation = decided.as_dict()
+        logging.info(
+            "deliberation: %s (%s shortlisted, %s rejected)",
+            decided.state, len(decided.shortlist), len(decided.rejected),
+        )
+    decision_text = _decision_sentence(decided)
+
     if state.errors:
         # Same hygiene as the refusal branch above: the founder gets a
         # sentence, the full executive/Playwright/gateway diagnostic stays
@@ -2275,6 +2449,11 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         joined = "; ".join(state.errors)
         logging.warning("objective failed: %s", joined)
         status.message = _founder_failure_sentence(joined)
+        if decision_text:
+            # What the mission DID establish, before what stopped it.
+            # A founder who asked for research and got two verified
+            # answers out of four is owed the two.
+            status.message = f"{decision_text}\n\n{status.message}"
         return _founder_reply(status, status.message)
     if state.progress >= 1.0:
         # `state.result` is still recorded -- other consumers legitimately
@@ -2298,11 +2477,14 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # a deterministic projection of canonical Evidence, never
         # something composed.
         answer = getattr(state, "answer", None)
+
         status.message = (
             _ANSWER_THEN_SUMMARY.format(answer=answer, report=report)
             if answer is not None
             else report
         )
+        if decision_text:
+            status.message = f"{decision_text}\n\n{status.message}"
         return _founder_reply(status, status.message)
     # Waiting on the founder is not slowness. `AWAITING_APPROVAL` means
     # the plan is ready and held at the permission boundary until a human

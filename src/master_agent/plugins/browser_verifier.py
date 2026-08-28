@@ -23,12 +23,14 @@ class BrowserVerifier(Verifier):
         selectors: list[str] | None = None,
         include_accessibility_tree: bool = False,
         include_available_actions: bool = False,
+        include_text: bool = False,
     ) -> None:
         self._sessions = sessions
         self._session_id = session_id
         self._selectors = selectors or []
         self._include_accessibility_tree = include_accessibility_tree
         self._include_available_actions = include_available_actions
+        self._include_text = include_text
 
     def capture_observation_dict(self) -> dict[str, Any]:
         # Always resolves the session and re-reads the page fresh at the
@@ -41,5 +43,6 @@ class BrowserVerifier(Verifier):
             self._selectors,
             include_accessibility_tree=self._include_accessibility_tree,
             include_available_actions=self._include_available_actions,
+            include_text=self._include_text,
         )
         return observation.as_dict()

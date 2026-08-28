@@ -31,6 +31,14 @@ from playwright.sync_api import Page
 # silently -- `accessibility_tree_truncated` says so out loud.
 MAX_ACCESSIBILITY_TREE_CHARS = 20_000
 
+#: How much visible page text one observation may carry.
+#:
+#: Bounded for the same reason the tree is: an Evidence record is
+#: persisted, replayed and sometimes handed to a reasoning step, and an
+#: unbounded page would make all three expensive. Generous enough for a
+#: listing or an article, which is what research actually reads.
+MAX_PAGE_TEXT_CHARS = 20_000
+
 # Same reasoning for interactive affordances: a large page can have
 # hundreds. Capped, with `available_actions_truncated` reporting it.
 MAX_AVAILABLE_ACTIONS = 100
@@ -102,6 +110,20 @@ class BrowserObservation:
     elements: list[BrowserElement] = field(default_factory=list)
     accessibility_tree: str | None = None
     accessibility_tree_truncated: bool = False
+    #: What a person can actually SEE on the page.
+    #:
+    #: Opt-in like the tree, and for the same reason -- most steps do not
+    #: need it and every Evidence record pays for what it carries.
+    #:
+    #: It exists because research had no way to reach reasoning.
+    #: `Browser.ReadPageText` returned text as an Action RESULT, and an
+    #: Action result is not Evidence: `input_bindings` refused it with
+    #: "source has no canonical Evidence, so its output cannot be trusted
+    #: as an input", and the Brain, which may only read canonical
+    #: Evidence, saw nothing at all. A mission could visit three sites,
+    #: verify all three, and have nothing to think about.
+    text: str | None = None
+    text_truncated: bool = False
     available_actions: list[AvailableAction] = field(default_factory=list)
     available_actions_truncated: bool = False
     captured_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -116,6 +138,8 @@ class BrowserObservation:
             "elements": [element.as_dict() for element in self.elements],
             "accessibility_tree": self.accessibility_tree,
             "accessibility_tree_truncated": self.accessibility_tree_truncated,
+            "text": self.text,
+            "text_truncated": self.text_truncated,
             "available_actions": [action.as_dict() for action in self.available_actions],
             "available_actions_truncated": self.available_actions_truncated,
             "captured_at": self.captured_at.isoformat(),
@@ -237,11 +261,29 @@ def normalise_url(url: str) -> str:
     ))
 
 
+def _observe_text(page: Page) -> tuple[str | None, bool]:
+    """The visible text, read fresh at verification time.
+
+    `inner_text` rather than `text_content`: it returns what a person can
+    actually see, leaving out script bodies and hidden nodes. A reasoning
+    step given hidden markup would be reasoning about something the
+    founder never saw.
+    """
+    try:
+        text = page.inner_text("body") or ""
+    except Exception:  # noqa: BLE001 -- an unreadable page observes nothing
+        return None, False
+    if len(text) > MAX_PAGE_TEXT_CHARS:
+        return text[:MAX_PAGE_TEXT_CHARS], True
+    return text, False
+
+
 def normalize_observation(
     page: Page,
     selectors: list[str] | None = None,
     include_accessibility_tree: bool = False,
     include_available_actions: bool = False,
+    include_text: bool = False,
 ) -> BrowserObservation:
     """Reads generic, universal facts off a live Page. `selectors` names
     the specific elements a caller cares about; the two `include_*` flags
@@ -256,6 +298,7 @@ def normalize_observation(
     available_actions, actions_truncated = (
         _observe_available_actions(page) if include_available_actions else ([], False)
     )
+    text, text_truncated = _observe_text(page) if include_text else (None, False)
 
     return BrowserObservation(
         url=page.url,
@@ -268,5 +311,7 @@ def normalize_observation(
         accessibility_tree_truncated=tree_truncated,
         available_actions=available_actions,
         available_actions_truncated=actions_truncated,
+        text=text,
+        text_truncated=text_truncated,
         captured_at=datetime.now(UTC),
     )
