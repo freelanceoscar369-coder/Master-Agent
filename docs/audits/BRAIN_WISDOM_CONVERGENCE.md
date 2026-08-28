@@ -375,3 +375,90 @@ sensitive.
 
 Neither is a founder decision. Both are recorded here rather than
 guessed at.
+
+
+---
+
+# CONTINUATION FROM 5d24b6d — THE THREE BLOCKERS
+
+## P0.1 — Planner self-correction
+
+Eight runs of the identical objective had produced a valid plan, a
+duplicate-argument plan, a plan binding to a step it did not depend on,
+an empty plan, and plans chaining independent sources. Every one was
+already DETECTED precisely; the diagnosis was then thrown away and the
+founder was told *"I couldn't plan that just now."*
+
+One bounded correction pass now feeds the exact error back with the
+objective, requirements and catalogue repeated verbatim. It repairs the
+plan REPRESENTATION and may not reconsider the request.
+
+```
+PLANNING STABILITY: 5/5
+  run 3: PLAN ok  steps=11  corrected=True
+```
+
+Run 3 is the proof: a first proposal that would have refused the mission
+was repaired and executed. Fifteen fixtures freeze the observed invalid
+shapes, including that invalid-every-time terminates at two provider
+calls rather than looping.
+
+## P0.2 — Sensitivity from provenance
+
+`Reasoning.Transform` defaults to `sensitive=True`, correctly. But the
+default described the CAPABILITY rather than the MATERIAL, so a mission
+that read three public pages was refused for material that was never
+private.
+
+The dangerous half is the reverse: `sensitive` arrives in the plan
+PAYLOAD, so a model could write `"sensitive": false` over a founder's
+private file. Derived now in `resolve_inputs`, which already knows where
+every bound value came from and runs after planning, so nothing a model
+wrote can reach past it.
+
+```
+public  + public   -> public
+public  + private  -> private        (a model cannot write past this)
+anything unknown   -> unchanged, conservative default stands
+```
+
+**Measured live: `Reasoning.Transform` executed on public browser
+Evidence instead of being refused.**
+
+## P0.3 — Failed missions release their browser
+
+    attempt 1 opens "main" -> fails before CloseBrowserSession
+    -> attempt 2 opens "main" -> "session already open: 'main'"
+
+One attempt's leftovers made the next impossible. `close_anonymous()`
+releases task-owned sessions and never identity-backed ones — the
+founder's signed-in browser is theirs. Called before the success/failure
+branch, because the failing case is the one that caused this.
+
+## The exact objective, end to end
+
+```
+step_1 OpenBrowserSession   matched
+step_2 Navigate             matched
+step_4 Navigate             matched
+step_3 ReadPageText         matched   text_len=180
+step_5 ReadPageText         matched   text_len=180
+step_6 Reasoning.Transform  ran, partially_matched
+deliberation: insufficient_evidence, "nothing has been found yet"
+```
+
+Every joint now works. The run did not produce a shortlist because the
+source returned an **HTTP 500 error page** — the 180 characters are
+literally *"Error 500 - Server Internal Error"*. The system behaved
+correctly throughout: it reached the page, read what was there, found
+nothing that qualified, and said so. A truthful empty answer about a
+broken source is the right outcome, and is not a defect in the chain.
+
+## Still open
+
+- A shortlist has not yet been produced from a source that was actually
+  serving content. That is a run away, not a repair away.
+- `Navigate` verifies `matched` against an error page, because its
+  expectation is the destination and the destination was reached. The
+  content problem is caught downstream by deliberation. Arguably correct
+  layering; recorded rather than changed.
