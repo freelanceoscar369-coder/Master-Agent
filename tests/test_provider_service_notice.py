@@ -134,3 +134,74 @@ class TestItReachesTheLadderAsAProviderFailure:
 
         source = inspect.getsource(desktop_app.DesktopAppReasoningProvider.complete)
         assert "notice=" in source
+
+
+class TestOurOwnPromptHandedBackIsNotAnAnswer:
+    """Reproduced live against Kimi Desktop.
+
+    The scrape returned the composer placeholder, our marked prompt, and
+    the surrounding UI labels -- with `ok=True`:
+
+        "Ask me. Task me.
+         [Kalpavriksha Reasoning - Kimi Desktop - ... - d477b9ad]
+         Create or select a file to start
+         Edit  Copy  Share ..."
+
+    It propagated as a reasoning result, and every consumer behaved
+    correctly on nonsense: the Planner could not build a plan from it and
+    the candidate extractor found nothing. A whole acceptance battery
+    failed while the ladder reported success at every rung.
+
+    The existing guard catches an EXACT echo. The real shape is never
+    exact, because the composer decorates.
+    """
+
+    SENT = ("[Kalpavriksha Reasoning - Kimi Desktop - 2026-08-28 - d477b9ad] "
+            "Which reading rooms are step-free?")
+
+    def test_the_live_shape_is_rejected(self):
+        from master_agent.providers.desktop_app import _is_only_our_own_prompt
+
+        chrome = (
+            "Ask me. Task me.\n" + self.SENT +
+            "\nCreate or select a file to start\nEdit\nCopy\nShare"
+        )
+        assert _is_only_our_own_prompt(chrome, self.SENT) is True
+
+    def test_a_short_but_real_answer_survives(self):
+        """The guard must not eat a terse reply. "Yes, both are
+        step-free" is an answer."""
+        from master_agent.providers.desktop_app import _is_only_our_own_prompt
+
+        answer = self.SENT + "\nHalden and Brackwell both have step-free entrances."
+        assert _is_only_our_own_prompt(answer, self.SENT) is False
+
+    def test_an_answer_that_does_not_quote_us_survives(self):
+        from master_agent.providers.desktop_app import _is_only_our_own_prompt
+
+        assert _is_only_our_own_prompt(
+            "Halden and Brackwell are step-free.", self.SENT
+        ) is False
+
+    def test_it_compares_on_words_not_characters(self):
+        """A rich composer reflows whitespace on paste -- the same reason
+        `_verify_readback` normalises before comparing."""
+        from master_agent.providers.desktop_app import _is_only_our_own_prompt
+
+        reflowed = "Ask me. Task me.\n\n   " + " ".join(self.SENT.split()) + "\n\nEdit Copy"
+        assert _is_only_our_own_prompt(reflowed, self.SENT) is True
+
+    def test_empty_inputs_are_not_treated_as_an_echo(self):
+        from master_agent.providers.desktop_app import _is_only_our_own_prompt
+
+        assert _is_only_our_own_prompt("", self.SENT) is False
+        assert _is_only_our_own_prompt("something", "") is False
+
+    def test_the_adapter_fails_closed_on_it(self):
+        import inspect
+
+        from master_agent.providers import desktop_app
+
+        source = inspect.getsource(desktop_app.DesktopAppReasoningProvider.complete)
+        assert "_is_only_our_own_prompt" in source
+        assert "PROMPT_ECHOED" in source

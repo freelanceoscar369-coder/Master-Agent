@@ -1641,6 +1641,15 @@ class _ExecutionThread:
         return pool.submit(call).result()
 
 
+#: How many extra acquisition cycles one mission may spend.
+#:
+#: A system that can decide "research more" becomes an infinite
+#: researcher without a number here. Small on purpose: the founder waits
+#: through every cycle, and `no_useful_progress` stops it earlier than
+#: this whenever a cycle establishes nothing.
+_RESEARCH_BUDGET = 2
+
+
 #: The ordinary Browser lane's session manager, held by the composition
 #: root that built it so a mission which ends without running its planned
 #: `CloseBrowserSession` can still have its environment released.
@@ -1813,6 +1822,37 @@ def _plain(claims) -> str:
         if text and text not in names:
             names.append(text)
     return "; ".join(names) if names else "something it could not name"
+
+
+def _evidence_question(result) -> dict | None:
+    """What is still missing, said precisely enough to go and get.
+
+    `None` when there is nothing to ask for. Otherwise the unresolved
+    criteria and the candidates they belong to -- because "search more"
+    is not a question anybody can act on, and the difference between
+    that and "establish whether these three are open on Sunday" is the
+    difference between another broad sweep and one targeted look.
+
+    Nothing domain-specific: criteria and candidate names come from the
+    frame the Brain already built out of the founder's own requirements.
+    """
+    if result is None or not result.more_research:
+        return None
+    missing: dict[str, list[str]] = {}
+    for rejected in result.rejected:
+        for criterion in rejected.unverified:
+            missing.setdefault(criterion, [])
+            if rejected.summary not in missing[criterion]:
+                missing[criterion].append(rejected.summary)
+    if not missing:
+        return None
+    return {
+        "unresolved_criteria": sorted(missing),
+        "candidates": {k: v[:8] for k, v in missing.items()},
+        "already_established": [
+            candidate.summary for candidate in result.shortlist
+        ],
+    }
 
 
 def _decision_sentence(result) -> str:
@@ -2479,20 +2519,51 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     attempts = 0
     while True:
         state = mission_control.founder_state(objective_id)
-        if not state.errors:
-            break
-        decision = _recovery_decision(
-            mission_control, intent_result.intent, objective_id, attempts
+
+        # What the mission has actually established, judged before
+        # deciding whether to go round again. Both diagnoses below need
+        # it, and it is the same judgement the founder is shown.
+        decided = _decide(
+            mission_service, mission_control, intent_result.intent, objective_id
         )
-        if decision is None or not decision.should_replan:
-            if decision is not None:
-                logging.info(
-                    "recovery declined (%s): %s",
-                    decision.failure_class, decision.reason,
-                )
+        needed = _evidence_question(decided)
+
+        # TWO DIAGNOSES, and they are not the same thing.
+        #
+        # A failed step means the METHOD did not work. Insufficient
+        # evidence means every step worked and the answer still is not
+        # supported -- fixture D's first cycle exactly: one source read
+        # cleanly, Evidence valid, no execution failure anywhere, and a
+        # criterion nobody could establish from it.
+        #
+        # Both may replan. Recording them as the same would tell a
+        # founder their mission failed when nothing failed, and would
+        # send the Planner looking for a broken route that does not
+        # exist.
+        if state.errors:
+            decision = _recovery_decision(
+                mission_control, intent_result.intent, objective_id, attempts
+            )
+            if decision is None or not decision.should_replan:
+                if decision is not None:
+                    logging.info(
+                        "recovery declined (%s): %s",
+                        decision.failure_class, decision.reason,
+                    )
+                break
+            status.recovery = decision.as_dict()
+            reason = f"recovery ({decision.failure_class})"
+        elif needed is not None and attempts < _RESEARCH_BUDGET:
+            # Execution succeeded. The objective did not.
+            logging.info(
+                "insufficient evidence; unresolved criteria: %s",
+                needed["unresolved_criteria"],
+            )
+            reason = "insufficient evidence"
+        else:
             break
+
         attempts += 1
-        status.recovery = decision.as_dict()
 
         # What the first attempt learned, carried into the second.
         #
@@ -2515,12 +2586,17 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         if before is None:
             break
         logging.info(
-            "recovery %s (%s): satisfied=%s unresolved=%s failed=%s",
-            attempts, decision.failure_class, list(before.satisfied),
+            "attempt %s (%s): satisfied=%s unresolved=%s failed=%s",
+            attempts, reason, list(before.satisfied),
             list(before.unresolved), list(before.failed_routes),
         )
         _release_task_browsers()
         intent_result.intent.context["recovery"] = before.as_dict()
+        if needed is not None:
+            # What to go and find, rather than "look again".
+            intent_result.intent.context["evidence_needed"] = needed
+        else:
+            intent_result.intent.context.pop("evidence_needed", None)
 
         retried = mission_service.start(intent_result.intent)
         if not retried.accepted:

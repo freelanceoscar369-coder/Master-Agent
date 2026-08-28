@@ -82,6 +82,44 @@ SUBMIT_UNVERIFIED = (
 RESPONSE_TIMEOUT = "no response appeared within the bounded wait"
 EMPTY_RESPONSE = "the application produced no meaningful response text"
 SERVICE_NOTICE = "the application answered with a service notice, not an answer"
+PROMPT_ECHOED = (
+    "the application returned the request back with interface text around "
+    "it, not an answer"
+)
+
+#: How much genuinely new text a real answer must carry once our own
+#: request is removed from it.
+#:
+#: Small deliberately -- a terse but real reply ("Yes, both are
+#: step-free.") must survive, while a composer echoing the prompt beside
+#: its own buttons must not.
+MIN_ANSWER_CHARS = 40
+
+
+def _is_only_our_own_prompt(response: str, marked_prompt: str) -> bool:
+    """Is this our request wearing the application's furniture?
+
+    Compares on words rather than characters, because a rich composer
+    reflows whitespace on paste -- the same reason `_verify_readback`
+    already normalises before comparing.
+    """
+    body = _normalize_whitespace(response or "")
+    sent = _normalize_whitespace(marked_prompt or "")
+    if not body or not sent:
+        return False
+    if sent not in body:
+        # It did not hand our request back at all, so whatever this is,
+        # it is the application's own words. A test caught this: a short
+        # genuine reply that never quotes us was being rejected purely
+        # for being short, which would have thrown away real answers.
+        return False
+    remainder = body.replace(sent, " ")
+    # Whatever is left after removing what we sent, minus the short
+    # generic labels a chat surface puts around a message.
+    for label in ("Edit", "Copy", "Share", "Retry", "Regenerate", "New chat",
+                  "Send", "Stop", "Ask me. Task me."):
+        remainder = remainder.replace(label, " ")
+    return len(_normalize_whitespace(remainder)) < MIN_ANSWER_CHARS
 
 #: What a desktop AI app says INSTEAD of answering.
 #:
@@ -459,6 +497,36 @@ class DesktopAppReasoningProvider(ModelProvider):
         if not response_text.strip() or _normalize_whitespace(response_text) == _normalize_whitespace(marked_prompt):
             return failure(self._spec.provider_id, MALFORMED, EMPTY_RESPONSE,
                             latency_ms=self._elapsed_ms(started))
+
+        # Our own prompt handed back with the furniture around it.
+        #
+        # The check above catches an EXACT echo. Reproduced live against
+        # Kimi Desktop, the real shape is not exact: the scrape returned
+        # the composer placeholder, our marked prompt, and the surrounding
+        # UI labels --
+        #
+        #     "Ask me. Task me.
+        #      [Kalpavriksha Reasoning - Kimi Desktop - ... - d477b9ad]
+        #      Create or select a file to start
+        #      Edit  Copy  Share ..."
+        #
+        # -- with `ok=True`. It propagated as a reasoning result, and
+        # every consumer behaved correctly on nonsense: the Planner could
+        # not build a plan from it and the candidate extractor found
+        # nothing, so a whole battery failed while the ladder reported
+        # success at every rung.
+        #
+        # Generic, not app-specific: "the reply is our own request plus
+        # decoration" is a fake success in any application. Removing the
+        # prompt we sent and asking whether anything substantial remains
+        # is the same question `EMPTY_RESPONSE` already asks, made to
+        # survive a composer that decorates.
+        if _is_only_our_own_prompt(response_text, marked_prompt):
+            return failure(
+                self._spec.provider_id, MALFORMED, PROMPT_ECHOED,
+                latency_ms=self._elapsed_ms(started),
+                observed=response_text.strip()[:200],
+            )
 
         # The application talking about itself is not an answer.
         #

@@ -393,6 +393,34 @@ def build_prompt(
                 "is not a second attempt."
             )
 
+    wanted = (intent.context or {}).get("evidence_needed")
+    if isinstance(wanted, dict):
+        # Not "search again" -- what is actually missing.
+        #
+        # A second broad sweep costs the same as the first and answers
+        # the same amount. Naming the unresolved criteria, and which
+        # candidates they belong to, is the difference between another
+        # listing page and one targeted look at the thing that would
+        # settle it.
+        sections.append("")
+        sections.append(
+            "A previous attempt gathered evidence and left something "
+            "unresolved. Plan ONLY what is needed to settle it:"
+        )
+        for criterion in wanted.get("unresolved_criteria") or ():
+            names = (wanted.get("candidates") or {}).get(criterion) or []
+            joined = ", ".join(str(n) for n in names[:6])
+            sections.append(
+                f"- still unresolved: {criterion}"
+                + (f" -- for: {joined}" if joined else "")
+            )
+        established = wanted.get("already_established") or []
+        if established:
+            sections.append(
+                "- already established and NOT to be re-gathered: "
+                + ", ".join(str(n) for n in established[:6])
+            )
+
     if intent.context:
         sections.append("")
         sections.append("Context:")
@@ -403,7 +431,8 @@ def build_prompt(
         # the Brain's own bookkeeping -- pasting either in as a raw dict
         # tells the Planner nothing it can act on and buys a wall of
         # JSON in the middle of the request.
-        _internal = {"field_evidence", "decision_frame", "requirements", "recovery"}
+        _internal = {"field_evidence", "decision_frame", "requirements",
+                     "recovery", "evidence_needed"}
         sections.extend(
             f"- {key}: {intent.context[key]}"
             for key in sorted(intent.context) if key not in _internal
