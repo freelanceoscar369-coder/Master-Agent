@@ -601,3 +601,110 @@ largest clusters: `test_missions_console.py` (27 —
 - Legacy records predating the semantic trace carry no requirements;
   `assess()` returns UNKNOWN, which is correct and never rounded up.
 - A browser left open after a failed mission must be closed by hand.
+
+
+---
+
+# CANONICAL MAIN AND THE FINAL ARTEFACT — 28 AUG 2026
+
+## Convergence
+
+```
+before        origin/main 60dbaa0
+merge base    60dbaa0  (origin/main was an ancestor of HEAD)
+integration   fast-forward push, HEAD -> main
+after         origin/main 9234319
+```
+
+No force, no rewrite, no reset, no discarded history.
+
+## Canonical-main proof — from a CLEAN CHECKOUT of 9234319
+
+Per Engineering Rule 001, run in a fresh worktree at the tag, not in the
+working directory:
+
+```
+semantic spine · intent/parser · admission guard · false-SATISFIED
+· grounded self-query · CreateFolder action contract
+                                        282 passed
+
+INTENT CONFORMANCE                      PASS  (16 classes)
+GP1 — LOCAL                             PASS  0.6s
+GP2 — ORDINARY BROWSER (Playwright)     PASS  4.4s
+GP3 — REASONING + FILE                  PASS  19.3s
+self-check (source path)                RESULT: OK
+```
+
+## Final package
+
+```
+built from    9234319   (worktree clean, HEAD == origin/main)
+path          dist/Kalpavriksha/Kalpavriksha.exe
+sha256        2612de996023b6988969f51695198de5c65c40e6d3a8812bfa266b1a2e6745b8
+size          37,021,681 bytes
+built         2026-08-28 10:51
+```
+
+`build/` and `dist/` were deleted first, so no stale artefact could
+survive a locked-file failure — the trap that leaves the OLD executable
+in place while still exiting 0.
+
+### Source/package identity — PROVEN, not assumed
+
+This machine has an editable install pointing `master_agent` at
+`D:\MasterAgent\src`, which is the PRIMARY worktree and still sits at
+the OLD main. Import resolution with no `PYTHONPATH` goes there. The
+spec's `pathex` should win, but "should" is not evidence.
+
+Proved by extracting the bundled `PYZ.pyz` from the executable and
+reading the code constants of the modules that changed:
+
+```
+master_agent.planner.plan                    FOUND 'unsettled_interpretation'
+master_agent.executor.actions.create_folder  FOUND 'may be a relative path under'
+```
+
+Neither string exists at old main `60dbaa0` (verified with `git show`).
+The package therefore carries the canonical source and not the editable
+install.
+
+### Packaged smoke
+
+```
+packaged: True                RESULT: OK
+capabilities registered: 48
+executives / runtime-reachable: browser, desktop, document, filesystem, reasoning
+approval wired: True          founder checkpoint: True
+no-ollama: constructed=no, candidate=no
+deterministic planning: Filesystem.CreateFolder -> Filesystem.WriteFile
+FMEA tier: UNSET
+providers available: gemini.api, openrouter.api, trusted-founder-web
+                     (everything else honestly reported not available)
+```
+
+GP1/GP2/GP3 exercise the composition from source at this same SHA; the
+packaged runtime is proved by `--self-check` and by the PYZ identity
+above. The executable exposes no objective-run flag, so that is the
+boundary — stated rather than blurred.
+
+## Final machine state
+
+One canonical Founder Edition instance running, PID 18632, from the
+final package, window up and responding. A duplicate launched moments
+earlier was stopped. No founder Chrome or Comet was touched (none were
+open). Persistence, Evidence, founder memory and the Provider Registry
+are untouched.
+
+## A note on SHA ordering
+
+The artefact was built from `9234319`. This ledger entry is committed
+after it, so final main is one commit later. That delta is documentation
+only:
+
+```
+git diff --stat 9234319..HEAD -- src/ kalpavriksha_desktop.py packaging/
+  (empty)
+```
+
+The package's source identity is unchanged; only prose moved. Recorded
+plainly rather than presented as exact SHA equality it does not have.
