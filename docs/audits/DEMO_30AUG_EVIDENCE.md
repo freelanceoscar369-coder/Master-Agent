@@ -708,3 +708,100 @@ git diff --stat 9234319..HEAD -- src/ kalpavriksha_desktop.py packaging/
 
 The package's source identity is unchanged; only prose moved. Recorded
 plainly rather than presented as exact SHA equality it does not have.
+
+---
+
+# FOUNDER ACCEPTANCE FAILURE — LIVE WEB RESEARCH / DECISION INTELLIGENCE
+
+**28 August 2026.** Founder acceptance of the frozen candidate FAILED.
+
+```
+SOURCE   6349eb169239c489b54e9832767c41046aafed53
+PACKAGE  2612de996023b6988969f51695198de5c65c40e6d3a8812bfa266b1a2e6745b8
+```
+
+Founder's natural request:
+
+> search for action rpg games released in 2026 and give me free demo
+> download links
+
+Founder-facing result:
+
+> "That didn't complete."
+
+Records preserved verbatim in
+`docs/audits/evidence/founder_acceptance_20260828/failed_research_missions.json`
+(four plan records of this objective class, including both acceptance
+attempts). Nothing was deleted.
+
+## Where correct evidence stopped
+
+```
+plan_id     e6c09799-4a9a-4cb8-93a1-8c3ce8aacc9c   (history entry 12)
+planned_at  2026-08-28T05:37:42Z
+finished    2026-08-28T05:37:43Z      <- 1.3 seconds
+planned_by  openrouter.api            state: failed
+```
+
+**LAST CORRECT BOUNDARY** — Planning. The ladder walked local (skipped),
+desktop (11 considered, none eligible), then `openrouter.api`, which
+returned a coherent 10-step plan: open a browser session, navigate and
+read three sources, reason over them, write a document, close the
+session.
+
+**FIRST BROKEN BOUNDARY** — `step_1: Browser.OpenBrowserSession`
+
+```
+failed to open browser session: cannot switch to a different thread
+(which happens to have exited)
+```
+
+Every one of the nine downstream steps stayed `pending`. Then:
+
+```
+task_failed step_1 {'executive_id': 'browser'}
+objective_failed
+```
+
+**This was not a website.** Not a Steam timeout, not a Google
+interstitial, not a research-quality problem. It is a thread-affinity
+failure opening the isolated Playwright session inside the packaged
+desktop app — the sync API being driven from a thread other than the one
+that owns it. The mission never reached the web at all.
+
+The earlier attempt in the same class (entry 138) got one step further
+and died the same way in shape: `step_2 Browser.Navigate` verified
+`not_matched`, `task_failed`, `objective_failed`.
+
+## Three findings, in order of what they cost
+
+**1. One step failed and the objective failed.** No recovery, no
+re-plan, no alternative source. `task_failed` is followed immediately by
+`objective_failed` in both attempts. A method failure was treated as an
+objective failure — the founder was told the request could not be done
+when it had never been attempted.
+
+**2. The semantic spine does not reach this lane.** The plan's
+`requirements` list is **empty** and every step carries `covers=[]`.
+Everything built for the folder family — founder evidence beside the
+interpretation, coverage, outcome conformance — is absent on an
+AI-planned research objective. Even had the browser worked, the mission
+could only have reported UNKNOWN, because there was nothing to conform
+against. This is a real limit of the previous milestone that its own
+acceptance did not expose, and it is recorded here rather than softened:
+the semantic guarantees proved in the last section hold for the
+deterministic lanes, not for AI-planned research.
+
+**3. Ordinary live-web research ran through the isolated automation
+lane** rather than the trusted ordinary browser, which is the product
+decision the founder has now made explicit.
+
+## Why this is not being repaired narrowly
+
+Fixing the thread affinity would have made this mission run. It would
+not have made the answer intelligent, would not have produced
+requirements to conform against, and would not have stopped the next
+failed source from ending the objective. The founder's direction
+supersedes the narrow repair.
+
+Audit time-boxed to 20 minutes, as instructed.

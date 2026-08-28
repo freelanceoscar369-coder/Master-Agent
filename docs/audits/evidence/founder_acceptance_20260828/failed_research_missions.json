@@ -1,0 +1,1571 @@
+{
+  "preserved_from": "C:\\Users\\DELL\\AppData\\Local\\Kalpavriksha\\state\\plan_history.json",
+  "note": "verbatim plan records for the failed founder acceptance class",
+  "plans": [
+    {
+      "plan_id": "9f68a556-1931-46a9-b5ba-89a80b0d9c0a",
+      "objective": "find latest action rpg games and share free demo links for download",
+      "state": "failed",
+      "planned_at": "2026-08-27T09:10:37.180690+00:00",
+      "finished_at": "2026-08-27T09:11:00.364667+00:00",
+      "planned_by": "gemini.api",
+      "entry_id": 5,
+      "selected_mode": "both",
+      "effective_mode": "both",
+      "mode_reason": "",
+      "attempts": [
+        {
+          "order": 1,
+          "tier": "local",
+          "attempted": false,
+          "considered": [],
+          "provider_id": null,
+          "ok": null,
+          "reason": ""
+        },
+        {
+          "order": 2,
+          "tier": "desktop",
+          "attempted": true,
+          "considered": [
+            "chatgpt-desktop",
+            "perplexity-desktop",
+            "kimi-desktop"
+          ],
+          "provider_id": null,
+          "ok": false,
+          "reason": "11 provider(s) considered, none eligible: excluded by the request; not available"
+        },
+        {
+          "order": 3,
+          "tier": "gemini",
+          "attempted": true,
+          "considered": [
+            "gemini.api"
+          ],
+          "provider_id": "gemini.api",
+          "ok": true,
+          "reason": ""
+        }
+      ],
+      "steps": [
+        {
+          "step_id": "step_1",
+          "capability": "Browser.OpenBrowserSession",
+          "payload": {
+            "session_id": "session_1"
+          },
+          "depends_on": [],
+          "expectation": "Browser session successfully opened.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "trivial",
+          "state": "completed",
+          "verdict": "matched",
+          "evidence_id": "c611e806-7894-4209-aeb7-d1f9f40b36b0",
+          "evidence": {
+            "evidence_id": "c611e806-7894-4209-aeb7-d1f9f40b36b0",
+            "worker": "browser",
+            "environment": "browser_environment",
+            "captured_at": "2026-08-27T09:10:45.698514+00:00",
+            "expected": {
+              "description": "Browser session successfully opened.",
+              "checks": [
+                {
+                  "field": "session_exists",
+                  "operator": "equals",
+                  "value": true,
+                  "description": "session 'session_1' is open"
+                }
+              ]
+            },
+            "observation": {
+              "session_id": "session_1",
+              "session_exists": true,
+              "open_session_count": 1
+            },
+            "verdict": "matched",
+            "check_results": [
+              {
+                "check": {
+                  "field": "session_exists",
+                  "operator": "equals",
+                  "value": true,
+                  "description": "session 'session_1' is open"
+                },
+                "passed": true,
+                "actual_value": true,
+                "error": null
+              }
+            ],
+            "errors": []
+          },
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": "2026-08-27T09:10:37.229253+00:00",
+          "ended_at": "2026-08-27T09:10:45.720656+00:00"
+        },
+        {
+          "step_id": "step_2",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "session_1",
+            "url": "https://www.google.com/search?q=latest+action+rpg+games+free+demo+download"
+          },
+          "depends_on": [
+            "step_1"
+          ],
+          "expectation": "Browser navigated to the search results page for latest action RPG games and free demo downloads.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "failed",
+          "verdict": "not_matched",
+          "evidence_id": "a35e4495-cc1b-4f6e-bcee-5e924a90a53f",
+          "evidence": {
+            "evidence_id": "a35e4495-cc1b-4f6e-bcee-5e924a90a53f",
+            "worker": "browser",
+            "environment": "browser_environment",
+            "captured_at": "2026-08-27T09:11:00.305268+00:00",
+            "expected": {
+              "description": "Browser navigated to the search results page for latest action RPG games and free demo downloads.",
+              "checks": [
+                {
+                  "field": "url_normalised",
+                  "operator": "equals",
+                  "value": "https://www.google.com/search?q=latest+action+rpg+games+free+demo+download",
+                  "description": "the page is at https://www.google.com/search?q=latest+action+rpg+games+free+demo+download"
+                }
+              ]
+            },
+            "observation": {
+              "url": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Dlatest%2Baction%2Brpg%2Bgames%2Bfree%2Bdemo%2Bdownload%26sei%3DIP-PatjTLLvX1sQPppe4mA8&q=EhAkAUkAfIs4EmUFw1QczXVSGKH-v9QGIjC96qxheXZ6nzECSuAauVMwlzHe-W-buzEQOpwIj7hJIWatrPZXMNAtJFmwvXbHg3oyAVJaAUM",
+              "url_normalised": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Dlatest%2Baction%2Brpg%2Bgames%2Bfree%2Bdemo%2Bdownload%26sei%3DIP-PatjTLLvX1sQPppe4mA8&q=EhAkAUkAfIs4EmUFw1QczXVSGKH-v9QGIjC96qxheXZ6nzECSuAauVMwlzHe-W-buzEQOpwIj7hJIWatrPZXMNAtJFmwvXbHg3oyAVJaAUM",
+              "title": "https://www.google.com/search?q=latest+action+rpg+games+free+demo+download&sei=IP-PatjTLLvX1sQPppe4mA8",
+              "viewport_width": 1280,
+              "viewport_height": 720,
+              "elements": [],
+              "accessibility_tree": null,
+              "accessibility_tree_truncated": false,
+              "available_actions": [],
+              "available_actions_truncated": false,
+              "captured_at": "2026-08-27T09:11:00.305168+00:00"
+            },
+            "verdict": "not_matched",
+            "check_results": [
+              {
+                "check": {
+                  "field": "url_normalised",
+                  "operator": "equals",
+                  "value": "https://www.google.com/search?q=latest+action+rpg+games+free+demo+download",
+                  "description": "the page is at https://www.google.com/search?q=latest+action+rpg+games+free+demo+download"
+                },
+                "passed": false,
+                "actual_value": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Dlatest%2Baction%2Brpg%2Bgames%2Bfree%2Bdemo%2Bdownload%26sei%3DIP-PatjTLLvX1sQPppe4mA8&q=EhAkAUkAfIs4EmUFw1QczXVSGKH-v9QGIjC96qxheXZ6nzECSuAauVMwlzHe-W-buzEQOpwIj7hJIWatrPZXMNAtJFmwvXbHg3oyAVJaAUM",
+                "error": null
+              }
+            ],
+            "errors": []
+          },
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [
+            "verification verdict was 'not_matched'"
+          ],
+          "started_at": "2026-08-27T09:10:45.994603+00:00",
+          "ended_at": "2026-08-27T09:11:00.323259+00:00"
+        },
+        {
+          "step_id": "step_3",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "session_1"
+          },
+          "depends_on": [
+            "step_2"
+          ],
+          "expectation": "Text extracted from search results page.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_4",
+          "capability": "Reasoning.Transform",
+          "payload": {
+            "instruction": "Summarize the latest action RPG games and compile a clear, well-structured list containing the game titles and direct/free demo download links found in the text."
+          },
+          "depends_on": [
+            "step_3"
+          ],
+          "expectation": "Search results parsed into a clean list of latest action RPG games with free demo download links.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "high",
+          "estimated_complexity": "moderate",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {
+            "context": {
+              "from_step": {
+                "step_id": "step_3",
+                "field": "text"
+              }
+            }
+          },
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_5",
+          "capability": "Browser.CloseBrowserSession",
+          "payload": {
+            "session_id": "session_1"
+          },
+          "depends_on": [
+            "step_3"
+          ],
+          "expectation": "Browser session closed.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "low",
+          "estimated_complexity": "trivial",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_6",
+          "capability": "Document.WriteDocument",
+          "payload": {
+            "path": "action_rpg_demos.md",
+            "location": "desktop",
+            "format": "md"
+          },
+          "depends_on": [
+            "step_4"
+          ],
+          "expectation": "Document written to Desktop with latest action RPG games and free demo links.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {
+            "content": {
+              "from_step": {
+                "step_id": "step_4",
+                "field": "text"
+              }
+            }
+          },
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "plan_id": "67eb018a-4b64-484c-b34c-efabcb146494",
+      "objective": "give me new action rpg games released in 2026 and sharelink to download demo version",
+      "state": "running",
+      "planned_at": "2026-08-27T15:16:06.821038+00:00",
+      "finished_at": null,
+      "planned_by": "openrouter.api",
+      "entry_id": 6,
+      "selected_mode": "both",
+      "effective_mode": "both",
+      "mode_reason": "",
+      "attempts": [
+        {
+          "order": 1,
+          "tier": "local",
+          "attempted": false,
+          "considered": [],
+          "provider_id": null,
+          "ok": null,
+          "reason": ""
+        },
+        {
+          "order": 2,
+          "tier": "desktop",
+          "attempted": true,
+          "considered": [
+            "chatgpt-desktop",
+            "perplexity-desktop",
+            "kimi-desktop"
+          ],
+          "provider_id": null,
+          "ok": false,
+          "reason": "11 provider(s) considered, none eligible: excluded by the request; not available"
+        },
+        {
+          "order": 3,
+          "tier": "gemini",
+          "attempted": true,
+          "considered": [
+            "gemini.api",
+            "openrouter.api"
+          ],
+          "provider_id": "openrouter.api",
+          "ok": true,
+          "reason": ""
+        }
+      ],
+      "steps": [
+        {
+          "step_id": "step_1",
+          "capability": "Browser.OpenBrowserSession",
+          "payload": {
+            "session_id": "main"
+          },
+          "depends_on": [],
+          "expectation": "A new browser session is opened and ready to navigate.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "high",
+          "estimated_complexity": "trivial",
+          "state": "completed",
+          "verdict": "matched",
+          "evidence_id": "84bccd19-6288-4ee7-a7a0-2b5485ee14e9",
+          "evidence": {
+            "evidence_id": "84bccd19-6288-4ee7-a7a0-2b5485ee14e9",
+            "worker": "browser",
+            "environment": "browser_environment",
+            "captured_at": "2026-08-27T15:16:11.527938+00:00",
+            "expected": {
+              "description": "A new browser session is opened and ready to navigate.",
+              "checks": [
+                {
+                  "field": "session_exists",
+                  "operator": "equals",
+                  "value": true,
+                  "description": "session 'main' is open"
+                }
+              ]
+            },
+            "observation": {
+              "session_id": "main",
+              "session_exists": true,
+              "open_session_count": 1
+            },
+            "verdict": "matched",
+            "check_results": [
+              {
+                "check": {
+                  "field": "session_exists",
+                  "operator": "equals",
+                  "value": true,
+                  "description": "session 'main' is open"
+                },
+                "passed": true,
+                "actual_value": true,
+                "error": null
+              }
+            ],
+            "errors": []
+          },
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": "2026-08-27T15:16:06.850231+00:00",
+          "ended_at": "2026-08-27T15:16:11.594318+00:00"
+        },
+        {
+          "step_id": "step_2",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "main",
+            "url": "https://www.google.com/search?q=new+action+RPG+games+released+in+2026+demo+download"
+          },
+          "depends_on": [
+            "step_1"
+          ],
+          "expectation": "Browser is on a Google search results page listing new 2026 action RPG releases and demo download links.",
+          "checks": [
+            "the answer is not blank",
+            "mentions 'action RPG'"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "failed",
+          "verdict": "not_matched",
+          "evidence_id": "15a76dac-f5ec-47e9-aa36-fdcc32c21b24",
+          "evidence": {
+            "evidence_id": "15a76dac-f5ec-47e9-aa36-fdcc32c21b24",
+            "worker": "browser",
+            "environment": "browser_environment",
+            "captured_at": "2026-08-27T15:16:14.821205+00:00",
+            "expected": {
+              "description": "Browser is on a Google search results page listing new 2026 action RPG releases and demo download links.",
+              "checks": [
+                {
+                  "field": "url_normalised",
+                  "operator": "equals",
+                  "value": "https://www.google.com/search?q=new+action+RPG+games+released+in+2026+demo+download",
+                  "description": "the page is at https://www.google.com/search?q=new+action+RPG+games+released+in+2026+demo+download"
+                }
+              ]
+            },
+            "observation": {
+              "url": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Dnew%2Baction%2BRPG%2Bgames%2Breleased%2Bin%2B2026%2Bdemo%2Bdownload%26sei%3Du1SQaqO5GuWSseMPnJy0wQE&q=EhAkAUkAfIR1-0h2eMGjoUL4GLypwdQGIjAdwrCemPYnFo23hB1ahCFfRgiA0rMtdfTfmp-h2BOCDL0tY9kxp4yz5w6nTWuwMpYyAVJaAUM",
+              "url_normalised": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Dnew%2Baction%2BRPG%2Bgames%2Breleased%2Bin%2B2026%2Bdemo%2Bdownload%26sei%3Du1SQaqO5GuWSseMPnJy0wQE&q=EhAkAUkAfIR1-0h2eMGjoUL4GLypwdQGIjAdwrCemPYnFo23hB1ahCFfRgiA0rMtdfTfmp-h2BOCDL0tY9kxp4yz5w6nTWuwMpYyAVJaAUM",
+              "title": "https://www.google.com/search?q=new+action+RPG+games+released+in+2026+demo+download&sei=u1SQaqO5GuWSseMPnJy0wQE",
+              "viewport_width": 1280,
+              "viewport_height": 720,
+              "elements": [],
+              "accessibility_tree": null,
+              "accessibility_tree_truncated": false,
+              "available_actions": [],
+              "available_actions_truncated": false,
+              "captured_at": "2026-08-27T15:16:14.821081+00:00"
+            },
+            "verdict": "not_matched",
+            "check_results": [
+              {
+                "check": {
+                  "field": "url_normalised",
+                  "operator": "equals",
+                  "value": "https://www.google.com/search?q=new+action+RPG+games+released+in+2026+demo+download",
+                  "description": "the page is at https://www.google.com/search?q=new+action+RPG+games+released+in+2026+demo+download"
+                },
+                "passed": false,
+                "actual_value": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Dnew%2Baction%2BRPG%2Bgames%2Breleased%2Bin%2B2026%2Bdemo%2Bdownload%26sei%3Du1SQaqO5GuWSseMPnJy0wQE&q=EhAkAUkAfIR1-0h2eMGjoUL4GLypwdQGIjAdwrCemPYnFo23hB1ahCFfRgiA0rMtdfTfmp-h2BOCDL0tY9kxp4yz5w6nTWuwMpYyAVJaAUM",
+                "error": null
+              }
+            ],
+            "errors": []
+          },
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [
+            "verification verdict was 'not_matched'"
+          ],
+          "started_at": "2026-08-27T15:16:11.884993+00:00",
+          "ended_at": "2026-08-27T15:16:14.857132+00:00"
+        },
+        {
+          "step_id": "step_4",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "main",
+            "url": "https://store.steampowered.com/search/?sort_by=Released_DESC&tags=699&category1=10&os=win"
+          },
+          "depends_on": [
+            "step_1"
+          ],
+          "expectation": "Browser is on Steam search results for new action RPGs, showing recent titles.",
+          "checks": [
+            "the answer is not blank",
+            "mentions 'action'"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_3",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "main"
+          },
+          "depends_on": [
+            "step_2"
+          ],
+          "expectation": "Returns the visible text of the search results page, including titles, snippets, and URLs of 2026 action RPG releases with demo info.",
+          "checks": [
+            "the answer is not blank",
+            "mentions '2026'",
+            "the JSON has 'url'",
+            "the JSON has 'title'",
+            "the JSON has 'text'"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_5",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "main"
+          },
+          "depends_on": [
+            "step_4"
+          ],
+          "expectation": "Returns the visible text of the Steam results, listing new action RPG titles with their store page links and demo availability hints.",
+          "checks": [
+            "the answer is not blank",
+            "mentions 'RPG'",
+            "the JSON has 'url'",
+            "the JSON has 'title'",
+            "the JSON has 'text'"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_6",
+          "capability": "Browser.ObserveBrowser",
+          "payload": {
+            "session_id": "main"
+          },
+          "depends_on": [
+            "step_4"
+          ],
+          "expectation": "Returns structured page elements (titles, links) from the Steam listing so individual game store pages and demo links can be located.",
+          "checks": [
+            "the answer is not blank",
+            "the JSON has 'url'",
+            "the JSON has 'title'",
+            "the JSON has 'elements'"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_7",
+          "capability": "Reasoning.Transform",
+          "payload": {
+            "instruction": "From the gathered search and Steam results, identify the new action RPG games released in 2026 that have a playable demo available. For each, output the game title, the official store/Steam page URL, and the direct demo download link. If a demo link was not explicitly observed, say so rather than inventing one."
+          },
+          "depends_on": [
+            "step_3",
+            "step_5",
+            "step_6"
+          ],
+          "expectation": "Returns a curated list of 2026 action RPG releases with demo download links grounded in observed evidence.",
+          "checks": [
+            "the answer is not blank",
+            "mentions '2026'",
+            "at least 50 word(s)"
+          ],
+          "priority": "high",
+          "estimated_complexity": "moderate",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {
+            "context": {
+              "concat": [
+                {
+                  "from_step": {
+                    "step_id": "step_3",
+                    "field": "text"
+                  }
+                },
+                {
+                  "literal": "\n\n--- STEAM ---\n\n"
+                },
+                {
+                  "from_step": {
+                    "step_id": "step_5",
+                    "field": "text"
+                  }
+                }
+              ]
+            }
+          },
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_8",
+          "capability": "Document.WriteDocument",
+          "payload": {
+            "path": "Action_RPG_2026_Demos.md",
+            "location": "downloads",
+            "overwrite": true
+          },
+          "depends_on": [
+            "step_7"
+          ],
+          "expectation": "A markdown file is written to the Downloads folder containing the list of 2026 action RPG games with their demo download links.",
+          "checks": [
+            "the answer is not blank",
+            "mentions '2026'",
+            "the JSON has 'path'",
+            "the JSON has 'filename'",
+            "the JSON has 'format'",
+            "at least 50 word(s)"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {
+            "content": {
+              "from_step": {
+                "step_id": "step_7",
+                "field": "text"
+              }
+            }
+          },
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_9",
+          "capability": "Browser.CloseBrowserSession",
+          "payload": {
+            "session_id": "main"
+          },
+          "depends_on": [
+            "step_8"
+          ],
+          "expectation": "The browser session is closed cleanly.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "low",
+          "estimated_complexity": "trivial",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "plan_id": "80477026-30e2-4f8a-b1cb-6bb78deb5a1b",
+      "objective": "search for action rpg games released in 2026 and give me free demo download links",
+      "state": "failed",
+      "planned_at": "2026-08-28T05:32:59.879727+00:00",
+      "finished_at": "2026-08-28T05:33:09.478475+00:00",
+      "planned_by": "openrouter.api",
+      "entry_id": 6,
+      "selected_mode": "both",
+      "effective_mode": "both",
+      "mode_reason": "",
+      "attempts": [
+        {
+          "order": 1,
+          "tier": "local",
+          "attempted": false,
+          "considered": [],
+          "provider_id": null,
+          "ok": null,
+          "reason": ""
+        },
+        {
+          "order": 2,
+          "tier": "desktop",
+          "attempted": true,
+          "considered": [
+            "chatgpt-desktop",
+            "perplexity-desktop",
+            "kimi-desktop"
+          ],
+          "provider_id": null,
+          "ok": false,
+          "reason": "11 provider(s) considered, none eligible: excluded by the request; not available"
+        },
+        {
+          "order": 3,
+          "tier": "gemini",
+          "attempted": true,
+          "considered": [
+            "gemini.api",
+            "openrouter.api"
+          ],
+          "provider_id": "openrouter.api",
+          "ok": true,
+          "reason": ""
+        }
+      ],
+      "steps": [
+        {
+          "step_id": "step_1",
+          "capability": "Browser.OpenBrowserSession",
+          "payload": {
+            "session_id": "s1"
+          },
+          "depends_on": [],
+          "expectation": "A browser session is opened and ready to navigate.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "trivial",
+          "state": "completed",
+          "verdict": "matched",
+          "evidence_id": "fda1077b-44dd-446a-a6f8-85d7f406d136",
+          "evidence": {
+            "evidence_id": "fda1077b-44dd-446a-a6f8-85d7f406d136",
+            "worker": "browser",
+            "environment": "browser_environment",
+            "captured_at": "2026-08-28T05:33:05.301840+00:00",
+            "expected": {
+              "description": "A browser session is opened and ready to navigate.",
+              "checks": [
+                {
+                  "field": "session_exists",
+                  "operator": "equals",
+                  "value": true,
+                  "description": "session 's1' is open"
+                }
+              ]
+            },
+            "observation": {
+              "session_id": "s1",
+              "session_exists": true,
+              "open_session_count": 1
+            },
+            "verdict": "matched",
+            "check_results": [
+              {
+                "check": {
+                  "field": "session_exists",
+                  "operator": "equals",
+                  "value": true,
+                  "description": "session 's1' is open"
+                },
+                "passed": true,
+                "actual_value": true,
+                "error": null
+              }
+            ],
+            "errors": []
+          },
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": "2026-08-28T05:32:59.944136+00:00",
+          "ended_at": "2026-08-28T05:33:05.373190+00:00"
+        },
+        {
+          "step_id": "step_2",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "s1",
+            "url": "https://www.google.com/search?q=action+RPG+games+released+in+2026+free+demo+download"
+          },
+          "depends_on": [
+            "step_1"
+          ],
+          "expectation": "Google search results page for the query is loaded.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "trivial",
+          "state": "failed",
+          "verdict": "not_matched",
+          "evidence_id": "90734f4c-c7f0-4106-a61d-72e2d1584f76",
+          "evidence": {
+            "evidence_id": "90734f4c-c7f0-4106-a61d-72e2d1584f76",
+            "worker": "browser",
+            "environment": "browser_environment",
+            "captured_at": "2026-08-28T05:33:09.335532+00:00",
+            "expected": {
+              "description": "Google search results page for the query is loaded.",
+              "checks": [
+                {
+                  "field": "url_normalised",
+                  "operator": "equals",
+                  "value": "https://www.google.com/search?q=action+RPG+games+released+in+2026+free+demo+download",
+                  "description": "the page is at https://www.google.com/search?q=action+RPG+games+released+in+2026+free+demo+download"
+                }
+              ]
+            },
+            "observation": {
+              "url": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Daction%2BRPG%2Bgames%2Breleased%2Bin%2B2026%2Bfree%2Bdemo%2Bdownload%26sei%3DkB2RaubjNYWTxc8P98rRyQ8&q=EhAkBQIBEBFwpk2sb1C5M9YJGJK7xNQGIjBP2XejoO8TYu1-gK-GYEVCKxjin5MqmAwABAnO4vgERCQay9z67DwqWAnXzR-7Dn8yAVJaAUM",
+              "url_normalised": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Daction%2BRPG%2Bgames%2Breleased%2Bin%2B2026%2Bfree%2Bdemo%2Bdownload%26sei%3DkB2RaubjNYWTxc8P98rRyQ8&q=EhAkBQIBEBFwpk2sb1C5M9YJGJK7xNQGIjBP2XejoO8TYu1-gK-GYEVCKxjin5MqmAwABAnO4vgERCQay9z67DwqWAnXzR-7Dn8yAVJaAUM",
+              "title": "https://www.google.com/search?q=action+RPG+games+released+in+2026+free+demo+download&sei=kB2RaubjNYWTxc8P98rRyQ8",
+              "viewport_width": 1280,
+              "viewport_height": 720,
+              "elements": [],
+              "accessibility_tree": null,
+              "accessibility_tree_truncated": false,
+              "available_actions": [],
+              "available_actions_truncated": false,
+              "captured_at": "2026-08-28T05:33:09.335415+00:00"
+            },
+            "verdict": "not_matched",
+            "check_results": [
+              {
+                "check": {
+                  "field": "url_normalised",
+                  "operator": "equals",
+                  "value": "https://www.google.com/search?q=action+RPG+games+released+in+2026+free+demo+download",
+                  "description": "the page is at https://www.google.com/search?q=action+RPG+games+released+in+2026+free+demo+download"
+                },
+                "passed": false,
+                "actual_value": "https://www.google.com/sorry/index?continue=https://www.google.com/search%3Fq%3Daction%2BRPG%2Bgames%2Breleased%2Bin%2B2026%2Bfree%2Bdemo%2Bdownload%26sei%3DkB2RaubjNYWTxc8P98rRyQ8&q=EhAkBQIBEBFwpk2sb1C5M9YJGJK7xNQGIjBP2XejoO8TYu1-gK-GYEVCKxjin5MqmAwABAnO4vgERCQay9z67DwqWAnXzR-7Dn8yAVJaAUM",
+                "error": null
+              }
+            ],
+            "errors": []
+          },
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [
+            "verification verdict was 'not_matched'"
+          ],
+          "started_at": "2026-08-28T05:33:05.691472+00:00",
+          "ended_at": "2026-08-28T05:33:09.390089+00:00"
+        },
+        {
+          "step_id": "step_3",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "s1"
+          },
+          "depends_on": [
+            "step_2"
+          ],
+          "expectation": "Read the search results page text to identify candidate action RPG games released in 2026 with demo links.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_4",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "s1",
+            "url": "https://store.steampowered.com/search/?tags=699&category1=998&os=win"
+          },
+          "depends_on": [
+            "step_3"
+          ],
+          "expectation": "Steam search page for RPGs is loaded to find 2026 titles with demos.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_5",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "s1"
+          },
+          "depends_on": [
+            "step_4"
+          ],
+          "expectation": "Read Steam search results text to collect action RPG game titles, their release years, and any demo availability indications.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_6",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "s1",
+            "url": "https://www.google.com/search?q=%22action+RPG%22+%222026%22+%22free+demo%22+download+site%3Asteampowered.com+OR+site%3Agog.com+OR+site%3Aepicgames.com"
+          },
+          "depends_on": [
+            "step_5"
+          ],
+          "expectation": "A second search results page focused on official store demo download links is loaded.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_7",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "s1"
+          },
+          "depends_on": [
+            "step_6"
+          ],
+          "expectation": "Read the demo-focused search results to harvest direct demo download/store URLs for each candidate 2026 action RPG.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_8",
+          "capability": "Reasoning.Transform",
+          "payload": {
+            "instruction": "From the observed text of the Google search results, the Steam search results, and the demo-focused search results, compile a list of action RPG games released in 2026 that have a free demo. For each game, provide: the title, the release year (must be 2026), the store page URL, and a direct free demo download link if one was observed in the sources. If a detail was not stated in the observed text, say it was not stated rather than guessing. Do not invent URLs."
+          },
+          "depends_on": [
+            "step_3",
+            "step_5",
+            "step_7"
+          ],
+          "expectation": "A structured, source-grounded list of 2026 action RPG titles with observed demo download links, with any missing details explicitly marked 'not stated'.",
+          "checks": [
+            "the answer is not blank",
+            "mentions '2026'",
+            "at least 50 word(s)"
+          ],
+          "priority": "high",
+          "estimated_complexity": "moderate",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_9",
+          "capability": "Document.WriteDocument",
+          "payload": {
+            "path": "action_rpg_2026_demos.md",
+            "location": "Documents",
+            "overwrite": true
+          },
+          "depends_on": [
+            "step_8"
+          ],
+          "expectation": "A markdown file named 'action_rpg_2026_demos.md' is written into the Documents folder containing the compiled list of 2026 action RPGs and their free demo download links.",
+          "checks": [
+            "the answer is not blank",
+            "mentions '2026'",
+            "at least 50 word(s)"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {
+            "content": {
+              "from_step": {
+                "step_id": "step_8",
+                "field": "text"
+              }
+            }
+          },
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_10",
+          "capability": "Browser.CloseBrowserSession",
+          "payload": {
+            "session_id": "s1"
+          },
+          "depends_on": [
+            "step_9"
+          ],
+          "expectation": "The browser session is closed cleanly.",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "low",
+          "estimated_complexity": "trivial",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "plan_id": "e6c09799-4a9a-4cb8-93a1-8c3ce8aacc9c",
+      "objective": "search for action rpg games released in 2026 and give me free demo download links",
+      "state": "failed",
+      "planned_at": "2026-08-28T05:37:42.422007+00:00",
+      "finished_at": "2026-08-28T05:37:43.741441+00:00",
+      "planned_by": "openrouter.api",
+      "entry_id": 12,
+      "selected_mode": "both",
+      "effective_mode": "both",
+      "mode_reason": "",
+      "attempts": [
+        {
+          "order": 1,
+          "tier": "local",
+          "attempted": false,
+          "considered": [],
+          "provider_id": null,
+          "ok": null,
+          "reason": ""
+        },
+        {
+          "order": 2,
+          "tier": "desktop",
+          "attempted": true,
+          "considered": [
+            "chatgpt-desktop",
+            "perplexity-desktop",
+            "kimi-desktop"
+          ],
+          "provider_id": null,
+          "ok": false,
+          "reason": "11 provider(s) considered, none eligible: excluded by the request; not available"
+        },
+        {
+          "order": 3,
+          "tier": "gemini",
+          "attempted": true,
+          "considered": [
+            "gemini.api",
+            "openrouter.api"
+          ],
+          "provider_id": "openrouter.api",
+          "ok": true,
+          "reason": ""
+        }
+      ],
+      "steps": [
+        {
+          "step_id": "step_1",
+          "capability": "Browser.OpenBrowserSession",
+          "payload": {
+            "session_id": "search_session"
+          },
+          "depends_on": [],
+          "expectation": "A new browser session is open and ready for navigation",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "trivial",
+          "state": "failed",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [
+            "failed to open browser session: cannot switch to a different thread (which happens to have exited)"
+          ],
+          "started_at": "2026-08-28T05:37:42.467165+00:00",
+          "ended_at": "2026-08-28T05:37:43.665871+00:00"
+        },
+        {
+          "step_id": "step_2",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "search_session",
+            "url": "https://www.google.com/search?q=action+RPG+games+released+in+2026+free+demo+download"
+          },
+          "depends_on": [
+            "step_1"
+          ],
+          "expectation": "Google search results page is loaded for the query about 2026 action RPG free demos",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "high",
+          "estimated_complexity": "trivial",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_4",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "search_session",
+            "url": "https://store.steampowered.com/search/?tags=9%2C4085&category1=998&os=win"
+          },
+          "depends_on": [
+            "step_1"
+          ],
+          "expectation": "Steam store search page filtered to RPG and action tags is loaded",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "high",
+          "estimated_complexity": "trivial",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_6",
+          "capability": "Browser.Navigate",
+          "payload": {
+            "session_id": "search_session",
+            "url": "https://www.pcgamer.com/upcoming-action-rpg-games/"
+          },
+          "depends_on": [
+            "step_1"
+          ],
+          "expectation": "PCGamer upcoming action RPG article page is loaded",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "trivial",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_3",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "search_session"
+          },
+          "depends_on": [
+            "step_2"
+          ],
+          "expectation": "The page text of the search results has been captured, containing titles and snippets of 2026 action RPG games with demo links",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_5",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "search_session"
+          },
+          "depends_on": [
+            "step_4"
+          ],
+          "expectation": "Steam listing text captured with game titles and details",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_7",
+          "capability": "Browser.ReadPageText",
+          "payload": {
+            "session_id": "search_session"
+          },
+          "depends_on": [
+            "step_6"
+          ],
+          "expectation": "PCGamer article text captured containing 2026 action RPG titles and info",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "normal",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_8",
+          "capability": "Reasoning.Transform",
+          "payload": {
+            "instruction": "From the three sources, identify action RPG games released (or scheduled to release) in 2026 that offer a free demo download. For each such game, list: the game title, the store/platform where the demo is available, and the direct URL to the demo download page. If no demo is available for a 2026 action RPG, say so explicitly. Note that any 2026 action RPGs without an available free demo should be listed separately as 'no free demo found'. Present the answer as a clear, organized list grouped by availability of free demo."
+          },
+          "depends_on": [
+            "step_3",
+            "step_5",
+            "step_7"
+          ],
+          "expectation": "A synthesized list of 2026 action RPGs with their free demo download links (or an explicit note when no demo exists)",
+          "checks": [
+            "the answer is not blank",
+            "mentions '2026'",
+            "at least 100 word(s)"
+          ],
+          "priority": "high",
+          "estimated_complexity": "moderate",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {
+            "context": {
+              "concat": [
+                {
+                  "from_step": {
+                    "step_id": "step_3",
+                    "field": "text"
+                  }
+                },
+                {
+                  "literal": "\n\n---STEAM SOURCE---\n"
+                },
+                {
+                  "from_step": {
+                    "step_id": "step_5",
+                    "field": "text"
+                  }
+                },
+                {
+                  "literal": "\n\n---PCGAMER SOURCE---\n"
+                },
+                {
+                  "from_step": {
+                    "step_id": "step_7",
+                    "field": "text"
+                  }
+                }
+              ]
+            }
+          },
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_9",
+          "capability": "Document.WriteDocument",
+          "payload": {
+            "path": "2026_action_rpg_demos.txt",
+            "location": "Documents",
+            "overwrite": true
+          },
+          "depends_on": [
+            "step_8"
+          ],
+          "expectation": "A text file is saved to Documents listing 2026 action RPGs and their free demo download links",
+          "checks": [
+            "the answer is not blank",
+            "mentions '2026'",
+            "at least 50 word(s)"
+          ],
+          "priority": "high",
+          "estimated_complexity": "small",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {
+            "content": {
+              "concat": [
+                {
+                  "literal": "Action RPG Games Released in 2026 - Free Demo Download Links\n\n"
+                },
+                {
+                  "from_step": {
+                    "step_id": "step_8",
+                    "field": "text"
+                  }
+                }
+              ]
+            }
+          },
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        },
+        {
+          "step_id": "step_10",
+          "capability": "Browser.CloseBrowserSession",
+          "payload": {
+            "session_id": "search_session"
+          },
+          "depends_on": [
+            "step_9"
+          ],
+          "expectation": "Browser session is closed cleanly",
+          "checks": [
+            "the answer is not blank"
+          ],
+          "priority": "low",
+          "estimated_complexity": "trivial",
+          "state": "pending",
+          "verdict": "",
+          "evidence_id": null,
+          "evidence": null,
+          "input_bindings": {},
+          "founder_checkpoint": "",
+          "covers": [],
+          "selection_reason": "",
+          "input_provenance": [],
+          "errors": [],
+          "started_at": null,
+          "ended_at": null
+        }
+      ],
+      "requirements": []
+    }
+  ]
+}
