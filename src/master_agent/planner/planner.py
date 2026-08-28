@@ -268,7 +268,10 @@ class Planner:
             )
 
         document = outcome.evidence.observation.get("json")
-        plan, invalid = validate(document, options, objective=intent.goal)
+        plan, invalid = validate(
+            document, options, objective=intent.goal,
+            requirements=getattr(intent, "requirements", ()) or (),
+        )
         return PlanOutcome(
             plan=plan,
             refusal=invalid,

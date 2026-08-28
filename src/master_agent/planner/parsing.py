@@ -328,9 +328,19 @@ def validate(
     document: Any,
     options: tuple[CapabilityOption, ...] | list[CapabilityOption],
     objective: str = "",
+    requirements: Any = (),
 ) -> tuple[MissionPlan | None, PlanRefusal | None]:
     """Turn a parsed plan document into a `MissionPlan`, or explain why
-    it is not one. Never raises, never returns a partial plan."""
+    it is not one. Never raises, never returns a partial plan.
+
+    `requirements` are the founder's, already derived by the Intent
+    Layer. They are carried onto the plan rather than re-derived here:
+    the deterministic lanes in `planner/direct.py` published them and
+    this path did not, so an AI-planned mission reached execution,
+    Verification and the Reporter with nothing to conform against.
+    Passing them through is not a second semantic authority -- it is the
+    absence of one.
+    """
     if not isinstance(document, dict):
         return None, _malformed("the reply was not a JSON object")
 
@@ -407,4 +417,6 @@ def validate(
     if ordered is None:
         return None, refusal
 
-    return MissionPlan(steps=ordered, objective=objective), None
+    return MissionPlan(
+        steps=ordered, objective=objective, requirements=tuple(requirements or ())
+    ), None
