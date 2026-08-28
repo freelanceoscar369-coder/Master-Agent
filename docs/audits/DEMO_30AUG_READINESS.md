@@ -841,3 +841,53 @@ Two findings recorded rather than chased — the Steam 5s Navigate timeout
 `OPEN_FINDINGS_SEMANTIC_STRIKE.md`. Neither is answered with a regex.
 
 Main is untouched. DEMO_READY is **not** declared.
+
+
+---
+
+# DEMO ENGINEERING COMPLETION — 28 AUG 2026
+
+Process correction from the founder: complete the entire demo
+engineering/convergence process FIRST, and run ONE founder acceptance
+last, against the final canonical build. This section records that
+sequence. It is not new architecture, and no completed semantic work was
+reopened.
+
+## What was still open when this began, and what closed it
+
+Re-adjudicating the brief against source rather than against my own
+summary changed two answers:
+
+**A stated invariant nothing enforced.** `SemanticRequirement` carried
+the comment *"UNCERTAIN may never reach execution"* and no code checked
+it. Conformance refused to REPORT satisfaction — that closes the back
+door and leaves the front one open. Now enforced in
+`MissionService._admit`, the boundary ADR-0024 Decision 1 already
+defines, so it is one policy rather than two that drift.
+
+**A contract that contradicted itself.** `CreateFolderAction.description`
+— the line the Planner reads to fill arguments — said `name` is "the
+folder's own name only", while `validate()` admits multi-segment values,
+`run()` calls `mkdir(parents=True)`, and the path guard's own docstring
+names this argument as a relative path joined onto a location's base
+directory. It was telling the Planner the opposite of what the code
+accepts. Corrected; the original defect it guarded stays pinned.
+
+## Sequence followed
+
+1. Live Git truth established; feature branch pushed to match.
+2. Inherited semantic evidence re-proved from source, not from memory.
+3. Automated rehearsal extended to every class the founder will run.
+4. GP1/GP2/GP3, then the definitive full suite on a frozen tree.
+5. Ledgers completed here and in `DEMO_30AUG_EVIDENCE.md`.
+6. Main convergence as an engineering gate — fast-forward only.
+7. Canonical-main proof from a clean checkout (Engineering Rule 001).
+8. Final package built from the exact main SHA.
+
+## Founder acceptance is deliberately NOT done here
+
+`DEMO_READY` is not declared. The four founder tests — a natural folder
+request with a fresh name, then the three grounded questions — are
+preserved for the founder to run against the final canonical artefact.
+Their behaviour is proved by machine first so that run is a
+demonstration, not a debugging session.
