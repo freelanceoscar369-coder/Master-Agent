@@ -852,7 +852,11 @@ def candidates_from(
         BudgetedSelectionRequest,
     )
     from master_agent.ai_infrastructure.workload import INTERACTIVE
-    from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+    from master_agent.plugins.model_router import (
+        REASONING,
+        RoutingContext,
+        SelectionRequest,
+    )
 
     prompt = _extraction_prompt(frame, observations)
     context = RoutingContext(
@@ -860,7 +864,15 @@ def candidates_from(
         # Reading several sources into candidates is a real judgement,
         # unlike the narrow field extraction the Intent Layer does.
         requires_strong_reasoning=True,
-        capability="reasoning.transform",
+        # The REGISTERED capability name, not the action's name.
+        #
+        # This asked for "reasoning.transform" and the Broker answered
+        # "11 provider(s) considered, none eligible: does not offer this
+        # capability" -- every time, silently, because `candidates_from`
+        # returns `()` on any unusable answer. Deliberation reported
+        # "nothing has been found yet" about pages it had never actually
+        # been given a model to read.
+        capability=REASONING,
         requester="brain_deliberation_candidates",
     )
     request = BudgetedSelectionRequest(

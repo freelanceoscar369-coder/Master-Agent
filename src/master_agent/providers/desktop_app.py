@@ -81,6 +81,59 @@ SUBMIT_UNVERIFIED = (
 )
 RESPONSE_TIMEOUT = "no response appeared within the bounded wait"
 EMPTY_RESPONSE = "the application produced no meaningful response text"
+SERVICE_NOTICE = "the application answered with a service notice, not an answer"
+
+#: What a desktop AI app says INSTEAD of answering.
+#:
+#: These apps put capacity, plan and sign-in messages in the same place
+#: the reply appears, so a scraper reads them exactly as it reads an
+#: answer. Measured live: asked to identify action RPGs from a page of
+#: store listings, one returned
+#:
+#:     "High demand. Switched to K2.6 Instant for speed. Upgrade to use
+#:      K2.6 Thinking."
+#:
+#: -- and `SUCCEEDED` carried it onward as the reasoning result.
+#:
+#: Kept here because this adapter is the only thing that knows what its
+#: own applications say. The generic contract already has the right word
+#: for it (`UNAVAILABLE`), and this file already refuses two other fake
+#: successes -- an empty reply and an echoed prompt -- for the same
+#: reason.
+#:
+#: SHAPES, not sentences. Nothing matches one product's wording; they
+#: match the kinds of thing a service says about itself.
+_SERVICE_NOTICE_MARKERS: tuple[str, ...] = (
+    "high demand",
+    "at capacity",
+    "capacity limit",
+    "rate limit",
+    "too many requests",
+    "try again later",
+    "temporarily unavailable",
+    "upgrade to",
+    "upgrade your plan",
+    "usage limit",
+    "quota",
+    "please sign in",
+    "log in to continue",
+)
+
+#: A service notice is a BANNER. An answer to a real question is not
+#: this short, and requiring both conditions is what stops a genuine
+#: reply that happens to mention "quota" from being thrown away -- a
+#: partial answer is still the founder's, and Verification is what
+#: judges whether it was enough.
+MAX_SERVICE_NOTICE_CHARS = 400
+
+
+def _is_service_notice(text: str) -> bool:
+    """Did the application talk about itself instead of answering?"""
+    body = (text or "").strip()
+    if not body or len(body) > MAX_SERVICE_NOTICE_CHARS:
+        return False
+    lowered = body.lower()
+    return any(marker in lowered for marker in _SERVICE_NOTICE_MARKERS)
 AUTONOMOUS_REASONING_UNSAFE = "AUTONOMOUS_REASONING_UNSAFE"
 CODING_AGENT_NOT_A_REASONING_PROVIDER = (
     "CODING_AGENT_NOT_A_REASONING_PROVIDER: this identity is a coding tool, "
@@ -406,6 +459,21 @@ class DesktopAppReasoningProvider(ModelProvider):
         if not response_text.strip() or _normalize_whitespace(response_text) == _normalize_whitespace(marked_prompt):
             return failure(self._spec.provider_id, MALFORMED, EMPTY_RESPONSE,
                             latency_ms=self._elapsed_ms(started))
+
+        # The application talking about itself is not an answer.
+        #
+        # `UNAVAILABLE` rather than `MALFORMED`: nothing was wrong with
+        # the request and there is nothing to fix by rephrasing it --
+        # this provider simply cannot serve it right now, which is
+        # exactly what the ladder's exclude-and-ask-again is for. The
+        # same class of judgement `gemini.py` makes about a 503, made
+        # where the signal happens to be text instead of a status code.
+        if _is_service_notice(response_text):
+            return failure(
+                self._spec.provider_id, UNAVAILABLE, SERVICE_NOTICE,
+                latency_ms=self._elapsed_ms(started),
+                notice=response_text.strip()[:200],
+            )
 
         return ProviderResult(
             provider_id=self._spec.provider_id,
