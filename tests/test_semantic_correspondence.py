@@ -461,20 +461,67 @@ class TestRequirementsReachEveryLane:
     worked. Two independent breaks caused it, and both were BUILT BUT NOT
     WIRED rather than missing."""
 
-    def test_a_compound_objective_is_no_longer_excluded_from_requirements(self):
-        """`requirements_for` was called only when the intent carried a
+    def test_a_compound_objective_gets_requirements_at_admission(self):
+        """`requirements_for` was reachable only for intents carrying a
         `capability`, which excluded exactly the compound objectives
-        `_reasoned_requirements` was written for."""
-        import inspect
+        `_reasoned_requirements` was written for.
 
-        from master_agent.brain import intent as module
+        Derived at the ADMISSION boundary rather than at parse: parsing
+        is structural and must never reach a provider, and a compound
+        objective needs the reasoning door. Asserted as a property of an
+        admitted mission, not as the presence of a line of source."""
+        from master_agent.missions.service import MissionService
+        from master_agent.planner.plan import Intent
 
-        source = inspect.getsource(module.IntentLayer._with_roles)
-        assert 'getattr(result.intent, "capability", "")' not in source, (
-            "the capability gate is back; compound objectives lose their "
-            "requirements again"
+        derived = SemanticRequirement(
+            "req_1", CONSTRAINT, "action RPG games released in 2026",
+            founder_evidence="search for action rpg games released in 2026",
         )
-        assert "requirements_for" in source
+
+        class Layer:
+            def requirements_for(self, intent, *, raw=""):
+                return (derived,)
+
+        class Planner:
+            def __init__(self):
+                self.seen = None
+
+            def plan(self, intent, **kwargs):
+                self.seen = tuple(getattr(intent, "requirements", ()))
+                raise AssertionError("reached the planner")
+
+        service = MissionService.__new__(MissionService)
+        service._counter = 0
+        service.planner = Planner()
+        service.reporter = None
+        service.intent_layer = Layer()
+        service._publish_phase = lambda *a, **k: None
+
+        intent = Intent(goal="search for action rpg games released in 2026",
+                        constraints=[], context={}, success_criteria=[])
+        assert not getattr(intent, "requirements", ())
+        with pytest.raises(AssertionError, match="reached the planner"):
+            service._admit(intent, task_id="plan-1", objective_id=None)
+        assert service.planner.seen == (derived,), (
+            "a compound objective reached the Planner with no requirements; "
+            "outcome conformance over an empty set can only answer UNKNOWN"
+        )
+
+    def test_parsing_still_reaches_no_provider(self):
+        """The boundary that made this necessary. Parsing is structural
+        and runs on paths a founder never sees; a provider call there
+        would put a model on every keystroke."""
+        calls = []
+
+        class Spy:
+            def run(self, prompt, request, **kwargs):
+                calls.append(prompt)
+                raise AssertionError("parse reached a provider")
+
+        layer = IntentLayer(reasoner=Spy(), vocabularies={"location": PLACES})
+        layer.parse("search for action rpg games released in 2026")
+        layer.parse("something it has never seen before at all")
+        assert calls == []
 
     def test_the_ai_plan_path_carries_requirements_onto_the_plan(self):
         """`MissionPlan.requirements` was populated only in

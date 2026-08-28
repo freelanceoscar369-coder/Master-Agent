@@ -255,6 +255,27 @@ class MissionService:
             description = str(intent.context.get("raw_input") or intent.goal)
         text = description
 
+        # Every admitted mission carries the founder's requirements.
+        #
+        # A compound natural objective -- the AI Planner's whole
+        # workload -- derives them through the reasoning door, which
+        # `parse()` may never touch: parsing is structural and reaching
+        # a provider there would put a model on every keystroke path.
+        # So the compound half is derived HERE, once per mission, at the
+        # boundary ADR-0024 already makes the only way to the Planner.
+        #
+        # Without it the failed research acceptance planned ten steps
+        # with an empty requirement list and `covers=[]` on every one,
+        # and outcome conformance over an empty requirement set can only
+        # answer UNKNOWN.
+        if not getattr(intent, "requirements", ()) and self.intent_layer is not None:
+            try:
+                intent.requirements = self.intent_layer.requirements_for(
+                    intent, raw=text
+                )
+            except Exception:  # noqa: BLE001 -- absent semantics, not a crash
+                intent.requirements = ()
+
         # An interpretation nobody settled may not become work.
         #
         # This was written as a comment on `SemanticRequirement`

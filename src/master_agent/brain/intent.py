@@ -1602,9 +1602,20 @@ class IntentLayer:
         """
         if result.intent is None:
             return result
-        if not getattr(result.intent, "requirements", ()):
-            # EVERY admitted intent, not only the ones a typed parser
-            # claimed.
+        if not getattr(result.intent, "requirements", ()) and (
+            getattr(result.intent, "capability", "")
+            or getattr(result.intent, "answers_founder", "")
+        ):
+            # Only what costs nothing HERE.
+            #
+            # A capability-bearing intent derives its requirements
+            # deterministically, so it is free and belongs at parse
+            # time. A compound objective needs the reasoning door, and
+            # `parse()` must never reach a provider -- it is a
+            # structural operation on every path, including the ones a
+            # founder never sees. `MissionService._admit` derives the
+            # rest, once per mission, at the admission boundary that
+            # already owns the semantic gate.
             #
             # This was gated on the intent carrying a `capability` or
             # `answers_founder`, which excluded exactly the objectives
@@ -1621,10 +1632,6 @@ class IntentLayer:
             # could not be judged against founder intent even when it
             # worked.
             #
-            # `requirements_for` is deterministic when a capability is
-            # known and costs nothing there; the reasoning door is only
-            # reached for a compound objective, once per mission, and
-            # returns `()` rather than raising on anything unusable.
             result.intent.requirements = self.requirements_for(
                 result.intent, raw=text
             )
