@@ -945,3 +945,128 @@ class TestTheWholeDecision:
         for leak in ("you are reading observations", "reply with json",
                      "rules.", "criteria. each candidate"):
             assert leak not in blob, leak
+
+
+# =====================================================================
+# What the first real deliberation got wrong
+# =====================================================================
+
+
+class TestTheOutputAFounderActuallyReads:
+    """Three defects visible the first time this ran against live Steam
+    evidence. All three were mine, and all three made a correct decision
+    unusable."""
+
+    def observations(self):
+        from master_agent.brain.deliberation import PRIMARY, Observation
+
+        return (Observation("ev1", "Ashen Vale - free demo, 15 Jun 2026",
+                            source_class=PRIMARY),)
+
+    def reasoner(self, payload):
+        import json
+
+        class R:
+            def run(self, prompt, request, **kwargs):
+                class Outcome:
+                    ok = True
+                    text = json.dumps(payload)
+
+                return Outcome()
+
+        return R()
+
+    def test_a_summary_is_a_name_not_the_models_working(self):
+        """Measured: summaries came back as "Free Steam demo listed with a
+        15 Jun 2026 date. Evidence: c43598d0-...: crit_2" -- the whole of
+        its reasoning, in the one field a founder reads."""
+        from master_agent.brain.deliberation import candidates_from
+
+        built = candidates_from(FRAME, self.observations(), self.reasoner(
+            {"candidates": [{
+                "id": "a",
+                "summary": ("Free Steam demo listed with a 15 Jun 2026 date. "
+                            "Evidence: c43598d0-2143-449c: crit_2"),
+                "criteria": {"c1": {"state": "met", "evidence_id": "ev1"}},
+            }]}
+        ))
+        assert built[0].summary == "Free Steam demo listed with a 15 Jun 2026 date"
+        assert "Evidence" not in built[0].summary
+        assert "crit_" not in built[0].summary
+
+    def test_a_summary_is_bounded(self):
+        from master_agent.brain.deliberation import candidates_from
+
+        built = candidates_from(FRAME, self.observations(), self.reasoner(
+            {"candidates": [{"id": "a", "summary": "x" * 400,
+                             "criteria": {}}]}
+        ))
+        assert len(built[0].summary) <= 80
+
+    def test_similarly_named_candidates_do_not_invent_a_contradiction(self):
+        """`adjudicate` groups assessments making the same claim, which is
+        how genuine disagreement is found. Keying the claim on summary
+        text alone made six Steam listings that shared a phrase come back
+        CONTESTED -- a contradiction manufactured out of string equality,
+        about sources that never disagreed."""
+        from master_agent.brain.deliberation import CONTESTED, deliberate
+
+        result = deliberate(FRAME, self.observations(), self.reasoner(
+            {"candidates": [
+                {"id": "a", "summary": "Free Steam demo 2026",
+                 "criteria": {c: {"state": "unverified", "evidence_id": ""}
+                              for c in ("c1", "c2", "c3", "c4")}},
+                {"id": "b", "summary": "Free Steam demo 2026",
+                 "criteria": {c: {"state": "unverified", "evidence_id": ""}
+                              for c in ("c1", "c2", "c3", "c4")}},
+            ]}
+        ))
+        assert result.state != CONTESTED, (
+            "two unproven candidates with the same name were reported as "
+            "sources disagreeing"
+        )
+
+    def test_unproven_is_not_contested(self):
+        """An unestablished criterion is not a contradiction. It is
+        something nobody has shown yet, and more research can answer
+        it."""
+        from master_agent.brain.deliberation import (
+            INSUFFICIENT_EVIDENCE, deliberate,
+        )
+
+        result = deliberate(FRAME, self.observations(), self.reasoner(
+            {"candidates": [{"id": "a", "summary": "Ashen Vale",
+                             "criteria": {c: {"state": "unverified",
+                                              "evidence_id": ""}
+                                          for c in ("c1", "c2", "c3", "c4")}}]}
+        ))
+        assert result.state == INSUFFICIENT_EVIDENCE
+        assert result.more_research is True
+
+
+class TestTheFounderNeverReadsAnEvidenceId:
+    """Provenance belongs in the record, which keeps it. The sentence
+    gets the part a person can act on -- the first real run put four
+    UUIDs into the founder's reply, twice over."""
+
+    def test_ids_are_stripped_from_the_sentence(self):
+        import kalpavriksha_desktop as kd
+
+        plain = kd._plain([
+            "cand_1/crit_2: Ashen Vale. Evidence: c43598d0-2143-449c-a1b5, "
+            "3f2b0bd6-a499-475a",
+        ])
+        assert "Ashen Vale" in plain
+        assert "c43598d0" not in plain
+        assert "crit_2" not in plain
+
+    def test_duplicates_are_said_once(self):
+        import kalpavriksha_desktop as kd
+
+        plain = kd._plain(["a/c1: Ashen Vale", "a/c2: Ashen Vale"])
+        assert plain == "Ashen Vale"
+
+    def test_nothing_nameable_still_says_something_honest(self):
+        import kalpavriksha_desktop as kd
+
+        assert kd._plain([]) == "something it could not name"

@@ -807,7 +807,7 @@ def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]
     lines += [
         "",
         "Reply with JSON only:",
-        '  {"candidates": [{"id": "...", "summary": "...",',
+        '  {"candidates": [{"id": "...", "summary": "<the candidate\'s NAME only>",',
         '     "criteria": {"<criterion_id>": {"state": "met|unmet|unverified",',
         '                                     "evidence_id": "<id or empty>"}}}]}',
         "",
@@ -816,7 +816,10 @@ def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]
         "if the observations do not establish a criterion, say unverified -- "
         "that is a useful answer and guessing is not. A state of unmet means "
         "an observation shows it is false, not that you could not find it. "
-        "Do not add candidates the observations do not mention.",
+        "Do not add candidates the observations do not mention. "
+        "`summary` is the candidate's NAME and nothing else -- not a "
+        "description, not the evidence, not your reasoning about it. A "
+        "founder reads that field.",
     ]
     return "\n".join(lines)
 
@@ -906,7 +909,20 @@ def candidates_from(
     for index, row in enumerate(document.get("candidates") or [], start=1):
         if not isinstance(row, dict):
             continue
+        # The NAME, enforced rather than requested.
+        #
+        # Measured on the first real run: the model returned summaries
+        # like "Free Steam demo listed with a 15 Jun 2026 date. Evidence:
+        # c43598d0-...: crit_2" -- the whole of its working, in the one
+        # field a founder reads. ADR-0026 settled the principle that an
+        # instruction to a model is not a constraint; this is the
+        # constraint.
         summary = str(row.get("summary") or row.get("id") or "").strip()
+        summary = summary.splitlines()[0].strip() if summary else ""
+        for separator in (". Evidence:", " Evidence:", " -- ", ": crit_"):
+            if separator in summary:
+                summary = summary.split(separator, 1)[0].strip()
+        summary = summary[:80].strip()
         if not summary:
             continue
         states: dict[str, str] = {}
@@ -964,9 +980,18 @@ def deliberate(
     candidates = candidates_from(frame, observations, reasoner)
 
     by_evidence = {o.evidence_id: o for o in observations}
+    # Keyed by CANDIDATE and criterion, not by summary text.
+    #
+    # `adjudicate` groups assessments that make the same claim, which is
+    # how genuine disagreement between sources is found. Building the
+    # claim from the summary alone made every criterion of every
+    # similarly-named candidate collide, and the first real run came back
+    # CONTESTED because six Steam listings shared a phrase -- a
+    # contradiction invented out of string equality, about sources that
+    # never disagreed with each other.
     assessments = tuple(
         EvidenceAssessment(
-            claim=f"{candidate.summary}: {criterion_id}",
+            claim=f"{candidate.candidate_id}/{criterion_id}: {candidate.summary}",
             evidence_ids=candidate.supporting,
             requirement_id=next(
                 (c.requirement_id for c in frame.mandatory
@@ -987,7 +1012,14 @@ def deliberate(
         frame, candidates, settled, budget_exhausted=budget_exhausted
     )
 
-    contested = tuple(a.claim for a in settled if a.state == CONFLICT)
+    # CONFLICT only ever means sources that actually contradict each
+    # other. An unestablished criterion is not a contradiction -- it is
+    # something nobody has shown yet, which `shortlist` already reports
+    # as `unverified` and which more research can answer.
+    contested = tuple(
+        a.claim for a in settled
+        if a.state == CONFLICT and a.contradicted_by
+    )
     unresolved = tuple(dict.fromkeys(
         list(contested)
         + [u for candidate in candidates for u in candidate.unknowns]

@@ -1792,6 +1792,29 @@ def _decide(mission_service, mission_control, intent, objective_id):
         return None
 
 
+def _plain(claims) -> str:
+    """Claims as a founder can read them.
+
+    An internal claim carries its candidate id, criterion id and the
+    Evidence UUIDs behind it -- all necessary, none of it English. The
+    first real deliberation put four UUIDs into the founder's reply
+    twice over. Provenance belongs in the record, which keeps it; the
+    sentence gets the part a person can act on.
+    """
+    names = []
+    for claim in claims:
+        text = str(claim)
+        if ": " in text:
+            text = text.split(": ", 1)[1]
+        for separator in (". Evidence:", " Evidence:"):
+            if separator in text:
+                text = text.split(separator, 1)[0]
+        text = text.strip()
+        if text and text not in names:
+            names.append(text)
+    return "; ".join(names) if names else "something it could not name"
+
+
 def _decision_sentence(result) -> str:
     """What the decision means, for a founder, in their terms.
 
@@ -1817,15 +1840,17 @@ def _decision_sentence(result) -> str:
         return "\n".join(lines)
     if result.state == CONTESTED:
         return (
-            "Sources disagree and nothing authoritative settles it, so I "
-            "am not going to pick for you: "
-            + "; ".join(result.unresolved[:3])
+            "Sources disagree about "
+            + _plain(result.unresolved[:3])
+            + ", and nothing authoritative settles it, so I am not going "
+            "to pick for you."
         )
     # Nothing cleared the bar. Saying so is the useful answer -- an empty
     # list presented as a result is how a founder ends up with nothing
     # and the impression of something.
     rejected = (
-        f" I looked at {len(result.rejected)} and none of them held up."
+        f" I looked at {len(result.rejected)} and could not confirm all of "
+        "what you asked for any of them."
         if result.rejected else ""
     )
     return (
