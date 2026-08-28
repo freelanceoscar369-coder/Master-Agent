@@ -445,3 +445,115 @@ class TestRecovery:
         )
         assert decision.failure_class in ("method_failure", "objective_failure")
         assert decision.should_replan is False
+
+
+# =====================================================================
+# Framing, and the asymmetry that keeps it honest
+# =====================================================================
+
+
+class TestFramingFromCanonicalInformationOnly:
+    """A frame must not become a second semantic authority. Its criteria
+    ARE the requirements the Intent Layer already derived, one for one,
+    ids preserved -- so every criterion traces to a requirement and every
+    requirement keeps its founder evidence."""
+
+    def requirements(self):
+        from master_agent.planner.plan import (
+            DELIVERABLE, INFORMATION, SemanticRequirement,
+        )
+
+        return (
+            SemanticRequirement("req_1", INFORMATION,
+                                "action RPG games released in 2026",
+                                founder_evidence="search for action rpg games"),
+            SemanticRequirement("req_2", DELIVERABLE,
+                                "free demo download links",
+                                founder_evidence="search for action rpg games"),
+        )
+
+    def test_a_typed_capability_gets_no_frame(self):
+        """The asymmetry. A founder asking for a folder is not facing a
+        decision: the capability is known, the arguments are settled, and
+        a frame would buy latency they feel for a question that was never
+        in doubt."""
+        from master_agent.brain.deliberation import frame_for
+        from master_agent.planner.plan import EFFECT, SemanticRequirement
+
+        assert frame_for(
+            objective="create a folder called Notes on my desktop",
+            requirements=(SemanticRequirement("req_1", EFFECT, "create a folder"),),
+            capability="create_folder",
+        ) is None
+
+    def test_an_objective_with_no_requirements_gets_no_frame(self):
+        from master_agent.brain.deliberation import frame_for
+
+        assert frame_for(objective="hello", requirements=()) is None
+
+    def test_a_compound_objective_is_framed(self):
+        from master_agent.brain.deliberation import frame_for
+
+        frame = frame_for(objective="research", requirements=self.requirements())
+        assert frame is not None
+        assert len(frame.mandatory) == 2
+
+    def test_every_criterion_traces_to_a_requirement(self):
+        from master_agent.brain.deliberation import frame_for
+
+        frame = frame_for(objective="research", requirements=self.requirements())
+        assert [c.requirement_id for c in frame.mandatory] == ["req_1", "req_2"]
+
+    def test_it_invents_no_criteria_of_its_own(self):
+        """One criterion per requirement, and nothing else. A frame that
+        added its own would be reinterpreting founder meaning, which is
+        exactly what ADR-0026 removed."""
+        from master_agent.brain.deliberation import frame_for
+
+        requirements = self.requirements()
+        frame = frame_for(objective="research", requirements=requirements)
+        assert len(frame.mandatory) == len(requirements)
+        described = {c.description for c in frame.mandatory}
+        assert described == {r.description for r in requirements}
+
+    def test_framing_does_not_depend_on_a_models_choice_of_kind(self):
+        """Measured twice on the same research objective, the extractor
+        labelled its requirements `information` + `deliverable` on one
+        run and `information` + three `constraint`s on the next. Keying
+        the EXISTENCE of a frame off those labels made "does this mission
+        think at all" depend on a word a model happened to choose."""
+        from master_agent.brain.deliberation import frame_for
+        from master_agent.planner.plan import CONSTRAINT, SemanticRequirement
+
+        awkward = (
+            SemanticRequirement("req_1", CONSTRAINT, "released in 2026"),
+            SemanticRequirement("req_2", CONSTRAINT, "the demo is free"),
+        )
+        frame = frame_for(objective="research", requirements=awkward)
+        assert frame is not None, (
+            "a research mission stopped being framed because a model "
+            "chose a different kind label"
+        )
+        assert len(frame.mandatory) == 2
+
+    def test_it_asks_no_model(self):
+        """Framing is deterministic, so it costs nothing and cannot be
+        wrong about something a model guessed."""
+        import inspect
+
+        from master_agent.brain import deliberation
+
+        source = inspect.getsource(deliberation.frame_for).lower()
+        for forbidden in ("run(", "prompt", "reasoner", "provider"):
+            assert forbidden not in source, forbidden
+
+    def test_the_stop_conditions_are_stated_up_front(self):
+        """Written BEFORE evidence arrives. A frame written afterwards is
+        a rationalisation of whatever turned up."""
+        from master_agent.brain.deliberation import frame_for
+
+        frame = frame_for(objective="research", requirements=self.requirements())
+        joined = " ".join(frame.stop_conditions)
+        assert "established" in joined
+        assert "disagree" in joined
+        assert "budget" in joined

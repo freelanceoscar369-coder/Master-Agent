@@ -669,3 +669,92 @@ def recovery_for(
         "a founder requirement is unmet and a safe untried route remains",
         must_differ=DIFFERENTIATORS, attempts_remaining=remaining,
     )
+
+
+# ---------------------------------------------------------------------
+# Framing, from what is already canonical
+# ---------------------------------------------------------------------
+
+#: Requirement kinds whose satisfaction is a matter of judgement rather
+#: than of a single deterministic act. An EFFECT ("create a folder") is
+#: done or not; INFORMATION and DELIVERABLE requirements are the ones
+#: where candidates, sources and sufficiency exist at all.
+_JUDGED_KINDS = frozenset({"information", "deliverable"})
+
+
+def frame_for(
+    *,
+    objective: str,
+    requirements: Sequence[Any] = (),
+    capability: str = "",
+    reversible: bool = True,
+) -> DecisionFrame | None:
+    """The decision this mission actually faces, or `None` if none.
+
+    `None` is the common answer and the important one. A founder asking
+    for a folder is not facing a decision: the capability is known, the
+    arguments are settled, and there is nothing to weigh. Returning a
+    frame there would buy a reasoning call, latency the founder feels,
+    and an opportunity to be wrong about something that was never in
+    doubt. "More intelligence" must not mean "AI everywhere" (ADR-0027).
+
+    Nothing here reinterprets what the founder meant. The criteria are
+    the requirements the Intent Layer already derived, one for one, with
+    their ids preserved -- so every criterion traces to a requirement and
+    every requirement keeps its founder evidence. A frame that invented
+    its own criteria would be a second semantic authority, which is
+    exactly what ADR-0026 removed.
+    """
+    kept = tuple(requirements or ())
+    if capability:
+        # A typed capability with settled arguments. Deterministic, and
+        # it stays that way.
+        return None
+    if not kept:
+        # Nothing was established to decide about.
+        return None
+
+    # Every requirement becomes a criterion, and the KIND only chooses
+    # the label.
+    #
+    # Framing deliberately does not hinge on the kind, because the kind
+    # comes from a model. Measured twice on the same research objective,
+    # the extractor labelled its requirements `information` +
+    # `deliverable` on one run and `information` + three `constraint`s on
+    # the next -- so keying the existence of a frame off those labels
+    # made "does this mission think at all" depend on a word a model
+    # happened to choose. The stable fact is structural: an intent with
+    # no typed capability took the compound lane, which is where evidence
+    # is gathered and candidates exist.
+    judged = tuple(
+        requirement for requirement in kept
+        if str(getattr(requirement, "kind", "")).lower() in _JUDGED_KINDS
+    )
+
+    mandatory = tuple(
+        Criterion(
+            criterion_id=f"crit_{index}",
+            description=str(getattr(requirement, "description", "")),
+            requirement_id=str(getattr(requirement, "requirement_id", "")),
+            mandatory=bool(getattr(requirement, "required", True)),
+        )
+        for index, requirement in enumerate(kept, start=1)
+    )
+    return DecisionFrame(
+        objective=objective,
+        requirement_ids=tuple(
+            str(getattr(r, "requirement_id", "")) for r in kept
+        ),
+        decision_type="research_shortlist" if len(judged) > 1 else "assessment",
+        mandatory=mandatory,
+        stakes="reversible" if reversible else "consequential",
+        reversible=reversible,
+        questions=tuple(
+            f"what evidence establishes: {c.description}" for c in mandatory
+        ),
+        stop_conditions=(
+            "every mandatory criterion is established for at least one candidate",
+            "credible sources disagree and no primary source resolves it",
+            "the research budget for this mission is reached",
+        ),
+    )

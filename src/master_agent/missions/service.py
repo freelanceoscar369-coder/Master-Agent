@@ -276,6 +276,33 @@ class MissionService:
             except Exception:  # noqa: BLE001 -- absent semantics, not a crash
                 intent.requirements = ()
 
+        # What decision, if any, this mission actually faces.
+        #
+        # Framed HERE because this is where the founder's requirements
+        # are complete and nothing has yet been planned -- a frame
+        # written after the evidence arrives is a rationalisation of
+        # whatever turned up, and its criteria quietly become the shape
+        # of the data instead of the shape of the request.
+        #
+        # `None` for a typed capability with settled arguments, which is
+        # most missions. Deliberation is a cost the founder pays in
+        # latency, and a folder is not a decision.
+        try:
+            from master_agent.brain import deliberation as _deliberation
+
+            frame = _deliberation.frame_for(
+                objective=text,
+                requirements=getattr(intent, "requirements", ()) or (),
+                capability=str(getattr(intent, "capability", "") or ""),
+            )
+            if frame is not None:
+                # Reviewable decision metadata, never a reasoning
+                # transcript: what is being decided and what would
+                # settle it (ADR-0027).
+                intent.context["decision_frame"] = frame.as_dict()
+        except Exception:  # noqa: BLE001 -- an unframed mission still runs
+            pass
+
         # An interpretation nobody settled may not become work.
         #
         # This was written as a comment on `SemanticRequirement`
