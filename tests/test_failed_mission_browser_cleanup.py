@@ -122,9 +122,14 @@ class TestTheSurfaceReleasesOnMissionEnd:
 
         source = inspect.getsource(kd._submit_objective)
         assert "_release_task_browsers()" in source
-        # Before the success/failure branch, so a failed mission is
+        # Before the FINAL founder-facing branch, so a failed mission is
         # cleaned up too -- which is the case that caused this.
-        before_branch = source.split("if state.errors:")[0]
+        #
+        # Anchored on the last `if state.errors:` rather than the first:
+        # the recovery loop now has its own diagnosis branch using the
+        # same words, and splitting on the first occurrence asked about a
+        # point in the function that no longer means anything.
+        before_branch = source.rsplit("if state.errors:", 1)[0]
         assert "_release_task_browsers()" in before_branch
 
     def test_cleanup_never_becomes_the_failure(self):
