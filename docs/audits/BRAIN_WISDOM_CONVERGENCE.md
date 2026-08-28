@@ -291,3 +291,87 @@ side, and the behaviour is now pinned.
 - No-progress/loop detection, replan preserving verified work,
   environment precedence, material-support boundary, capability-gap
   recognition: unbuilt.
+
+
+---
+
+# CONTINUATION FROM 2ec717c — RESEARCH REACHES REASONING
+
+Git truth confirmed the lead. Everything below was found by running the
+founder's exact objective through `_submit_objective` -- the real product
+entry point -- not by reading code.
+
+## The chain, repaired end to end
+
+**Navigation had an element-interaction budget.** All six browser Actions
+shared `DEFAULT_TIMEOUT_MS = 5_000`. Clicking asks an in-memory document
+a question; `page.goto()` asks an arbitrary public host for a document.
+Navigation now has its own 30s budget -- Playwright's own default,
+borrowed rather than invented -- and nothing else waits longer.
+**Measured: the storefront that timed out twice now verifies `matched`.**
+
+**The Planner was sending us where this lane cannot go.** Its first two
+sources were general-web-search query URLs; we landed on an
+automation-refusal page and Verification correctly reported
+`not_matched`. Nothing malfunctioned. `NavigateAction.description` now
+states the destination CLASS that is unreachable -- and a constitution
+guard caught an earlier draft of that very comment for naming a product,
+which is the rule working.
+
+**`Browser.ReadPageText` produced no Evidence at all.** It was in no
+expectation group, so no Verifier ran. It returned text as an Action
+RESULT, and an Action result is not Evidence: `input_bindings` refused it
+("source has no canonical Evidence"), and the Brain, which may read only
+Evidence, saw nothing. A mission could visit three sites, verify all
+three, and have nothing to think about. Now page-observable, with a
+bounded opt-in `text` facet. **Measured: `ReadPageText verdict=matched
+text_len=3929`.**
+
+**The product performs the decision.** `_decide` reads canonical Evidence
+into Observations, runs `deliberate()`, records the structured result on
+the status contract, and does so BEFORE the success/failure branch --
+because a mission that reached three sources and then failed a fourth
+step still learned something the founder is owed. **Measured live:
+`state: insufficient_evidence, requirement_ids: ['req_1','req_2']`
+recorded by the product, not by a probe.**
+
+## A feature of mine that made things worse, and was removed
+
+The bounded recovery loop re-submitted the same intent. Measured, it
+produced a fresh plan that opened a browser session the failed attempt
+had already opened, and the mission died on `session already open:
+'main'` -- a second failure caused by the first attempt's leftovers, and
+a worse outcome than the honest failure it was improving on.
+
+`recovery_for` already says a new attempt must differ materially in
+source, method, capability, environment, evidence question or strategy.
+An identical intent differs in none of them, so the surface was violating
+the rule it was relaying. The decision is still made and recorded; acting
+on it needs the Planner to plan around satisfied requirements and around
+environment the last attempt left behind. That is the next P0.
+
+## Regression
+
+```
+75 failed  8541 passed  2 skipped   (23m47s, frozen tree)
+baseline   75 failed  8440 passed
+NEW FAILURE IDS: ZERO -- the sets are identical
+```
+
+## Still blocking the research answer
+
+**AI Planner variance.** Across eight runs of the same objective the
+Planner produced: a valid executing plan, a duplicate-argument plan, a
+plan binding to a step it did not depend on, an empty plan, and plans
+whose alternative sources were chained sequentially so one block stalled
+the rest. Roughly half were refused before execution. Coverage shows the
+same variance -- `covers` was emitted on some runs and omitted on others.
+
+**Reasoning.Transform sensitivity.** One run reached the synthesis step
+and was refused: *"11 provider(s) considered, none eligible: excluded by
+the request; sensitive work may not go to a third party."* Public page
+text is not private founder material, but the action defaults to
+sensitive.
+
+Neither is a founder decision. Both are recorded here rather than
+guessed at.
