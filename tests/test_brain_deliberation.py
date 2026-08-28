@@ -661,18 +661,24 @@ class TestTheSurfaceAsksTheBrainAndDecidesNothing:
         assert decision.should_replan is False
         assert "budget" in decision.reason
 
-    def test_verified_work_is_never_silently_redone(self):
-        """The boundary this deliberately stops at. Replanning from
-        scratch would re-run work reality has already confirmed -- and
-        for a capability with an external effect that is not a wasted
-        step, it is a second real change to the founder's machine."""
+    def test_partial_success_still_recovers(self):
+        """A mission most of the way there is the one most worth
+        finishing. This used to return `None` on any satisfied
+        requirement, because a replan would have redone it -- and for a
+        capability with an external effect that is a second real change
+        to the founder's machine, not a wasted step. The Planner is now
+        told which requirements are already satisfied and not to redo
+        them, so abandoning here would waste the work instead of
+        protecting it."""
         import kalpavriksha_desktop as kd
 
         control = self.Control([
             self.Task("t1", ("req_1",), "matched"),
             self.Task("t2", ("req_2",), "not_matched"),
         ])
-        assert kd._recovery_decision(control, self.intent(), "obj-1", 0) is None
+        decision = kd._recovery_decision(control, self.intent(), "obj-1", 0)
+        assert decision is not None
+        assert decision.should_replan is True
 
     def test_a_mission_with_no_requirements_decides_nothing(self):
         import kalpavriksha_desktop as kd

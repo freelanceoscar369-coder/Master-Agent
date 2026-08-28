@@ -1893,18 +1893,16 @@ def _recovery_decision(mission_control, intent, objective_id, attempts_used):
         row.requirement_id for row in outcome.requirements
         if row.state != SATISFIED
     )
-    if satisfied:
-        # **The boundary this stops at, deliberately.**
-        #
-        # Replanning from scratch would re-run work that reality has
-        # already confirmed -- and for a capability with an external
-        # effect that is not a wasted step, it is a second real change to
-        # the founder's machine. Preserving verified work across a replan
-        # needs the Planner to plan around satisfied requirements, which
-        # is a larger change than this one and is recorded as the next
-        # P0 rather than half-built here.
-        return None
-
+    # Partial success no longer stops recovery.
+    #
+    # This used to return `None` whenever anything was satisfied, because
+    # replanning from scratch would re-run work reality had already
+    # confirmed -- and for a capability with an external effect that is
+    # not a wasted step, it is a second real change to the founder's
+    # machine. The Planner now receives the satisfied requirement ids and
+    # is told plainly not to redo them, so the reason for the guard is
+    # gone and keeping it would abandon missions that are most of the way
+    # there.
     return recovery_for(
         unmet_requirements=unmet,
         alternatives_available=True,
