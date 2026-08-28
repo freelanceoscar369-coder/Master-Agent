@@ -149,3 +149,48 @@ same objective differently on two runs).
 5. **Environment resolution precedence** unproven.
 6. **Learning not claimed** — no paired proof.
 7. **Live research rehearsal not run.**
+
+---
+
+## PACKAGE
+
+```
+built from   937636f  (branch claude/brain-wisdom; main NOT converged)
+artifact     dist/Kalpavriksha/Kalpavriksha.exe
+sha256       adb74c8923cc946c9c765a3fcbc88b38473a59672c3c45875fec8bd4e32d988a
+size         37,039,737 bytes
+built        2026-08-28 13:36
+self-check   RESULT: OK · 48 capabilities · all five executives reachable
+             approval wired · no-ollama constructed=no candidate=no
+             deterministic planning: CreateFolder -> WriteFile · FMEA unset
+```
+
+`build/` and `dist/` were removed first, so no stale artefact could
+survive a locked-file failure.
+
+### Source/package identity — PROVEN
+
+This machine has an editable install pointing `master_agent` at
+`D:\MasterAgent\src`, the primary worktree, which does not carry this
+branch. Bare imports resolve there, so identity is proved rather than
+assumed. The frozen entry script and PYZ were extracted from the
+artifact:
+
+```
+kalpavriksha_desktop   _ExecutionThread     YES
+                       _EXECUTION           YES
+                       _recovery_decision   YES
+master_agent.brain.deliberation   'no primary source resolves it'  FOUND
+master_agent.missions.service     'decision_frame'                 FOUND
+```
+
+None of these exist on `origin/main`. The package carries this branch.
+
+### What the package does NOT yet prove
+
+The executable exposes no objective-run flag, so the thread repair is
+proved by three things and not by a packaged mission: the kept
+reproduction test against the real `BrowserSessionManager`, GP2 through
+the real composition, and the repair's presence in the frozen entry
+script above. A packaged live research run is the remaining proof and is
+listed as an open blocker, not glossed.
