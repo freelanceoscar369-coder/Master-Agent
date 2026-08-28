@@ -706,12 +706,23 @@ def frame_for(
     exactly what ADR-0026 removed.
     """
     kept = tuple(requirements or ())
-    if capability:
-        # A typed capability with settled arguments. Deterministic, and
-        # it stays that way.
-        return None
     if not kept:
         # Nothing was established to decide about.
+        return None
+
+    # ONE owner for "how much thinking has this earned".
+    #
+    # `depth_for` was written as that owner and then never called, while
+    # this function decided the same thing again from the capability name
+    # -- two answers to one question, free to drift, and the kind of
+    # duplication only ever noticed once they disagree. A typed
+    # capability with settled arguments is DIRECT, and DIRECT does not
+    # deliberate.
+    if depth_for(
+        capability_is_deterministic=bool(capability),
+        alternatives=len(kept),
+        reversible=reversible,
+    ) == DIRECT:
         return None
 
     # Every requirement becomes a criterion, and the KIND only chooses

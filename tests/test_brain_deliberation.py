@@ -1070,3 +1070,43 @@ class TestTheFounderNeverReadsAnEvidenceId:
         import kalpavriksha_desktop as kd
 
         assert kd._plain([]) == "something it could not name"
+
+
+class TestOneOwnerForHowMuchThinking:
+    """`depth_for` was written as the owner of that question and then
+    never called, while `frame_for` decided the same thing again from a
+    capability name. Two answers to one question, free to drift, and the
+    kind of duplication only ever noticed once they disagree."""
+
+    def test_framing_defers_to_the_depth_policy(self):
+        from master_agent.brain.deliberation import frame_for
+
+        assert "depth_for" in frame_for.__code__.co_names
+
+    def test_a_deterministic_capability_is_still_never_framed(self):
+        from master_agent.brain.deliberation import frame_for
+        from master_agent.planner.plan import EFFECT, SemanticRequirement
+
+        requirement = SemanticRequirement(
+            "req_1", EFFECT, "create a folder",
+            founder_evidence="create a folder called X",
+        )
+        assert frame_for(
+            objective="create a folder called X",
+            requirements=(requirement,),
+            capability="create_folder",
+        ) is None
+
+    def test_a_compound_objective_is_still_framed(self):
+        from master_agent.brain.deliberation import frame_for
+        from master_agent.planner.plan import INFORMATION, SemanticRequirement
+
+        requirements = (
+            SemanticRequirement("req_1", INFORMATION, "find the options",
+                                founder_evidence="compare these"),
+            SemanticRequirement("req_2", INFORMATION, "compare them",
+                                founder_evidence="compare these"),
+        )
+        frame = frame_for(objective="compare these", requirements=requirements)
+        assert frame is not None
+        assert len(frame.mandatory) == 2
