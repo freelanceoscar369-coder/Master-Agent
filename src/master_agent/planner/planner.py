@@ -60,6 +60,7 @@ from master_agent.planner.plan import (
     LOCAL_ONLY,
     BROKER_REFUSED,
     NO_CAPABILITIES,
+    NO_STEPS,
     NOT_JSON,
     PROVIDER_FAILED,
     UNVERIFIED,
@@ -266,7 +267,20 @@ class Planner:
             requirements=requirements,
         )
 
-        if invalid is not None and plan is None:
+        # `no_steps` is not a malformed plan -- it is the model's honest
+        # answer that the catalogue cannot reach this objective, and rule
+        # 6 exists to give that answer a shape it can express. Re-asking
+        # pressures it to invent one, which is exactly the fabrication
+        # this Planner refuses; and for a blank objective there is
+        # nothing to correct toward at all. A guard caught this: a blank
+        # objective must cost exactly one provider call.
+        repairable = (
+            invalid is not None
+            and plan is None
+            and getattr(invalid, "code", "") != NO_STEPS
+            and intent.goal.strip()
+        )
+        if repairable:
             # ONE correction attempt, with the errors we already have.
             #
             # `validate()` knows precisely what was wrong -- which step,
