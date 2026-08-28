@@ -357,6 +357,42 @@ def build_prompt(
             for r in requirements
         )
 
+    recovery = (intent.context or {}).get("recovery")
+    if isinstance(recovery, dict):
+        # A second attempt at the SAME founder objective.
+        #
+        # Stated as facts about what happened rather than as a rule about
+        # what to avoid, because the useful instruction is "these did not
+        # work, and these requirements are already met" -- not a list of
+        # forbidden URLs. Nothing here names a site as bad; it names what
+        # this mission has already learned.
+        satisfied = list(recovery.get("satisfied") or ())
+        failed = list(recovery.get("failed_routes") or ())
+        unresolved = list(recovery.get("unresolved") or ())
+        sections.append("")
+        sections.append(
+            "This is a second attempt at the same objective. What the "
+            "first attempt established:"
+        )
+        if satisfied:
+            sections.append(
+                "- Already satisfied, with independently verified evidence, "
+                "and NOT to be done again: " + ", ".join(satisfied)
+            )
+        if unresolved:
+            sections.append(
+                "- Still unresolved, and what this plan is for: "
+                + ", ".join(unresolved)
+            )
+        for route in failed[:8]:
+            sections.append(f"- Already tried and did not work: {route}")
+        if failed:
+            sections.append(
+                "Plan a materially DIFFERENT route -- a different source, "
+                "method or strategy. Repeating one of the above unchanged "
+                "is not a second attempt."
+            )
+
     if intent.context:
         sections.append("")
         sections.append("Context:")
@@ -367,7 +403,7 @@ def build_prompt(
         # the Brain's own bookkeeping -- pasting either in as a raw dict
         # tells the Planner nothing it can act on and buys a wall of
         # JSON in the middle of the request.
-        _internal = {"field_evidence", "decision_frame", "requirements"}
+        _internal = {"field_evidence", "decision_frame", "requirements", "recovery"}
         sections.extend(
             f"- {key}: {intent.context[key]}"
             for key in sorted(intent.context) if key not in _internal

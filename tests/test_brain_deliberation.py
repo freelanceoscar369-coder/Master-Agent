@@ -350,14 +350,26 @@ class TestTheBrainKeepsItsHandsOff:
     def test_it_produces_no_verdict_and_no_evidence(self):
         """Reasoning says "option A appears strongest". Verification says
         "reality matched, or did not". A codebase that spells them the
-        same way will eventually treat them the same way."""
-        import inspect
+        same way will eventually treat them the same way.
 
+        It may READ a verdict -- judging whether verified reality
+        advanced the objective is the whole job, and `progress_of` cannot
+        do it blind. What it may never do is DEFINE or MINT one.
+        Asserted against the module's actual names rather than its prose,
+        because `EvidenceAssessment` is a reading OF Evidence and a text
+        search cannot tell the two apart.
+        """
         from master_agent.brain import deliberation
 
-        source = inspect.getsource(deliberation)
-        assert "matched" not in source.lower().replace("not_matched", "")
-        assert "class Verdict" not in source
+        exported = set(dir(deliberation))
+        assert "Verdict" not in exported
+        assert "Evidence" not in exported, (
+            "deliberation defines an Evidence type; Verification is the "
+            "only thing that may produce Evidence (ADR-0011)"
+        )
+        # The reading it IS allowed to hold, named so the two cannot be
+        # confused at a glance.
+        assert "EvidenceAssessment" in exported
 
 
 # =====================================================================

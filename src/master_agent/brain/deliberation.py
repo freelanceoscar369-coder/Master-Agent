@@ -998,3 +998,165 @@ def deliberate(
         more_research=not stop,
         founder_decision_required=False,
     )
+
+
+# ---------------------------------------------------------------------
+# Where the mission actually stands
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MissionProgress:
+    """What a mission has verifiably achieved, and what it has not.
+
+    ## The distinction this exists to hold
+
+    The founder's research run produced, all of them true at once:
+
+        OpenBrowserSession   matched
+        Navigate             matched
+        ReadPageText         matched
+        page text            "Error 500 - Server Internal Error"
+
+    Every step was independently verified. No founder requirement was
+    satisfied. **A verified step is not a satisfied requirement**, and a
+    recovery that confused the two would either throw away real evidence
+    or believe the objective was progressing when it was not.
+
+    Derived, never stored: requirements come from the Intent Layer,
+    verdicts and Evidence from Verification, routes from the plan. This
+    reads those records; it does not become a second one.
+    """
+
+    objective: str = ""
+    satisfied: tuple[str, ...] = ()
+    unresolved: tuple[str, ...] = ()
+    #: Steps that verified. Real facts about execution that may satisfy
+    #: nothing -- opening a browser is one.
+    verified_steps: tuple[str, ...] = ()
+    #: Canonical Evidence already gathered. Kept across a replan: it was
+    #: independently observed and does not stop being true because a
+    #: later step failed.
+    evidence_ids: tuple[str, ...] = ()
+    #: What was attempted and did not work -- capability plus target, so
+    #: a new plan can differ from it rather than repeat it.
+    failed_routes: tuple[str, ...] = ()
+    #: Routes that DID work, so a replan need not rediscover them.
+    successful_routes: tuple[str, ...] = ()
+
+    @property
+    def anything_satisfied(self) -> bool:
+        return bool(self.satisfied)
+
+    @property
+    def useful_progress(self) -> bool:
+        """Did the attempt move the objective, or only spend time?
+
+        A failed source still counts when it produced Evidence or
+        eliminated a route: knowing a source is unusable is knowledge,
+        and it is what stops the next attempt repeating it. What does not
+        count is an attempt that satisfied nothing, learned nothing and
+        ruled nothing out.
+        """
+        return bool(self.satisfied or self.evidence_ids or self.failed_routes)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "objective": self.objective,
+            "satisfied": list(self.satisfied),
+            "unresolved": list(self.unresolved),
+            "verified_steps": list(self.verified_steps),
+            "evidence_ids": list(self.evidence_ids),
+            "failed_routes": list(self.failed_routes),
+            "successful_routes": list(self.successful_routes),
+        }
+
+
+def _route_of(task: Any) -> str:
+    """A step as a comparable route: what it did, and to what.
+
+    The target matters as much as the capability -- two Navigates are the
+    same capability and entirely different attempts. Read off the payload
+    rather than named here, so nothing in the Brain has to know what a
+    URL is.
+    """
+    capability = str(getattr(task, "capability", "") or "")
+    payload = getattr(task, "payload", None) or {}
+    target = ""
+    if isinstance(payload, dict):
+        for key in ("url", "path", "query", "instruction"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                target = value.strip()
+                break
+    return f"{capability} {target}".strip()
+
+
+def progress_of(objective: str, requirements: Sequence[Any], tasks: Sequence[Any]) -> MissionProgress:
+    """Read the mission's standing off the records that already hold it.
+
+    Requirement status comes from `conformance.assess` -- the same
+    judgement the founder is shown, so recovery and reporting can never
+    disagree about what was achieved.
+    """
+    from master_agent.brain.conformance import _MATCHED, SATISFIED, assess
+
+    outcome = assess(requirements, tasks)
+    satisfied = tuple(
+        row.requirement_id for row in outcome.requirements
+        if row.state == SATISFIED
+    )
+    unresolved = tuple(
+        row.requirement_id for row in outcome.requirements
+        if row.state != SATISFIED
+    )
+
+    verified: list[str] = []
+    evidence: list[str] = []
+    failed: list[str] = []
+    succeeded: list[str] = []
+    for task in tasks or ():
+        record = getattr(task, "evidence", None) or {}
+        verdict = str(record.get("verdict") or "") if isinstance(record, dict) else ""
+        route = _route_of(task)
+        if verdict == _MATCHED:
+            verified.append(str(getattr(task, "task_id", "")))
+            if route:
+                succeeded.append(route)
+        elif verdict or str(getattr(task, "errors", "") or ""):
+            if route:
+                failed.append(route)
+        if isinstance(record, dict):
+            evidence_id = str(record.get("evidence_id") or "")
+            if evidence_id:
+                evidence.append(evidence_id)
+
+    return MissionProgress(
+        objective=objective,
+        satisfied=satisfied,
+        unresolved=unresolved,
+        verified_steps=tuple(verified),
+        evidence_ids=tuple(dict.fromkeys(evidence)),
+        failed_routes=tuple(dict.fromkeys(failed)),
+        successful_routes=tuple(dict.fromkeys(succeeded)),
+    )
+
+
+def no_useful_progress(previous: MissionProgress, current: MissionProgress) -> bool:
+    """Did this attempt change anything that matters?
+
+    The rule, stated once:
+
+        same requirement standing
+        + no new canonical Evidence
+        + no route eliminated
+        = NO USEFUL PROGRESS
+
+    Repeating after this is not persistence, it is a loop. The caller
+    changes strategy or says truthfully that it is blocked.
+    """
+    return (
+        set(current.satisfied) == set(previous.satisfied)
+        and set(current.evidence_ids) <= set(previous.evidence_ids)
+        and set(current.failed_routes) <= set(previous.failed_routes)
+    )

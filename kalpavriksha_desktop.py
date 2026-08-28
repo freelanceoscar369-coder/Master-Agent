@@ -1823,6 +1823,34 @@ def _decision_sentence(result) -> str:
     ).strip()
 
 
+def no_useful_progress(before, after) -> bool:
+    """Re-exported so the mission loop reads as one thought.
+
+    The rule itself lives in the Brain, which owns what progress means;
+    this is the name the surface calls it by.
+    """
+    from master_agent.brain.deliberation import (
+        no_useful_progress as _no_useful_progress,
+    )
+
+    return _no_useful_progress(before, after)
+
+
+def _mission_progress(mission_control, intent, objective_id):
+    """Where this mission stands, from the records that already hold it."""
+    from master_agent.brain.deliberation import progress_of
+
+    try:
+        objective = mission_control.dispatcher.objective(objective_id)
+    except Exception:  # noqa: BLE001 -- an unreadable record stands nowhere
+        return None
+    return progress_of(
+        str(getattr(intent, "goal", "") or ""),
+        tuple(getattr(intent, "requirements", ()) or ()),
+        objective.tasks,
+    )
+
+
 def _recovery_decision(mission_control, intent, objective_id, attempts_used):
     """Ask the Brain what a failed mission's failure MEANS.
 
@@ -2430,31 +2458,59 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                 )
             break
         attempts += 1
-        # The decision is recorded. Acting on it by RE-SUBMITTING the
-        # same intent is not, and deliberately.
-        #
-        # Measured: re-submitting produced a fresh plan that opened a
-        # browser session the failed attempt had already opened, and the
-        # mission died on `session already open: 'main'`. The retry
-        # inherited the first attempt's environment and failed for a
-        # reason the founder's request had nothing to do with -- a worse
-        # outcome than the honest failure it was trying to improve on.
-        #
-        # `recovery_for` already says a new attempt must differ
-        # materially in source, method, capability, environment,
-        # evidence question or strategy. An identical intent differs in
-        # none of them, so the surface was violating the very rule it
-        # was relaying. Real recovery needs the Planner to plan AROUND
-        # what is already satisfied and around environment the last
-        # attempt left behind -- which is the next P0, not something to
-        # approximate here where approximating it costs the founder a
-        # second failure.
-        logging.info(
-            "recovery available but not attempted (%s): %s",
-            decision.failure_class, decision.reason,
-        )
         status.recovery = decision.as_dict()
-        break
+
+        # What the first attempt learned, carried into the second.
+        #
+        # An earlier version re-submitted the SAME intent and made things
+        # worse: the new plan opened a browser session the failed attempt
+        # still held, and the mission died on `session already open`. The
+        # rule `recovery_for` states -- a new attempt must differ
+        # materially in source, method, capability, environment, evidence
+        # question or strategy -- was being relayed and then violated.
+        #
+        # What differs now is knowledge, not identity. Same Intent, same
+        # requirement ids, same founder evidence; the Planner is
+        # additionally told which routes were already tried and which
+        # requirements are already satisfied, so it can plan around both.
+        # The environment is released first, so the second attempt does
+        # not inherit the first one's leftovers.
+        before = _mission_progress(
+            mission_control, intent_result.intent, objective_id
+        )
+        if before is None:
+            break
+        logging.info(
+            "recovery %s (%s): satisfied=%s unresolved=%s failed=%s",
+            attempts, decision.failure_class, list(before.satisfied),
+            list(before.unresolved), list(before.failed_routes),
+        )
+        _release_task_browsers()
+        intent_result.intent.context["recovery"] = before.as_dict()
+
+        retried = mission_service.start(intent_result.intent)
+        if not retried.accepted:
+            break
+        objective_id = retried.objective_id
+        _drive_until_settled(runtime, mission_control, status, objective_id,
+                             timeout_seconds)
+
+        # Did that change anything that matters?
+        after = _mission_progress(
+            mission_control, intent_result.intent, objective_id
+        )
+        if after is None:
+            break
+        if no_useful_progress(before, after):
+            # Same requirement standing, no new Evidence, no route
+            # eliminated. Going round again here would be a loop wearing
+            # the costume of persistence, and the founder would wait
+            # through every lap of it.
+            logging.info(
+                "no useful progress on attempt %s; changing nothing further",
+                attempts,
+            )
+            break
 
     state = mission_control.founder_state(objective_id)
 
