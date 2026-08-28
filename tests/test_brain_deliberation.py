@@ -330,3 +330,118 @@ class TestTheBrainKeepsItsHandsOff:
         source = inspect.getsource(deliberation)
         assert "matched" not in source.lower().replace("not_matched", "")
         assert "class Verdict" not in source
+
+
+# =====================================================================
+# Method failure is not objective failure
+# =====================================================================
+
+
+class TestRecovery:
+    """The founder saw "That didn't complete." about a mission that never
+    reached the web. One step failed to open a browser; the objective was
+    declared failed 1.3 seconds later; nine planned steps never ran, and
+    at least two of them named different sources.
+
+    `MissionDispatcher` was right to stop -- its own comment says
+    auto-retry "would be a strategic recovery decision, which belongs to
+    the Brain". The seam was correct and nothing stood behind it."""
+
+    def test_a_failed_source_with_alternatives_is_a_method_failure(self):
+        from master_agent.brain.deliberation import METHOD_FAILURE, classify_failure
+
+        assert classify_failure(
+            unmet_requirements=["req_1"], alternatives_available=True
+        ) == METHOD_FAILURE
+
+    def test_only_no_safe_route_left_is_an_objective_failure(self):
+        from master_agent.brain.deliberation import OBJECTIVE_FAILURE, classify_failure
+
+        assert classify_failure(
+            unmet_requirements=["req_1"], alternatives_available=False
+        ) == OBJECTIVE_FAILURE
+
+    def test_nothing_unmet_is_only_a_source_failure(self):
+        """A site that would not answer, on a mission that got what it
+        needed anyway, is not a failure the founder should hear about as
+        one."""
+        from master_agent.brain.deliberation import SOURCE_FAILURE, classify_failure
+
+        assert classify_failure(
+            unmet_requirements=[], alternatives_available=False
+        ) == SOURCE_FAILURE
+
+    def test_it_replans_while_a_requirement_is_unmet_and_a_route_remains(self):
+        from master_agent.brain.deliberation import recovery_for
+
+        decision = recovery_for(
+            unmet_requirements=["req_1", "req_2"], alternatives_available=True
+        )
+        assert decision.should_replan is True
+        assert decision.attempts_remaining == 2
+
+    def test_it_does_not_replan_a_satisfied_objective(self):
+        from master_agent.brain.deliberation import recovery_for
+
+        decision = recovery_for(
+            unmet_requirements=[], alternatives_available=True
+        )
+        assert decision.should_replan is False
+        assert "already satisfied" in decision.reason
+
+    def test_recovery_is_bounded(self):
+        """Recovery exists to survive a bad source, not to grind. Every
+        attempt is time the founder sits through."""
+        from master_agent.brain.deliberation import recovery_for
+
+        decision = recovery_for(
+            unmet_requirements=["req_1"], alternatives_available=True,
+            attempts_used=2, budget=2,
+        )
+        assert decision.should_replan is False
+        assert "budget" in decision.reason
+        assert decision.attempts_remaining == 0
+
+    def test_repeating_a_failed_method_is_not_recovery(self):
+        from master_agent.brain.deliberation import recovery_for
+
+        decision = recovery_for(
+            unmet_requirements=["req_1"], alternatives_available=True,
+            previous_methods=["navigate steam"], proposed_method="navigate steam",
+        )
+        assert decision.should_replan is False
+        assert "already tried" in decision.reason
+
+    def test_a_transient_failure_may_legitimately_retry_the_same_method(self):
+        """The one exception, and it has to be established from Evidence
+        rather than assumed -- otherwise every failure becomes
+        "transient" and the bound disappears."""
+        from master_agent.brain.deliberation import recovery_for
+
+        decision = recovery_for(
+            unmet_requirements=["req_1"], alternatives_available=False,
+            previous_methods=["navigate steam"], proposed_method="navigate steam",
+            transient=True,
+        )
+        assert decision.should_replan is True
+
+    def test_a_new_attempt_must_differ_in_something_nameable(self):
+        from master_agent.brain.deliberation import DIFFERENTIATORS, recovery_for
+
+        decision = recovery_for(
+            unmet_requirements=["req_1"], alternatives_available=True
+        )
+        assert decision.must_differ == DIFFERENTIATORS
+        assert "try again" not in DIFFERENTIATORS
+
+    def test_exhausted_recovery_still_names_the_failure_class(self):
+        """The founder is owed what kind of failure it was even when
+        nothing more will be attempted."""
+        from master_agent.brain.deliberation import recovery_for
+
+        decision = recovery_for(
+            unmet_requirements=["req_1"], alternatives_available=True,
+            attempts_used=5, budget=2,
+        )
+        assert decision.failure_class in ("method_failure", "objective_failure")
+        assert decision.should_replan is False

@@ -526,3 +526,146 @@ def sufficient(
         return True, "no candidate can satisfy the mandatory criteria"
 
     return True, "every mandatory criterion is established for at least one candidate"
+
+
+# ---------------------------------------------------------------------
+# Method failure is not objective failure
+# ---------------------------------------------------------------------
+
+#: One source could not supply evidence. Other sources exist.
+SOURCE_FAILURE = "source_failure"
+#: This plan cannot continue. The objective may still be reachable.
+METHOD_FAILURE = "method_failure"
+#: No safe executable route remains within policy and budget.
+OBJECTIVE_FAILURE = "objective_failure"
+
+FAILURE_CLASSES: tuple[str, ...] = (
+    SOURCE_FAILURE, METHOD_FAILURE, OBJECTIVE_FAILURE,
+)
+
+
+@dataclass(frozen=True)
+class RecoveryDecision:
+    """Whether a failed method is worth replacing, and with what.
+
+    The founder saw *"That didn't complete."* about a mission that had
+    never reached the web: one step failed to open a browser and the
+    objective was declared failed 1.3 seconds later. Nine planned steps
+    never ran, and at least two of them named different sources.
+
+    `MissionDispatcher` was right to stop -- its own comment says
+    auto-retry "would be a strategic recovery decision, which belongs to
+    the Brain". The seam was correct and nothing stood behind it.
+    """
+
+    failure_class: str
+    should_replan: bool
+    reason: str
+    #: What the next attempt must change. A re-plan that differs in
+    #: nothing is the same plan run twice.
+    must_differ: tuple[str, ...] = ()
+    attempts_remaining: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "failure_class": self.failure_class,
+            "should_replan": self.should_replan,
+            "reason": self.reason,
+            "must_differ": list(self.must_differ),
+            "attempts_remaining": self.attempts_remaining,
+        }
+
+
+#: How many times one mission may change its method. Small on purpose:
+#: recovery exists to survive a bad source, not to grind. Each attempt
+#: costs the founder time they are sitting through.
+DEFAULT_RECOVERY_BUDGET = 2
+
+#: What a new attempt may differ in. Closed, because "try again" is not a
+#: difference and retrying an identical plan is the loop this bounds.
+DIFFERENTIATORS: tuple[str, ...] = (
+    "source", "method", "capability", "environment",
+    "evidence_question", "strategy",
+)
+
+
+def classify_failure(
+    *,
+    unmet_requirements: Sequence[str],
+    alternatives_available: bool,
+    transient: bool = False,
+) -> str:
+    """Which of the three failures this is.
+
+    The distinction the founder paid for. A site that will not answer is
+    a SOURCE failure; a plan that cannot continue is a METHOD failure;
+    only "nothing safe remains" is an OBJECTIVE failure. Collapsing the
+    first two into the third is how a founder is told their request
+    cannot be done when it was never attempted.
+    """
+    if not unmet_requirements:
+        return SOURCE_FAILURE
+    if alternatives_available or transient:
+        return METHOD_FAILURE
+    return OBJECTIVE_FAILURE
+
+
+def recovery_for(
+    *,
+    unmet_requirements: Sequence[str],
+    alternatives_available: bool,
+    attempts_used: int = 0,
+    budget: int = DEFAULT_RECOVERY_BUDGET,
+    transient: bool = False,
+    previous_methods: Sequence[str] = (),
+    proposed_method: str = "",
+) -> RecoveryDecision:
+    """Is another attempt worth making, and what must it change?
+
+    Bounded in both directions. It refuses to give up while a safe
+    untried route exists and a requirement is unmet; it equally refuses
+    to keep going once the budget is spent, once nothing is left to try,
+    or once the only proposal on offer repeats something already tried.
+    """
+    failure_class = classify_failure(
+        unmet_requirements=unmet_requirements,
+        alternatives_available=alternatives_available,
+        transient=transient,
+    )
+    remaining = max(0, budget - attempts_used)
+
+    if not unmet_requirements:
+        return RecoveryDecision(
+            failure_class, False,
+            "every founder requirement is already satisfied",
+            attempts_remaining=remaining,
+        )
+    if remaining <= 0:
+        return RecoveryDecision(
+            failure_class, False,
+            "the recovery budget for this mission is spent",
+            attempts_remaining=0,
+        )
+    if not alternatives_available and not transient:
+        return RecoveryDecision(
+            OBJECTIVE_FAILURE, False,
+            "no safe alternative method remains",
+            attempts_remaining=remaining,
+        )
+    if proposed_method and proposed_method in set(previous_methods):
+        # Repeating a method that already failed is not recovery. The
+        # exception is a genuinely transient failure, where the SAME
+        # method is the right thing to try -- and that is why `transient`
+        # has to be established from Evidence rather than assumed.
+        if not transient:
+            return RecoveryDecision(
+                failure_class, False,
+                f"the proposed method was already tried and failed: {proposed_method}",
+                must_differ=DIFFERENTIATORS, attempts_remaining=remaining,
+            )
+
+    return RecoveryDecision(
+        failure_class, True,
+        "a founder requirement is unmet and a safe untried route remains",
+        must_differ=DIFFERENTIATORS, attempts_remaining=remaining,
+    )
