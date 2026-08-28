@@ -1574,6 +1574,81 @@ def _build_mission_pipeline():
             _set_mode, interactions, decide_approval)
 
 
+class _ExecutionThread:
+    """One long-lived thread that every Runtime step runs on.
+
+    ## The failure this exists for
+
+    Founder acceptance died here, verbatim:
+
+        failed to open browser session: cannot switch to a different
+        thread (which happens to have exited)
+
+    Playwright's synchronous API is bound to the thread that started its
+    driver, and `BrowserSessionManager` caches that driver for the life
+    of the process -- correctly, because one driver per manager is the
+    Constitution's Environment Session Manager rule. The founder surface
+    answers each message on a **different, short-lived HTTP worker
+    thread** from the JS-API server's pool. So the first mission started
+    the driver on a thread that then exited, and the next Playwright call
+    from any later thread hit exactly the error above.
+
+    Reproduced directly against the real manager before this was written:
+    open a session on a thread, let that thread exit, open another from a
+    second thread, and the second raises that sentence.
+
+    ## Why the fix is here and not in the browser code
+
+    Marshalling inside `BrowserSessionManager` would not be enough. The
+    Browser actions hold `Page` objects and call `page.goto(...)`,
+    `locator(...).click()` and the rest directly, and those objects carry
+    the same thread affinity -- so the manager could hand back a working
+    session that the very next line still could not use.
+
+    The defect is not that Playwright is fussy. It is that mission
+    execution ran on whichever HTTP worker happened to arrive. A Runtime
+    step may hold any thread-affine resource; giving execution one stable
+    thread fixes the whole class rather than one library.
+
+    Not a scheduler and not a second orchestration authority: it decides
+    nothing, holds no mission state, and runs exactly what
+    `_drive_until_settled` already ran, in the order it already ran it.
+    The caller still blocks on the result, so ordering and back-pressure
+    are unchanged.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pool = None
+
+    def run(self, call):
+        """Run `call` on the execution thread and return its result.
+
+        Exceptions propagate to the caller unchanged, so every existing
+        error path -- refusals, failures, the founder-facing sentences --
+        behaves exactly as it did when this ran inline.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        with self._lock:
+            if self._pool is None:
+                # `max_workers=1` IS the contract here, not a tuning
+                # choice: a second worker would reintroduce the exact
+                # defect this class exists to remove.
+                self._pool = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="kalpavriksha-exec"
+                )
+            pool = self._pool
+        return pool.submit(call).result()
+
+
+#: Process-wide, because the thread affinity being protected is
+#: process-wide: one Playwright driver, one browser, one execution
+#: thread. A per-mission thread would put the second mission back on a
+#: different thread from the driver the first one started.
+_EXECUTION = _ExecutionThread()
+
+
 def _drive_until_settled(runtime, mission_control, status, objective_id,
                          timeout_seconds: float) -> None:
     """Turn the Runtime until this objective settles or waits on a human.
@@ -1618,7 +1693,8 @@ def _drive_until_settled(runtime, mission_control, status, objective_id,
     while _time.monotonic() < deadline and not (
         objective.is_complete or objective.has_failure
     ):
-        runtime.run_once()
+        # On the one execution thread, always. See `_ExecutionThread`.
+        _EXECUTION.run(runtime.run_once)
         objective = mission_control.dispatcher.objective(objective_id)
 
         # **The deadline bounds silence, not work.**
