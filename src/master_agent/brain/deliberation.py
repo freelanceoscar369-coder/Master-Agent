@@ -758,3 +758,243 @@ def frame_for(
             "the research budget for this mission is reached",
         ),
     )
+
+
+# ---------------------------------------------------------------------
+# Turning observations into a decision
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Observation:
+    """One thing a Worker actually saw, with its canonical Evidence id.
+
+    A Worker reports *what a page said*. It does not report whether that
+    qualifies -- that is the Brain's, and keeping the two apart is the
+    whole reason this type exists rather than passing raw text around.
+    """
+
+    evidence_id: str
+    text: str
+    source_class: str = DISCOVERY
+    url: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "evidence_id": self.evidence_id,
+            "text": self.text,
+            "source_class": self.source_class,
+            "url": self.url,
+        }
+
+
+def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]) -> str:
+    lines = [
+        "You are reading observations that were gathered for one decision.",
+        "",
+        f"THE DECISION: {frame.objective}",
+        "",
+        "CRITERIA. Each candidate must be reported against every one:",
+    ]
+    for criterion in frame.mandatory:
+        lines.append(f"  {criterion.criterion_id}: {criterion.description}")
+    lines += ["", "OBSERVATIONS. Each carries an evidence id you must cite:"]
+    for observation in observations:
+        lines.append(
+            f"  [{observation.evidence_id}] ({observation.source_class}) "
+            f"{observation.text[:1500]}"
+        )
+    lines += [
+        "",
+        "Reply with JSON only:",
+        '  {"candidates": [{"id": "...", "summary": "...",',
+        '     "criteria": {"<criterion_id>": {"state": "met|unmet|unverified",',
+        '                                     "evidence_id": "<id or empty>"}}}]}',
+        "",
+        "Rules. Report only what the observations SUPPORT. A state of met "
+        "requires an evidence id from the list above that actually shows it; "
+        "if the observations do not establish a criterion, say unverified -- "
+        "that is a useful answer and guessing is not. A state of unmet means "
+        "an observation shows it is false, not that you could not find it. "
+        "Do not add candidates the observations do not mention.",
+    ]
+    return "\n".join(lines)
+
+
+def candidates_from(
+    frame: DecisionFrame,
+    observations: Sequence[Observation],
+    reasoner: Any = None,
+) -> tuple[Candidate, ...]:
+    """What the observations offer as options, structurally validated.
+
+    A model reads prose into structure here, and that is all it does. It
+    does not decide what qualifies: `shortlist()` does, deterministically,
+    from the states below.
+
+    ## The guard that matters
+
+    Every `met` must cite an evidence id that was actually supplied. A
+    model asserting a criterion with no reference -- or citing an id
+    nobody gave it -- has its claim **downgraded to `unverified`**, not
+    accepted and not discarded. That is the difference between "the demo
+    is free" and "something said the demo is free", and it is exactly
+    where a research answer turns into a dead link in a founder's hands.
+
+    ADR-0026 settled the principle: prompt compliance is not a
+    constraint. The instruction above asks the model not to guess; this
+    check is what makes it true.
+    """
+    if reasoner is None or not observations or not frame.mandatory:
+        return ()
+
+    from master_agent.ai_infrastructure.budgeted_request import (
+        BudgetedSelectionRequest,
+    )
+    from master_agent.ai_infrastructure.workload import INTERACTIVE
+    from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+
+    prompt = _extraction_prompt(frame, observations)
+    context = RoutingContext(
+        is_online=True,
+        # Reading several sources into candidates is a real judgement,
+        # unlike the narrow field extraction the Intent Layer does.
+        requires_strong_reasoning=True,
+        capability="reasoning.transform",
+        requester="brain_deliberation_candidates",
+    )
+    request = BudgetedSelectionRequest(
+        **vars(SelectionRequest.from_context(context)),
+        request_class=INTERACTIVE,
+        prompt=prompt,
+    )
+    try:
+        outcome = reasoner.run(prompt, request)
+    except Exception:  # noqa: BLE001 -- a dead ladder decides nothing
+        return ()
+    if outcome is None or not getattr(outcome, "ok", False):
+        return ()
+
+    import json
+    import re
+
+    text = getattr(outcome, "text", "") or ""
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return ()
+    try:
+        document = json.loads(match.group(0))
+    except Exception:  # noqa: BLE001 -- unverified output never becomes a decision
+        return ()
+
+    known_criteria = {c.criterion_id for c in frame.mandatory}
+    known_evidence = {o.evidence_id for o in observations}
+    built: list[Candidate] = []
+
+    for index, row in enumerate(document.get("candidates") or [], start=1):
+        if not isinstance(row, dict):
+            continue
+        summary = str(row.get("summary") or row.get("id") or "").strip()
+        if not summary:
+            continue
+        states: dict[str, str] = {}
+        supporting: list[str] = []
+        unknowns: list[str] = []
+        offered = row.get("criteria")
+        if not isinstance(offered, dict):
+            offered = {}
+        for criterion_id in known_criteria:
+            claim = offered.get(criterion_id)
+            if not isinstance(claim, dict):
+                states[criterion_id] = UNVERIFIED
+                continue
+            state = str(claim.get("state") or "").strip().lower()
+            evidence_id = str(claim.get("evidence_id") or "").strip()
+            if state not in CRITERION_STATES:
+                states[criterion_id] = UNVERIFIED
+                continue
+            if state == MET and evidence_id not in known_evidence:
+                # Asserted without anything to stand on. Downgraded
+                # rather than believed -- this is the line between a
+                # supported link and a plausible one.
+                states[criterion_id] = UNVERIFIED
+                unknowns.append(
+                    f"{criterion_id} was claimed met with no usable evidence"
+                )
+                continue
+            states[criterion_id] = state
+            if evidence_id in known_evidence and evidence_id not in supporting:
+                supporting.append(evidence_id)
+        built.append(Candidate(
+            candidate_id=str(row.get("id") or f"cand_{index}"),
+            summary=summary,
+            criteria=states,
+            supporting=tuple(supporting),
+            unknowns=tuple(unknowns),
+        ))
+    return tuple(built)
+
+
+def deliberate(
+    frame: DecisionFrame,
+    observations: Sequence[Observation],
+    reasoner: Any = None,
+    *,
+    budget_exhausted: bool = False,
+) -> DeliberationResult:
+    """The whole decision, from what was observed to what is concluded.
+
+    The model's only job was reading prose into structure. Everything
+    from here is arithmetic over that structure: which candidates cleared
+    their criteria, whether sources disagree, and whether the evidence is
+    enough. A model asked to grade this would be a model grading a model.
+    """
+    candidates = candidates_from(frame, observations, reasoner)
+
+    by_evidence = {o.evidence_id: o for o in observations}
+    assessments = tuple(
+        EvidenceAssessment(
+            claim=f"{candidate.summary}: {criterion_id}",
+            evidence_ids=candidate.supporting,
+            requirement_id=next(
+                (c.requirement_id for c in frame.mandatory
+                 if c.criterion_id == criterion_id), "",
+            ),
+            source_class=next(
+                (by_evidence[e].source_class for e in candidate.supporting
+                 if e in by_evidence), DISCOVERY,
+            ),
+            state=FACT if state == MET else UNKNOWN,
+        )
+        for candidate in candidates
+        for criterion_id, state in (candidate.criteria or {}).items()
+    )
+    settled = adjudicate(assessments)
+    selected, rejected = shortlist(candidates, frame)
+    stop, why = sufficient(
+        frame, candidates, settled, budget_exhausted=budget_exhausted
+    )
+
+    contested = tuple(a.claim for a in settled if a.state == CONFLICT)
+    unresolved = tuple(dict.fromkeys(
+        list(contested)
+        + [u for candidate in candidates for u in candidate.unknowns]
+    ))
+
+    if contested:
+        state = CONTESTED
+    elif selected and stop:
+        state = DECIDED
+    else:
+        state = INSUFFICIENT_EVIDENCE
+
+    return DeliberationResult(
+        state=state,
+        shortlist=selected,
+        rejected=rejected,
+        rationale=why,
+        requirement_ids=frame.requirement_ids,
+        unresolved=unresolved,
+        more_research=not stop,
+        founder_decision_required=False,
+    )

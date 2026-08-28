@@ -309,15 +309,43 @@ class TestTheBrainKeepsItsHandsOff:
     def test_the_discipline_asks_no_model(self):
         """Deciding whether a candidate cleared its criteria is
         arithmetic. A model asked to grade it would be a model grading a
-        model, which ADR-0011 exists to prevent."""
+        model, which ADR-0011 exists to prevent.
+
+        Asserted function by function rather than over the module,
+        because the module now also owns ONE reasoning door --
+        `candidates_from`, which reads prose into structure and decides
+        nothing. Narrowing this guard to the judgement functions is the
+        point of it: extraction may ask a model, adjudication may not.
+        """
         import inspect
 
         from master_agent.brain import deliberation
 
-        source = inspect.getsource(deliberation).lower()
-        for forbidden in ("runner.run", "budgetedselection", "routingcontext",
-                          "prompt ="):
-            assert forbidden not in source, forbidden
+        for judgement in (deliberation.shortlist, deliberation.adjudicate,
+                          deliberation.sufficient, deliberation.serves,
+                          deliberation.depth_for, deliberation.frame_for,
+                          deliberation.recovery_for,
+                          deliberation.classify_failure):
+            source = inspect.getsource(judgement).lower()
+            for forbidden in ("runner.run", ".run(", "budgetedselection",
+                              "routingcontext", "prompt"):
+                assert forbidden not in source, (
+                    f"{judgement.__name__} reaches a model for a judgement "
+                    f"that is arithmetic: {forbidden}"
+                )
+
+    def test_the_one_reasoning_door_only_extracts(self):
+        """`candidates_from` may read prose. It may not conclude: the
+        states it returns are fed to `shortlist()`, which decides."""
+        from master_agent.brain import deliberation
+
+        # The compiled names it actually references, not its prose --
+        # the docstring legitimately explains that `shortlist()` is what
+        # decides, and a text search would trip over the explanation.
+        called = set(deliberation.candidates_from.__code__.co_names)
+        assert "shortlist" not in called
+        assert "DeliberationResult" not in called
+        assert "sufficient" not in called
 
     def test_it_produces_no_verdict_and_no_evidence(self):
         """Reasoning says "option A appears strongest". Verification says
@@ -654,3 +682,248 @@ class TestTheSurfaceAsksTheBrainAndDecidesNothing:
         assert "recovery_for" in source
         for invented in ("range(", "< 3", "<= 3", "max_retries", "MAX_"):
             assert invented not in source, invented
+
+
+# =====================================================================
+# Observations become a decision, and a model cannot smuggle one in
+# =====================================================================
+
+
+class TestCandidateConstruction:
+    """The model reads prose into structure. It decides nothing.
+
+    Every case below is a way an attractive answer is unsupported, which
+    is how a research reply turns into a dead link in a founder's hands.
+    """
+
+    OBS = None
+
+    def observations(self):
+        from master_agent.brain.deliberation import (
+            CORROBORATION, DISCOVERY, PRIMARY, Observation,
+        )
+
+        return (
+            Observation("ev1", "Ashen Vale is an action RPG, released 2026. "
+                               "A free demo is on the official page.",
+                        source_class=PRIMARY, url="https://example.invalid/a"),
+            Observation("ev2", "Ashen Vale looks great", source_class=DISCOVERY),
+            Observation("ev3", "Mirebound: action RPG, 2026.",
+                        source_class=CORROBORATION),
+        )
+
+    def reasoner(self, payload):
+        import json
+
+        class R:
+            def __init__(self, text):
+                self.text = text
+                self.prompts = []
+
+            def run(self, prompt, request, **kwargs):
+                self.prompts.append(prompt)
+                outer = self
+
+                class Outcome:
+                    ok = True
+                    text = outer.text
+
+                return Outcome()
+
+        return R(json.dumps(payload))
+
+    def test_a_fully_supported_candidate_survives(self):
+        from master_agent.brain.deliberation import MET, candidates_from
+
+        reasoner = self.reasoner({"candidates": [{
+            "id": "ashen", "summary": "Ashen Vale",
+            "criteria": {c: {"state": "met", "evidence_id": "ev1"}
+                         for c in ("c1", "c2", "c3", "c4")},
+        }]})
+        built = candidates_from(FRAME, self.observations(), reasoner)
+        assert len(built) == 1
+        assert set(built[0].criteria.values()) == {MET}
+        assert built[0].supporting == ("ev1",)
+
+    def test_a_met_with_no_evidence_is_downgraded_not_believed(self):
+        """The guard that matters. "The demo is free" and "something said
+        the demo is free" are different claims, and only one of them
+        belongs in a founder's hands."""
+        from master_agent.brain.deliberation import UNVERIFIED, candidates_from
+
+        reasoner = self.reasoner({"candidates": [{
+            "id": "ashen", "summary": "Ashen Vale",
+            "criteria": {
+                "c1": {"state": "met", "evidence_id": "ev1"},
+                "c2": {"state": "met", "evidence_id": "ev1"},
+                "c3": {"state": "met", "evidence_id": ""},
+                "c4": {"state": "met", "evidence_id": "ev1"},
+            },
+        }]})
+        built = candidates_from(FRAME, self.observations(), reasoner)
+        assert built[0].criteria["c3"] == UNVERIFIED
+        assert any("c3" in u for u in built[0].unknowns)
+
+    def test_an_invented_evidence_id_is_downgraded(self):
+        """Citing a reference nobody supplied is the same failure wearing
+        a citation."""
+        from master_agent.brain.deliberation import UNVERIFIED, candidates_from
+
+        reasoner = self.reasoner({"candidates": [{
+            "id": "ghost", "summary": "Ghostlight",
+            "criteria": {c: {"state": "met", "evidence_id": "ev99"}
+                         for c in ("c1", "c2", "c3", "c4")},
+        }]})
+        built = candidates_from(FRAME, self.observations(), reasoner)
+        assert set(built[0].criteria.values()) == {UNVERIFIED}
+        assert built[0].supporting == ()
+
+    def test_a_criterion_the_model_omitted_is_unverified(self):
+        """Silence is not a pass."""
+        from master_agent.brain.deliberation import UNVERIFIED, candidates_from
+
+        reasoner = self.reasoner({"candidates": [{
+            "id": "ashen", "summary": "Ashen Vale",
+            "criteria": {"c1": {"state": "met", "evidence_id": "ev1"}},
+        }]})
+        built = candidates_from(FRAME, self.observations(), reasoner)
+        for criterion in ("c2", "c3", "c4"):
+            assert built[0].criteria[criterion] == UNVERIFIED
+
+    def test_an_unusable_reply_yields_no_candidates(self):
+        from master_agent.brain.deliberation import candidates_from
+
+        class Broken:
+            def run(self, prompt, request, **kwargs):
+                class Outcome:
+                    ok = True
+                    text = "I could not do that"
+
+                return Outcome()
+
+        assert candidates_from(FRAME, self.observations(), Broken()) == ()
+
+    def test_a_dead_reasoner_yields_no_candidates_and_does_not_raise(self):
+        from master_agent.brain.deliberation import candidates_from
+
+        class Dead:
+            def run(self, prompt, request, **kwargs):
+                raise RuntimeError("no provider configured")
+
+        assert candidates_from(FRAME, self.observations(), Dead()) == ()
+
+    def test_no_reasoner_means_no_candidates(self):
+        from master_agent.brain.deliberation import candidates_from
+
+        assert candidates_from(FRAME, self.observations(), None) == ()
+
+    def test_the_prompt_carries_the_evidence_ids_it_demands_be_cited(self):
+        from master_agent.brain.deliberation import candidates_from
+
+        reasoner = self.reasoner({"candidates": []})
+        candidates_from(FRAME, self.observations(), reasoner)
+        prompt = reasoner.prompts[0]
+        for evidence_id in ("ev1", "ev2", "ev3"):
+            assert evidence_id in prompt
+        for criterion in ("c1", "c2", "c3", "c4"):
+            assert criterion in prompt
+
+    def test_it_names_no_provider(self):
+        """The Brain states what reasoning it needs. The Broker decides
+        who does it (ADR-0017)."""
+        import inspect
+
+        from master_agent.brain import deliberation
+
+        source = inspect.getsource(deliberation.candidates_from).lower()
+        for provider in ("gemini", "openrouter", "chatgpt", "claude",
+                         "ollama", "perplexity", "kimi"):
+            assert provider not in source, provider
+
+
+class TestTheWholeDecision:
+    def observations(self):
+        from master_agent.brain.deliberation import PRIMARY, Observation
+
+        return (Observation("ev1", "Ashen Vale, action RPG, 2026, free demo.",
+                            source_class=PRIMARY),)
+
+    def reasoner(self, payload):
+        import json
+
+        class R:
+            def run(self, prompt, request, **kwargs):
+                class Outcome:
+                    ok = True
+                    text = json.dumps(payload)
+
+                return Outcome()
+
+        return R()
+
+    def test_a_supported_candidate_produces_a_decision(self):
+        from master_agent.brain.deliberation import DECIDED, deliberate
+
+        result = deliberate(FRAME, self.observations(), self.reasoner(
+            {"candidates": [{"id": "a", "summary": "Ashen Vale",
+                             "criteria": {c: {"state": "met",
+                                              "evidence_id": "ev1"}
+                                          for c in ("c1", "c2", "c3", "c4")}}]}
+        ))
+        assert result.state == DECIDED
+        assert [c.summary for c in result.shortlist] == ["Ashen Vale"]
+        assert result.more_research is False
+
+    def test_an_unsupported_candidate_is_rejected_and_research_continues(self):
+        """No candidate qualified, and the honest answer is that the
+        question is still open -- not an empty list presented as an
+        answer."""
+        from master_agent.brain.deliberation import (
+            INSUFFICIENT_EVIDENCE, deliberate,
+        )
+
+        result = deliberate(FRAME, self.observations(), self.reasoner(
+            {"candidates": [{"id": "a", "summary": "Ashen Vale",
+                             "criteria": {
+                                 "c1": {"state": "met", "evidence_id": "ev1"},
+                                 "c2": {"state": "met", "evidence_id": "ev1"},
+                                 "c3": {"state": "met", "evidence_id": ""},
+                                 "c4": {"state": "met", "evidence_id": "ev1"},
+                             }}]}
+        ))
+        assert result.state == INSUFFICIENT_EVIDENCE
+        assert result.shortlist == ()
+        assert result.rejected and result.rejected[0].unverified
+        assert result.more_research is True
+
+    def test_the_result_names_the_requirements_it_serves(self):
+        from master_agent.brain.deliberation import deliberate
+
+        result = deliberate(FRAME, self.observations(), self.reasoner(
+            {"candidates": []}
+        ))
+        assert result.requirement_ids == FRAME.requirement_ids
+
+    def test_no_observations_means_no_decision_and_more_research(self):
+        from master_agent.brain.deliberation import deliberate
+
+        result = deliberate(FRAME, (), self.reasoner({"candidates": []}))
+        assert result.shortlist == ()
+        assert result.more_research is True
+
+    def test_it_stores_no_chain_of_thought(self):
+        """Reviewable conclusions, evidence references and reasons. Not a
+        transcript."""
+        from master_agent.brain.deliberation import deliberate
+
+        result = deliberate(FRAME, self.observations(), self.reasoner(
+            {"candidates": [{"id": "a", "summary": "Ashen Vale",
+                             "criteria": {c: {"state": "met",
+                                              "evidence_id": "ev1"}
+                                          for c in ("c1", "c2", "c3", "c4")}}]}
+        ))
+        stored = result.as_dict()
+        blob = str(stored).lower()
+        for leak in ("you are reading observations", "reply with json",
+                     "rules.", "criteria. each candidate"):
+            assert leak not in blob, leak
