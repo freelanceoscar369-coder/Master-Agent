@@ -28,6 +28,7 @@ production table.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -41,6 +42,7 @@ os.environ.setdefault("KALPAVRIKSHA_DISABLE_MIC", "1")
 
 import kalpavriksha_desktop as kd  # noqa: E402
 from master_agent.brain.conformance import assess  # noqa: E402
+from master_agent.brain.intent import ClarificationQuestion  # noqa: E402
 
 DESKTOP = Path(os.path.expanduser("~")) / "Desktop"
 STAMP = time.strftime("%H%M%S")
@@ -260,6 +262,66 @@ def main() -> int:
                   "the name the founder gave was read, not asked for again")
     cases.append(project)
 
+    # NESTED DESTINATION -- resolution only, deliberately.
+    #
+    # Executing this would create a real folder inside the founder's own
+    # D:\Onkar. Proving the system UNDERSTANDS the destination is what
+    # this class is for; creating founder data to prove it is not mine to
+    # decide. The capability half is proved separately, against the
+    # Action contract, in test_semantic_correspondence.py.
+    nested = Case("NESTED DESTINATION — a folder inside a place",
+                  "create a folder", [f"KVNest_{STAMP}", "d drive in Onkar folder"])
+    payload, still = conversation(nested)
+    nested.check(bool(payload), f"the conversation converged ({still})")
+    nested.check((payload or {}).get("location") == "d_drive",
+                 "the place was read")
+    nested.check((payload or {}).get("name") == f"Onkar/KVNest_{STAMP}",
+                 "the parent folder was read, not discarded")
+    cases.append(nested)
+
+    # AI CANDIDATE: LEGAL BUT INCOMPLETE.
+    #
+    # The one class that cannot be driven by the real model, because it
+    # requires the model to return a specific wrong answer on demand. So
+    # the production layer is rebuilt with its OWN vocabulary and only
+    # the reasoning door replaced -- this is the real guard, fed the real
+    # answer the production model gave on the night it failed.
+    class OneAnswer:
+        def __init__(self, text): self.text = text
+        def run(self, prompt, request, **kwargs):
+            class Outcome:
+                ok = True
+                text = self.text
+            return Outcome()
+
+    from master_agent.brain.intent import IntentLayer as _Layer
+
+    incomplete = Case("AI CANDIDATE — a legal value that answers half the reply",
+                      "create a folder", ["d drive in onkar folder"])
+    forced = _Layer(
+        reasoner=OneAnswer(json.dumps(
+            {"fields": {"location": "d_drive"}, "ambiguous": False}
+        )),
+        vocabularies=dict(vocabulary),
+    )
+    verdict = forced.clarify(
+        "create a folder", "d drive in onkar folder",
+        ClarificationQuestion(
+            question="Where should I create the KVFoo folder?",
+            key="location", gathering=("folder_name", "location", "parent"),
+        ),
+        supplied={"folder_name": "KVFoo"}, evidence={},
+    )
+    incomplete.notes["model returned"] = '{"location": "d_drive"}'
+    incomplete.notes["outcome"] = (
+        "asks" if verdict.needs_clarification else dict(verdict.intent.payload)
+    )
+    incomplete.check(
+        verdict.needs_clarification,
+        "a legal vocabulary value that leaves 'onkar' unread is refused",
+    )
+    cases.append(incomplete)
+
     banner("INTENT CONFORMANCE")
     for case in cases:
         case.report()
@@ -362,6 +424,58 @@ def main() -> int:
         )
     executed.report()
     cases.append(executed)
+
+    # ---- an unsettled reading may not become work ------------------
+    banner("UNCERTAIN INTENT — the admission gate, on the real service")
+    blocked = Case("UNCERTAIN — a mission the system does not stand behind",
+                   "create a folder", ["(interpretation marked uncertain)"])
+    from master_agent.planner.plan import (
+        CONSTRAINT, UNCERTAIN, Intent as _Intent, SemanticRequirement,
+    )
+
+    unsure = _Intent(
+        goal="create a folder", constraints=[],
+        context={"raw_input": "create a folder"}, success_criteria=[],
+    )
+    unsure.requirements = (SemanticRequirement(
+        "req_2", CONSTRAINT, "location = d_drive",
+        founder_evidence="d drive in Onkar folder", interpretation=UNCERTAIN,
+    ),)
+    refused = service.start(unsure)
+    blocked.notes["status"] = refused.status
+    blocked.notes["reason"] = getattr(refused.refusal, "reason", "")
+    blocked.check(not refused.accepted, "the mission was not admitted")
+    blocked.check(
+        getattr(refused.refusal, "code", "") == "unsettled_interpretation",
+        "refused for the right reason, not by accident",
+    )
+    blocked.check(
+        "d drive in Onkar folder" in getattr(refused.refusal, "detail", ""),
+        "the founder's own words are quoted back, not 'something was unclear'",
+    )
+    blocked.report()
+    cases.append(blocked)
+
+    # ---- questions about this system, answered from its records ----
+    banner("GROUNDED QUESTIONS — answered from records, no provider")
+    for name, question, must_contain in (
+        ("GROUNDED — what can you do right now",
+         "What can you do right now?", ("capabilities",)),
+        ("GROUNDED — why that capability",
+         "Why did you choose that capability for my last task?",
+         ("Filesystem.CreateFolder",)),
+        ("GROUNDED — did it satisfy what I asked",
+         "Did the last mission actually satisfy what I asked for?", ()),
+    ):
+        asked = Case(name, question, [])
+        answer = kd._grounded_answer(service, question, None)
+        asked.notes["answer"] = (answer or "(empty)")[:200]
+        asked.check(bool(answer.strip()),
+                    "the records answered it, with no provider involved")
+        for fragment in must_contain:
+            asked.check(fragment in answer, f"the answer names {fragment!r}")
+        asked.report()
+        cases.append(asked)
 
     banner("SUMMARY")
     for case in cases:
