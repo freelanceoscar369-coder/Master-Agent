@@ -462,3 +462,89 @@ broken source is the right outcome, and is not a defect in the chain.
   expectation is the destination and the destination was reached. The
   content problem is caught downstream by deliberation. Arguably correct
   layering; recorded rather than changed.
+
+
+---
+
+# RECOVERY ACTION — 28 AUG 2026
+
+## Verified progress state
+
+`MissionProgress`, derived from records that already exist -- requirement
+status from the same `assess()` the founder is shown, so recovery and
+reporting can never disagree about what was achieved.
+
+It holds two truths at once, which is the whole reason it exists:
+
+```
+OpenBrowserSession   matched
+Navigate             matched
+ReadPageText         matched
+page text            "Error 500 - Server Internal Error"
+```
+
+Every step verified. No requirement satisfied. **A verified step is not a
+satisfied requirement.**
+
+## Recovery acts
+
+What differs on a second attempt is KNOWLEDGE, not identity: same Intent,
+same requirement ids, same founder evidence, plus what the first attempt
+learned. The Planner is told which routes failed and which requirements
+are already satisfied and must not be redone.
+
+A route is capability PLUS target -- two Navigates are the same
+capability and entirely different attempts. Nothing names a site: a test
+asserts no hostname appears in the prompting module at all.
+
+The environment is released BEFORE the retry, which is what made the
+earlier blind re-submit worse than the failure it improved on.
+
+## Loop rule
+
+```
+same requirement standing + no new Evidence + no route eliminated
+= NO USEFUL PROGRESS -> stop
+```
+
+A failed source still counts as progress: knowing a source is unusable is
+knowledge, and it is what makes the next attempt different.
+
+## Live run — Steam, with real content
+
+```
+Browser.Navigate      matched   store.steampowered.com/search/...
+Browser.ReadPageText  matched   3055 chars of real page text
+Reasoning.Transform   FAILED    partially_matched
+```
+
+The navigation-timeout repair and the text-as-Evidence repair are both
+proven on a live commercial storefront. The mission then failed because
+the reasoning provider returned a capacity notice instead of an answer:
+
+> "High demand. Switched to K2.6 Instant for speed. Upgrade to use K2.6
+> Thinking."
+
+Verification caught it as `partially_matched` rather than accepting it,
+which is the system behaving correctly on a degraded provider. The
+research answer is currently blocked by provider capacity, not by the
+engineering.
+
+## Two mistakes of mine, recorded
+
+**Cleanup on the wrong thread.** `_release_task_browsers()` looks like
+housekeeping and is browser work. Called inline it corrupted the
+Playwright driver for every mission afterwards -- "you are using
+Playwright Sync API inside the asyncio loop". The execution-thread
+invariant was established two sessions ago and this call broke it.
+
+**Editing source during a suite run.** Twelve failures appeared that all
+passed on the settled tree: `inspect.getsource` guards reading a file
+that changed underneath them. My own recorded rule, broken again.
+
+## Regression
+
+```
+75 failed  8615 passed  2 skipped   (31m37s, frozen tree)
+NEW FAILURE IDS: ZERO -- sets identical to baseline
+```
