@@ -515,3 +515,89 @@ self-check    RESULT: OK · 48 capabilities · all five executives reachable
 FMEA tier     unset
 instances     none running
 ```
+
+
+---
+
+# DEMO ENGINEERING — AUTOMATED REHEARSAL, 28 AUG 2026
+
+Founder acceptance is deliberately NOT part of this. Every class the
+founder will exercise is proved first, by machine, against the real
+production composition, so the founder's run is a demonstration and not
+a debugging session.
+
+## Feature branch
+
+```
+branch   claude/founder-browser-identity
+HEAD     7779ae0
+remote   pushed; origin HEAD == local HEAD
+```
+
+## The sixteen classes — INTENT CONFORMANCE: PASS
+
+| Class | Case | Proof |
+|---|---|---|
+| A | DIRECT / MULTI-TURN / MULTI-FIELD / CORRECTION | real reasoner, real vocabulary |
+| A | CONTEXT — a place-word used as a NAME | "Desktop" as a name, not a place |
+| A | ANOTHER FAMILY — list files / project name | not a folder patch |
+| B | NESTED DESTINATION | `name=Onkar/KVNest_…`, `location=d_drive` |
+| C | UNCERTAIN admission gate | real `MissionService`, refused |
+| D | AI candidate legal-but-incomplete | `{"location":"d_drive"}` refused |
+| E | Founder evidence survives | every requirement carries the words |
+| F | Plan coverage | requirements covered, rationale recorded |
+| G | false-SATISFIED regression | conformance cannot self-certify |
+| H | fresh-state guard | precondition observed before the run |
+| I | "What can you do right now?" | 48 capabilities across 5 areas |
+| J | "Why did you choose that capability?" | rationale recorded at planning time |
+| K | "Did verified reality satisfy it?" | per requirement, from Evidence |
+
+Two boundaries stated rather than glossed:
+
+- **B is resolution-only.** Executing it would create a real folder
+  inside the founder's own `D:\Onkar`. Proving the system UNDERSTANDS
+  the destination is the point; creating founder data to prove it is not
+  mine to decide. The capability half is proved against the Action
+  contract in `test_semantic_correspondence.py`.
+- **D cannot use the real model**, because it requires a specific wrong
+  answer on demand. The production layer keeps its own vocabulary and
+  only the reasoning door is replaced — fed the exact answer the
+  production model gave on the night it failed.
+
+## Gates
+
+```
+GP1 — LOCAL                          PASS  0.6s
+GP2 — ORDINARY BROWSER (Playwright)  PASS  4.6s
+GP3 — REASONING + FILE               PASS  29.4s
+
+FULL SUITE   75 failed · 8440 passed · 2 skipped   (34m08s)
+BASELINE     75 failed · 8415 passed · 2 skipped
+NEW FAILURE IDS: ZERO — the failure-ID sets are IDENTICAL
+                 8415 + 25 new tests = 8440
+```
+
+## Known inherited failures (75, unchanged)
+
+Pre-existing at the baseline commit and untouched by this work. The
+largest clusters: `test_missions_console.py` (27 —
+`FounderConsole.__init__()` signature drift), `test_ollama_provider.py`,
+`test_brain_non_execution_routing.py`. None are semantic-spine.
+
+## Known external limitations
+
+- Steam `Navigate` 5s timeout — **browser policy finding**, not a defect.
+- `ctreate` — **language robustness finding**. No fuzzy matching.
+- Public search (Google) deliberately off the critical path: it serves an
+  anti-bot interstitial to automation.
+- Live Windows-clipboard tests depend on no other process holding the
+  clipboard lock, and on a current `comtypes` generated typelib.
+
+## Known post-demo debt
+
+- Requirements extracted from a compound objective by reasoning carry the
+  objective as provenance, not per-clause founder wording — a coarser
+  audit trail than the folder family. Never a false SATISFIED.
+- Legacy records predating the semantic trace carry no requirements;
+  `assess()` returns UNKNOWN, which is correct and never rounded up.
+- A browser left open after a failed mission must be closed by hand.
