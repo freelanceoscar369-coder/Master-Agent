@@ -1125,3 +1125,33 @@ not have a reliable showpiece, and the showpiece is the objective that
 demonstrates the thing this whole sprint was about. `DEMO_READY` is a
 claim about the product, and it stays FALSE until the centrepiece verdict
 is dependable rather than lucky.
+
+---
+
+# 29 August 2026 -- centrepiece closure attempt, and where it stands
+
+```
+ROOT CAUSE            A -- input assembly (decision frame), owner upstream
+                      in requirement derivation, not in frame_for
+
+CENTREPIECE loop      PASS on every run
+CENTREPIECE verdict   NOT STABLE
+STABILITY GATE 5/5    NOT ACHIEVED
+
+D PASS   D2 PASS   E PASS   F PASS   G PASS   I PASS
+GOLDEN PATH 1/2/3 PASS      DEMO BATTERY PASS
+TASK-SPECIFIC PRODUCTION CODE  NO (15 modules, executable code only)
+
+UI/UX HYPER AGENT HANDOFF      COMPLETE
+FINAL FOUNDER ACCEPTANCE       NOT REQUESTED
+ONE PRODUCTION INSTANCE        not started
+
+KALPAVRIKSHA_DEMO_READY        FALSE
+```
+
+Two fixes were attempted this evening and both were measured worse and
+taken back out. The product is behaviourally where it was at `d072d16`,
+plus a deterministic cross-source regression, a demo-vocabulary guard
+over production code, and a recovery loop that says why it stopped.
+
+The gate is not met and is not being declared met.

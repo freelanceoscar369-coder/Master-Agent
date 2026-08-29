@@ -1228,3 +1228,119 @@ completion confirmation, with flat CPU. A third run of the identical code
 finished in 21.5 seconds. It is an unbounded wait somewhere past
 completion when a provider stops responding rather than failing. Not
 reproduced since, not isolated, and recorded rather than forgotten.
+
+---
+
+# 29 August 2026 -- the centrepiece verdict, diagnosed
+
+## Classification: A -- input assembly
+
+Not extraction. Not parsing. Not adjudication. The decision frame that
+reaches the Brain does not reliably contain the founder's questions.
+
+## What was captured
+
+The real centrepiece objective was run with the frame printed and the
+recovery loop's exits made explicit. Across three missions of one run,
+every frame was:
+
+```
+FRAME: [('crit_1', 'Which community repair workshops accept laptops'),
+        ('crit_2', 'Start from the directory page at the given URL')]
+```
+
+The **Saturday question is absent**, and a statement about method is a
+mandatory per-candidate criterion. No workshop can BE a source. The loop
+was not idle -- it spent its whole budget trying:
+
+```
+no further attempt: errors=False decided=insufficient_evidence
+                    more_research=True question=True attempts=2/2
+```
+
+An earlier capture of a different run showed a different frame again:
+
+```
+crit_1  List of community repair workshops that accept laptops and
+        are also open on Saturday
+crit_2  Workshop must accept laptops
+crit_3  Workshop must be open on Saturday
+crit_4  Source must be http://127.0.0.1:.../directory.html
+```
+
+Four criteria that time, including the answer SET restated. Replaying
+extraction against that exact frame and Evidence, six times, gave both
+outcomes: one replay marked `crit_4` unverified and shortlisted the
+right workshop; the next marked `crit_1` unverified and shortlisted
+nothing. Same frame, same Evidence, same code.
+
+**So the requirement derivation for one unchanged objective varies run
+to run in count, wording and kind.** Measured directly on the Intent
+Layer, the source line came back `effect`, then `constraint`, then --
+live -- `information`. `shortlist()` requires every mandatory criterion
+MET, so whatever lands in the frame decides the answer.
+
+## Two fixes attempted, both taken back out
+
+**Filter the frame to INFORMATION requirements.** A candidate is an
+answer to a question about the world; an EFFECT is something to do, a
+DELIVERABLE is what to hand over about the winners, a CONSTRAINT is a
+condition on how. Three isolated measurements supported it. The live
+path then labelled the source line `information` and dropped the
+Saturday question, and a frame missing one of the founder's questions
+produces a confident answer to half the request. Reverted.
+
+**Read each source separately and join by counting.** The cross-source
+join is a judgement, and this module's rule is that a model reads prose
+into structure while `shortlist()` decides. Measured worse: given one
+page and criteria mentioning things that page says nothing about, the
+model turns cautious and reports `unverified` for facts it can plainly
+see -- a workshop went from correctly "closed at weekends" to "could not
+be established", from the page listing its hours. Zero provider failures
+in that run. Reverted.
+
+Both accounts are kept in `frame_for` and `candidates_from`, because the
+reasoning behind each is still right and the next person to have the
+same idea should find out what happened when it was tried.
+
+## What is kept
+
+**`tests/test_cross_source_qualification.py`** -- deterministic, no
+model, twenty runs. One criterion from E1, another from E2, same
+candidate; rivals rejected for their own reasons; a citation naming no
+supplied source still refused. It passed on the first run, which is
+itself the proof that adjudication, sufficiency and the shortlist were
+never the defect.
+
+**`tests/test_no_demo_specific_production_code.py`** -- fifteen deciding
+modules, executable code only (comments and docstrings excluded, because
+that is where this codebase keeps its reasoning). None of them names a
+workshop, a reading room, a game or a city.
+
+**The recovery loop's three silent exits now say why they stopped.** A
+mission that ran once instead of three times used to be something to
+reconstruct from outside.
+
+**A 12,000-character observation budget**, declared when it bites. It
+was 1,500, silently.
+
+## State
+
+```
+D            PASS      D2           PASS      E            PASS
+F            PASS      G            PASS      I            PASS
+GOLDEN 1     PASS      GOLDEN 2     PASS      GOLDEN 3     PASS
+DEMO BATTERY: PASS     DIVERSIFIED BATTERY: PASS
+
+CENTREPIECE loop        PASS on every run
+CENTREPIECE verdict     NOT STABLE -- 5/5 not attempted, root cause upstream
+```
+
+## The remaining work, named
+
+Requirement derivation must produce the founder's questions
+deterministically for an unchanged objective. That is a change to the
+Intent Layer with its own regression surface, and it is not a change to
+make against a demo deadline after two measured-wrong attempts in one
+evening. It is written down here so it starts from evidence rather than
+from a fresh guess.
