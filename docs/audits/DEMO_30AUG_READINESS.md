@@ -1253,3 +1253,25 @@ KALPAVRIKSHA_DEMO_READY         FALSE
 The package was not rebuilt. A fresh package would need its own
 package-level proofs to be worth anything, and those cannot be run
 tonight -- an unproven package is the same gamble in a new wrapper.
+
+---
+
+# 30 August 2026 -- READY
+
+```
+FINAL PRODUCTION SHA     b27731e   (repository a41ed85)
+FINAL PACKAGE SHA256     a8002542ffd9936d3beec01ecb0c706895e6caba3689c171b4b30a265f7d3d6f
+FULL REGRESSION          75 / 8760, ZERO new failure IDs
+
+PACKAGE LOCAL            PASS
+PACKAGE BROWSER          PASS
+PACKAGE GP3              PASS
+PACKAGE RECOVERY         PASS
+H LIVE GENERALISATION    PASS -- preserved, not re-run
+
+D2 / CENTREPIECE         CAPABILITY PROVEN, DEMO DEFERRED
+                         latent nondeterminism at a fixed SHA
+UI/UX HYPER AGENT HANDOFF  COMPLETE
+
+KALPAVRIKSHA_DEMO_READY  TRUE -- for the four objectives above, and only those
+```

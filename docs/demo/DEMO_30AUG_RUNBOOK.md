@@ -241,3 +241,34 @@ exactly the defect this run exists to expose.
 
 Nothing is deleted to tidy up. `D:\Rudra` from the first failed run stays
 where it is unless you ask for it to go — it is yours, not test scaffolding.
+
+
+---
+
+## 30 August -- the four objectives to demonstrate
+
+These four passed on the final binary's own source, and each has passed
+every time it has been run. Use these.
+
+1. **LOCAL** -- golden objective 1. Two dictated steps, zero AI planning
+   calls.
+2. **ORDINARY BROWSER** -- golden objective 2. Six dictated steps, and
+   the answer comes from a fresh observation rather than from what the
+   click reported about itself.
+3. **REASONING + REAL ACTION** -- golden objective 3. The file holds
+   exactly the text that was verified, bound from Evidence.
+4. **RECOVERY** -- a dead source does not end the objective. Serve the
+   diversified fixture and ask for a page that fails plus one that
+   works; the mission attempts the dead route, reaches the alternate,
+   and never asks you to pick another source.
+
+### Not on the list, and why
+
+**The multi-source centrepiece and D2 are excluded.** The capability is
+real and has been demonstrated many times -- a second source the founder
+never named, discovered because the mission knew what it was missing.
+Its repeatability is not: on identical production source it both passes
+and fails. Recorded as post-demo P0 in the evidence pack.
+
+Do not substitute them in on the night. A capability that works four
+times in seven is a research result, not a demonstration.

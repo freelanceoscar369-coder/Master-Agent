@@ -1646,3 +1646,139 @@ H          PASS, preserved, not re-run
 
 FULL REGRESSION   75 failed / 8760 passed, ZERO new failure IDs
 ```
+
+---
+
+# 30 August 2026 -- final freeze, D2 history, and the ship
+
+## D2, chronologically, from the recorded runs
+
+Every row is a recorded acceptance log on this branch. Nothing inferred.
+
+```
+log               SHA / state                D2    missions  pages reached
+div9              4974a25 era                FAIL      -     -
+div15             pre e2c8206                FAIL      -     -
+div16             e2c8206  (first PASS)      PASS      -     directory + hours
+final_acceptance  19ac803 era                PASS      3     directory + hours
+confirm           23ab9dc                    PASS      2     directory + hours
+reverify          88f1a76 era                FAIL      1     directory
+reverify2         88f1a76 era                PASS      3     directory + hours
+gate_battery      a48b8d6                    FAIL      3     directory
+div_gate2         a48b8d6                    FAIL      3     directory
+d2_alone          bf35ebd                    PASS      3     directory + hours
+d2_after_e        bf35ebd                    FAIL      1     directory
+div_reverted      bf35ebd                    FAIL      1     (none -- session error)
+est1              b27731e                    FAIL      2     directory
+est2              b27731e                    PASS      3     directory + hours
+```
+
+## The classification, established rather than argued
+
+**D2 both passes and fails at the same production SHA, twice over.**
+
+```
+bf35ebd    d2_alone PASS      d2_after_e FAIL      div_reverted FAIL
+b27731e    est2     PASS      est1       FAIL
+```
+
+`git diff` confirms production is byte-identical within each pair
+(`b27731e..a41ed85` over `src/` and `kalpavriksha_desktop.py` is empty;
+the three bf35ebd runs were all taken with production byte-identical to
+`be1f82a`).
+
+```
+D2 FAILURE CLASSIFICATION: LATENT NONDETERMINISM
+```
+
+Not a code regression. There is no SHA on this branch at which D2 is
+repeatably green, including the one where it first passed. The capability
+is real and has been demonstrated many times; its repeatability is not at
+a demo bar.
+
+## The duplicate `_decide` defect
+
+Found by that same history, and it is the one genuine defect the
+investigation produced. `_decide` ran twice per mission over the same
+Evidence -- once in the recovery loop to decide whether to keep
+researching, once afterwards to report -- and deliberation involves a
+model, so the answers could differ:
+
+```
+no further attempt: errors=False decided=decided
+                    more_research=False question=False attempts=0/2
+```
+
+The loop stopped on `decided`; the founder was told
+`insufficient_evidence`. Fixed at `b27731e`: asked once, the same answer
+acts and reports, and a retry clears it because new Evidence makes it
+stale. It moved D2 from one mission to three -- and did not make it
+deterministic, which is why the classification above stands.
+
+```
+DUPLICATE _decide DEFECT: FIXED, in final source
+```
+
+## Final package
+
+```
+production SHA       b27731e   (repository a41ed85; the difference is docs only)
+package source SHA   a41ed85
+path                 dist/Kalpavriksha/Kalpavriksha.exe
+sha256               a8002542ffd9936d3beec01ecb0c706895e6caba3689c171b4b30a265f7d3d6f
+size                 37,081,456 bytes
+built                2026-08-29 23:57:02 +0530
+self-check           RESULT: OK
+capabilities         48
+executives           browser, desktop, document, filesystem, reasoning
+FMEA tier            UNSET
+no-ollama            constructed=no, candidate=no
+archive identity     6 of 6 modules FOUND -- the package carries this branch
+```
+
+`build/` and `dist/` were removed first, and no Kalpavriksha process was
+running, so a locked-file failure could not leave the old executable in
+place.
+
+## Proofs
+
+```
+A  LOCAL                     PASS
+B  ORDINARY BROWSER          PASS
+C  GP3                       PASS
+D  RECOVERY (fixture E)      PASS
+```
+
+GP3's truth chain, this run:
+
+```
+verified text   SproutLog / GardenMint / BloomPad
+file contents   SproutLog / GardenMint / BloomPad
+```
+
+The executable exposes no objective-run flag, so these run against the
+composition from source at the package's own SHA, and the packaged
+runtime is proved by `--self-check` and the archive identity above. That
+is the boundary, stated rather than blurred -- as it has been in every
+entry of this pack.
+
+## Regression
+
+```
+75 failed  8760 passed  2 skipped   (frozen tree, b27731e)
+ZERO new failure IDs -- set identical to the recorded 75 baseline
+```
+
+## D2 and the centrepiece
+
+```
+ADVANCED MULTI-SOURCE PATH
+    CAPABILITY PROVEN            -- demonstrated repeatedly, including
+                                    a second source the founder never named
+    STABILITY NOT AT DEMO BAR    -- passes and fails at one SHA
+    POST-DEMO P0
+```
+
+The remaining gap is the second acquisition choosing the linked page
+rather than re-reading the first. It is model-dependent and not
+repeatable, and no attempt was made to repair it tonight.
