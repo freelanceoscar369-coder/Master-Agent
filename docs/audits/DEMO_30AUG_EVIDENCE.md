@@ -805,3 +805,259 @@ failed source from ending the objective. The founder's direction
 supersedes the narrow repair.
 
 Audit time-boxed to 20 minutes, as instructed.
+
+---
+
+# 29 August 2026 — final delivery strike
+
+## Identity
+
+```
+branch              claude/brain-wisdom
+final feature SHA   19ac803
+origin/main         6349eb1   (untouched)
+ahead / behind      42 ahead, 0 behind
+status              clean
+
+package             dist/Kalpavriksha/Kalpavriksha.exe
+built from          19ac803
+sha256              a1a6fa64c6d817d4b593208b3528ed02c4a423c2e613a0a5411b4f17500db5fb
+size                37,079,471 bytes
+built               2026-08-29 14:36:50 +0530
+```
+
+`build/` and `dist/` were deleted before building, and no Kalpavriksha
+process was running — the trap that leaves the OLD executable in place
+while still exiting 0.
+
+## Source/package identity — proven, not assumed
+
+This machine has an editable install pointing `master_agent` at
+`D:\MasterAgent\src`, the PRIMARY worktree, still at old main. Import
+resolution with no `PYTHONPATH` goes there. The spec's `pathex` should
+win; "should" is not evidence.
+
+The bundled archive was extracted and read:
+
+```
+master_agent.plugins.browser_observation    FOUND 'read_visible_text'
+master_agent.brain.deliberation             FOUND 'OBSERVATIONS. Each has a label you must cite exactly:'
+master_agent.providers.reasoning_session    FOUND 'SESSION_SATURATED'
+master_agent.providers.desktop_app          FOUND 'ONLY_INTERFACE_TEXT'
+master_agent.runtime.sensitivity            FOUND 'sensitive work may not go'
+```
+
+None of those strings exists at `6349eb1`. The package carries this
+branch.
+
+A note on the probe itself, because it was wrong first: it compared
+whole code constants for membership, so `f"source_{index}"` — which
+compiles to the fragment `"source_"` — was reported ABSENT for a module
+that was plainly present. Substring matching over the fragments is the
+correct question. A verification tool that can report a false negative
+is worth recording, not quietly fixing.
+
+## Packaged self-check
+
+```
+packaged: True                     RESULT: OK
+capabilities registered: 48
+executives / runtime-reachable: browser, desktop, document, filesystem, reasoning
+reasoning tier local     (empty)
+reasoning tier desktop   chatgpt-desktop, claude-desktop, kimi-desktop, perplexity-desktop
+reasoning tier gemini    gemini.api, openrouter.api
+reasoning tier browser   trusted-founder-web
+approval wired: True               founder checkpoint: True
+no-ollama: constructed=no, candidate=no
+deterministic planning: Filesystem.CreateFolder -> Filesystem.WriteFile
+FMEA tier: UNSET (no KALPAVRIKSHA* variable set in the environment)
+providers available: gemini.api, openrouter.api, trusted-founder-web
+                     (everything else honestly reported not available)
+```
+
+The executable exposes no objective-run flag. Objective-level proofs
+therefore run against the composition from source at this same SHA, and
+the packaged runtime is proved by `--self-check` and the archive
+identity above. That is the boundary, stated rather than blurred.
+
+## H — one live objective against reality nobody arranged
+
+Not a game. Not the reading rooms. Not a site this work had already been
+made to succeed against.
+
+```
+objective   Which of these three cities has a metro system that opened
+            before 1930 and is also its country's capital: Barcelona,
+            Madrid, Hamburg?  Start from
+            https://en.wikipedia.org/wiki/List_of_metro_systems
+
+missions    2
+read        en.wikipedia.org/wiki/List_of_metro_systems
+decision    decided
+shortlist   Madrid
+rejected    Barcelona (a mandatory criterion was not met)
+            Hamburg   (a mandatory criterion was not met)
+
+H LIVE GENERALISATION: PASS
+```
+
+The fixture asserts the contract, never the answer: a real public page
+was read; every shortlisted answer rests on Evidence the mission holds;
+nothing clears the shortlist without clearing every criterion; no
+identifiers, internal ids or JSON reach the founder; nothing is
+presented as finished on an empty result.
+
+### What H found that no fixture could
+
+H failed its first live run:
+
+```
+step_4: binding on step 'step_3' field 'text': the step reported
+'Jump to content\nMain menu\nSearch\n...' but the independent
+observation recorded 'Jump to content\nMain menu\nSearch\n...';
+refusing to choose
+```
+
+`ReadPageText` cut at 40,000 characters; the independent Observation cut
+at 20,000. Every page longer than 20,000 characters was unusable as
+reasoning input, deterministically. Verification was doing its job; one
+page had two readers. There is now one — `read_visible_text` — owned
+where Evidence is produced.
+
+Every controlled fixture page is a few hundred characters, so below both
+limits the two readers agree perfectly. No fixture written by the author
+of the fixtures could have found this.
+
+## The demo centrepiece — one objective, the whole loop
+
+```
+objective   Which community repair workshops accept laptops and are
+            also open on Saturday?  Start from <directory page>
+
+missions    3
+reached     directory.html, weekend-archive.html (dead), weekend.html
+decision    decided
+shortlist   Ashcombe Repair Workshop
+rejected    Brindle Repair Workshop (a mandatory criterion was not met)
+            Calder Repair Workshop  (a mandatory criterion was not met)
+
+DEMO CENTREPIECE: PASS
+```
+
+The founder sees:
+
+> 1 of what I found meets everything you asked for:
+>   - Ashcombe Repair Workshop
+> I ruled out 2: Brindle Repair Workshop (a mandatory criterion was not
+> met); Calder Repair Workshop (a mandatory criterion was not met)
+
+Neither page can answer the question alone. `weekend.html` is never
+named in the objective — it was reached because the system decided it
+needed evidence it did not have and knew where that evidence was. The
+archive route is dead, was genuinely attempted, and the founder was not
+asked to pick another source.
+
+Controlled reality on purpose: a demo must not depend on another
+company's anti-bot policy. The live Google mission that redirected
+Playwright to `/sorry/` remains recorded as a truthful external failure,
+and it is why this proof is hermetic.
+
+### Three defects it exposed, in order
+
+**A replan threw away what the last attempt established.** A replan
+starts a new mission record and the deliberation read only the newest
+one, so a mission that read the directory on its first pass and the
+opening hours on its third could never decide anything — no single
+record held both. It reported "mandatory criteria remain unestablished"
+while holding, between its records, every fact it needed. The exact
+opposite of the rule recovery is built on.
+
+**A model was asked to prove a citation by transcribing a UUID.** The
+guard requiring every `met` to cite a supplied observation is right and
+is unchanged. H, with one observation, decided cleanly. The centrepiece,
+with two, correctly rejected the two candidates needing one citation
+each and lost the correct answer — the one whose two criteria come from
+two different sources. Observations now carry `source_1`, `source_2`
+labels. A citation naming no supplied source is still refused.
+
+**A question that was answered was reported as a failure.** The
+centrepiece ended with a decided shortlist and then said "That didn't
+complete", because a route it had already recovered from failed earlier.
+Both halves are facts; only one is the outcome. The failure is still
+reported, in a sentence that does not contradict the answer above it.
+
+## Batteries, at the final SHA
+
+```
+GOLDEN PATH 1 — LOCAL                              PASS
+GOLDEN PATH 2 — ORDINARY BROWSER (Playwright)      PASS
+GOLDEN PATH 3 — REASONING + FILE                   FAIL  (see below)
+
+D   two independent sources, neither sufficient alone      PASS
+D2  more_research is consumed, and acquires what is missing PASS
+E   a failed source does not end the objective             PASS
+F   provider fallback on a service notice                  PASS
+G   privacy asymmetry                                      PASS
+I   unanswerable research stops truthfully                 PASS
+H   live generalisation                                    PASS
+CENTREPIECE                                                PASS
+```
+
+## GOLDEN PATH 3 — the open P0
+
+```
+TextVerifier    matched
+verified text   SproutLog / GreenGrove / PlantPad
+file contents   Sprout / BloomNote / GrowLog
+FIRST BROKEN BOUNDARY: the file holds EXACTLY the verified answer,
+                       bound from Evidence
+```
+
+The file on the founder's Desktop does not hold the text that was
+verified. Every other check on that path passed — three names, one per
+line, both steps independently verified, zero AI planning calls — and
+the one that matters did not.
+
+What is known:
+
+- One mission, one `Reasoning.Transform`, one `Filesystem.WriteFile`.
+  No replan (no recovery attempt was logged).
+- Twelve provider calls for that one step — `gemini.api, openrouter.api`
+  six times over. The ladder retried six rounds, and a model generates
+  different names each time.
+- Nothing on this branch touches that value path. `git diff origin/main`
+  over `executor/actions/reasoning/`, `ai_infrastructure/tiered_runner.py`
+  and the reasoning Verifier is empty; the only change under
+  `runtime/input_resolution.py` is the sensitivity derivation added in an
+  earlier session, which does not alter what `content` resolves to.
+- The 28 August ledger records this same path passing at `9234319`.
+
+So it is intermittent, it is not a regression from this branch, and it
+is on the boundary that matters most: **what a founder is told was
+verified must be what is on their disk.** A re-run to characterise it
+did not return within ten minutes, with providers under heavy load after
+a day of live calls.
+
+It is recorded here rather than retried until green. A boundary that
+passes on the second attempt has not been fixed.
+
+## Kimi — available provider, unhealthy session, fail-closed
+
+```
+KIMI PROVIDER          AVAILABLE
+KIMI CURRENT SESSION   HEALTHY (not saturated on this estate today)
+CURRENT ATTEMPT        may be UNAVAILABLE — capacity
+BEHAVIOUR              detect -> reject -> Broker fallback -> continue
+```
+
+Live, all day: `High demand. Switched to K2.6 Instant for speed. Upgrade
+to use K2.6 Thinking.` — classified `UNAVAILABLE`, excluded for the
+attempt, ladder falls through. Never permanently blacklisted. Full
+detail in `docs/audits/PROVIDER_SESSION_HEALTH.md`.
+
+## Regression
+
+```
+75 failed  8713 passed  2 skipped
+NEW FAILURE IDS: ZERO — set identical to the recorded 75 baseline
+```

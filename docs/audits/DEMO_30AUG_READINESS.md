@@ -991,3 +991,77 @@ Tomorrow proves the smaller, real loop: understand → plan → act →
 observe → verify → measure progress → identify what is missing →
 recover or research → preserve verified work → continue → finish
 truthfully. That loop is now demonstrated end to end on public reality.
+
+---
+
+# 29 August 2026 — delivery state at the close
+
+```
+FINAL FEATURE SHA     19ac803
+FINAL MAIN SHA        6349eb1   (untouched — integration is post-acceptance)
+FINAL PACKAGE SHA256  a1a6fa64c6d817d4b593208b3528ed02c4a423c2e613a0a5411b4f17500db5fb
+
+H LIVE GENERALISATION        PASS
+LOCAL                        PASS
+BROWSER                      PASS
+REASONING + ACTION           FAIL — the open P0 below
+MULTI-SOURCE                 PASS
+MORE-RESEARCH                PASS
+SECOND-SOURCE DISCOVERY      PASS
+RECOVERY                     PASS
+PROVIDER FALLBACK            PASS
+PRIVACY                      PASS
+KIMI FAIL-CLOSED             PASS
+
+DURABLE AUDIT RESTART        NOT DEMOED
+FULL REGRESSION              PASS — 75 / 8713, failure-ID set identical, zero new
+PACKAGE ACCEPTANCE           self-check OK, archive identity proven
+FINAL FOUNDER ACCEPTANCE     NOT REQUESTED
+ONE PRODUCTION INSTANCE      not started
+
+KALPAVRIKSHA_DEMO_READY      FALSE
+```
+
+## The one open P0
+
+**Golden path 3 — the file must hold exactly the text that was
+verified.**
+
+```
+TextVerifier    matched
+verified text   SproutLog / GreenGrove / PlantPad
+file contents   Sprout / BloomNote / GrowLog
+```
+
+Owner: the reasoning Action and its Verifier —
+`executor/actions/reasoning/transform.py` and the Evidence observation
+recorded for it. Not the binding: `_verified_value` returns the
+observation and refuses a disagreement, and both the harness and the
+write read the same field.
+
+Why it is not this branch: `git diff origin/main` over
+`executor/actions/reasoning/`, `ai_infrastructure/tiered_runner.py` and
+the reasoning Verifier is empty. The 28 August ledger records this path
+passing at `9234319`.
+
+What is known: one mission, one Transform, one WriteFile, no replan —
+and twelve provider calls for that one step, `gemini.api, openrouter.api`
+six times over. The ladder retried six rounds and a model names things
+differently each time.
+
+Smallest safe next action: capture, for one run of that objective, the
+Action's returned text and the Evidence observation's text side by side,
+and find which of the six rounds each came from. That is a targeted read
+of one step's record, not a campaign.
+
+It is recorded rather than retried until green. A boundary that passes on
+the second attempt has not been fixed, and this is the boundary that says
+what a founder is told was verified is what is on their disk.
+
+## Why the demo is not blocked, and why it is not declared ready
+
+Objectives 1, 2, 4 and 5 in the runbook are green, including the
+centrepiece and the live public objective. Golden path 3 is one of six
+and its failure is honest and understood. But `KALPAVRIKSHA_DEMO_READY`
+is a claim about the whole product, and it is FALSE while a
+verified-content boundary is open.
