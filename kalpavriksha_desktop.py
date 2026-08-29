@@ -2753,7 +2753,23 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             # What the mission DID establish, before what stopped it.
             # A founder who asked for research and got two verified
             # answers out of four is owed the two.
-            status.message = f"{decision_text}\n\n{status.message}"
+            #
+            # And when the question was actually ANSWERED, "that didn't
+            # complete" is not the truth about it. The demo centrepiece
+            # ended with a decided shortlist -- every criterion cleared
+            # against Evidence, two candidates rejected with reasons --
+            # and then told the founder the work did not complete,
+            # because a route it had already recovered from had failed
+            # earlier in the mission. Both halves are facts; only one of
+            # them is the outcome. Saying the objective failed when it
+            # was answered is as untrue as the reverse, and the reverse
+            # is what this whole system is built against.
+            answered = decided is not None and bool(decided.shortlist)
+            status.message = f"{decision_text}\n\n" + (
+                "Some of what I tried along the way didn't work, and I've "
+                "kept the details."
+                if answered else status.message
+            )
         return _founder_reply(status, status.message)
     if state.progress >= 1.0:
         # `state.result` is still recorded -- other consumers legitimately

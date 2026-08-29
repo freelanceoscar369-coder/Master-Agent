@@ -385,3 +385,42 @@ class TestWhatAnEarlierAttemptEstablishedIsStillTrue:
         assert "attempts_made.append(objective_id)" in source
         assert "objective_id\n        )" not in source.split("attempts_made")[-1], (
             "a decision after the loop must read the chain, not the last id")
+
+
+class TestAnsweredIsNotFailed:
+    """The centrepiece ended with a decided shortlist, every criterion
+    cleared against Evidence, two candidates rejected with reasons — and
+    then told the founder:
+
+        That didn't complete. I've kept the details for review.
+
+    A route had failed earlier in the mission and been recovered from.
+    Both halves are facts; only one of them is the outcome. Saying the
+    objective failed when it was answered is as untrue as the reverse,
+    and the reverse is what this system is built against.
+    """
+
+    def _source(self):
+        import inspect
+
+        import kalpavriksha_desktop as kd
+
+        return inspect.getsource(kd._submit_objective)
+
+    def test_a_decided_shortlist_changes_what_the_founder_is_told(self):
+        source = self._source()
+        assert "answered = decided is not None and bool(decided.shortlist)" in source
+
+    def test_the_failure_is_still_mentioned_never_hidden(self):
+        """Softening it into silence would be the other lie."""
+        source = self._source()
+        assert "Some of what I tried along the way didn't work" in source
+        assert "kept the details" in source
+
+    def test_a_mission_with_no_answer_still_says_it_did_not_complete(self):
+        """The branch only applies when something was actually
+        shortlisted. An empty result must keep the plain failure
+        sentence."""
+        source = self._source()
+        branch = source.split("answered = decided", 1)[1]
+        assert "if answered else status.message" in branch
