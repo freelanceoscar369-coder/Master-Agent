@@ -1183,3 +1183,35 @@ FINAL FOUNDER ACCEPTANCE   NOT REQUESTED
 
 KALPAVRIKSHA_DEMO_READY    FALSE
 ```
+
+---
+
+# 29 August 2026 -- close
+
+```
+FIRST-DERIVATION OWNER        IntentLayer.requirements_for
+CONFORMANCE MECHANISM         built, tested, reverted, UNVALIDATED
+                              (a48b8d6, reverted at 31f2b0b)
+OMISSION                      closed and measured 0/5 while it was in
+SYNTHESIS                     closed and measured 0/5 while it was in
+KIND MISCLASSIFICATION        not addressed -- structural gates cannot
+BOUNDED CORRECTION            one repair, then truthful failure
+SIMPLE/TYPED INTENT AI CALLS  0 (asserted)
+
+REPLAN DERIVATION CALLS       initial 1, replan 1: 0, replan 2: 0
+CENTREPIECE                   1 FAIL, 2 FAIL, 3-5 not run
+GENERIC BATTERY               D/E/F/G/I PASS, GP3 PASS, D2 UNRELIABLE
+TASK-SPECIFIC PROD CODE       NO
+
+PRODUCTION SOURCE             byte-identical to be1f82a
+FULL REGRESSION               75 / 8748 at be1f82a, ZERO new
+FINAL PACKAGE                 NOT rebuilt, still stale
+UI/UX HYPER AGENT HANDOFF     COMPLETE, untouched
+FINAL FOUNDER ACCEPTANCE      NOT REQUESTED
+
+KALPAVRIKSHA_DEMO_READY       FALSE
+```
+
+The blocking condition is no longer a single defect. It is that the live
+acceptance estate cannot currently tell a regression from the weather,
+and every remaining decision depends on it being able to.

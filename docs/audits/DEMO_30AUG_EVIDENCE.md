@@ -1459,3 +1459,112 @@ task-specific production code      NO
 CENTREPIECE loop      PASS on every run
 CENTREPIECE verdict   NOT STABLE -- 5/5 gate not met
 ```
+
+---
+
+# 29 August 2026 -- first-derivation conformance: built, reverted, and what that cost
+
+## What was built
+
+`requirements_for` was given the shape the Planner already uses for a
+rejected plan: the model proposes a decomposition, deterministic
+validation decides whether it is admissible, one bounded correction, and
+a truthful failure if it still does not hold.
+
+The gate is structural on purpose. It does not judge whether
+`information` was the right word for a clause -- a rule like "a question
+mark means information" is the next drift, not a fix. It settles whether
+the decomposition ACCOUNTS FOR what was said:
+
+```
+every requirement quotes words the founder actually wrote
+every clause the founder wrote is quoted by some requirement
+the same words never hold two roles
+a kind outside the closed vocabulary is REPORTED, not discarded
+```
+
+That last one closed a hazard found while looking: the old code dropped
+unreadable items silently and renumbered the survivors, so a clause could
+vanish and take its id with it.
+
+It also paid a debt ADR-0027 recorded by name. `founder_evidence` was the
+whole sentence on every requirement -- identical, and therefore useless
+for telling one clause from another, which is exactly what conformance
+needs it for. Each requirement carried the words it came from, checked
+against what the founder wrote so the quote could not be invented.
+
+Eighteen deterministic tests, no demo vocabulary, covering all three
+measured failure classes. They passed first try.
+
+## What it did live
+
+Five fresh derivations of one unchanged sentence:
+
+```
+omission     0 of 5   (was: a whole clause lost, live)
+synthesis    0 of 5   (was: "the combined list ... meeting both criteria")
+kind         still varies -- the part a structural gate cannot settle
+```
+
+Both material clauses present in every run. That is the defect this P0
+named, closed and measured.
+
+## Why it was reverted, and why that reason did not hold
+
+The diversified battery came back with D2 failing twice under the gate,
+where D2 had passed repeatedly before it. Two samples, same shape, and a
+change that breaks a proven capability is not shippable however good its
+own evidence -- so it was reverted with `git revert`, no history rewrite.
+
+**Then D2 failed on the reverted tree too**, with production byte-
+identical to `be1f82a`:
+
+```
+with the gate     pages reached: ['directory.html']   read the page, did not follow
+reverted          pages reached: [], decision: None
+                  WARNING: objective failed: unknown or closed session: 'main'
+```
+
+The reverted failure is a browser-session leak between fixtures, not a
+semantic one -- D2 runs last, after E has opened and closed browsers.
+Different failure, different cause.
+
+So the stated reason for the revert was **not established**. The gate is
+unvalidated, not disproven. Recording that distinction matters more than
+tidying it away: the next person should know they are looking at an
+untested change, not a rejected one.
+
+## The finding that outranks the fix
+
+The live acceptance estate is no longer able to adjudicate a code change.
+D2 has now failed on a tree whose production source is identical to one
+where it passed repeatedly, for a reason unrelated to any change made
+today. Four corrections were attempted this evening on one defect; three
+were measured wrong, and the fourth cannot be measured at all.
+
+Continuing to change production against a signal that cannot separate a
+regression from the weather is how the fifth wrong fix happens.
+
+## Where production stands
+
+```
+src/ and kalpavriksha_desktop.py   byte-identical to be1f82a
+be1f82a full regression            75 failed / 8748 passed, ZERO new
+```
+
+Additive since: two test files (replan stability, cross-source
+qualification), a demo-vocabulary guard over production code, recovery
+loop exits that say why they stopped, and this record.
+
+## What the next attempt should start from
+
+- The conformance gate exists in history at `a48b8d6` and its revert at
+  `31f2b0b`. It is a complete implementation with its tests; it was never
+  shown to be wrong.
+- Before re-landing it, the acceptance estate needs to be trustworthy:
+  the fixture-ordering browser-session leak between E and D2 is the first
+  thing to fix, because without it no live verdict means anything.
+- Kind assignment remains unstable and is deliberately not addressed by
+  a structural gate. It only matters where a requirement that is not a
+  property of a candidate becomes a mandatory per-candidate criterion --
+  which is the centrepiece's remaining blocker and is recorded above.
