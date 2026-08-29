@@ -426,70 +426,96 @@ class TestAnsweredIsNotFailed:
         assert "if answered else status.message" in branch
 
 
-class TestAFinishedMissionDoesNotResearchItself:
-    """More research exists to close a requirement nobody has closed.
+class TestTheSystemDoesNotDeliberateOverItsOwnWords:
+    """A decision weighs the world. What the system itself said is not
+    something it saw.
 
-    Measured, and it was a regression: "Think of exactly three short
-    names for a gardening notes app and write them one per line into
-    <file> on the Desktop" ran THREE TIMES.
+    A reasoning step's Evidence is a deterministic measurement of the
+    text a model produced -- proper Evidence about the ARTEFACT, and not
+    an observation of anything outside us.
 
-        attempt 1 (insufficient evidence):
-            satisfied=['req_1','req_2','req_3','req_4'] unresolved=[]
-
-    Every requirement satisfied, nothing unresolved, nothing failed --
-    and it replanned twice anyway. A deliberation over an objective that
-    poses no decision extracted no candidates, and this branch's own
-    "no candidates means every criterion is open" rule turned that into
-    a research question.
-
-    The founder-visible damage was worse than the wasted work. Each pass
-    generated different names and rewrote the file, so the text the
-    founder was told had been verified came from the FIRST run and the
-    text on their disk came from the THIRD. That is the exact boundary
-    the golden path exists to guard: what you are told was verified is
-    what is on your disk.
+    Letting it into a deliberation had a measured cost. "Think of exactly
+    three short names for a gardening notes app and write them one per
+    line into <file>" ran THREE TIMES: the only observation was the
+    reasoning step's own output, the deliberation read candidates out of
+    it, established none, and asked for more research on an objective
+    that had already satisfied every requirement. Each pass generated
+    different names and rewrote the file, so the text the founder was
+    told had been verified came from the FIRST run and the text on their
+    disk came from the THIRD -- the exact boundary golden path 3 exists
+    to guard.
     """
 
-    def _source(self):
-        import inspect
+    def _control(self, tasks):
+        objective = types.SimpleNamespace(tasks=tasks)
+        return types.SimpleNamespace(
+            dispatcher=types.SimpleNamespace(objective=lambda _id: objective))
 
+    def _task(self, capability, evidence_id, text, url=""):
+        return types.SimpleNamespace(capability=capability, evidence={
+            "evidence_id": evidence_id,
+            "observation": {"text": text, "url": url},
+        })
+
+    def test_a_reasoning_step_is_not_an_observation(self):
         import kalpavriksha_desktop as kd
 
-        return inspect.getsource(kd._submit_objective)
+        control = self._control([
+            self._task("Reasoning.Transform", "ev-1",
+                       "SproutLog\nGrowLog\nPlotPad"),
+        ])
 
-    def test_research_requires_something_actually_unresolved(self):
-        source = self._source()
-        head = source.split("if state.errors:", 1)[0]
-        assert "standing is not None" in head
-        assert "and standing.unresolved" in head
+        assert kd._observations_from(control, ["obj-1"]) == ()
 
-    def test_the_standing_is_read_before_the_question_is_asked(self):
-        """Order matters: asking first and checking afterwards is how a
-        finished mission gets a question attached to it anyway."""
-        source = self._source()
-        head = source.split("if state.errors:", 1)[0]
-        assert head.index("standing = _mission_progress") < head.index("needed = (")
+    def test_a_page_read_still_is_one(self):
+        import kalpavriksha_desktop as kd
 
-    def test_an_empty_shortlist_says_nothing_when_nothing_is_unresolved(self):
-        """A deliberation that recognised no candidates, over a mission
-        that satisfied every requirement, is the Brain answering a
-        question nobody asked. Repeating it to the founder is how a
-        working product sounds broken."""
-        source = self._source()
-        assert "decision_text = (" in source
-        tail = source.split("decision_text = (", 1)[1]
-        assert "not decided.shortlist" in tail
-        assert "not final_standing.unresolved" in tail
+        control = self._control([
+            self._task("Browser.ReadPageText", "ev-2", "Ashcombe accepts laptops.",
+                       "http://x.test/directory.html"),
+        ])
 
-    def test_a_research_mission_that_found_nothing_still_says_so(self):
-        """The discriminator is an unresolved REQUIREMENT, not an empty
-        shortlist. A research objective that genuinely establishes
-        nothing has one, and must keep its truthful sentence."""
-        source = self._source()
-        tail = source.split("decision_text = (", 1)[1]
-        assert "else _decision_sentence(decided)" in tail
+        seen = kd._observations_from(control, ["obj-1"])
+
+        assert [o.evidence_id for o in seen] == ["ev-2"]
+
+    def test_a_document_on_disk_still_is_one(self):
+        """The rule is about OUR OWN WORDS, not about having a url. A
+        founder's own file is material about the world."""
+        import kalpavriksha_desktop as kd
+
+        control = self._control([
+            self._task("Document.ExtractText", "ev-3", "The contract says..."),
+        ])
+
+        assert [o.evidence_id for o in kd._observations_from(control, ["obj-1"])] == ["ev-3"]
+
+    def test_a_mixed_mission_keeps_only_what_it_saw(self):
+        import kalpavriksha_desktop as kd
+
+        control = self._control([
+            self._task("Browser.ReadPageText", "ev-page", "the page said this",
+                       "http://x.test/a.html"),
+            self._task("Reasoning.Transform", "ev-said", "and I concluded this"),
+        ])
+
+        assert [o.evidence_id for o in kd._observations_from(control, ["obj-1"])] == ["ev-page"]
+
+    def test_the_exclusion_is_by_executive_not_by_one_capability_name(self):
+        """So a second reasoning capability is excluded on the day it is
+        written, not on the day somebody remembers this list."""
+        import kalpavriksha_desktop as kd
+
+        control = self._control([
+            self._task("Reasoning.Summarise", "ev-4", "a summary I wrote"),
+        ])
+
+        assert kd._observations_from(control, ["obj-1"]) == ()
 
     def test_progress_is_read_defensively_now_that_every_mission_reads_it(self):
+        """`_mission_progress` is consulted on every mission now, and the
+        surface tests drive the bridge with the smallest record that
+        makes their own point -- rightly."""
         import inspect
 
         import kalpavriksha_desktop as kd

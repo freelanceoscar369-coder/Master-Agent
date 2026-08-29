@@ -1711,10 +1711,40 @@ def _observations_from(mission_control, objective_ids):
     independent observation rather than to a model's memory of one. A
     step that ran and observed nothing contributes nothing, which is the
     correct amount.
+
+    **What the system itself said is not something it saw.** A reasoning
+    step's Evidence is a deterministic measurement of the text a model
+    produced -- length, line count, whether it parses (see
+    `plugins/reasoning_gateway.py`, which is careful to say that the
+    answer is the artefact and that the producer never grades itself).
+    That measurement is proper Evidence about the ARTEFACT. It is not an
+    observation of the world, and a decision weighs the world.
+
+    Letting it in had a cost that was measured, not imagined. "Think of
+    exactly three short names for a gardening notes app and write them
+    one per line into <file>" ran THREE TIMES: the only observation was
+    the reasoning step's own output, the deliberation dutifully read
+    candidates out of it, found none it could establish, and asked for
+    more research on an objective that had already satisfied every
+    requirement. Each pass generated different names and rewrote the
+    founder's file, so the text the founder was told had been verified
+    came from the first run and the text on their disk came from the
+    third.
+
+    Excluding it costs nothing real: a research mission's material comes
+    from pages, files and documents, and those still arrive here. What
+    disappears is the system deliberating over its own sentences.
     """
     from master_agent.brain.deliberation import (
         CORROBORATION, DISCOVERY, PRIMARY, Observation,
     )
+
+    #: Evidence produced by the system's own reasoning, by capability
+    #: name. Matched on the executive prefix so a second reasoning
+    #: capability is excluded on the day it is written.
+    def _is_our_own_words(task) -> bool:
+        capability = str(getattr(task, "capability", "") or "").lower()
+        return capability.startswith("reasoning.")
 
     if isinstance(objective_ids, str):
         objective_ids = (objective_ids,)
@@ -1727,6 +1757,8 @@ def _observations_from(mission_control, objective_ids):
         except Exception:  # noqa: BLE001 -- an unreadable record observes nothing
             continue
     for task in tasks:
+        if _is_our_own_words(task):
+            continue
         evidence = getattr(task, "evidence", None) or {}
         if not isinstance(evidence, dict):
             continue
@@ -2617,37 +2649,12 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         decided = _decide(
             mission_service, mission_control, intent_result.intent, attempts_made
         )
-        # WHAT THE MISSION HAS ACTUALLY ACHIEVED, and it is the thing
-        # that decides whether more research is even a coherent idea.
-        #
-        # More research exists to close a requirement nobody has closed.
-        # If every requirement is satisfied, there is nothing to close,
-        # and asking for more is not diligence -- it is a mission that
-        # cannot tell it has finished.
-        #
-        # Measured, and it was a real regression of mine. "Think of three
-        # names and write them into a file" ran THREE TIMES:
-        #
-        #   attempt 1 (insufficient evidence):
-        #       satisfied=['req_1','req_2','req_3','req_4'] unresolved=[]
-        #
-        # Every requirement satisfied, nothing unresolved, nothing
-        # failed -- and it replanned twice anyway, because a deliberation
-        # over an objective that poses no decision extracted no
-        # candidates, and "no candidates" is read as "every criterion is
-        # still open". Each pass generated different names and rewrote
-        # the founder's file, so what the founder was told had been
-        # verified was the FIRST run's text and what sat on their disk
-        # was the THIRD's.
-        standing = _mission_progress(
-            mission_control, intent_result.intent, objective_id
-        )
+        # Only when there is a question to attach it to. Reading every
+        # task's Evidence for links costs nothing worth paying on the
+        # ordinary mission that decided nothing and needs nothing.
         needed = (
             _evidence_question(decided, _unvisited_links(mission_control, attempts_made))
-            if decided is not None
-            and decided.more_research
-            and standing is not None
-            and standing.unresolved
+            if decided is not None and decided.more_research
             else None
         )
 
@@ -2768,36 +2775,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             "deliberation: %s (%s shortlisted, %s rejected)",
             decided.state, len(decided.shortlist), len(decided.rejected),
         )
-    # A DECISION IS ONLY NEWS WHEN THE OBJECTIVE POSED ONE.
-    #
-    # "Think of three names and write them into a file" poses no
-    # decision: it names what it wants and every requirement was
-    # satisfied. A deliberation still ran over its Evidence, found
-    # nothing it recognised as a candidate, and the founder was told
-    #
-    #     I could not confirm anything that meets all of it.
-    #
-    # about work that had entirely succeeded. An empty shortlist over a
-    # mission with nothing unresolved is not a finding -- it is the Brain
-    # answering a question nobody asked, and repeating it to the founder
-    # is how a working product sounds broken.
-    #
-    # A research mission that genuinely found nothing still says so:
-    # there, a requirement IS unresolved, which is exactly the
-    # difference.
-    final_standing = _mission_progress(
-        mission_control, intent_result.intent, objective_id
-    )
-    decision_text = (
-        ""
-        if (
-            decided is not None
-            and not decided.shortlist
-            and final_standing is not None
-            and not final_standing.unresolved
-        )
-        else _decision_sentence(decided)
-    )
+    decision_text = _decision_sentence(decided)
 
     if state.errors:
         # Same hygiene as the refusal branch above: the founder gets a
