@@ -691,6 +691,15 @@ def recovery_for(
 #: where candidates, sources and sufficiency exist at all.
 _JUDGED_KINDS = frozenset({"information", "deliverable"})
 
+#: The one kind that asks a question about the world. A candidate is a
+#: possible ANSWER to such a question, which is what makes an INFORMATION
+#: requirement -- and only that kind -- a property a candidate can have.
+#:
+#: Spelled here rather than imported from `planner.plan` so the Brain
+#: does not depend on the Planner package for a word. The two must agree,
+#: and `tests/test_brain_deliberation.py` asserts they do.
+INFORMATION = "information"
+
 
 def frame_for(
     *,
@@ -752,6 +761,52 @@ def frame_for(
         if str(getattr(requirement, "kind", "")).lower() in _JUDGED_KINDS
     )
 
+    # A CRITERION IS A PROPERTY A CANDIDATE CAN HAVE.
+    #
+    # Every requirement used to become one, and `shortlist()` requires
+    # every mandatory criterion to be MET for a candidate -- so a
+    # requirement that is not a property of a candidate made qualifying
+    # impossible to do on purpose and possible to do by accident.
+    #
+    # Measured on the demo centrepiece, whose frame came out as:
+    #
+    #   crit_1  List of workshops that accept laptops and open Saturday
+    #   crit_2  Workshop must accept laptops
+    #   crit_3  Workshop must be open on Saturday
+    #   crit_4  Source must be http://127.0.0.1:.../directory.html
+    #
+    # Only crit_2 and crit_3 are things a workshop can BE. crit_1 is the
+    # answer SET, which no single workshop is; crit_4 is a statement
+    # about method, which no workshop is either. Whether a model marked
+    # those `met` for a given workshop was arbitrary, and it decided the
+    # shortlist: the same objective over the same pages qualified the
+    # right workshop once in five runs.
+    #
+    # INFORMATION is the kind that asks a question about the world, and a
+    # candidate is a possible answer to such a question. EFFECT is
+    # something to do, DELIVERABLE is something to hand over, CONSTRAINT
+    # is a condition on how -- none of them are properties of a
+    # candidate, and all three are still requirements the mission must
+    # satisfy. They are judged where they were always judged, at mission
+    # level, by conformance.
+    #
+    # This module's own history warns that a kind comes from a model and
+    # may not be leaned on. That warning was about whether a frame EXISTS
+    # -- which still turns on the structural test above, not on a label.
+    # Measured three times on this objective, `information` was assigned
+    # identically to both real questions every time; the instability was
+    # entirely within the non-information group, where the source line
+    # came back `effect` once and `constraint` twice. Both readings are
+    # excluded, so the instability cannot reach the decision.
+    #
+    # If a model labels nothing `information`, every requirement is kept
+    # -- a mislabelled frame is worse than the old behaviour only if it
+    # is EMPTY, and this cannot make it empty.
+    asked = tuple(
+        requirement for requirement in kept
+        if str(getattr(requirement, "kind", "")).lower() == INFORMATION
+    ) or kept
+
     mandatory = tuple(
         Criterion(
             criterion_id=f"crit_{index}",
@@ -759,12 +814,12 @@ def frame_for(
             requirement_id=str(getattr(requirement, "requirement_id", "")),
             mandatory=bool(getattr(requirement, "required", True)),
         )
-        for index, requirement in enumerate(kept, start=1)
+        for index, requirement in enumerate(asked, start=1)
     )
     return DecisionFrame(
         objective=objective,
         requirement_ids=tuple(
-            str(getattr(r, "requirement_id", "")) for r in kept
+            str(getattr(r, "requirement_id", "")) for r in asked
         ),
         decision_type="research_shortlist" if len(judged) > 1 else "assessment",
         mandatory=mandatory,
