@@ -1824,7 +1824,51 @@ def _plain(claims) -> str:
     return "; ".join(names) if names else "something it could not name"
 
 
-def _evidence_question(result) -> dict | None:
+def _unvisited_links(mission_control, objective_id) -> list[dict]:
+    """Somewhere a page already read says you can go, that nobody went.
+
+    The missing half of a research system that can decide it needs more
+    evidence. Naming the unresolved criterion tells the Planner WHAT to
+    settle; this tells it WHERE it may be settled -- and both come out of
+    canonical Evidence, so neither is a model inventing a destination.
+
+    Concretely, this is what a mission looked like without it: read a
+    directory page, decide "nobody has established the Sunday hours",
+    replan, and re-read the same directory page, twice, because the page
+    TEXT keeps the words "Sunday opening hours" and loses the address
+    behind them.
+    """
+    try:
+        objective = mission_control.dispatcher.objective(objective_id)
+    except Exception:  # noqa: BLE001 -- an unreadable record points nowhere
+        return []
+
+    visited: set[str] = set()
+    offered: dict[str, str] = {}
+    for task in objective.tasks:
+        evidence = getattr(task, "evidence", None) or {}
+        observed = evidence.get("observation") if isinstance(evidence, dict) else None
+        if not isinstance(observed, dict):
+            continue
+        for key in ("url", "url_normalised"):
+            been = str(observed.get(key) or "").strip()
+            if been:
+                visited.add(been.rstrip("/"))
+        for link in observed.get("links") or ():
+            if not isinstance(link, dict):
+                continue
+            url = str(link.get("url") or "").strip()
+            if url and url not in offered:
+                offered[url] = str(link.get("text") or "").strip()
+
+    return [
+        {"text": text, "url": url}
+        for url, text in offered.items()
+        if url.rstrip("/") not in visited
+    ]
+
+
+def _evidence_question(result, unvisited: list[dict] | None = None) -> dict | None:
     """What is still missing, said precisely enough to go and get.
 
     `None` when there is nothing to ask for. Otherwise the unresolved
@@ -1838,12 +1882,27 @@ def _evidence_question(result) -> dict | None:
     """
     if result is None or not result.more_research:
         return None
+    # By what it ASKS, never by its id. The Planner was being handed
+    # "still unresolved: crit_2" and asked to go and settle it.
+    asks = dict(result.criteria or {})
     missing: dict[str, list[str]] = {}
     for rejected in result.rejected:
         for criterion in rejected.unverified:
-            missing.setdefault(criterion, [])
-            if rejected.summary not in missing[criterion]:
-                missing[criterion].append(rejected.summary)
+            question = asks.get(criterion, criterion)
+            missing.setdefault(question, [])
+            if rejected.summary not in missing[question]:
+                missing[question].append(rejected.summary)
+
+    # Nothing was extracted at all -- no shortlist and nothing rejected.
+    #
+    # That is not "nothing to ask for", it is the widest possible
+    # question: the first source established none of the criteria, so
+    # every one of them is still open. Returning None here was why a
+    # mission that read one page, learned nothing usable and knew it
+    # stopped after a single cycle -- it had decided more research was
+    # needed and then had nothing to say about what.
+    if not missing and not result.shortlist and not result.rejected:
+        missing = {question: [] for question in asks.values()}
     if not missing:
         return None
     return {
@@ -1852,6 +1911,8 @@ def _evidence_question(result) -> dict | None:
         "already_established": [
             candidate.summary for candidate in result.shortlist
         ],
+        # Where to look, alongside what to look for. Both from Evidence.
+        "unvisited": (unvisited or [])[:12],
     }
 
 
@@ -2526,7 +2587,9 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         decided = _decide(
             mission_service, mission_control, intent_result.intent, objective_id
         )
-        needed = _evidence_question(decided)
+        needed = _evidence_question(
+            decided, _unvisited_links(mission_control, objective_id)
+        )
 
         # TWO DIAGNOSES, and they are not the same thing.
         #

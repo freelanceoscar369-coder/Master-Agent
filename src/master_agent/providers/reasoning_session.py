@@ -56,6 +56,7 @@ prior architecture's own behavior, not a regression below it).
 from __future__ import annotations
 
 import dataclasses
+import logging
 import time
 import uuid
 from dataclasses import dataclass
@@ -445,6 +446,19 @@ class ReasoningSessionManager:
         application *is* readable and is plainly saying the conversation
         is spent.
         """
+        try:
+            return self._inspect(handle)
+        except Exception:  # noqa: BLE001
+            # "Never raises" has to be true, not stated. The automation
+            # stack below raises `_ctypes.COMError` for a window that
+            # closed or an element that went stale mid-read, and that is
+            # outside this module's declared vocabulary -- a health check
+            # that can kill the call it was meant to protect is worse
+            # than no health check.
+            logging.debug("session inspection failed", exc_info=True)
+            return SessionHealth()
+
+    def _inspect(self, handle: int) -> SessionHealth:
         regions = self._text_regions(handle)
         warning = ""
         for text in regions:
@@ -472,14 +486,14 @@ class ReasoningSessionManager:
     def _text_regions(self, handle: int) -> tuple[str, ...]:
         try:
             snapshot = self._uia.snapshot_text_regions(handle)
-        except (UiaUnavailable, UiaTargetNotFound):
+        except (UiaUnavailable, UiaTargetNotFound, OSError):
             return ()
         return tuple(str(text) for text in snapshot.values() if text)
 
     def _read_composer(self, handle: int) -> str:
         try:
             return str(self._uia.read_text(self._uia.find_composer(handle)) or "")
-        except (UiaUnavailable, UiaTargetNotFound):
+        except (UiaUnavailable, UiaTargetNotFound, OSError):
             return ""
 
     def find_named_session(self, handle: int):
@@ -605,6 +619,13 @@ class ReasoningSessionManager:
         `False` as a failure; it just means no such section was found,
         which is the normal case for a single-purpose chat application."""
         try:
+            return self._navigate(handle)
+        except Exception:  # noqa: BLE001
+            logging.debug("chat-section navigation was not possible", exc_info=True)
+            return False
+
+    def _navigate(self, handle: int) -> bool:
+        try:
             control = self._uia.find(handle, name_exact=CHAT_SECTION_LABEL, visible_only=True, retries=0)
         except (UiaTargetNotFound, UiaUnavailable):
             return False
@@ -639,7 +660,22 @@ class ReasoningSessionManager:
         this window, never assumed) and confirms with Enter. Returns
         whether `new_name` is positively confirmed findable by exact
         name afterward — never raises; a failure at any step simply
-        returns `False`."""
+        returns `False`.
+
+        That last sentence was a claim rather than a fact until a live
+        run proved otherwise: `SetFocus()` on a rename field that had
+        already closed raised `_ctypes.COMError` out of this best-effort
+        step, through `complete()`, and ended the mission. Losing the
+        rename costs reuse on a future call. Losing the mission costs the
+        founder the work.
+        """
+        try:
+            return self._rename(handle, keyboard, new_name)
+        except Exception:  # noqa: BLE001
+            logging.debug("rename was not possible", exc_info=True)
+            return False
+
+    def _rename(self, handle: int, keyboard: Any, new_name: str) -> bool:
         action = self._find_by_vocabulary(handle, RENAME_ACTION_VOCABULARY)
         if action is None:
             trigger = self._find_by_vocabulary(handle, RENAME_TRIGGER_VOCABULARY)

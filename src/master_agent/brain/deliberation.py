@@ -306,6 +306,15 @@ class DeliberationResult:
     rationale: str = ""
     requirement_ids: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
+    #: criterion_id -> what it actually asks, carried from the frame.
+    #:
+    #: A result that only knows `crit_2` cannot say what is missing to
+    #: anything except the frame it came from. The Planner was being told
+    #: "still unresolved: crit_2" and asked to go and settle it, which is
+    #: not a question anybody can act on. What is unresolved is "the
+    #: reading room is open on Sunday", and that is a sentence a plan can
+    #: be built from.
+    criteria: Mapping[str, str] = field(default_factory=dict)
     more_research: bool = False
     replan_needed: bool = False
     founder_decision_required: bool = False
@@ -319,6 +328,7 @@ class DeliberationResult:
             "rationale": self.rationale,
             "requirement_ids": list(self.requirement_ids),
             "unresolved": list(self.unresolved),
+            "criteria": dict(self.criteria),
             "more_research": self.more_research,
             "replan_needed": self.replan_needed,
             "founder_decision_required": self.founder_decision_required,
@@ -1055,6 +1065,7 @@ def deliberate(
         rationale=why,
         requirement_ids=frame.requirement_ids,
         unresolved=unresolved,
+        criteria={c.criterion_id: c.description for c in frame.mandatory},
         more_research=not stop,
         founder_decision_required=False,
     )

@@ -414,6 +414,22 @@ def build_prompt(
                 f"- still unresolved: {criterion}"
                 + (f" -- for: {joined}" if joined else "")
             )
+        unvisited = wanted.get("unvisited") or []
+        if unvisited:
+            # Addresses a page already read actually contains, not
+            # guesses. "Search again" and "go to the page this one links
+            # to" cost the same and answer different amounts.
+            sections.append(
+                "- a page already read links to these, and none has been "
+                "visited yet; navigate to whichever could settle the above:"
+            )
+            for link in unvisited[:12]:
+                if not isinstance(link, dict):
+                    continue
+                label = str(link.get("text") or "").strip()
+                url = str(link.get("url") or "").strip()
+                if url:
+                    sections.append(f"    - {label or 'link'}: {url}")
         established = wanted.get("already_established") or []
         if established:
             sections.append(

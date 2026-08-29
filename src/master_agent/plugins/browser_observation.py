@@ -93,6 +93,37 @@ class AvailableAction:
         }
 
 
+#: How many links one page contributes.
+#:
+#: A directory page can carry hundreds. This is not a safety limit, it is
+#: the same "what a later step can actually hold" limit `MAX_PAGE_TEXT_CHARS`
+#: already states -- and it is declared in the observation when it bites,
+#: never silently applied.
+MAX_PAGE_LINKS = 60
+
+#: Schemes that are not somewhere to go.
+_NOT_A_DESTINATION = ("javascript:", "mailto:", "tel:", "about:", "data:")
+
+
+@dataclass
+class PageLink:
+    """Somewhere this page says you can go next.
+
+    Deterministic, from the page itself -- never a model's idea of where
+    to look. It exists because a research mission that decides it needs
+    more evidence had no way to act on that decision: the page's TEXT
+    keeps the words "Sunday opening hours" and loses the `href` behind
+    them, so a system that had already read the page holding the answer's
+    address could only re-read the same page.
+    """
+
+    text: str
+    url: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"text": self.text, "url": self.url}
+
+
 @dataclass
 class BrowserObservation:
     url: str
@@ -124,6 +155,12 @@ class BrowserObservation:
     #: verify all three, and have nothing to think about.
     text: str | None = None
     text_truncated: bool = False
+    #: Where this page says you can go next. Gathered with the text, for
+    #: the same reason and by the same opt-in: the read that wants to
+    #: know what a page SAYS is the read that may need to know where it
+    #: POINTS.
+    links: list[PageLink] = field(default_factory=list)
+    links_truncated: bool = False
     available_actions: list[AvailableAction] = field(default_factory=list)
     available_actions_truncated: bool = False
     captured_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -140,6 +177,8 @@ class BrowserObservation:
             "accessibility_tree_truncated": self.accessibility_tree_truncated,
             "text": self.text,
             "text_truncated": self.text_truncated,
+            "links": [link.as_dict() for link in self.links],
+            "links_truncated": self.links_truncated,
             "available_actions": [action.as_dict() for action in self.available_actions],
             "available_actions_truncated": self.available_actions_truncated,
             "captured_at": self.captured_at.isoformat(),
@@ -278,6 +317,38 @@ def _observe_text(page: Page) -> tuple[str | None, bool]:
     return text, False
 
 
+def _observe_links(page: Page) -> tuple[list[PageLink], bool]:
+    """Every anchor with a destination, absolute and deduplicated.
+
+    `el.href` rather than `getAttribute('href')`: the browser has already
+    resolved it against the page's own base, so a relative
+    `hours.html` arrives as somewhere a later step can actually navigate
+    to. An unreadable page contributes no links, the same posture
+    `_observe_text` already takes.
+    """
+    try:
+        rows = page.eval_on_selector_all(
+            "a[href]",
+            "els => els.map(el => ({text: (el.innerText || '').trim(), url: el.href}))",
+        ) or []
+    except Exception:  # noqa: BLE001 -- an unreadable page observes nothing
+        return [], False
+
+    links: list[PageLink] = []
+    seen: set[str] = set()
+    for row in rows:
+        url = str((row or {}).get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        if any(url.lower().startswith(scheme) for scheme in _NOT_A_DESTINATION):
+            continue
+        seen.add(url)
+        links.append(PageLink(text=str((row or {}).get("text") or "").strip()[:120], url=url))
+        if len(links) >= MAX_PAGE_LINKS:
+            return links, len(seen) < len(rows)
+    return links, False
+
+
 def normalize_observation(
     page: Page,
     selectors: list[str] | None = None,
@@ -299,6 +370,7 @@ def normalize_observation(
         _observe_available_actions(page) if include_available_actions else ([], False)
     )
     text, text_truncated = _observe_text(page) if include_text else (None, False)
+    links, links_truncated = _observe_links(page) if include_text else ([], False)
 
     return BrowserObservation(
         url=page.url,
@@ -313,5 +385,7 @@ def normalize_observation(
         available_actions_truncated=actions_truncated,
         text=text,
         text_truncated=text_truncated,
+        links=links,
+        links_truncated=links_truncated,
         captured_at=datetime.now(UTC),
     )

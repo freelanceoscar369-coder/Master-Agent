@@ -574,7 +574,13 @@ def main() -> int:
             try:
                 case = build()
             except Exception as exc:  # noqa: BLE001 - a broken fixture is a result
+                # WHERE it raised, not just that it did. A bare type and
+                # message sent an hour into diagnosing a COMError that
+                # turned out to be four frames below where it was read.
+                import traceback
                 case = Case("?", f"fixture raised: {type(exc).__name__}: {exc}")
+                case.notes["traceback"] = "\n" + "".join(
+                    traceback.format_exception(exc))
                 case.check(False, "the fixture itself failed")
             cases.append(case)
             case.report()

@@ -435,3 +435,84 @@ class TestSaturationIsNotAProviderVerdict:
 
         assert _kimi_spec() == before
         assert before.autonomous_reasoning_unsafe_reason is None
+
+
+class TestBestEffortMeansBestEffort:
+    """A step whose failure costs nothing must not be able to cost
+    everything.
+
+    Found live, in the diversified battery: `SetFocus()` on an inline
+    rename field that had already closed raised `_ctypes.COMError` out of
+    `_rename_current_session` -- a step documented as "never raises; a
+    failure at any step simply returns False" -- through the reasoning
+    provider, out of `mission_service.start()`, and ended the mission.
+
+    Losing a rename costs reuse on a future call. Losing the mission
+    costs the founder the work. The automation stack raises COM errors
+    that are not in this module's declared vocabulary, so "never raises"
+    has to be enforced, not stated.
+    """
+
+    class _Exploding:
+        """A bridge whose every automation call fails the way the real
+        one did: an OSError subclass, which `_ctypes.COMError` is."""
+
+        def __init__(self, sessions=None):
+            self.sessions = dict(sessions or {})
+
+        def find(self, handle, **kwargs):
+            name = kwargs.get("name_exact")
+            if name is not None and name in self.sessions:
+                return self.sessions[name]
+            raise OSError("the window went away")
+
+        def click(self, element, mouse):
+            raise OSError("the window went away")
+
+        def snapshot_text_regions(self, handle, min_height=8):
+            raise OSError("the window went away")
+
+        def find_composer(self, handle, retries=2, retry_delay_seconds=0.6):
+            raise OSError("the window went away")
+
+        def read_text(self, element):
+            raise OSError("the window went away")
+
+        def get_focused_element_in_window(self, handle):
+            raise OSError("the window went away")
+
+        def write_text(self, element, text, keyboard, append=False, mouse=None):
+            raise OSError("the window went away")
+
+    def test_inspecting_a_window_that_went_away_claims_nothing(self):
+        manager = ReasoningSessionManager(self._Exploding(), FakeMouse())
+
+        health = manager.inspect_session(handle=7)
+
+        assert health.observed is False
+        assert health.usable is True
+
+    def test_a_rename_that_explodes_is_still_only_a_rename(self):
+        manager = ReasoningSessionManager(self._Exploding(), FakeMouse())
+
+        assert manager._rename_current_session(7, FakeKeyboard(), "x") is False
+
+    def test_chat_section_navigation_that_explodes_is_not_fatal(self):
+        manager = ReasoningSessionManager(self._Exploding(), FakeMouse())
+
+        assert manager._navigate_to_chat_section(7) is False
+
+    def test_a_write_that_cannot_take_focus_is_a_failed_write(self):
+        """The exact frame the live traceback named. `write_text` is the
+        primitive every caller already reads as "did it land?"."""
+        from master_agent.desktop.execution.uia_control import UiaAutomationBridge
+
+        class Detached:
+            def SetFocus(self):
+                raise OSError("An event was unable to invoke any of the subscribers")
+
+            def GetCurrentPattern(self, *_):
+                raise OSError("no pattern")
+
+        assert UiaAutomationBridge().write_text(
+            Detached(), "anything", FakeKeyboard()) is False

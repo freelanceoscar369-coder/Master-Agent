@@ -1533,7 +1533,19 @@ class UiaAutomationBridge:
         except Exception:  # noqa: BLE001
             pass  # no writable ValuePattern — fall through to keystrokes
 
-        element.SetFocus()
+        try:
+            element.SetFocus()
+        except Exception:  # noqa: BLE001
+            # An element that cannot take focus is a WRITE FAILURE, not
+            # an exception for every caller to learn about.
+            #
+            # Found live: an inline rename field that had already closed
+            # raised `_ctypes.COMError` out of `SetFocus()`, straight
+            # through a rename whose own contract is best-effort, out of
+            # the reasoning provider, and killed the mission. Every
+            # caller of `write_text` already treats `False` as "it did
+            # not land" and has somewhere sensible to go from there.
+            return False
         time.sleep(0.15)
         self._verify_focus(element, keyboard, mouse)
 
