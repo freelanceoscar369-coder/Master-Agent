@@ -891,3 +891,103 @@ request with a fresh name, then the three grounded questions — are
 preserved for the founder to run against the final canonical artefact.
 Their behaviour is proved by machine first so that run is a
 demonstration, not a debugging session.
+
+---
+
+# 29 August 2026 — SOURCE FROZEN
+
+## The freeze
+
+```
+frozen at        72736e8  fix(browser): one page, one reader
+branch           claude/brain-wisdom
+origin/main      6349eb1  (untouched; 38 ahead, 0 behind)
+frozen because   H passed live against a site nobody controls
+```
+
+From this point, source may change only for:
+
+```
+package defects
+acceptance defects
+regressions introduced by this branch
+demo evidence defects
+main-integration defects
+```
+
+**No new intelligence features.** Not deferred, not scheduled — closed
+for this delivery.
+
+## What earned the freeze
+
+H is the only objective in this work that runs against reality nobody
+arranged. Not a game, not the reading rooms, not a site this work had
+already been made to succeed against.
+
+```
+objective   Which of these three cities has a metro system that opened
+            before 1930 and is also its country's capital: Barcelona,
+            Madrid, Hamburg?  Start from
+            https://en.wikipedia.org/wiki/List_of_metro_systems
+
+decision    decided
+shortlist   Madrid
+rejected    Barcelona (a mandatory criterion was not met)
+            Hamburg   (a mandatory criterion was not met)
+
+H LIVE GENERALISATION: PASS
+```
+
+Every shortlisted answer rests on Evidence the mission actually holds;
+nothing reaches the shortlist without clearing every criterion; the
+founder's reply carries no identifiers, no criterion ids and no JSON.
+
+The fixture deliberately does not assert that Madrid is the answer.
+Encoding the answer would make it a test of how well a model read
+Wikipedia on the day it ran. It asserts the contract that must hold
+whatever the page says.
+
+## What H found that nothing else could
+
+H failed on its first live run, and the failure was real:
+
+```
+step_4: binding on step 'step_3' field 'text': the step reported
+'Jump to content\nMain menu\nSearch\n...' but the independent
+observation recorded 'Jump to content\nMain menu\nSearch\n...';
+refusing to choose
+```
+
+Two strings that begin identically and are not equal. `ReadPageText` cut
+its result at 40,000 characters; the independent Observation cut its own
+at 20,000. **Every page longer than 20,000 characters was unusable as
+reasoning input**, deterministically.
+
+Verification was doing its job — an Action and an independent
+Observation disagreeing is exactly what it exists to surface, and that
+check is untouched. What was wrong is that one page had two readers.
+There is now one, `read_visible_text`, owned where Evidence is produced.
+
+Every controlled page in the diversified battery is a few hundred
+characters, so below both limits the two readers agree perfectly. No
+fixture written by the author of the fixtures could have found this.
+That is the entire argument for H.
+
+## Not built today, deliberately
+
+Recorded as post-demo comparison, not as work:
+
+```
+new Ledger / persistent-task subsystem
+new Brain / Planner / memory architecture
+cross-restart autonomous mission resume
+AgentRewind or Argus equivalents
+new benchmark framework
+MCP expansion
+self-development loop
+```
+
+Tomorrow proves the smaller, real loop: understand → plan → act →
+observe → verify → measure progress → identify what is missing →
+recover or research → preserve verified work → continue → finish
+truthfully. That loop is now demonstrated end to end on public reality.
