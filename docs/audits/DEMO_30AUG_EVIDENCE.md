@@ -1568,3 +1568,81 @@ loop exits that say why they stopped, and this record.
   a structural gate. It only matters where a requirement that is not a
   property of a candidate becomes a mandatory per-candidate criterion --
   which is the centrepiece's remaining blocker and is recorded above.
+
+---
+
+# 29 August 2026 -- the acceptance estate, and what was actually wrong
+
+## The suspicion, and the controlled test that refuted it
+
+D2 failed after fixture E with `unknown or closed session: 'main'`, which
+looked like fixture contamination -- one fixture inheriting another's
+browser session. The battery's fixtures never name a session id; the
+Planner does. So the test was simple:
+
+```
+D2 alone      3 missions, both pages, decided        PASS
+D2 after E    1 mission,  directory only             FAIL
+```
+
+Same production, same fixture, same objective. That confirmed ordering
+mattered -- and then the loop's own diagnostic said what it actually was:
+
+```
+no further attempt: errors=False decided=decided
+                    more_research=False question=False attempts=0/2
+```
+
+## The real defect: one mission, two verdicts
+
+`_decide` was called twice over the same Evidence -- once inside the
+recovery loop to decide whether to keep researching, and again
+afterwards to report. Deliberation involves a model, so the two answers
+could differ.
+
+Here they did. The loop's decision said `decided, more_research=False`,
+so no second source was sought. The reporting decision said
+`insufficient_evidence`, so the founder was told nothing could be
+confirmed. **One mission, one set of Evidence, two verdicts, and the
+founder shown the one that did not drive the behaviour.**
+
+That is why this fixture has looked stochastic all evening. Nothing was
+leaking between fixtures; a coin was being tossed twice and the second
+toss was being read out.
+
+The correction is a de-duplication, not a semantic change: the decision
+is asked once and the same answer both acts and reports. A retry clears
+the held answer, because new Evidence makes it stale. It is also one
+fewer provider call on every research mission.
+
+## What it moved, and what it did not
+
+```
+before   D2 after E:  1 mission,  ['directory.html']
+after    run 1:       2 missions, ['directory.html']       FAIL
+         run 2:       3 missions, ['directory.html','hours.html']  PASS
+```
+
+The loop now continues where it used to stop. D2 is 1 FAIL / 1 PASS --
+better, and not deterministic. The remaining gap is the second
+acquisition choosing the linked page rather than re-reading the first.
+
+## An honest note on the harness hypothesis
+
+The brief asked for fixture session isolation, and I looked for it first.
+The fixtures do not own session ids and there was nothing to isolate;
+the A/B above is what proved the estate was not contaminating itself.
+Reporting that plainly is worth more than shipping an isolation fix for
+a problem that did not exist.
+
+## State
+
+```
+D PASS   E PASS   F PASS   G PASS   I PASS   GP3 PASS
+LOCAL PASS   BROWSER PASS
+D2         1 FAIL / 1 PASS -- not demo-stable
+CENTREPIECE not demo-stable
+H          PASS, preserved, not re-run
+
+FULL REGRESSION   75 failed / 8760 passed, ZERO new failure IDs
+```

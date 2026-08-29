@@ -1215,3 +1215,41 @@ KALPAVRIKSHA_DEMO_READY       FALSE
 The blocking condition is no longer a single defect. It is that the live
 acceptance estate cannot currently tell a regression from the weather,
 and every remaining decision depends on it being able to.
+
+---
+
+# 29 August 2026 -- ship decision
+
+```
+ACCEPTANCE HARNESS ROOT CAUSE   NOT fixture contamination. `_decide` ran
+                                twice per mission over the same Evidence
+                                and could answer differently; the loop
+                                acted on one answer and the founder was
+                                shown the other.
+SESSION ISOLATION FIX           not needed -- fixtures never own session ids
+FIX APPLIED                     one decision per mission (b27731e)
+
+BATTERY RUN 1                   FAIL (D2 only)
+BATTERY RUN 2                   PASS (all six)
+BATTERY RUN 3                   not run -- 3/3 unreachable after run 1
+
+a48b8d6                         NOT RE-LANDED -- the 3/3 gate that would
+                                have authorised the A/B was never met
+A/B RESULT                      not performed, per the brief's own order
+
+STABLE FOR DEMO                 LOCAL, BROWSER, GP3, E (recovery),
+                                D, F, G, I
+NOT STABLE                      D2, CENTREPIECE
+
+FULL REGRESSION                 75 / 8760, ZERO new
+FINAL PRODUCTION SHA            b27731e
+FINAL PACKAGE                   NOT rebuilt -- see below
+UI/UX HYPER AGENT HANDOFF       COMPLETE, untouched
+FINAL FOUNDER ACCEPTANCE        NOT REQUESTED
+
+KALPAVRIKSHA_DEMO_READY         FALSE
+```
+
+The package was not rebuilt. A fresh package would need its own
+package-level proofs to be worth anything, and those cannot be run
+tonight -- an unproven package is the same gamble in a new wrapper.
