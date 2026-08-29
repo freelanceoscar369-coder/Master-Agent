@@ -199,8 +199,23 @@ G  privacy asymmetry                                   PASS
 I  unanswerable research stops truthfully              PASS
 ```
 
-D2 exposed a second real defect, unrelated to Kimi and recorded in
+D2 exposed two further defects, both unrelated to Kimi and recorded in
 `docs/audits/BRAIN_WISDOM_CONVERGENCE.md`: the Planner was being handed
 `still unresolved: crit_2` — an internal identifier — and asked to go and
-settle it, and a deliberation that extracted no candidates at all
-returned *nothing* to ask for rather than the widest possible question.
+settle it; and a page's links never became Evidence, so a mission holding
+the answer's address could only re-read the page it had already read.
+With both closed:
+
+```
+D2  more_research is consumed, and acquires what is missing   PASS
+
+DIVERSIFIED BATTERY: PASS
+```
+
+A third defect surfaced during that work and belongs here, because it is
+the same class as everything else on this page — a step that was allowed
+to fail loudly when its own contract said it should fail quietly.
+`SetFocus()` on an inline rename field that had already closed raised
+`_ctypes.COMError` out of `_rename_current_session`, whose docstring
+promises "never raises", and killed the mission. Losing a rename costs
+reuse on a future call; losing the mission costs the founder the work.

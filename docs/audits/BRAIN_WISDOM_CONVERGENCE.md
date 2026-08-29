@@ -548,3 +548,114 @@ that changed underneath them. My own recorded rule, broken again.
 75 failed  8615 passed  2 skipped   (31m37s, frozen tree)
 NEW FAILURE IDS: ZERO -- sets identical to baseline
 ```
+
+---
+
+# 29 August — the last two things stopping `more_research`
+
+The P0 that opened this day was provider session health, recorded in
+`docs/audits/PROVIDER_SESSION_HEALTH.md`. Once transport health was
+established, D/D2/E were re-judged and D2 exposed two defects that had
+nothing to do with Kimi.
+
+## D2, before
+
+```
+missions run:   1
+pages reached:  ['directory.html']
+decision:       insufficient_evidence
+shortlist:      []
+```
+
+One page read, the objective's own question unanswered, and the mission
+stopped. Not a wrong answer — a correct decision that nothing could act
+on.
+
+## Defect 1 — what is missing was said in identifiers
+
+`_evidence_question` named unresolved criteria by `criterion_id`, so the
+Planner was handed
+
+```
+- still unresolved: crit_2
+```
+
+and asked to go and settle it. A `DeliberationResult` now carries what
+its criteria **ask**, not only their ids, and the same line reads
+
+```
+- still unresolved: the reading room is open on Sunday
+```
+
+Worse, a deliberation that extracted no candidates at all returned
+`None` — nothing to ask for. That is not "nothing is missing". A first
+source that established none of the criteria leaves **every** criterion
+open, which is the widest possible question, and that single `return
+None` is why the mission stopped after one cycle.
+
+## Defect 2 — where it might be found was thrown away
+
+The directory page says
+
+```html
+<a href="hours.html">Sunday opening hours</a>
+```
+
+`read_page_text` kept the words and lost the address. A mission that had
+already read the page holding the answer's location could only re-read
+the same page — which it did, three missions running, once the first
+defect was fixed and it *could* replan:
+
+```
+missions run:   3
+pages reached:  ['directory.html']
+```
+
+A page observation now records where it points: absolute (`el.href`, so
+the browser has already resolved it), deduplicated, only anchors that
+are somewhere to go, capped at 60 with the cap **declared** when it
+bites. `_unvisited_links` subtracts what was already visited, because
+"go back where you have been" is the loop this exists to break.
+
+Both halves come out of canonical Evidence. Neither is a model inventing
+a destination.
+
+## D2, after
+
+```
+missions run:   3
+pages reached:  ['directory.html', 'hours.html']
+```
+
+`hours.html` is never named in the objective. It was reached because the
+system decided it needed evidence it did not have, and knew where that
+evidence was.
+
+## A third defect, found by the battery rather than looked for
+
+`SetFocus()` on an inline rename field that had already closed raised
+`_ctypes.COMError` out of `_rename_current_session` — a step whose own
+docstring says "never raises; a failure at any step simply returns
+`False`" — through the reasoning provider, out of
+`mission_service.start()`, and ended the mission.
+
+Losing a rename costs reuse on a future call. Losing the mission costs
+the founder the work. `write_text` now reports a failed write, and the
+methods that promise never to raise no longer merely claim it.
+
+It cost an hour to find because a fixture that raised reported only its
+exception type — and the fixture being blamed was not the one that
+raised. Fixtures now print the traceback.
+
+## Diversified battery
+
+```
+D   two independent sources, neither sufficient alone   PASS
+D2  more_research is consumed, and acquires what is missing   PASS
+E   a failed source does not end the objective          PASS
+F   provider fallback on a service notice               PASS
+G   privacy asymmetry                                   PASS
+I   unanswerable research stops truthfully              PASS
+
+DIVERSIFIED BATTERY: PASS
+```
