@@ -1344,3 +1344,118 @@ Intent Layer with its own regression surface, and it is not a change to
 make against a demo deadline after two measured-wrong attempts in one
 evening. It is written down here so it starts from evidence rather than
 from a fresh guess.
+
+---
+
+# 29 August 2026 -- the Intent/requirement boundary, traced
+
+## What was asked, and what was found
+
+The brief's prescribed correction was: derive the founder's requirements
+once per canonical objective, and have every replan reuse them.
+
+**That is already implemented.** `missions/service.py::_admit` derives
+only when the Intent carries none:
+
+```python
+if not getattr(intent, "requirements", ()) and self.intent_layer is not None:
+    intent.requirements = self.intent_layer.requirements_for(intent, raw=text)
+```
+
+`_submit_objective` passes the same canonical Intent object through every
+replan, so the second and third admissions skip derivation entirely.
+Nothing is keyed by raw text.
+
+It had no regression. It has one now --
+`tests/test_requirement_stability_across_replans.py`, nine tests, with a
+stub Intent Layer whose reading of the same sentence CHANGES between
+calls, so a constant mock cannot make it pass:
+
+```
+requirements_for calls for one objective        1
+ids / descriptions / kinds / provenance         stable across two replans
+the second, incompatible reading                never consumed
+two separate objectives with identical text     derive independently
+a founder modification                          may change meaning, by
+                                                being a new canonical Intent
+```
+
+The live capture agrees: three missions of one centrepiece run all framed
+the identical two criteria. **Requirements do not move during a
+mission.**
+
+## Where the variance actually is
+
+Not in reuse. In the FIRST derivation, run to run, for the same sentence.
+
+`_reasoned_requirements` was measured five times on the centrepiece
+objective, with the model's raw output printed beside what the parser
+kept:
+
+```
+run 1   3 offered, 3 kept   Saturday=information   source=constraint
+run 2   3 offered, 3 kept   Saturday=information   source=constraint
+run 3   4 offered, 4 kept   Saturday=information   source=constraint
+                            + a synthesised "combined list of workshops
+                              that meet both criteria"
+run 4   3 offered, 3 kept   Saturday=information   source=constraint
+run 5   3 offered, 3 kept   Saturday=CONSTRAINT    source=INFORMATION
+```
+
+A correction to my own earlier reasoning: I expected the parser's closed
+kind vocabulary to be silently dropping requirements, since
+`_reasoned_requirements` discards any item whose `kind` falls outside
+`REQUIREMENT_KINDS` and then renumbers the survivors by position. **It
+was not.** Every item the model offered survived in all five runs. The
+drop path exists and is a real hazard, but it is not what happened here,
+and saying so is worth more than a fix aimed at the wrong thing.
+
+What varies is the reading itself: the count (three or four), the
+wording, and which of the two labels lands on which sentence. Run 5
+labelled the Saturday question `constraint` and the navigation
+instruction `information` -- exactly inverted.
+
+And an earlier live admission produced only TWO requirements, losing the
+Saturday question altogether:
+
+```
+crit_1  Which community repair workshops accept laptops
+crit_2  Start from the directory page at the given URL
+```
+
+Every downstream component then reasoned correctly about a question the
+founder did not ask.
+
+## Why this is not fixed tonight
+
+The remaining lever is the derivation prompt, and the brief rules out
+prompt experimentation for good reason. Two corrections were attempted
+earlier this evening on the same defect -- filtering the frame to
+INFORMATION requirements, and splitting extraction per source -- and both
+were measured worse and reverted. A third speculative change to the one
+boundary that decides what the founder asked for, made at the end of a
+long day against a demo deadline, is how the third one goes wrong too.
+
+What the next attempt should start from, rather than a fresh guess:
+
+- The reuse invariant holds and is now pinned; do not re-solve it.
+- The parser drops nothing here; do not harden the wrong path first,
+  though the silent-drop-and-renumber branch is worth closing on its own
+  merits.
+- The variance is in `_reasoned_requirements`' single call. The two
+  failure shapes are a MISSING question and a SWAPPED kind, and both
+  are visible in the raw output, which means a coverage check against
+  the founder's own sentence is possible without a second model.
+
+## State
+
+```
+D PASS   D2 PASS   E PASS   F PASS   G PASS   I PASS
+GOLDEN PATH 1/2/3 PASS      DEMO BATTERY PASS
+cross-source deterministic fixture PASS (20 runs, no model)
+requirement stability regression   PASS (9 tests)
+task-specific production code      NO
+
+CENTREPIECE loop      PASS on every run
+CENTREPIECE verdict   NOT STABLE -- 5/5 gate not met
+```

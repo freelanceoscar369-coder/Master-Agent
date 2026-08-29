@@ -1155,3 +1155,31 @@ plus a deterministic cross-source regression, a demo-vocabulary guard
 over production code, and a recovery loop that says why it stopped.
 
 The gate is not met and is not being declared met.
+
+---
+
+# 29 August 2026 -- Intent boundary traced; gate still not met
+
+```
+INTENT/REQUIREMENT OWNER   IntentLayer.requirements_for, called once by
+                           MissionService._admit, stored on the canonical
+                           Intent, reused by every replan
+
+REUSE INVARIANT            ALREADY IMPLEMENTED -- now regressed, 9 tests
+REQUIREMENTS_FOR CALLS     1 per objective (initial 1, replan 1: 0, replan 2: 0)
+IDS / DESCRIPTIONS /
+KINDS / PROVENANCE         STABLE across replans
+NEW OBJECTIVE ISOLATION    PASS -- identical text, independent derivation
+FOUNDER MODIFICATION       a new canonical Intent may change meaning; a
+                           replan may not
+
+ROOT CAUSE (remaining)     first-derivation variance in
+                           _reasoned_requirements: count, wording and kind
+                           vary run to run for one unchanged sentence
+
+CENTREPIECE 5/5            NOT MET
+FINAL PACKAGE              deliberately NOT rebuilt -- still stale
+FINAL FOUNDER ACCEPTANCE   NOT REQUESTED
+
+KALPAVRIKSHA_DEMO_READY    FALSE
+```
