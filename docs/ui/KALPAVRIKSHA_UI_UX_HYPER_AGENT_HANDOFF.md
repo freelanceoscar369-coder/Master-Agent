@@ -1,6 +1,6 @@
 # Kalpavriksha — UI/UX handoff for Hyper Agent
 
-**Branch:** `claude/brain-wisdom` · **Audited at:** `6806c90`
+**Branch:** `claude/brain-wisdom` · **Audited at:** `910fc31`
 **Audience:** Hyper Agent, receiving this cold. You should not need the
 founder to explain the system again.
 **Status of this document:** production-grounded specification. Every
@@ -582,6 +582,15 @@ also open on Saturday? Start from <directory page>"*
 | 6 | Second source read; earlier Evidence preserved across the replan | WORKING | "Second source found ✓ Saturday hours confirmed" | none |
 | 7 | Deliberation: one candidate clears both criteria; two rejected with reasons | VERIFYING | "Verifying the final match" | none |
 | 8 | `decided`, shortlist of one | COMPLETED | "Ashcombe Repair Workshop matches both requirements." + the two rejections and why | expand evidence |
+
+> **One honesty note for moment 8.** The loop above — steps 1 through 7 —
+> passes on every run of this fixture. Step 8's *verdict*, shortlisting
+> the one candidate whose two criteria come from two different sources,
+> is currently intermittent: it has succeeded and it has come back "a
+> mandatory criterion could not be established" while correctly
+> rejecting the other two. Design moment 8 for both outcomes. The
+> truthful-insufficiency version is not a failure state and must not be
+> styled like one — see §10.
 
 **Moment 5 is the whole demo.** A route died and the founder was not
 asked anything. Design it as composure — a single quiet line — not an
