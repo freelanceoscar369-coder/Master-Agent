@@ -391,12 +391,24 @@ class FakeSessionManager:
 
     def __init__(self, ok: bool, reason: str = "", session_marker: str = "Kalpavriksha Reasoning — test"):
         from master_agent.providers.reasoning_session import SessionEstablishment
+        from master_agent.providers.reasoning_session import SessionHealth
         self._result = SessionEstablishment(ok, reason, session_marker if ok else "")
         self.establish_calls = 0
+        #: What the window says AFTER the answer arrives. Healthy by
+        #: default; a test that cares sets it.
+        self.health = SessionHealth(observed=True)
+        self.retired: list[str] = []
 
     def establish(self, window, provider_label, keyboard):
         self.establish_calls += 1
         return self._result
+
+    def inspect_session(self, handle):
+        from master_agent.providers.reasoning_session import SessionHealth
+        return self.health
+
+    def retire(self, provider_label):
+        self.retired.append(provider_label)
 
 
 class TestSessionEstablishmentIntegration:

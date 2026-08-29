@@ -205,3 +205,74 @@ class TestOurOwnPromptHandedBackIsNotAnAnswer:
         source = inspect.getsource(desktop_app.DesktopAppReasoningProvider.complete)
         assert "_is_only_our_own_prompt" in source
         assert "PROMPT_ECHOED" in source
+
+
+class TestTheWindowDescribingItselfIsNotAnAnswer:
+    """Measured live, this session, against Kimi Desktop.
+
+    Asked to reply with one nonce token, the provider returned
+    `SUCCEEDED` carrying eight lines of the window's own furniture:
+
+        Copy / Share / Create or select a file to start / Your chats will
+        appear here / Update / Instant / High / AI-generated, for
+        reference only
+
+    Our prompt was not in it, so the echo guard did not fire. It is not a
+    service notice, so that guard did not fire. It was a reasoning result
+    as far as everything downstream could tell.
+    """
+
+    FURNITURE = (
+        "Copy\nShare\nCreate or select a file to start\n"
+        "Your chats will appear here\nUpdate\nInstant\nHigh\n"
+        "AI-generated, for reference only"
+    )
+
+    def test_the_live_capture_is_recognised(self):
+        from master_agent.providers.desktop_app import _is_only_interface_text
+
+        assert _is_only_interface_text(self.FURNITURE) is True
+
+    def test_one_substantive_line_makes_it_an_answer(self):
+        """Furniture usually arrives ATTACHED to a real reply -- `Copy`
+        and `Share` sit under every message. The question is never
+        whether furniture is present, only whether anything else is."""
+        from master_agent.providers.desktop_app import _is_only_interface_text
+
+        assert _is_only_interface_text(
+            "Copy\nHalden Reading Room is step-free.\nShare") is False
+
+    def test_a_terse_genuine_reply_survives(self):
+        from master_agent.providers.desktop_app import _is_only_interface_text
+
+        for reply in ("Yes, both are step-free.",
+                      "KALPAVRIKSHA_KIMI_FRESH_ALPHA_5bd5b9c3",
+                      "Halden."):
+            assert _is_only_interface_text(reply) is False, reply
+
+    def test_a_sentence_opening_with_a_label_word_is_not_a_label(self):
+        """"Copy the following three names into your notes" begins with a
+        control's name and is plainly prose. Length is what separates
+        them, and it is checked before the vocabulary is consulted."""
+        from master_agent.providers.desktop_app import _is_only_interface_text
+
+        assert _is_only_interface_text(
+            "Copy the following three names into your notes and share them") is False
+
+    def test_nothing_at_all_is_left_to_the_empty_response_guard(self):
+        from master_agent.providers.desktop_app import _is_only_interface_text
+
+        assert _is_only_interface_text("") is False
+        assert _is_only_interface_text("   \n  ") is False
+
+    def test_the_acceptance_script_and_the_product_share_one_vocabulary(self):
+        """This knowledge used to live only in
+        `scripts/live_acceptance/p0_3_complete_response.py`, which meant
+        the acceptance run was the only thing it protected."""
+        import pathlib
+
+        source = pathlib.Path(
+            "scripts/live_acceptance/p0_3_complete_response.py"
+        ).read_text(encoding="utf-8")
+        assert "_INTERFACE_LABELS" in source
+        assert '"your chats will appear here"' not in source

@@ -82,6 +82,15 @@ SUBMIT_UNVERIFIED = (
 RESPONSE_TIMEOUT = "no response appeared within the bounded wait"
 EMPTY_RESPONSE = "the application produced no meaningful response text"
 SERVICE_NOTICE = "the application answered with a service notice, not an answer"
+PROMPT_TOO_LONG = (
+    "this request is longer than the application's own composer will "
+    "carry, and a shortened request is a different request"
+)
+
+#: Room for the `[Kalpavriksha Reasoning - ... ]` identity line that every
+#: submitted prompt carries. Counted against the composer's own limit
+#: because it is genuinely typed into the composer alongside the request.
+_MARKER_RESERVE_CHARS = 128
 PROMPT_ECHOED = (
     "the application returned the request back with interface text around "
     "it, not an answer"
@@ -120,6 +129,80 @@ def _is_only_our_own_prompt(response: str, marked_prompt: str) -> bool:
                   "Send", "Stop", "Ask me. Task me."):
         remainder = remainder.replace(label, " ")
     return len(_normalize_whitespace(remainder)) < MIN_ANSWER_CHARS
+
+ONLY_INTERFACE_TEXT = (
+    "the application returned its own interface labels, not an answer"
+)
+
+#: The labels a chat surface paints around a conversation.
+#:
+#: Measured live, this session, against Kimi Desktop. Asked to reply with
+#: one nonce token, the provider returned `SUCCEEDED` carrying:
+#:
+#:     Copy
+#:     Share
+#:     Create or select a file to start
+#:     Your chats will appear here
+#:     Update
+#:     Instant
+#:     High
+#:     AI-generated, for reference only
+#:
+#: Not our prompt handed back, so `_is_only_our_own_prompt` did not fire.
+#: Not a service notice, so `_is_service_notice` did not fire. Eight
+#: lines of a window describing itself, propagating as a reasoning
+#: result -- and every consumer downstream then behaved correctly on
+#: furniture, which is how a battery of Brain fixtures came to be read as
+#: intelligence variance.
+#:
+#: This exact knowledge already existed in
+#: `scripts/live_acceptance/p0_3_complete_response.py`, where a hand-
+#: written judge rejected the same eight lines. A guard that lives only
+#: in an acceptance script protects the acceptance run and nothing else.
+#: It belongs where the classification happens, beside the two guards
+#: that already refuse the other kinds of fake success -- and there is
+#: now one owner of it, which that script imports.
+_INTERFACE_LABELS: frozenset[str] = frozenset({
+    # affordances on a message
+    "copy", "share", "edit", "delete", "retry", "regenerate", "rerun",
+    "like", "dislike", "good response", "bad response", "read aloud",
+    # affordances on the conversation
+    "send", "stop", "new chat", "new task", "new conversation", "rename",
+    "export", "attach", "attach file", "upload", "search", "voice",
+    # model / mode pickers
+    "update", "instant", "high", "auto", "thinking", "fast", "pro",
+    "model", "settings",
+    # empty-state and disclaimer copy
+    "your chats will appear here", "create or select a file to start",
+    "ai-generated, for reference only", "ask me. task me.",
+    "how can i help", "how can i help?", "what can i help with",
+    "what can i help with?", "start a new chat to begin",
+})
+
+#: A line long enough to be prose is not a label, whatever it says --
+#: which keeps a genuine sentence that happens to open with one of these
+#: words from ever being counted as furniture.
+_MAX_INTERFACE_LABEL_CHARS = 48
+
+
+def _is_only_interface_text(text: str) -> bool:
+    """Is every line of this the window describing itself?
+
+    ONE substantive line is enough to make it an answer. The question is
+    not whether furniture is present -- a real reply often arrives with
+    `Copy` and `Share` attached to it -- but whether there is anything
+    else at all.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return False
+    for line in lines:
+        if len(line) > _MAX_INTERFACE_LABEL_CHARS:
+            return False
+        if line.lower().strip(" .:-—") not in _INTERFACE_LABELS:
+            return False
+    return True
+
 
 #: What a desktop AI app says INSTEAD of answering.
 #:
@@ -381,6 +464,25 @@ class DesktopAppReasoningProvider(ModelProvider):
                 latency_ms=self._elapsed_ms(started),
             )
 
+        # 0.5. Will this application's own composer even carry the
+        # request? Asked here, before discovery, launch or focus, so a
+        # provider that cannot serve this prompt costs nothing but the
+        # question -- and so the answer is never "send a shorter one".
+        #
+        # `prompt[:limit]` is the whole failure mode this branch exists
+        # to make unreachable. Truncating turns "what are the Sunday
+        # hours for these three rooms" into "what are the Sunday" and
+        # gets a fluent answer to the wrong question, with nothing
+        # downstream able to tell that anything was lost. Failing here
+        # hands the request to the next provider intact.
+        limit = getattr(self._spec, "max_prompt_chars", None)
+        if limit is not None and len(prompt) + _MARKER_RESERVE_CHARS > limit:
+            return failure(
+                self._spec.provider_id, REJECTED, PROMPT_TOO_LONG,
+                latency_ms=self._elapsed_ms(started),
+                prompt_chars=len(prompt), max_prompt_chars=limit,
+            )
+
         # 1. Real discovery evidence, not an assumption.
         inventory = self._context.inventory(deep=True)  # cache-first; see module docstring
         app = self._resolve_app_record(inventory)
@@ -421,6 +523,21 @@ class DesktopAppReasoningProvider(ModelProvider):
             return failure(self._spec.provider_id, UNAVAILABLE, session.reason,
                             latency_ms=self._elapsed_ms(started))
 
+        # What was established, carried onto every result from here on --
+        # success AND failure. The first live run of
+        # `scripts/live_acceptance/kimi_session_health.py` could not say
+        # whether a fresh conversation had been created, because the run
+        # ended in a provider failure and the failure carried nothing
+        # about the session. A diagnosis is most needed exactly when
+        # something went wrong.
+        session_detail = {
+            "session_marker": session.session_marker,
+            "session_reused": session.reused,
+            "session_renamed": session.renamed,
+            "session_rotated": session.rotated,
+            "session_health": session.health.as_dict(),
+        }
+
         # Found live, this session: writing immediately after a
         # successfully-verified establishment can still fail — the
         # composer's *text content* settling (what establishment's own
@@ -451,7 +568,7 @@ class DesktopAppReasoningProvider(ModelProvider):
         written = self._write_prompt(window, marked_prompt, keyboard)
         if not written:
             return failure(self._spec.provider_id, REJECTED, WRITE_UNVERIFIED,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
 
         # 3.5. Baseline the window's text content *before* submitting —
         # `_await_response()`'s own generic response-discovery mechanism
@@ -479,14 +596,14 @@ class DesktopAppReasoningProvider(ModelProvider):
         submitted = self._submit(window, keyboard)
         if not submitted:
             return failure(self._spec.provider_id, REJECTED, SUBMIT_UNVERIFIED,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
 
         # 5. Bounded observation + verification — never treated as done
         # merely because Enter was pressed.
         response_text = self._await_response(window, marked_prompt, response_baseline)
         if response_text is None:
             return failure(self._spec.provider_id, TIMED_OUT, RESPONSE_TIMEOUT,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
         # Whitespace-normalized comparison, not raw `.strip()`: a rich-text
         # composer reflows pasted whitespace (blank lines collapsed,
         # indentation moved — see `uia_control.py`'s own finding). Leftover
@@ -496,7 +613,7 @@ class DesktopAppReasoningProvider(ModelProvider):
         # guards against, found live in this session's own testing.
         if not response_text.strip() or _normalize_whitespace(response_text) == _normalize_whitespace(marked_prompt):
             return failure(self._spec.provider_id, MALFORMED, EMPTY_RESPONSE,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
 
         # Our own prompt handed back with the furniture around it.
         #
@@ -525,7 +642,20 @@ class DesktopAppReasoningProvider(ModelProvider):
             return failure(
                 self._spec.provider_id, MALFORMED, PROMPT_ECHOED,
                 latency_ms=self._elapsed_ms(started),
-                observed=response_text.strip()[:200],
+                observed=response_text.strip()[:200], **session_detail,
+            )
+
+        # The window describing itself is not an answer either.
+        #
+        # `MALFORMED`, alongside the echoed prompt: nothing is wrong with
+        # the request, and nothing here says the application cannot serve
+        # it -- the read came back with the surface instead of the reply.
+        # Measured live against Kimi Desktop; see `_INTERFACE_LABELS`.
+        if _is_only_interface_text(response_text):
+            return failure(
+                self._spec.provider_id, MALFORMED, ONLY_INTERFACE_TEXT,
+                latency_ms=self._elapsed_ms(started),
+                observed=response_text.strip()[:200], **session_detail,
             )
 
         # The application talking about itself is not an answer.
@@ -540,8 +670,19 @@ class DesktopAppReasoningProvider(ModelProvider):
             return failure(
                 self._spec.provider_id, UNAVAILABLE, SERVICE_NOTICE,
                 latency_ms=self._elapsed_ms(started),
-                notice=response_text.strip()[:200],
+                notice=response_text.strip()[:200], **session_detail,
             )
+
+        # The warning can appear because of the very turn that just
+        # succeeded. A real answer is not thrown away for it -- the
+        # request was owned, the response is genuine, and Verification
+        # judges it on its own merits. What changes is only that this
+        # conversation is not used again: retired now, so the NEXT call
+        # rotates instead of walking back into it.
+        after = self._sessions.inspect_session(window["handle"])
+        saturated_after = after.saturated
+        if saturated_after:
+            self._sessions.retire(self._spec.label)
 
         return ProviderResult(
             provider_id=self._spec.provider_id,
@@ -554,9 +695,13 @@ class DesktopAppReasoningProvider(ModelProvider):
             detail={
                 "application": self._spec.label,
                 "window_handle": window["handle"],
-                "session_marker": session.session_marker,
-                "session_reused": session.reused,
-                "session_renamed": session.renamed,
+                **session_detail,
+                # PROVIDER SESSION health, never provider health. False
+                # here says one accumulated conversation is finished; it
+                # says nothing at all about whether this application can
+                # answer the next question, which is why the Broker sees
+                # a `SUCCEEDED` result and no exclusion.
+                "session_reusable": not saturated_after,
             },
         )
 

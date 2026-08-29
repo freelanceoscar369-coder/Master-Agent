@@ -22,6 +22,9 @@ from master_agent.providers.reasoning_session import (
     NEW_SESSION_VOCABULARY,
     RENAME_ACTION_VOCABULARY,
     RENAME_TRIGGER_VOCABULARY,
+    SESSION_SATURATED,
+    SESSION_SATURATION_VOCABULARY,
+    STALE_ATTACHMENT_VOCABULARY,
     ReasoningSessionManager,
     build_session_marker,
 )
@@ -56,6 +59,9 @@ class FakeUiaBridge:
         get_focused_raises: bool = False,
         write_text_result: bool = True,
         find_raises: Exception | None = None,
+        window_text: tuple[str, ...] = ("Hello.", "Sure -- here is the answer."),
+        attachment_present: bool = False,
+        composer_text: str = "",
     ):
         self.sessions: dict[str, object] = dict(existing_sessions or {})
         self._new_session_control = new_session_control
@@ -69,12 +75,20 @@ class FakeUiaBridge:
         self._get_focused_raises = get_focused_raises
         self._write_text_result = write_text_result
         self._find_raises = find_raises
+        #: What `snapshot_text_regions()` reports. A list, so a test can
+        #: mutate it to model the window changing after a new
+        #: conversation is created.
+        self.window_text = list(window_text)
+        self.attachment_present = attachment_present
+        self.composer_text = composer_text
 
         self.chat_section_element = object()
         self.new_session_element = object()
         self.rename_action_element = object()
         self.rename_trigger_element = object()
         self.focused_element = object()
+        self.attachment_element = object()
+        self.composer_element = object()
 
         self.clicked_elements: list[object] = []
         self.find_calls: list[str] = []
@@ -99,6 +113,10 @@ class FakeUiaBridge:
 
         if name_contains is not None:
             phrase = name_contains.lower()
+            if phrase in STALE_ATTACHMENT_VOCABULARY:
+                if self.attachment_present:
+                    return self.attachment_element
+                raise UiaTargetNotFound(f"no element matched {name_contains!r}")
             if self._new_session_control and phrase in NEW_SESSION_VOCABULARY:
                 if self._new_session_control_phrase is None or phrase == self._new_session_control_phrase:
                     return self.new_session_element
@@ -120,6 +138,18 @@ class FakeUiaBridge:
             return self._rename_click_result
         # opening an already-existing named session
         return True
+
+    def snapshot_text_regions(self, handle, min_height=8):
+        return {(0, i * 20, 100, i * 20 + 18): text
+                for i, text in enumerate(self.window_text)}
+
+    def find_composer(self, handle, retries=2, retry_delay_seconds=0.6):
+        return self.composer_element
+
+    def read_text(self, element):
+        if element is self.composer_element:
+            return self.composer_text
+        return ""
 
     def get_focused_element_in_window(self, handle):
         if self._get_focused_raises:
