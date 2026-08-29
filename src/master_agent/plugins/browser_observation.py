@@ -300,13 +300,33 @@ def normalise_url(url: str) -> str:
     ))
 
 
-def _observe_text(page: Page) -> tuple[str | None, bool]:
-    """The visible text, read fresh at verification time.
+def read_visible_text(page: Page) -> tuple[str | None, bool]:
+    """The visible text of a page, and whether it was cut.
 
     `inner_text` rather than `text_content`: it returns what a person can
     actually see, leaving out script bodies and hidden nodes. A reasoning
     step given hidden markup would be reasoning about something the
     founder never saw.
+
+    **Public, and the only implementation, on purpose.** The Action that
+    reads a page and the Observation that independently verifies it must
+    produce the same string for the same page, because
+    `_verified_value()` compares them for EQUALITY and -- correctly --
+    refuses to pick a winner when they differ.
+
+    They did not. `read_page_text` cut at 40,000 characters and this cut
+    at 20,000, so every page longer than 20,000 characters produced a
+    reported value and an observed value that could never match, and any
+    binding from it failed with
+
+        the step reported '...' but the independent observation recorded
+        '...'; refusing to choose
+
+    Found live on Wikipedia. Nothing in the controlled battery could have
+    found it: those fixture pages are a few hundred characters, so the
+    two limits never had anything to disagree about. Two truncations of
+    one string, compared for equality, is a bug by construction -- and
+    the fix is one reader, not two constants that happen to agree today.
     """
     try:
         text = page.inner_text("body") or ""
@@ -324,7 +344,7 @@ def _observe_links(page: Page) -> tuple[list[PageLink], bool]:
     resolved it against the page's own base, so a relative
     `hours.html` arrives as somewhere a later step can actually navigate
     to. An unreadable page contributes no links, the same posture
-    `_observe_text` already takes.
+    `read_visible_text` already takes.
     """
     try:
         rows = page.eval_on_selector_all(
@@ -369,7 +389,7 @@ def normalize_observation(
     available_actions, actions_truncated = (
         _observe_available_actions(page) if include_available_actions else ([], False)
     )
-    text, text_truncated = _observe_text(page) if include_text else (None, False)
+    text, text_truncated = read_visible_text(page) if include_text else (None, False)
     links, links_truncated = _observe_links(page) if include_text else ([], False)
 
     return BrowserObservation(
