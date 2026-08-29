@@ -1013,7 +1013,7 @@ PROVIDER FALLBACK            PASS
 PRIVACY                      PASS
 KIMI FAIL-CLOSED             PASS
 
-DURABLE AUDIT RESTART        NOT DEMOED
+DURABLE AUDIT RESTART        PASS
 FULL REGRESSION              PASS — 75 / 8713, failure-ID set identical, zero new
 PACKAGE ACCEPTANCE           self-check OK, archive identity proven
 FINAL FOUNDER ACCEPTANCE     NOT REQUESTED
@@ -1021,6 +1021,26 @@ ONE PRODUCTION INSTANCE      not started
 
 KALPAVRIKSHA_DEMO_READY      FALSE
 ```
+
+## Durable audit across a restart
+
+Already in the product, and proven live rather than assumed —
+`scripts/live_acceptance/u1_real_restart.py` drives the real composition
+root twice in one process against a DISPOSABLE state directory, so the
+founder's own history is never touched.
+
+```
+RESULT: PASS — real composition restart proven
+  [PASS] OpenRouter executed after the restart
+  [PASS] its answer was verified
+  [PASS] it ran the configured model
+  [PASS] both prices were zero at execution time
+disposable state dir removed
+```
+
+This is mission AUDIT surviving a restart. It is **not** autonomous
+resumption of an interrupted objective, which remains post-demo and was
+deliberately not built today.
 
 ## The one open P0
 
