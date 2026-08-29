@@ -1845,7 +1845,7 @@ def _unvisited_links(mission_control, objective_id) -> list[dict]:
 
     visited: set[str] = set()
     offered: dict[str, str] = {}
-    for task in objective.tasks:
+    for task in getattr(objective, "tasks", ()) or ():
         evidence = getattr(task, "evidence", None) or {}
         observed = evidence.get("observation") if isinstance(evidence, dict) else None
         if not isinstance(observed, dict):
@@ -2587,8 +2587,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         decided = _decide(
             mission_service, mission_control, intent_result.intent, objective_id
         )
-        needed = _evidence_question(
-            decided, _unvisited_links(mission_control, objective_id)
+        # Only when there is a question to attach it to. Reading every
+        # task's Evidence for links costs nothing worth paying on the
+        # ordinary mission that decided nothing and needs nothing.
+        needed = (
+            _evidence_question(decided, _unvisited_links(mission_control, objective_id))
+            if decided is not None and decided.more_research
+            else None
         )
 
         # TWO DIAGNOSES, and they are not the same thing.
