@@ -1061,3 +1061,170 @@ detail in `docs/audits/PROVIDER_SESSION_HEALTH.md`.
 75 failed  8713 passed  2 skipped
 NEW FAILURE IDS: ZERO — set identical to the recorded 75 baseline
 ```
+
+---
+
+# 29 August 2026 — GP3 closed, and a correction
+
+## Identity
+
+```
+final feature SHA     692ee09
+origin/main           6349eb1   (untouched)
+package               dist/Kalpavriksha/Kalpavriksha.exe
+built from            692ee09
+sha256                9a8232dabb4d4fe373e56f7fdd0cdcfd52172f27169a0e72dfa7e97c985dbc2b
+size                  37,081,137 bytes
+built                 2026-08-29 19:10:40 +0530
+FMEA tier             UNSET
+self-check            RESULT: OK, 48 capabilities, no-ollama constructed=no candidate=no
+archive identity      5 of 5 modules FOUND -- the package carries this branch
+```
+
+## A correction I owe the record
+
+I previously reported the golden-path-3 failure as *"intermittent, and
+not a regression from this branch"*, on the strength of a `git diff` over
+the reasoning action, the tiered runner and the reasoning verifier -- all
+empty.
+
+**That was wrong, and the method was wrong.** I diffed the value path and
+concluded the value path was innocent, without asking what else could
+change a value. The defect was mine, it was deterministic, and it was in
+the recovery loop I had written the same day.
+
+## What it actually was
+
+`Reasoning.Transform`'s Evidence -- a deterministic measurement of the
+text a model produced -- was being fed into deliberation as if it were an
+observation of the world. So "think of three names and write them into a
+file", an objective that poses no decision at all, produced a
+deliberation, which found no candidates it could establish, which this
+branch's own rule reads as *every criterion is still open*, which asked
+for more research.
+
+The mission ran **three times**:
+
+```
+attempt 1 (insufficient evidence):
+    satisfied=['req_1','req_2','req_3','req_4'] unresolved=[] failed=[]
+```
+
+Every requirement satisfied, nothing unresolved, nothing failed -- and it
+replanned twice anyway. Each pass generated different names and rewrote
+the file, so:
+
+```
+verified text   SproutLog / GreenGrove / PlantPad     (mission 1)
+file contents   Sprout / BloomNote / GrowLog          (mission 3)
+```
+
+The founder was told one thing was verified and handed another. That is
+the boundary golden path 3 exists to guard.
+
+## The fix, and one that was taken back out
+
+**Kept.** A decision weighs the world; what the system itself said is not
+something it saw. Reasoning-capability Evidence no longer enters a
+deliberation. Matched on the executive prefix, so a second reasoning
+capability is excluded the day it is written.
+
+**Tried first, and wrong.** Requiring an unresolved *requirement* before
+more research. D2 caught it immediately: that suppresses exactly the case
+research exists for -- a mission whose steps all ran and whose objective
+is still unanswered. Reverted.
+
+**Tried, measured, taken back out.** Splitting extraction into one call
+per observation, so the cross-source join would be arithmetic rather than
+a model's judgement. The reasoning is right; the result was worse. Given
+one page and criteria mentioning things that page says nothing about, the
+model turns cautious and reports `unverified` for facts it can plainly
+see -- the centrepiece went from correctly rejecting a workshop as CLOSED
+at weekends to "could not be established", from the page listing its
+hours. Zero provider failures in that run. Reverted, with the account
+kept in the docstring.
+
+**Kept from that attempt.** The extraction prompt was cutting every
+observation at **1,500 characters**, silently. A Wikipedia list article
+runs to two hundred thousand: the Brain was deciding about real research
+pages from their table of contents and telling nobody. Now 12,000, and
+when it bites the prompt says the source was cut and that nothing further
+down may be claimed.
+
+## Verified after the fix
+
+```
+GOLDEN PATH 1 -- LOCAL                        PASS   22.3s
+GOLDEN PATH 2 -- ORDINARY BROWSER             PASS   15.4s
+GOLDEN PATH 3 -- REASONING + FILE             PASS   11.8s
+DEMO BATTERY: PASS
+
+verified text   Growly / Sprout / Bedlog
+file contents   Growly / Sprout / Bedlog
+```
+
+One mission. Confirmed three separate times: an instrumented probe
+(`result.text` == `observation.text` == disk), and two full battery runs.
+
+```
+D   two independent sources, neither sufficient alone       PASS
+D2  more_research is consumed, and acquires what is missing  PASS
+E   a failed source does not end the objective              PASS
+F   provider fallback on a service notice                   PASS
+G   privacy asymmetry                                       PASS
+I   unanswerable research stops truthfully                  PASS
+DIVERSIFIED BATTERY: PASS
+
+H   live generalisation                                     PASS
+```
+
+## Regression
+
+```
+75 failed  8720 passed  2 skipped   (42m24s, frozen tree, 692ee09)
+NEW FAILURE IDS: ZERO -- set identical to the recorded 75 baseline
+```
+
+## The one open P0 -- the centrepiece verdict
+
+The centrepiece **loop** passes on every run:
+
+```
+[PASS] the source the founder named was read
+[PASS] the source holding the missing evidence was reached, and the
+       founder never named it
+[PASS] the dead route was genuinely attempted
+[PASS] the founder was not asked to pick another source
+[PASS] no identifiers / no internal ids / no raw plan in the reply
+```
+
+The **verdict** does not. Shortlisting the one candidate whose two
+criteria come from two different sources has succeeded once and failed
+four times on identical pages:
+
+```
+rejected: Ashcombe Repair Workshop (a mandatory criterion could not be
+                                    established)      <- the right answer
+          Brindle Repair Workshop  (a mandatory criterion was not met)
+          Calder Repair Workshop   (a mandatory criterion was not met)
+```
+
+The two candidates that need **one** citation each are rejected correctly
+every single time. Only the cross-source confirmation is unreliable --
+the model is being asked to notice that the workshop named on one page is
+the workshop whose hours are on another, and to cite a different source
+for each criterion of the same candidate.
+
+Two remedies are already spent: short citable labels instead of UUIDs
+(kept, helped) and per-source extraction (measured worse, reverted). The
+next one is not a five-minute change, and it is not being attempted
+against a demo deadline.
+
+## An intermittent worth recording
+
+Twice, a golden-path-3 run completed the mission -- the file correct on
+disk -- and then sat idle on I/O for seventeen minutes after the
+completion confirmation, with flat CPU. A third run of the identical code
+finished in 21.5 seconds. It is an unbounded wait somewhere past
+completion when a provider stops responding rather than failing. Not
+reproduced since, not isolated, and recorded rather than forgotten.

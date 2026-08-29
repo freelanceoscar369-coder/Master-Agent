@@ -1085,3 +1085,43 @@ centrepiece and the live public objective. Golden path 3 is one of six
 and its failure is honest and understood. But `KALPAVRIKSHA_DEMO_READY`
 is a claim about the whole product, and it is FALSE while a
 verified-content boundary is open.
+
+---
+
+# 29 August 2026 -- close of the delivery strike
+
+```
+FINAL FEATURE SHA     692ee09
+FINAL MAIN SHA        6349eb1   (untouched; integration is post-acceptance)
+FINAL PACKAGE SHA256  9a8232dabb4d4fe373e56f7fdd0cdcfd52172f27169a0e72dfa7e97c985dbc2b
+
+H LIVE GENERALISATION        PASS
+LOCAL                        PASS
+BROWSER                      PASS
+REASONING + ACTION           PASS   (golden path 3 -- the previous P0, closed)
+MULTI-SOURCE                 PASS
+MORE-RESEARCH                PASS
+SECOND-SOURCE DISCOVERY      PASS
+RECOVERY                     PASS
+PROVIDER FALLBACK            PASS
+PRIVACY                      PASS
+KIMI FAIL-CLOSED             PASS
+DURABLE AUDIT RESTART        PASS
+
+CENTREPIECE -- loop           PASS on every run
+CENTREPIECE -- final verdict  INTERMITTENT (1 pass / 4 fail)
+
+FULL REGRESSION              PASS -- 75 / 8720, failure-ID set identical, zero new
+PACKAGE ACCEPTANCE           self-check OK, archive identity proven
+UI/UX HYPER AGENT HANDOFF    COMPLETE
+FINAL FOUNDER ACCEPTANCE     NOT REQUESTED
+ONE PRODUCTION INSTANCE      not started
+
+KALPAVRIKSHA_DEMO_READY      FALSE
+```
+
+The demo has five green objectives including the live public one. It does
+not have a reliable showpiece, and the showpiece is the objective that
+demonstrates the thing this whole sprint was about. `DEMO_READY` is a
+claim about the product, and it stays FALSE until the centrepiece verdict
+is dependable rather than lucky.
