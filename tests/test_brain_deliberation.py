@@ -835,103 +835,39 @@ class TestCandidateConstruction:
 
         assert candidates_from(FRAME, self.observations(), None) == ()
 
-    def test_every_observation_gets_its_own_prompt_with_a_citable_label(self):
-        """Each source is read on its own, so every prompt carries one
-        label and the whole criteria list. Asking one call to read three
-        pages was quietly asking it to do the cross-source JOIN as well,
-        which is the step it gets wrong -- see `candidates_from`."""
-        from master_agent.brain.deliberation import candidates_from
+    def test_one_prompt_carries_every_source_with_a_citable_label(self):
+        """One call sees everything, because the cross-source join needs
+        to. Reading each source alone was tried and measured worse -- see
+        `candidates_from`. The labels are what make the citation easy."""
+        from master_agent.brain.deliberation import candidates_from, source_labels
 
         reasoner = self.reasoner({"candidates": []})
         observations = self.observations()
         candidates_from(FRAME, observations, reasoner)
 
-        assert len(reasoner.prompts) == len(observations)
-        for prompt in reasoner.prompts:
-            assert "[source_1]" in prompt
-            for criterion in ("c1", "c2", "c3", "c4"):
-                assert criterion in prompt
+        assert len(reasoner.prompts) == 1
+        prompt = reasoner.prompts[0]
+        for label in source_labels(observations):
+            assert f"[{label}]" in prompt
+        for criterion in ("c1", "c2", "c3", "c4"):
+            assert criterion in prompt
 
     def test_a_label_cites_the_observation_it_stands_for(self):
         """One source in, one label out. `source_1` resolves to whichever
         observation that call was given."""
         from master_agent.brain.deliberation import candidates_from
 
-        observations = self.observations()[:1]
+        observations = self.observations()
         reasoner = self.reasoner({"candidates": [{
             "id": "cand_1", "summary": "A Thing",
             "criteria": {c.criterion_id: {"state": "met",
-                                          "evidence_id": "source_1"}
+                                          "evidence_id": "source_2"}
                          for c in FRAME.mandatory},
         }]})
 
         built = candidates_from(FRAME, observations, reasoner)
 
-        assert built and built[0].supporting == (observations[0].evidence_id,)
-
-    def test_two_sources_are_joined_by_counting_not_by_the_model(self):
-        """The load-bearing case. One source establishes the first
-        criterion and knows nothing of the second; another does the
-        reverse. Neither call ever sees both, and the candidate still
-        clears both."""
-        from master_agent.brain.deliberation import MET, UNVERIFIED, candidates_from
-
-        first, second = FRAME.mandatory[0], FRAME.mandatory[1]
-        answers = [
-            {"candidates": [{"id": "c", "summary": "A Thing", "criteria": {
-                first.criterion_id: {"state": "met", "evidence_id": "source_1"},
-                second.criterion_id: {"state": "unverified", "evidence_id": ""},
-            }}]},
-            {"candidates": [{"id": "c", "summary": "A Thing", "criteria": {
-                first.criterion_id: {"state": "unverified", "evidence_id": ""},
-                second.criterion_id: {"state": "met", "evidence_id": "source_1"},
-            }}]},
-        ]
-
-        class Sequenced:
-            def __init__(self):
-                self.prompts = []
-
-            def run(self, prompt, request):
-                import json
-                import types as _types
-                self.prompts.append(prompt)
-                body = answers[min(len(self.prompts) - 1, len(answers) - 1)]
-                return _types.SimpleNamespace(ok=True, text=json.dumps(body))
-
-        built = candidates_from(FRAME, self.observations()[:2], Sequenced())
-
-        assert len(built) == 1
-        assert built[0].criteria[first.criterion_id] == MET
-        assert built[0].criteria[second.criterion_id] == MET
-        assert len(built[0].supporting) == 2
-
-    def test_a_contradiction_blocks_the_claim_rather_than_being_resolved(self):
-        from master_agent.brain.deliberation import UNMET, candidates_from
-
-        first = FRAME.mandatory[0]
-        answers = [
-            {"candidates": [{"id": "c", "summary": "A Thing", "criteria": {
-                first.criterion_id: {"state": "met", "evidence_id": "source_1"}}}]},
-            {"candidates": [{"id": "c", "summary": "A Thing", "criteria": {
-                first.criterion_id: {"state": "unmet", "evidence_id": "source_1"}}}]},
-        ]
-
-        class Sequenced:
-            def __init__(self):
-                self.prompts = []
-
-            def run(self, prompt, request):
-                import json
-                import types as _types
-                self.prompts.append(prompt)
-                return _types.SimpleNamespace(
-                    ok=True,
-                    text=json.dumps(answers[min(len(self.prompts) - 1, 1)]))
-
-        built = candidates_from(FRAME, self.observations()[:2], Sequenced())
-
-        assert built[0].criteria[first.criterion_id] == UNMET
+        assert built and built[0].supporting == (observations[1].evidence_id,)
 
     def test_a_source_that_was_cut_short_says_so(self):
         """Silence about a cut is how a criterion in row 40 of a table

@@ -910,80 +910,33 @@ def candidates_from(
 ) -> tuple[Candidate, ...]:
     """What the observations offer as options, structurally validated.
 
-    ## One source at a time, and the join is arithmetic
+    ## One call over every source, and why the alternative was worse
 
-    Each observation is read on its own, and the results are merged here
-    by candidate. That is not an optimisation; it is the same rule this
-    module already states -- *a model reads prose into structure, and
-    that is all it does; `shortlist()` decides what qualifies,
-    deterministically.*
+    Reading each observation on its own was tried, on the reasoning that
+    the cross-source JOIN -- noticing that the workshop named on page one
+    is the workshop whose hours are on page two -- is a judgement, and
+    this module's rule is that a model reads prose into structure while
+    `shortlist()` decides what qualifies.
 
-    Asking one call to read three pages was quietly asking it to do the
-    JOIN as well: to notice that the workshop named on page one is the
-    workshop whose hours are on page two, and to cite a different source
-    for each criterion of the same candidate. Measured, repeatedly, that
-    is the step it gets wrong. The demo centrepiece rejected the two
-    candidates that needed one citation each -- correctly, every run --
-    and lost the correct answer, the only one whose two criteria come
-    from two different sources.
+    Measured, it was worse. Given one page, and criteria that mention
+    things that page says nothing about, the model turns cautious and
+    reports `unverified` for facts it can plainly see. The demo
+    centrepiece went from correctly rejecting a workshop as CLOSED at
+    weekends to reporting that its hours "could not be established" --
+    from the page that lists its hours.
 
-    Read one page at a time and every call is easy: one source, one
-    label, `met` or not. Merging is then counting:
+    So the join stays in the one call that can see everything, and
+    reliability is bought in the two places that did help: short citable
+    source labels (`source_labels`) rather than transcribed UUIDs, and an
+    observation budget large enough to contain the answer
+    (`MAX_OBSERVATION_CHARS`), with truncation declared when it bites.
 
-        UNMET   if any source shows it false
-        MET     if some source shows it true and none contradicts
-        UNVERIFIED  otherwise
-
-    A contradiction blocks the claim rather than being resolved here,
-    which is the conservative half of the same rule.
+    Recorded rather than quietly reverted, because the reasoning that
+    motivated the split is still right -- the join IS a judgement -- and
+    whoever notices that next should also find out that isolating the
+    sources is not how to take it back.
     """
-    kept = tuple(observations or ())
-    if reasoner is None or not kept or not frame.mandatory:
-        return ()
-    if len(kept) == 1:
-        return _extract(frame, kept, reasoner)
-    return _merged(tuple(
-        candidate
-        for observation in kept
-        for candidate in _extract(frame, (observation,), reasoner)
-    ))
-
-
-def _merged(candidates: Sequence[Candidate]) -> tuple[Candidate, ...]:
-    """The same candidate seen by several sources, joined by counting."""
-    order: list[str] = []
-    by_name: dict[str, Candidate] = {}
-    for candidate in candidates:
-        key = " ".join((candidate.summary or "").lower().split())
-        if not key:
-            continue
-        if key not in by_name:
-            order.append(key)
-            by_name[key] = candidate
-            continue
-        held = by_name[key]
-        states = dict(held.criteria)
-        for criterion_id, state in (candidate.criteria or {}).items():
-            standing = states.get(criterion_id, UNVERIFIED)
-            if standing == UNMET or state == UNMET:
-                states[criterion_id] = UNMET
-            elif standing == MET or state == MET:
-                states[criterion_id] = MET
-            else:
-                states[criterion_id] = UNVERIFIED
-        by_name[key] = Candidate(
-            candidate_id=held.candidate_id,
-            summary=held.summary,
-            criteria=states,
-            supporting=tuple(dict.fromkeys(held.supporting + candidate.supporting)),
-            contradicting=tuple(dict.fromkeys(
-                held.contradicting + candidate.contradicting)),
-            strengths=tuple(dict.fromkeys(held.strengths + candidate.strengths)),
-            weaknesses=tuple(dict.fromkeys(held.weaknesses + candidate.weaknesses)),
-            risks=tuple(dict.fromkeys(held.risks + candidate.risks)),
-            unknowns=tuple(dict.fromkeys(held.unknowns + candidate.unknowns)),
-        )
-    return tuple(by_name[key] for key in order)
+    return _extract(frame, observations, reasoner)
 
 
 def _extract(
