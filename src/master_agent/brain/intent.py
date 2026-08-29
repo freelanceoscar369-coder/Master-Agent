@@ -10,7 +10,6 @@ This replaces the regex-based parse_intent() stand-in from cli.py.
 from __future__ import annotations
 
 import re
-import re as _re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -574,124 +573,6 @@ QUESTION_REQUIREMENT = "answer the founder's question:"
 _TRANSFORM_CAPABILITY = "transform"
 #: The output field it publishes, and the one an answer is read from.
 _TRANSFORM_ANSWER_FIELD = "text"
-
-
-#: Where one founder sentence stops asking for one thing and starts
-#: asking for another.
-#:
-#: Structural, not semantic: terminators, a coordinating "and"/"then",
-#: and commas. It is not trying to understand the request -- it is
-#: marking the places a decomposition has to account for, so that a
-#: clause the founder wrote and nobody carried forward can be NAMED.
-_CLAUSE_BREAK = re.compile(r"[.?!;\n]+|\band\b|\bthen\b|,")
-
-#: Shorter than this and a fragment is punctuation, not a request.
-#: "then", "ok", "please" are not clauses anybody must represent.
-_MATERIAL_CLAUSE_CHARS = 12
-
-
-def _flatten(text: str) -> str:
-    """Lower-cased, whitespace-collapsed, edge punctuation removed.
-
-    Two people quoting the same phrase differ by a comma and a capital.
-    Comparison happens on this form so a grounding check fails for
-    invention, never for typography.
-    """
-    return " ".join((text or "").lower().split()).strip(" .,;:!?\"'()[]")
-
-
-def _material_clauses(objective: str) -> tuple[str, ...]:
-    """The separately-asked parts of one founder request."""
-    return tuple(
-        flat for flat in (
-            _flatten(part) for part in _CLAUSE_BREAK.split(objective or "")
-        )
-        if len(flat) >= _MATERIAL_CLAUSE_CHARS
-    )
-
-
-def requirement_issues(objective: str, offered: Any) -> list[str]:
-    """What is wrong with a proposed decomposition, precisely.
-
-    Deterministic, and deliberately structural. It does not judge whether
-    `information` was the right word for a clause -- word lists and
-    grammar rules cannot settle that, and a rule like "a question mark
-    means information" is the next drift, not a fix. What it can settle
-    is whether the decomposition ACCOUNTS FOR the founder's request:
-
-    OMISSION      a clause the founder wrote that no requirement quotes.
-                  Measured live: "are also open on Saturday" vanished,
-                  and a whole mission then reasoned correctly about a
-                  question nobody asked.
-
-    SYNTHESIS     a requirement quoting words the founder never said.
-                  Measured live: "the combined list of workshops that
-                  meet both criteria" -- a conclusion that follows from
-                  satisfying two requirements, promoted into a third one
-                  that then had to be independently established.
-
-    CONTRADICTION two requirements claiming different roles for the same
-                  span. One clause has one role.
-
-    UNREADABLE    a kind outside the closed vocabulary, or no
-                  description. Reported rather than silently dropped:
-                  the old code discarded these and renumbered what was
-                  left, so a founder's clause could disappear and take
-                  its id with it.
-
-    Returns a list of sentences addressed to whoever produced the
-    decomposition. No demo vocabulary: every message quotes the founder's
-    own words back.
-    """
-    issues: list[str] = []
-    rows = offered if isinstance(offered, list) else []
-    utterance = _flatten(objective)
-
-    grounded: list[tuple[str, str]] = []
-    for position, item in enumerate(rows, start=1):
-        if not isinstance(item, dict):
-            issues.append(f"item {position} is not a requirement object")
-            continue
-        kind = str(item.get("kind", "") or "").strip().lower()
-        description = str(item.get("description", "") or "").strip()
-        quote = _flatten(str(item.get("source_quote", "") or ""))
-
-        if not description:
-            issues.append(f"item {position} has no description")
-        if kind not in REQUIREMENT_KINDS:
-            issues.append(
-                f"item {position} has kind {kind!r}, which is not one of "
-                f"{', '.join(REQUIREMENT_KINDS)}"
-            )
-        if not quote:
-            issues.append(
-                f"item {position} quotes nothing from the request, so there "
-                "is no way to tell it apart from something invented"
-            )
-        elif quote not in utterance:
-            issues.append(
-                f"item {position} quotes {quote!r}, which does not appear in "
-                "what the founder wrote"
-            )
-        else:
-            grounded.append((quote, kind))
-
-    for quote, kind in grounded:
-        clashing = {other for span, other in grounded if span == quote} - {kind}
-        if clashing:
-            issues.append(
-                f"the same words {quote!r} are given more than one role "
-                f"({kind}, {', '.join(sorted(clashing))}); one clause has one role"
-            )
-            break
-
-    for clause in _material_clauses(objective):
-        if not any(quote in clause or clause in quote for quote, _ in grounded):
-            issues.append(
-                f"nothing represents what the founder asked for in {clause!r}"
-            )
-
-    return issues
 
 
 class IntentLayer:
@@ -1485,18 +1366,13 @@ class IntentLayer:
             "    deliverable - an artefact must be produced for them\n"
             "    constraint  - a condition another requirement must meet\n\n"
             "Reply with JSON and nothing else:\n"
-            '    {"requirements": [{"kind": "...", "description": "...", '
-            '"source_quote": "..."}]}\n\n'
+            '    {"requirements": [{"kind": "...", "description": "..."}]}\n\n'
             "Rules. Describe WHAT they require, never HOW to do it, and "
             "never name a tool, capability, program or website. Include "
             "only what their own words establish -- do not add steps that "
             "would be sensible, and do not merge two things they asked "
             "for into one. Keep each description short and in their own "
-            "terms. `source_quote` must be copied EXACTLY from the "
-            "founder's sentence above -- the words that made you write "
-            "this requirement, verbatim and unaltered. Every part of "
-            "what they asked for must be quoted by some requirement, and "
-            "nothing may be quoted that they did not write."
+            "terms."
         )
         context = RoutingContext(
             is_online=True,
@@ -1509,46 +1385,19 @@ class IntentLayer:
             request_class=INTERACTIVE,
             prompt=prompt,
         )
-        offered = self._decomposition(prompt, request)
+        try:
+            outcome = self._reasoner.run(prompt, request)
+        except Exception:  # noqa: BLE001 -- a dead ladder is a default, not a crash
+            return ()
+        if outcome is None or not getattr(outcome, "ok", False):
+            return ()
 
-        # THE MODEL PROPOSES. THIS LAYER DECIDES WHETHER IT IS ADMISSIBLE.
-        #
-        # Measured five times on one unchanged sentence, the same request
-        # came back as three requirements, then four -- the extra one a
-        # conclusion that FOLLOWS from the others rather than anything
-        # the founder asked for -- and once with a whole clause missing.
-        # A missing clause is the worst of the three: every layer
-        # downstream then reasons correctly about a question nobody
-        # asked, and says so with complete confidence.
-        #
-        # The same shape the Planner already uses for a rejected plan:
-        # deterministic validation, a precise account of what is wrong,
-        # ONE bounded correction, validate again, and a truthful failure
-        # if it still does not hold. Not a retry loop, and not a general
-        # correction framework -- one repair, at the owner.
-        issues = requirement_issues(objective, offered)
-        if issues:
-            import logging
-
-            logging.info(
-                "requirement decomposition rejected (%s); one correction",
-                "; ".join(issues[:3]),
-            )
-            offered = self._decomposition(
-                self._correction_prompt(objective, prompt, offered, issues),
-                request,
-            )
-            issues = requirement_issues(objective, offered)
-            if issues:
-                # Admitted with nothing rather than with a corrupt
-                # reading. `()` is the pre-existing honest default: the
-                # Planner still plans, and conformance reports UNKNOWN
-                # instead of inventing correspondence.
-                logging.info(
-                    "requirement decomposition still not admissible: %s",
-                    "; ".join(issues[:3]),
-                )
-                return ()
+        document = _parsed_json(getattr(outcome, "text", "") or "")
+        if document is None:
+            return ()
+        offered = document.get("requirements")
+        if not isinstance(offered, list):
+            return ()
 
         found = []
         for item in offered:
@@ -1575,61 +1424,13 @@ class IntentLayer:
                 # circularity ADR-0026 exists to prevent, and it applied
                 # to every compound objective.
                 #
-                # The founder's OWN WORDS FOR THIS CLAUSE, now that the
-                # decomposition is required to quote them and the quote
-                # is checked against what they wrote. This used to be the
-                # whole sentence for every requirement -- honest, and
-                # recorded as debt in ADR-0027 because it made every
-                # requirement's evidence identical and therefore useless
-                # for telling one clause from another. The debt is paid
-                # here; the sentence remains as `provenance`.
-                founder_evidence=str(item.get("source_quote", "") or "").strip()
-                or objective,
+                # The objective sentence is the honest evidence
+                # available at this granularity. Per-clause founder
+                # wording would be finer and is recorded as debt in
+                # ADR-0027 rather than invented here.
+                founder_evidence=objective,
             ))
         return tuple(found)
-
-    def _decomposition(self, prompt: str, request: Any) -> Any:
-        """One reasoning call, parsed. `None` on anything unusable, which
-        `requirement_issues` then reports as a decomposition that
-        represents nothing."""
-        try:
-            outcome = self._reasoner.run(prompt, request)
-        except Exception:  # noqa: BLE001 -- a dead ladder is a default, not a crash
-            return None
-        if outcome is None or not getattr(outcome, "ok", False):
-            return None
-        document = _parsed_json(getattr(outcome, "text", "") or "")
-        if document is None:
-            return None
-        return document.get("requirements")
-
-    @staticmethod
-    def _correction_prompt(
-        objective: str, first: str, rejected: Any, issues: list[str]
-    ) -> str:
-        """What was wrong, in the founder's own words rather than ours.
-
-        Never "try again". The Planner's own repair pass established the
-        rule: a correction that does not say what the contract was is a
-        second guess, not a repair.
-        """
-        import json
-
-        try:
-            shown = json.dumps({"requirements": rejected}, indent=2)[:2000]
-        except Exception:  # noqa: BLE001
-            shown = repr(rejected)[:2000]
-        return (
-            f"{first}\n\n"
-            "Your previous answer was:\n"
-            f"{shown}\n\n"
-            "It cannot be used, for these reasons:\n"
-            + "\n".join(f"    - {issue}" for issue in issues)
-            + "\n\nReply again with the same JSON shape, fixing exactly "
-            "these problems. Quote the founder's words verbatim in "
-            "`source_quote`, cover everything they asked for, and add "
-            "nothing they did not ask for."
-        )
 
 
     def question_subject(self, text: str) -> str:
