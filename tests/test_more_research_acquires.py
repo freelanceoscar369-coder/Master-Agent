@@ -424,3 +424,75 @@ class TestAnsweredIsNotFailed:
         source = self._source()
         branch = source.split("answered = decided", 1)[1]
         assert "if answered else status.message" in branch
+
+
+class TestAFinishedMissionDoesNotResearchItself:
+    """More research exists to close a requirement nobody has closed.
+
+    Measured, and it was a regression: "Think of exactly three short
+    names for a gardening notes app and write them one per line into
+    <file> on the Desktop" ran THREE TIMES.
+
+        attempt 1 (insufficient evidence):
+            satisfied=['req_1','req_2','req_3','req_4'] unresolved=[]
+
+    Every requirement satisfied, nothing unresolved, nothing failed --
+    and it replanned twice anyway. A deliberation over an objective that
+    poses no decision extracted no candidates, and this branch's own
+    "no candidates means every criterion is open" rule turned that into
+    a research question.
+
+    The founder-visible damage was worse than the wasted work. Each pass
+    generated different names and rewrote the file, so the text the
+    founder was told had been verified came from the FIRST run and the
+    text on their disk came from the THIRD. That is the exact boundary
+    the golden path exists to guard: what you are told was verified is
+    what is on your disk.
+    """
+
+    def _source(self):
+        import inspect
+
+        import kalpavriksha_desktop as kd
+
+        return inspect.getsource(kd._submit_objective)
+
+    def test_research_requires_something_actually_unresolved(self):
+        source = self._source()
+        head = source.split("if state.errors:", 1)[0]
+        assert "standing is not None" in head
+        assert "and standing.unresolved" in head
+
+    def test_the_standing_is_read_before_the_question_is_asked(self):
+        """Order matters: asking first and checking afterwards is how a
+        finished mission gets a question attached to it anyway."""
+        source = self._source()
+        head = source.split("if state.errors:", 1)[0]
+        assert head.index("standing = _mission_progress") < head.index("needed = (")
+
+    def test_an_empty_shortlist_says_nothing_when_nothing_is_unresolved(self):
+        """A deliberation that recognised no candidates, over a mission
+        that satisfied every requirement, is the Brain answering a
+        question nobody asked. Repeating it to the founder is how a
+        working product sounds broken."""
+        source = self._source()
+        assert "decision_text = (" in source
+        tail = source.split("decision_text = (", 1)[1]
+        assert "not decided.shortlist" in tail
+        assert "not final_standing.unresolved" in tail
+
+    def test_a_research_mission_that_found_nothing_still_says_so(self):
+        """The discriminator is an unresolved REQUIREMENT, not an empty
+        shortlist. A research objective that genuinely establishes
+        nothing has one, and must keep its truthful sentence."""
+        source = self._source()
+        tail = source.split("decision_text = (", 1)[1]
+        assert "else _decision_sentence(decided)" in tail
+
+    def test_progress_is_read_defensively_now_that_every_mission_reads_it(self):
+        import inspect
+
+        import kalpavriksha_desktop as kd
+
+        source = inspect.getsource(kd._mission_progress)
+        assert 'getattr(objective, "tasks", ())' in source

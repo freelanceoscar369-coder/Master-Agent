@@ -2007,7 +2007,10 @@ def _mission_progress(mission_control, intent, objective_id):
     return progress_of(
         str(getattr(intent, "goal", "") or ""),
         tuple(getattr(intent, "requirements", ()) or ()),
-        objective.tasks,
+        # Read defensively: this is now consulted on EVERY mission, not
+        # only on the replan path, and the surface tests drive the bridge
+        # with the smallest record that makes their own point -- rightly.
+        getattr(objective, "tasks", ()) or (),
     )
 
 
@@ -2614,12 +2617,37 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         decided = _decide(
             mission_service, mission_control, intent_result.intent, attempts_made
         )
-        # Only when there is a question to attach it to. Reading every
-        # task's Evidence for links costs nothing worth paying on the
-        # ordinary mission that decided nothing and needs nothing.
+        # WHAT THE MISSION HAS ACTUALLY ACHIEVED, and it is the thing
+        # that decides whether more research is even a coherent idea.
+        #
+        # More research exists to close a requirement nobody has closed.
+        # If every requirement is satisfied, there is nothing to close,
+        # and asking for more is not diligence -- it is a mission that
+        # cannot tell it has finished.
+        #
+        # Measured, and it was a real regression of mine. "Think of three
+        # names and write them into a file" ran THREE TIMES:
+        #
+        #   attempt 1 (insufficient evidence):
+        #       satisfied=['req_1','req_2','req_3','req_4'] unresolved=[]
+        #
+        # Every requirement satisfied, nothing unresolved, nothing
+        # failed -- and it replanned twice anyway, because a deliberation
+        # over an objective that poses no decision extracted no
+        # candidates, and "no candidates" is read as "every criterion is
+        # still open". Each pass generated different names and rewrote
+        # the founder's file, so what the founder was told had been
+        # verified was the FIRST run's text and what sat on their disk
+        # was the THIRD's.
+        standing = _mission_progress(
+            mission_control, intent_result.intent, objective_id
+        )
         needed = (
             _evidence_question(decided, _unvisited_links(mission_control, attempts_made))
-            if decided is not None and decided.more_research
+            if decided is not None
+            and decided.more_research
+            and standing is not None
+            and standing.unresolved
             else None
         )
 
@@ -2740,7 +2768,36 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             "deliberation: %s (%s shortlisted, %s rejected)",
             decided.state, len(decided.shortlist), len(decided.rejected),
         )
-    decision_text = _decision_sentence(decided)
+    # A DECISION IS ONLY NEWS WHEN THE OBJECTIVE POSED ONE.
+    #
+    # "Think of three names and write them into a file" poses no
+    # decision: it names what it wants and every requirement was
+    # satisfied. A deliberation still ran over its Evidence, found
+    # nothing it recognised as a candidate, and the founder was told
+    #
+    #     I could not confirm anything that meets all of it.
+    #
+    # about work that had entirely succeeded. An empty shortlist over a
+    # mission with nothing unresolved is not a finding -- it is the Brain
+    # answering a question nobody asked, and repeating it to the founder
+    # is how a working product sounds broken.
+    #
+    # A research mission that genuinely found nothing still says so:
+    # there, a requirement IS unresolved, which is exactly the
+    # difference.
+    final_standing = _mission_progress(
+        mission_control, intent_result.intent, objective_id
+    )
+    decision_text = (
+        ""
+        if (
+            decided is not None
+            and not decided.shortlist
+            and final_standing is not None
+            and not final_standing.unresolved
+        )
+        else _decision_sentence(decided)
+    )
 
     if state.errors:
         # Same hygiene as the refusal branch above: the founder gets a
