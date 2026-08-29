@@ -835,16 +835,56 @@ class TestCandidateConstruction:
 
         assert candidates_from(FRAME, self.observations(), None) == ()
 
-    def test_the_prompt_carries_the_evidence_ids_it_demands_be_cited(self):
-        from master_agent.brain.deliberation import candidates_from
+    def test_the_prompt_carries_a_citable_label_for_every_observation(self):
+        """It used to carry the raw evidence ids and require the model to
+        transcribe them back. With one observation that is easy; with two
+        it lost a correct answer to a copying error -- see
+        `source_labels`. What the prompt must carry is a label per
+        observation, and every criterion."""
+        from master_agent.brain.deliberation import candidates_from, source_labels
 
         reasoner = self.reasoner({"candidates": []})
-        candidates_from(FRAME, self.observations(), reasoner)
+        observations = self.observations()
+        candidates_from(FRAME, observations, reasoner)
         prompt = reasoner.prompts[0]
-        for evidence_id in ("ev1", "ev2", "ev3"):
-            assert evidence_id in prompt
+
+        for label in source_labels(observations):
+            assert f"[{label}]" in prompt
         for criterion in ("c1", "c2", "c3", "c4"):
             assert criterion in prompt
+
+    def test_a_label_cites_the_observation_it_stands_for(self):
+        from master_agent.brain.deliberation import candidates_from, source_labels
+
+        observations = self.observations()
+        labels = source_labels(observations)
+        first = next(iter(labels))
+        reasoner = self.reasoner({"candidates": [{
+            "id": "cand_1", "summary": "A Thing",
+            "criteria": {c.criterion_id: {"state": "met", "evidence_id": first}
+                         for c in FRAME.mandatory},
+        }]})
+
+        built = candidates_from(FRAME, observations, reasoner)
+
+        assert built and built[0].supporting == (labels[first],)
+
+    def test_a_label_nobody_offered_is_still_a_citation_of_nothing(self):
+        """The guard is unchanged. Only the thing being copied changed."""
+        from master_agent.brain.deliberation import UNVERIFIED, candidates_from
+
+        reasoner = self.reasoner({"candidates": [{
+            "id": "cand_1", "summary": "A Thing",
+            "criteria": {c.criterion_id: {"state": "met",
+                                          "evidence_id": "source_99"}
+                         for c in FRAME.mandatory},
+        }]})
+
+        built = candidates_from(FRAME, self.observations(), reasoner)
+
+        assert built
+        assert all(state == UNVERIFIED for state in built[0].criteria.values())
+        assert built[0].supporting == ()
 
     def test_it_names_no_provider(self):
         """The Brain states what reasoning it needs. The Broker decides

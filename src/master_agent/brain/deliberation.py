@@ -809,6 +809,34 @@ class Observation:
         }
 
 
+def source_labels(observations: Sequence[Observation]) -> dict[str, str]:
+    """`source_1`, `source_2`, ... -> the real evidence id.
+
+    The guard in `candidates_from` requires every `met` to cite an
+    observation that was actually supplied, and that guard is right. What
+    was wrong was asking a model to prove it by transcribing a 36-
+    character UUID.
+
+    Measured. The live H objective, with ONE observation, decided
+    cleanly. The demo centrepiece, with two, rejected the one candidate
+    that needed to cite BOTH of them -- the correct answer -- as "a
+    mandatory criterion could not be established", while correctly
+    rejecting the two candidates that each needed only one citation. A
+    correct claim was being lost to a copying error, and it looked
+    exactly like the model failing to establish a fact it had in front of
+    it.
+
+    Short labels change nothing about what is enforced: a citation naming
+    no supplied source is still refused, and `met` with no citation at
+    all is still refused. They only stop a right answer from failing on
+    transcription.
+    """
+    return {
+        f"source_{index}": observation.evidence_id
+        for index, observation in enumerate(observations, start=1)
+    }
+
+
 def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]) -> str:
     lines = [
         "You are reading observations that were gathered for one decision.",
@@ -819,10 +847,12 @@ def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]
     ]
     for criterion in frame.mandatory:
         lines.append(f"  {criterion.criterion_id}: {criterion.description}")
-    lines += ["", "OBSERVATIONS. Each carries an evidence id you must cite:"]
+    lines += ["", "OBSERVATIONS. Each has a label you must cite exactly:"]
+    labels = {evidence_id: label for label, evidence_id in
+              source_labels(observations).items()}
     for observation in observations:
         lines.append(
-            f"  [{observation.evidence_id}] ({observation.source_class}) "
+            f"  [{labels[observation.evidence_id]}] ({observation.source_class}) "
             f"{observation.text[:1500]}"
         )
     lines += [
@@ -830,10 +860,13 @@ def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]
         "Reply with JSON only:",
         '  {"candidates": [{"id": "...", "summary": "<the candidate\'s NAME only>",',
         '     "criteria": {"<criterion_id>": {"state": "met|unmet|unverified",',
-        '                                     "evidence_id": "<id or empty>"}}}]}',
+        '                                     "evidence_id": "<source label, or empty>"}}}]}',
         "",
         "Rules. Report only what the observations SUPPORT. A state of met "
-        "requires an evidence id from the list above that actually shows it; "
+        "requires a source label from the list above that actually shows it, "
+        "copied exactly as written -- different criteria of the same "
+        "candidate often come from different sources, and each must cite "
+        "the one that shows IT; "
         "if the observations do not establish a criterion, say unverified -- "
         "that is a useful answer and guessing is not. A state of unmet means "
         "an observation shows it is false, not that you could not find it. "
@@ -930,6 +963,10 @@ def candidates_from(
 
     known_criteria = {c.criterion_id for c in frame.mandatory}
     known_evidence = {o.evidence_id for o in observations}
+    # `source_2` -> the real id. A model that quotes the real id instead
+    # is not wrong either, so both are accepted; anything else is still
+    # a citation of nothing.
+    by_label = source_labels(observations)
     built: list[Candidate] = []
 
     for index, row in enumerate(document.get("candidates") or [], start=1):
@@ -963,7 +1000,8 @@ def candidates_from(
                 states[criterion_id] = UNVERIFIED
                 continue
             state = str(claim.get("state") or "").strip().lower()
-            evidence_id = str(claim.get("evidence_id") or "").strip()
+            cited = str(claim.get("evidence_id") or "").strip()
+            evidence_id = by_label.get(cited.lower(), cited)
             if state not in CRITERION_STATES:
                 states[criterion_id] = UNVERIFIED
                 continue
