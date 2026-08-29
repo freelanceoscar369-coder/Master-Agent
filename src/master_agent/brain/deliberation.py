@@ -809,6 +809,22 @@ class Observation:
         }
 
 
+#: How much of one observation the extraction prompt carries.
+#:
+#: This was 1,500 characters, silently. A Wikipedia list article runs to
+#: two hundred thousand, so the Brain was deciding about real research
+#: pages from their table of contents -- and never said so, to the model
+#: or to anyone reading the result. A criterion that lives in row 40 of a
+#: table was "unestablished" because nobody ever showed it.
+#:
+#: Generous, and DECLARED when it bites: the prompt now tells the model
+#: the source was cut and that it may not claim what it did not see.
+#: Bounded because a prompt is not free and a provider will refuse one
+#: that is too large -- but bounded far above the size of an article,
+#: which is what research actually reads.
+MAX_OBSERVATION_CHARS = 12_000
+
+
 def source_labels(observations: Sequence[Observation]) -> dict[str, str]:
     """`source_1`, `source_2`, ... -> the real evidence id.
 
@@ -851,9 +867,13 @@ def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]
     labels = {evidence_id: label for label, evidence_id in
               source_labels(observations).items()}
     for observation in observations:
+        body = observation.text or ""
+        cut = len(body) > MAX_OBSERVATION_CHARS
         lines.append(
             f"  [{labels[observation.evidence_id]}] ({observation.source_class}) "
-            f"{observation.text[:1500]}"
+            f"{body[:MAX_OBSERVATION_CHARS]}"
+            + ("\n    [this source was cut short; do not claim anything it "
+               "might have said further down]" if cut else "")
         )
     lines += [
         "",
@@ -889,6 +909,89 @@ def candidates_from(
     reasoner: Any = None,
 ) -> tuple[Candidate, ...]:
     """What the observations offer as options, structurally validated.
+
+    ## One source at a time, and the join is arithmetic
+
+    Each observation is read on its own, and the results are merged here
+    by candidate. That is not an optimisation; it is the same rule this
+    module already states -- *a model reads prose into structure, and
+    that is all it does; `shortlist()` decides what qualifies,
+    deterministically.*
+
+    Asking one call to read three pages was quietly asking it to do the
+    JOIN as well: to notice that the workshop named on page one is the
+    workshop whose hours are on page two, and to cite a different source
+    for each criterion of the same candidate. Measured, repeatedly, that
+    is the step it gets wrong. The demo centrepiece rejected the two
+    candidates that needed one citation each -- correctly, every run --
+    and lost the correct answer, the only one whose two criteria come
+    from two different sources.
+
+    Read one page at a time and every call is easy: one source, one
+    label, `met` or not. Merging is then counting:
+
+        UNMET   if any source shows it false
+        MET     if some source shows it true and none contradicts
+        UNVERIFIED  otherwise
+
+    A contradiction blocks the claim rather than being resolved here,
+    which is the conservative half of the same rule.
+    """
+    kept = tuple(observations or ())
+    if reasoner is None or not kept or not frame.mandatory:
+        return ()
+    if len(kept) == 1:
+        return _extract(frame, kept, reasoner)
+    return _merged(tuple(
+        candidate
+        for observation in kept
+        for candidate in _extract(frame, (observation,), reasoner)
+    ))
+
+
+def _merged(candidates: Sequence[Candidate]) -> tuple[Candidate, ...]:
+    """The same candidate seen by several sources, joined by counting."""
+    order: list[str] = []
+    by_name: dict[str, Candidate] = {}
+    for candidate in candidates:
+        key = " ".join((candidate.summary or "").lower().split())
+        if not key:
+            continue
+        if key not in by_name:
+            order.append(key)
+            by_name[key] = candidate
+            continue
+        held = by_name[key]
+        states = dict(held.criteria)
+        for criterion_id, state in (candidate.criteria or {}).items():
+            standing = states.get(criterion_id, UNVERIFIED)
+            if standing == UNMET or state == UNMET:
+                states[criterion_id] = UNMET
+            elif standing == MET or state == MET:
+                states[criterion_id] = MET
+            else:
+                states[criterion_id] = UNVERIFIED
+        by_name[key] = Candidate(
+            candidate_id=held.candidate_id,
+            summary=held.summary,
+            criteria=states,
+            supporting=tuple(dict.fromkeys(held.supporting + candidate.supporting)),
+            contradicting=tuple(dict.fromkeys(
+                held.contradicting + candidate.contradicting)),
+            strengths=tuple(dict.fromkeys(held.strengths + candidate.strengths)),
+            weaknesses=tuple(dict.fromkeys(held.weaknesses + candidate.weaknesses)),
+            risks=tuple(dict.fromkeys(held.risks + candidate.risks)),
+            unknowns=tuple(dict.fromkeys(held.unknowns + candidate.unknowns)),
+        )
+    return tuple(by_name[key] for key in order)
+
+
+def _extract(
+    frame: DecisionFrame,
+    observations: Sequence[Observation],
+    reasoner: Any = None,
+) -> tuple[Candidate, ...]:
+    """One extraction call, structurally validated.
 
     A model reads prose into structure here, and that is all it does. It
     does not decide what qualifies: `shortlist()` does, deterministically,
