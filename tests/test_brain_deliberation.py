@@ -536,76 +536,50 @@ class TestFramingFromCanonicalInformationOnly:
 
         frame = frame_for(objective="research", requirements=self.requirements())
         assert frame is not None
-        assert frame.mandatory
+        assert len(frame.mandatory) == 2
 
-    def test_only_the_questions_become_criteria(self):
-        """A criterion is a property a CANDIDATE can have.
-
-        The fixture asks for "action RPG games released in 2026" (a
-        question about the world) and "free demo download links" (what to
-        hand over about whichever games qualify). The second is not a
-        filter on a game -- it is the payload -- and requiring it of each
-        candidate is how a shortlist becomes a coin toss.
-
-        It remains a requirement of the MISSION, judged where it always
-        was: by conformance, at mission level.
-        """
+    def test_every_criterion_traces_to_a_requirement(self):
         from master_agent.brain.deliberation import frame_for
 
         frame = frame_for(objective="research", requirements=self.requirements())
-
-        assert [c.requirement_id for c in frame.mandatory] == ["req_1"]
-        assert frame.requirement_ids == ("req_1",)
-
-    def test_a_condition_on_method_is_never_a_candidate_property(self):
-        """The live defect. The centrepiece frame carried "Source must be
-        http://.../directory.html" as a mandatory criterion, and no
-        workshop can BE a source. Whether a model marked it met for a
-        given workshop was arbitrary, and it decided the shortlist."""
-        from master_agent.brain.deliberation import frame_for
-        from master_agent.planner.plan import (
-            CONSTRAINT, DELIVERABLE, INFORMATION, SemanticRequirement,
-        )
-
-        frame = frame_for(objective="which workshops", requirements=(
-            SemanticRequirement("req_1", DELIVERABLE,
-                                "List of workshops that accept laptops and "
-                                "are open on Saturday"),
-            SemanticRequirement("req_2", INFORMATION, "Workshop must accept laptops"),
-            SemanticRequirement("req_3", INFORMATION,
-                                "Workshop must be open on Saturday"),
-            SemanticRequirement("req_4", CONSTRAINT,
-                                "Source must be http://127.0.0.1/directory.html"),
-        ))
-
-        described = [c.description for c in frame.mandatory]
-        assert described == ["Workshop must accept laptops",
-                             "Workshop must be open on Saturday"]
+        assert [c.requirement_id for c in frame.mandatory] == ["req_1", "req_2"]
 
     def test_it_invents_no_criteria_of_its_own(self):
-        """A frame that added its own would be reinterpreting founder
-        meaning, which is exactly what ADR-0026 removed."""
+        """One criterion per requirement, and nothing else. A frame that
+        added its own would be reinterpreting founder meaning, which is
+        exactly what ADR-0026 removed."""
         from master_agent.brain.deliberation import frame_for
 
         requirements = self.requirements()
         frame = frame_for(objective="research", requirements=requirements)
+        assert len(frame.mandatory) == len(requirements)
         described = {c.description for c in frame.mandatory}
-        assert described <= {r.description for r in requirements}
+        assert described == {r.description for r in requirements}
 
-    def test_a_frame_is_never_left_empty_by_a_label(self):
-        """If a model labels nothing `information`, every requirement is
-        kept. A mislabelled frame is worse than the old behaviour only if
-        it is EMPTY, and this cannot make it empty."""
+    def test_every_requirement_is_kept_even_when_it_is_not_a_candidate_property(self):
+        """Filtering to the requirements that ARE candidate properties was
+        tried and taken back out -- see `frame_for`.
+
+        A frame carrying "Source must be <url>" makes qualifying partly
+        arbitrary, which is bad. A frame that has DROPPED the founder's
+        second question is worse: it produces a confident answer to half
+        the request. The Intent Layer labelled that very source line
+        `information` on a live run while the Saturday question did not
+        survive at all, so the filter cannot be trusted to keep the right
+        ones."""
         from master_agent.brain.deliberation import frame_for
-        from master_agent.planner.plan import CONSTRAINT, SemanticRequirement
+        from master_agent.planner.plan import (
+            CONSTRAINT, INFORMATION, SemanticRequirement,
+        )
 
-        frame = frame_for(objective="research", requirements=(
-            SemanticRequirement("req_1", CONSTRAINT, "released in 2026"),
-            SemanticRequirement("req_2", CONSTRAINT, "the demo is free"),
+        frame = frame_for(objective="which workshops", requirements=(
+            SemanticRequirement("req_1", INFORMATION, "accepts laptops"),
+            SemanticRequirement("req_2", CONSTRAINT, "open on Saturday"),
+            SemanticRequirement("req_3", CONSTRAINT, "Source must be http://x/"),
         ))
 
-        assert frame is not None
-        assert len(frame.mandatory) == 2
+        assert [c.requirement_id for c in frame.mandatory] == [
+            "req_1", "req_2", "req_3"]
 
     def test_the_brain_and_the_planner_spell_information_the_same(self):
         from master_agent.brain import deliberation

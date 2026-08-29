@@ -761,52 +761,39 @@ def frame_for(
         if str(getattr(requirement, "kind", "")).lower() in _JUDGED_KINDS
     )
 
-    # A CRITERION IS A PROPERTY A CANDIDATE CAN HAVE.
+    # A CRITERION SHOULD BE A PROPERTY A CANDIDATE CAN HAVE -- and
+    # filtering for that has been tried, measured, and taken back out.
     #
-    # Every requirement used to become one, and `shortlist()` requires
-    # every mandatory criterion to be MET for a candidate -- so a
-    # requirement that is not a property of a candidate made qualifying
-    # impossible to do on purpose and possible to do by accident.
+    # The live centrepiece frame carried four mandatory criteria: the two
+    # real questions, the answer SET restated, and "Source must be
+    # <url>". No workshop can BE a list or a source, `shortlist()`
+    # requires every mandatory criterion MET, and so qualifying depended
+    # on how a model happened to mark two criteria that mean nothing
+    # about a candidate. Captured directly: one replay marked the source
+    # criterion unverified and shortlisted the right workshop; the next
+    # marked the set criterion unverified and shortlisted nothing. Same
+    # frame, same Evidence, same code.
     #
-    # Measured on the demo centrepiece, whose frame came out as:
+    # The attempted fix kept only INFORMATION requirements, on the
+    # reasoning that a candidate is an answer to a question about the
+    # world. Three measurements of the Intent Layer in isolation showed
+    # `information` assigned identically to both real questions every
+    # time. The live admission path then produced this:
     #
-    #   crit_1  List of workshops that accept laptops and open Saturday
-    #   crit_2  Workshop must accept laptops
-    #   crit_3  Workshop must be open on Saturday
-    #   crit_4  Source must be http://127.0.0.1:.../directory.html
+    #   crit_1  Which community repair workshops accept laptops
+    #   crit_2  Start from the directory page at the given URL
     #
-    # Only crit_2 and crit_3 are things a workshop can BE. crit_1 is the
-    # answer SET, which no single workshop is; crit_4 is a statement
-    # about method, which no workshop is either. Whether a model marked
-    # those `met` for a given workshop was arbitrary, and it decided the
-    # shortlist: the same objective over the same pages qualified the
-    # right workshop once in five runs.
+    # The source constraint labelled INFORMATION, and the Saturday
+    # question -- the load-bearing one -- gone from the frame entirely.
+    # Dropping a real criterion is strictly worse than carrying a
+    # meaningless one, so every requirement is kept.
     #
-    # INFORMATION is the kind that asks a question about the world, and a
-    # candidate is a possible answer to such a question. EFFECT is
-    # something to do, DELIVERABLE is something to hand over, CONSTRAINT
-    # is a condition on how -- none of them are properties of a
-    # candidate, and all three are still requirements the mission must
-    # satisfy. They are judged where they were always judged, at mission
-    # level, by conformance.
-    #
-    # This module's own history warns that a kind comes from a model and
-    # may not be leaned on. That warning was about whether a frame EXISTS
-    # -- which still turns on the structural test above, not on a label.
-    # Measured three times on this objective, `information` was assigned
-    # identically to both real questions every time; the instability was
-    # entirely within the non-information group, where the source line
-    # came back `effect` once and `constraint` twice. Both readings are
-    # excluded, so the instability cannot reach the decision.
-    #
-    # If a model labels nothing `information`, every requirement is kept
-    # -- a mislabelled frame is worse than the old behaviour only if it
-    # is EMPTY, and this cannot make it empty.
-    asked = tuple(
-        requirement for requirement in kept
-        if str(getattr(requirement, "kind", "")).lower() == INFORMATION
-    ) or kept
-
+    # THE ACTUAL OWNER IS UPSTREAM. The requirement derivation for one
+    # unchanged objective varies run to run in count, wording and kind:
+    # three requirements or four, the source line `effect` then
+    # `constraint` then `information`. Everything downstream inherits
+    # that. A frame cannot filter its way out of unstable input, and the
+    # place to fix it is where requirements are derived.
     mandatory = tuple(
         Criterion(
             criterion_id=f"crit_{index}",
@@ -814,12 +801,12 @@ def frame_for(
             requirement_id=str(getattr(requirement, "requirement_id", "")),
             mandatory=bool(getattr(requirement, "required", True)),
         )
-        for index, requirement in enumerate(asked, start=1)
+        for index, requirement in enumerate(kept, start=1)
     )
     return DecisionFrame(
         objective=objective,
         requirement_ids=tuple(
-            str(getattr(r, "requirement_id", "")) for r in asked
+            str(getattr(r, "requirement_id", "")) for r in kept
         ),
         decision_type="research_shortlist" if len(judged) > 1 else "assessment",
         mandatory=mandatory,

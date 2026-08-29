@@ -2691,6 +2691,17 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             )
             reason = "insufficient evidence"
         else:
+            # WHY the loop stopped, every time it stops. A silent break
+            # is how "the mission simply did not go round again" became
+            # something to reconstruct from the outside.
+            logging.info(
+                "no further attempt: errors=%s decided=%s more_research=%s "
+                "question=%s attempts=%s/%s",
+                bool(state.errors),
+                None if decided is None else decided.state,
+                None if decided is None else decided.more_research,
+                needed is not None, attempts, _RESEARCH_BUDGET,
+            )
             break
 
         attempts += 1
@@ -2714,6 +2725,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             mission_control, intent_result.intent, objective_id
         )
         if before is None:
+            logging.info("no further attempt: this mission's record is unreadable")
             break
         logging.info(
             "attempt %s (%s): satisfied=%s unresolved=%s failed=%s",
@@ -2730,6 +2742,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
 
         retried = mission_service.start(intent_result.intent)
         if not retried.accepted:
+            # Admission refused the second attempt. That is a real
+            # answer -- and it used to be an invisible one.
+            logging.info(
+                "no further attempt: admission refused the retry (%s)",
+                getattr(getattr(retried, "refusal", None), "reason", None)
+                or "; ".join(getattr(retried, "reasons", ()) or ()) or "no reason given",
+            )
             break
         objective_id = retried.objective_id
         attempts_made.append(objective_id)

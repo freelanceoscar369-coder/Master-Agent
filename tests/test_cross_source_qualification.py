@@ -164,51 +164,46 @@ class TestCrossSourceQualification:
         assert "bicycles only" in reader.prompts[0]
 
 
-class TestOnlyCandidatePropertiesAreCriteria:
-    """The root cause of the intermittency, asserted at the frame.
+class TestWhatTheFrameStillCarries:
+    """The root cause of the intermittency, and why it is not fixed here.
 
     The live centrepiece frame carried four mandatory criteria: the two
     real questions, the answer SET restated as a deliverable, and "Source
-    must be <url>". No workshop can BE a list, and no workshop can BE a
-    source -- but `shortlist()` required every mandatory criterion to be
-    met, so qualifying depended on how a model happened to mark two
-    criteria that mean nothing about a candidate.
+    must be <url>". No workshop can BE a list or a source, and
+    `shortlist()` requires every mandatory criterion met -- so qualifying
+    depended on how a model marked two criteria that mean nothing about a
+    candidate.
+
+    Filtering them out was tried and taken back out: on a live run the
+    Intent Layer labelled the source line `information` while the
+    Saturday question did not reach the frame at all. Dropping a real
+    criterion is strictly worse than carrying a meaningless one.
+
+    The owner is upstream -- requirement derivation for one unchanged
+    objective varies run to run in count, wording and kind. This test
+    records the current, deliberate behaviour so the next change to it is
+    a decision rather than an accident.
     """
 
-    def _requirements(self):
+    def test_every_requirement_becomes_a_criterion(self):
+        from master_agent.brain.deliberation import frame_for
         from master_agent.planner.plan import (
-            CONSTRAINT, DELIVERABLE, EFFECT, INFORMATION, SemanticRequirement,
+            CONSTRAINT, DELIVERABLE, INFORMATION, SemanticRequirement,
         )
 
-        return (
-            SemanticRequirement("req_1", DELIVERABLE,
-                                "List of workshops that accept laptops and "
-                                "are open on Saturday"),
-            SemanticRequirement("req_2", INFORMATION,
-                                "the workshop accepts laptops"),
-            SemanticRequirement("req_3", INFORMATION,
-                                "the workshop is open on Saturday"),
-            SemanticRequirement("req_4", CONSTRAINT,
-                                "Source must be http://x.test/directory.html"),
-            SemanticRequirement("req_5", EFFECT, "open a browser session"),
-        )
+        frame = frame_for(objective="which workshops", requirements=(
+            SemanticRequirement("req_1", DELIVERABLE, "List of workshops"),
+            SemanticRequirement("req_2", INFORMATION, "accepts laptops"),
+            SemanticRequirement("req_3", INFORMATION, "open on Saturday"),
+            SemanticRequirement("req_4", CONSTRAINT, "Source must be http://x/"),
+        ))
 
-    def test_the_frame_asks_only_what_a_candidate_can_answer(self):
-        from master_agent.brain.deliberation import frame_for
+        assert len(frame.mandatory) == 4
+        assert frame.requirement_ids == ("req_1", "req_2", "req_3", "req_4")
 
-        frame = frame_for(objective="which workshops",
-                          requirements=self._requirements())
-
-        assert [c.requirement_id for c in frame.mandatory] == ["req_2", "req_3"]
-
-    def test_the_dropped_requirements_are_not_lost_only_relocated(self):
-        """They remain requirements of the MISSION. Conformance judges
-        them at mission level, which is where a source constraint and a
-        deliverable were always judged."""
-        from master_agent.brain.deliberation import frame_for
-
-        frame = frame_for(objective="which workshops",
-                          requirements=self._requirements())
-
-        assert "req_4" not in frame.requirement_ids
-        assert "req_1" not in frame.requirement_ids
+    def test_the_arithmetic_is_right_whatever_the_frame_carries(self):
+        """Given a frame of real candidate properties, the decision is
+        exact and repeatable -- which is why the defect is upstream of
+        here and not in this file's subject."""
+        result = deliberate(FRAME, (ACCEPTS, HOURS), Reading())
+        assert [c.summary for c in result.shortlist] == ["Ashcombe Repair Workshop"]
