@@ -279,3 +279,109 @@ class TestThePlannerIsToldWhereNotOnlyWhat:
         })
 
         assert "none has been visited yet" not in prompt
+
+
+class TestWhatAnEarlierAttemptEstablishedIsStillTrue:
+    """A replan starts a new mission record. The Evidence from the old
+    one does not stop being Evidence.
+
+    Found by the demo centrepiece, which is one objective that needs two
+    pages. It read the directory on its first pass, lost a route, and
+    reached the opening hours on its third -- and then reported
+
+        mandatory criteria remain unestablished for every candidate
+
+    while holding, between the three records, every fact it needed. The
+    deliberation was reading only the newest record, so no single record
+    ever held both halves of the answer.
+
+    That is the exact opposite of the rule recovery is built on: a second
+    attempt must PRESERVE verified work, and Evidence is what verified
+    work IS.
+    """
+
+    def _control(self, records: dict):
+        def objective(objective_id):
+            if objective_id not in records:
+                raise KeyError(objective_id)
+            return records[objective_id]
+
+        return types.SimpleNamespace(
+            dispatcher=types.SimpleNamespace(objective=objective))
+
+    def _record(self, evidence_id, url, text):
+        return types.SimpleNamespace(tasks=[types.SimpleNamespace(evidence={
+            "evidence_id": evidence_id,
+            "observation": {"url": url, "text": text},
+        })])
+
+    def test_observations_span_every_attempt(self):
+        import kalpavriksha_desktop as kd
+
+        control = self._control({
+            "obj-1": self._record("ev-1", "http://x.test/directory.html",
+                                  "Ashcombe accepts laptops."),
+            "obj-2": self._record("ev-2", "http://x.test/weekend.html",
+                                  "Ashcombe opens Saturday."),
+        })
+
+        seen = kd._observations_from(control, ["obj-1", "obj-2"])
+
+        assert {o.evidence_id for o in seen} == {"ev-1", "ev-2"}
+
+    def test_one_id_still_works_and_is_not_read_as_characters(self):
+        """A bare string is a sequence too, and iterating it would ask
+        the dispatcher for objectives named 'o', 'b', 'j'."""
+        import kalpavriksha_desktop as kd
+
+        control = self._control({
+            "obj-1": self._record("ev-1", "http://x.test/a.html", "text"),
+        })
+
+        assert {o.evidence_id for o in kd._observations_from(control, "obj-1")} == {"ev-1"}
+
+    def test_an_unreadable_attempt_does_not_lose_the_readable_ones(self):
+        import kalpavriksha_desktop as kd
+
+        control = self._control({
+            "obj-2": self._record("ev-2", "http://x.test/b.html", "text"),
+        })
+
+        seen = kd._observations_from(control, ["obj-missing", "obj-2"])
+
+        assert {o.evidence_id for o in seen} == {"ev-2"}
+
+    def test_a_page_visited_on_an_earlier_attempt_is_not_offered_again(self):
+        """Otherwise the third attempt is told to go where the first one
+        already went."""
+        import kalpavriksha_desktop as kd
+
+        control = self._control({
+            "obj-1": types.SimpleNamespace(tasks=[types.SimpleNamespace(evidence={
+                "evidence_id": "ev-1",
+                "observation": {
+                    "url": "http://x.test/directory.html",
+                    "text": "...",
+                    "links": [{"text": "weekend", "url": "http://x.test/weekend.html"}],
+                },
+            })]),
+            "obj-2": self._record("ev-2", "http://x.test/weekend.html", "..."),
+        })
+
+        assert kd._unvisited_links(control, ["obj-1", "obj-2"]) == []
+        assert kd._unvisited_links(control, ["obj-1"]) == [
+            {"text": "weekend", "url": "http://x.test/weekend.html"}]
+
+    def test_the_loop_carries_every_attempt_into_the_decision(self):
+        """A source guard. The chain is only useful if it is the thing
+        actually handed to `_decide`, and this is the line that regressed
+        silently once already."""
+        import inspect
+
+        import kalpavriksha_desktop as kd
+
+        source = inspect.getsource(kd._submit_objective)
+        assert "attempts_made = [objective_id]" in source
+        assert "attempts_made.append(objective_id)" in source
+        assert "objective_id\n        )" not in source.split("attempts_made")[-1], (
+            "a decision after the loop must read the chain, not the last id")

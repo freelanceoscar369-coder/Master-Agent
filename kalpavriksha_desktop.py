@@ -1703,7 +1703,7 @@ def _release_task_browsers() -> None:
 _EXECUTION = _ExecutionThread()
 
 
-def _observations_from(mission_control, objective_id):
+def _observations_from(mission_control, objective_ids):
     """Canonical Evidence, read as things that were actually seen.
 
     Only Evidence carries an `evidence_id`, and only steps that produced
@@ -1716,12 +1716,17 @@ def _observations_from(mission_control, objective_id):
         CORROBORATION, DISCOVERY, PRIMARY, Observation,
     )
 
+    if isinstance(objective_ids, str):
+        objective_ids = (objective_ids,)
+
     found = []
-    try:
-        objective = mission_control.dispatcher.objective(objective_id)
-    except Exception:  # noqa: BLE001 -- an unreadable record observes nothing
-        return ()
-    for task in objective.tasks:
+    tasks = []
+    for one in objective_ids:
+        try:
+            tasks.extend(mission_control.dispatcher.objective(one).tasks)
+        except Exception:  # noqa: BLE001 -- an unreadable record observes nothing
+            continue
+    for task in tasks:
         evidence = getattr(task, "evidence", None) or {}
         if not isinstance(evidence, dict):
             continue
@@ -1758,12 +1763,24 @@ def _observations_from(mission_control, objective_id):
     return tuple(found)
 
 
-def _decide(mission_service, mission_control, intent, objective_id):
+def _decide(mission_service, mission_control, intent, objective_ids):
     """Perform the decision this mission was framed for, or return None.
 
     The frame was written at admission, before any evidence existed. This
     is the other end of it: the same criteria, now answered against what
     was actually observed.
+
+    `objective_ids` is EVERY attempt this objective made, not the last
+    one. A replan starts a new mission record, and reading only the
+    newest one threw away everything the earlier attempts established --
+    so a mission that read the directory on its first pass and the
+    opening hours on its third could never decide anything, because no
+    single record ever held both. It reported "mandatory criteria remain
+    unestablished" while holding, between them, every fact it needed.
+
+    That is the direct opposite of the rule recovery is built on: a
+    second attempt must PRESERVE verified work, and Evidence is what
+    verified work IS.
 
     `None` whenever there is nothing to decide -- no frame, or nothing
     seen. Most missions are that, and they pay nothing for this.
@@ -1771,7 +1788,7 @@ def _decide(mission_service, mission_control, intent, objective_id):
     frame_row = (getattr(intent, "context", None) or {}).get("decision_frame")
     if not isinstance(frame_row, dict):
         return None
-    observations = _observations_from(mission_control, objective_id)
+    observations = _observations_from(mission_control, objective_ids)
     if not observations:
         return None
 
@@ -1824,7 +1841,7 @@ def _plain(claims) -> str:
     return "; ".join(names) if names else "something it could not name"
 
 
-def _unvisited_links(mission_control, objective_id) -> list[dict]:
+def _unvisited_links(mission_control, objective_ids) -> list[dict]:
     """Somewhere a page already read says you can go, that nobody went.
 
     The missing half of a research system that can decide it needs more
@@ -1838,14 +1855,20 @@ def _unvisited_links(mission_control, objective_id) -> list[dict]:
     TEXT keeps the words "Sunday opening hours" and loses the address
     behind them.
     """
-    try:
-        objective = mission_control.dispatcher.objective(objective_id)
-    except Exception:  # noqa: BLE001 -- an unreadable record points nowhere
-        return []
+    if isinstance(objective_ids, str):
+        objective_ids = (objective_ids,)
+
+    tasks = []
+    for one in objective_ids:
+        try:
+            tasks.extend(getattr(
+                mission_control.dispatcher.objective(one), "tasks", ()) or ())
+        except Exception:  # noqa: BLE001 -- an unreadable record points nowhere
+            continue
 
     visited: set[str] = set()
     offered: dict[str, str] = {}
-    for task in getattr(objective, "tasks", ()) or ():
+    for task in tasks:
         evidence = getattr(task, "evidence", None) or {}
         observed = evidence.get("observation") if isinstance(evidence, dict) else None
         if not isinstance(observed, dict):
@@ -2564,6 +2587,10 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         return _founder_reply(status, status.message)
 
     objective_id = outcome.objective_id
+    # Every mission record this one objective produced. A replan makes a
+    # new record; what the previous one established is still the
+    # founder's, and still true.
+    attempts_made = [objective_id]
     _drive_until_settled(runtime, mission_control, status, objective_id,
                          timeout_seconds)
 
@@ -2585,13 +2612,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # deciding whether to go round again. Both diagnoses below need
         # it, and it is the same judgement the founder is shown.
         decided = _decide(
-            mission_service, mission_control, intent_result.intent, objective_id
+            mission_service, mission_control, intent_result.intent, attempts_made
         )
         # Only when there is a question to attach it to. Reading every
         # task's Evidence for links costs nothing worth paying on the
         # ordinary mission that decided nothing and needs nothing.
         needed = (
-            _evidence_question(decided, _unvisited_links(mission_control, objective_id))
+            _evidence_question(decided, _unvisited_links(mission_control, attempts_made))
             if decided is not None and decided.more_research
             else None
         )
@@ -2670,6 +2697,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         if not retried.accepted:
             break
         objective_id = retried.objective_id
+        attempts_made.append(objective_id)
         _drive_until_settled(runtime, mission_control, status, objective_id,
                              timeout_seconds)
 
@@ -2704,7 +2732,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # step told the founder "That didn't complete" and nothing else. What
     # was actually established is still true, and still theirs.
     decided = _decide(
-        mission_service, mission_control, intent_result.intent, objective_id
+        mission_service, mission_control, intent_result.intent, attempts_made
     )
     if decided is not None:
         status.deliberation = decided.as_dict()
