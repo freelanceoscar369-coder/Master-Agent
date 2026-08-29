@@ -2754,6 +2754,11 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         attempts_made.append(objective_id)
         _drive_until_settled(runtime, mission_control, status, objective_id,
                              timeout_seconds)
+        # New Evidence exists, so the decision held from the top of this
+        # iteration is now stale. Cleared rather than kept, so whatever
+        # reports to the founder decides over what the mission actually
+        # ended up holding.
+        decided = None
 
         # Did that change anything that matters?
         after = _mission_progress(
@@ -2785,9 +2790,25 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # learned something real from two of them and then failed a fourth
     # step told the founder "That didn't complete" and nothing else. What
     # was actually established is still true, and still theirs.
-    decided = _decide(
-        mission_service, mission_control, intent_result.intent, attempts_made
-    )
+    #
+    # ONE DECISION PER MISSION, and it is the one already made above.
+    #
+    # This used to deliberate a SECOND time over the same Evidence, and
+    # deliberation involves a model, so the two answers could differ --
+    # and did. Measured on fixture D2: the loop's decision came back
+    # `decided, more_research=False`, so no further source was sought;
+    # the second decision came back `insufficient_evidence`, so the
+    # founder was told nothing could be confirmed. One mission, one set
+    # of Evidence, two verdicts, and the founder shown the one that did
+    # not drive the behaviour.
+    #
+    # Nothing about the decision changes here. It is asked once and the
+    # same answer both acts and reports, which is also one less provider
+    # call on every research mission.
+    if decided is None:
+        decided = _decide(
+            mission_service, mission_control, intent_result.intent, attempts_made
+        )
     if decided is not None:
         status.deliberation = decided.as_dict()
         logging.info(

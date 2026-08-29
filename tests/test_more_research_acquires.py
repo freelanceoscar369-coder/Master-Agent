@@ -522,3 +522,51 @@ class TestTheSystemDoesNotDeliberateOverItsOwnWords:
 
         source = inspect.getsource(kd._mission_progress)
         assert 'getattr(objective, "tasks", ())' in source
+
+
+class TestOneDecisionPerMission:
+    """A mission decides once, and the same answer acts and reports.
+
+    Deliberation involves a model, so asking twice over identical
+    Evidence can give two answers -- and did. Measured on fixture D2 with
+    production unchanged:
+
+        no further attempt: errors=False decided=decided
+                            more_research=False question=False attempts=0/2
+
+    The loop's decision said `decided`, so no further source was sought.
+    The second decision, over the same Evidence, said
+    `insufficient_evidence`, so the founder was told nothing could be
+    confirmed. One mission, one set of Evidence, two verdicts -- and the
+    founder shown the one that did not drive the behaviour.
+
+    That is also why the same fixture passed alone and failed after
+    another fixture: nothing was contaminating it, the coin was simply
+    landing differently.
+    """
+
+    def _source(self):
+        import inspect
+
+        import kalpavriksha_desktop as kd
+
+        return inspect.getsource(kd._submit_objective)
+
+    def test_the_reporting_decision_reuses_the_one_already_made(self):
+        source = self._source()
+        after_loop = source.split("_release_task_browsers()")[-1]
+        assert "if decided is None:" in after_loop, (
+            "the mission deliberates a second time over the same Evidence")
+
+    def test_a_retry_invalidates_the_held_decision(self):
+        """New Evidence makes the held answer stale, so it is cleared and
+        recomputed rather than reported about a mission that has since
+        moved on."""
+        source = self._source()
+        assert "decided = None" in source
+        driven = source.split("_drive_until_settled(runtime, mission_control, status, objective_id,")[-1]
+        assert driven.index("decided = None") < driven.index("Did that change anything")
+
+    def test_the_decision_is_still_recorded_for_the_founder(self):
+        source = self._source()
+        assert "status.deliberation = decided.as_dict()" in source
