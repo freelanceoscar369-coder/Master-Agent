@@ -261,7 +261,11 @@ class Planner:
             )
 
         requirements = getattr(intent, "requirements", ()) or ()
-        document = outcome.evidence.observation.get("json")
+        from master_agent.planner.parsing import materialise_binding_dependencies
+
+        document = materialise_binding_dependencies(
+            outcome.evidence.observation.get("json")
+        )
         plan, invalid = validate(
             document, options, objective=intent.goal,
             requirements=requirements,
@@ -367,8 +371,12 @@ class Planner:
         if self._rejected(outcome) is not None:
             return None
 
+        from master_agent.planner.parsing import materialise_binding_dependencies
+
         plan, still_invalid = validate(
-            outcome.evidence.observation.get("json"), options,
+            materialise_binding_dependencies(
+                outcome.evidence.observation.get("json")
+            ), options,
             objective=intent.goal,
             requirements=getattr(intent, "requirements", ()) or (),
         )

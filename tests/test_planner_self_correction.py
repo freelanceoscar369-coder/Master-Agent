@@ -32,7 +32,7 @@ import json
 import pytest
 
 from master_agent.planner.catalogue import CapabilityOption
-from master_agent.planner.parsing import validate
+from master_agent.planner.parsing import materialise_binding_dependencies, validate
 from master_agent.planner.plan import CONSTRAINT, SemanticRequirement
 
 REQUIREMENTS = (
@@ -310,3 +310,39 @@ class TestTheDependencyViolationIsRepairable:
         plan, refusal = validate(document, OPTIONS, requirements=REQUIREMENTS)
         assert refusal is None
         assert plan is not None
+
+    def test_planner_normalisation_materialises_only_the_binding_dependency(self):
+        document = plan_of(
+            step("s1", payload={"url": "https://example.invalid/"}),
+            step("s2", capability="Reasoning.Transform",
+                 payload={"instruction": "summarise"},
+                 input_bindings={"context": {
+                     "from_step": {"step_id": "s1", "field": "title"}}}),
+        )
+
+        normalised = materialise_binding_dependencies(document)
+        plan, refusal = validate(normalised, OPTIONS, requirements=REQUIREMENTS)
+
+        assert refusal is None
+        assert plan is not None
+        assert plan.steps[1].depends_on == ["s1"]
+        assert "depends_on" not in document["steps"][1], (
+            "normalisation mutated the verified Evidence document"
+        )
+
+    def test_the_real_planner_needs_no_second_model_call_for_redundant_omission(self):
+        document = plan_of(
+            step("s1", payload={"url": "https://example.invalid/"}),
+            step("s2", capability="Reasoning.Transform",
+                 payload={"instruction": "summarise"},
+                 input_bindings={"context": {
+                     "from_step": {"step_id": "s1", "field": "title"}}}),
+        )
+        runner = Runner(document)
+        harness = TestBoundedSelfCorrection()
+
+        outcome = harness.planner(runner).plan(harness.intent())
+
+        assert outcome.plan is not None
+        assert outcome.plan.steps[1].depends_on == ["s1"]
+        assert len(runner.prompts) == 1

@@ -20,6 +20,7 @@ read it. Fence unwrapping, likewise, already happens once, in MB035's
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from master_agent.planner import outcomes
@@ -52,6 +53,47 @@ def _malformed(detail: str) -> PlanRefusal:
         reason="the provider's plan was not shaped like a plan",
         detail=detail,
     )
+
+
+def materialise_binding_dependencies(document: Any) -> Any:
+    """Copy a provider plan and make its already-declared dataflow explicit.
+
+    A ``from_step`` binding says unambiguously that its consumer cannot run
+    before the named producer.  Providers repeatedly emitted that dataflow
+    correctly while omitting the same id from ``depends_on``; asking more
+    providers to restate the graph cost twelve calls in a live Founder
+    Research mission and still produced no mission.
+
+    This is representation normalisation, not planning: it never chooses a
+    source, field, capability or order that the binding did not already
+    state.  The returned document is a deep copy so the verified Evidence
+    observation remains immutable.  Malformed bindings are left for
+    :func:`validate` to refuse through its existing precise path.
+    """
+    copied = deepcopy(document)
+    if not isinstance(copied, dict) or not isinstance(copied.get("steps"), list):
+        return copied
+    for entry in copied["steps"]:
+        if not isinstance(entry, dict):
+            continue
+        raw_depends = entry.get("depends_on", [])
+        if raw_depends is None:
+            raw_depends = []
+        if isinstance(raw_depends, str):
+            raw_depends = [raw_depends]
+        if not isinstance(raw_depends, list):
+            continue
+        try:
+            bindings = bindings_from_dict(entry.get("input_bindings"))
+        except MalformedBinding:
+            continue
+        depends = list(raw_depends)
+        for binding in bindings.values():
+            for reference in binding.references:
+                if reference.step_id not in depends:
+                    depends.append(reference.step_id)
+        entry["depends_on"] = depends
+    return copied
 
 
 def _vocabulary(
