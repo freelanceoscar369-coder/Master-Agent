@@ -649,3 +649,169 @@ workaround, or voice-less package was attempted. Packaging is therefore
 blocked pending explicit Founder authorization to install the already-declared
 dependencies into the isolated repository virtual environment. There is
 currently no release-candidate executable in `dist\Kalpavriksha`.
+
+## Gate 10 — authorized dependency closure and release-candidate identity
+
+The Founder explicitly authorized installation of project-declared voice and
+document dependencies into `D:\MasterAgent\.venv-codex` only. Nothing was
+installed globally, Ollama remained disabled, and no paid service or external
+infrastructure was introduced.
+
+The packages installed by that closure were:
+
+| Package | Version | Role |
+|---|---:|---|
+| `faster-whisper` | 1.2.1 | declared `voice` extra |
+| `piper-tts` | 1.7.0 | declared `voice` extra |
+| `sounddevice` | 0.5.6 | declared `voice` extra |
+| `pycaw` | 20251023 | declared `voice` extra |
+| `pypdf` | 6.16.2 | package-spec document import |
+| `python-docx` | 1.2.0 | package-spec document import |
+| `av` | 18.1.0 | resolved transitive |
+| `ctranslate2` | 4.8.1 | resolved transitive |
+| `filelock` | 3.32.4 | resolved transitive |
+| `flatbuffers` | 25.12.19 | resolved transitive |
+| `fsspec` | 2026.7.0 | resolved transitive |
+| `hf-xet` | 1.6.0 | resolved transitive |
+| `huggingface-hub` | 1.29.0 | resolved transitive |
+| `lxml` | 6.1.2 | resolved transitive |
+| `onnxruntime` | 1.29.0 | resolved transitive |
+| `pathvalidate` | 3.3.1 | resolved transitive |
+| `protobuf` | 7.36.0 | resolved transitive |
+| `psutil` | 7.2.2 | resolved transitive |
+| `tokenizers` | 0.23.1 | resolved transitive |
+| `tqdm` | 4.70.0 | resolved transitive |
+| `master-agent` | 0.1.0 | editable project install in the isolated venv |
+
+Dependency declaration discrepancy: `packaging/kalpavriksha.spec` explicitly
+requires `pypdf` and `python-docx` as hidden imports, but neither library is
+declared in `pyproject.toml`. They were installed because the existing package
+spec proves that the Founder Edition package imports them. No dependency
+declaration was changed during convergence.
+
+The exact stale artefact and build cache were removed, and PyInstaller ran with
+`--noconfirm --clean`. The clean build completed from production source commit
+`ab4921b1476a1a941c5bf865de827f02991a6e1d`.
+
+Release-candidate identity:
+
+```text
+path:      D:\MasterAgent\dist\Kalpavriksha\Kalpavriksha.exe
+bytes:     17,165,149
+timestamp: 2026-08-30T18:43:40.9812369+05:30
+SHA-256:   AEF66A9F05E715B9683E1BC9677D70CC9697B6223843D54BFD449F77B70192DB
+```
+
+The build-side `PYZ-00.pyz` and the `PYZ.pyz` extracted from the executable are
+byte-identical and both hash to
+`673EA4838C7F7FA70B07039FA3614FA646D666C5A40E44A2BC49410F22E7B66B`.
+Inspection of the embedded modules independently found all convergence symbols
+and Founder-facing truth strings:
+
+- `master_agent.brain.intent`: `_parse_nounless_create`, `creation_kind`, and
+  the folder-or-file clarification;
+- `master_agent.brain.reporter`: `Mission outcome unconfirmed` and the
+  conservative `can't confirm` response;
+- `master_agent.runtime.engine`: `_finalized_objectives` and
+  `finalize_objective`;
+- `master_agent.plugins.browser_gateway`: `finalize_objective`.
+
+This establishes that the new executable contains the convergence repairs; it
+is not merely evidence that PyInstaller returned success.
+
+### Packaged self-check
+
+The pre-launch packaged self-check exited 0 and reported:
+
+- packaged mode: true;
+- 48 advertised capabilities;
+- Browser, Desktop, Document, Filesystem, and Reasoning executives reachable;
+- Founder approval wiring present;
+- Gemini and OpenRouter configured, executable, and available;
+- trusted-founder-web executable and available;
+- no Ollama construction and no Ollama candidate;
+- deterministic `Filesystem.CreateFolder -> Filesystem.WriteFile` planning;
+- Founder checkpoint wiring present;
+- final result `OK`.
+
+Normal FMEA state was unset. A second self-check deliberately started while the
+accepted GUI instance was still running did **not** pass: it raised
+`FileExistsError` while initializing the shared per-Founder `comtypes_gen`
+cache and left its transient process alive until the evaluator terminated that
+exact test process. The original GUI remained responsive. This is evidence of
+an unsupported/concurrency-sensitive second-instance initialization path, not
+a failure of the pre-launch release self-check, and it remains a documented P1
+operational risk. It was not repaired after acceptance.
+
+## Gate 11 — packaged Founder acceptance
+
+The fresh package was launched and four missions were run through the actual
+Founder Edition GUI in one surviving process. Product reports were compared
+against independent environment observations; existing artefacts were never
+accepted as proof by themselves.
+
+1. **Latest Codex semantic repair.** `Could you please CREATE PKG_CODEX_1831
+   in the Desktop directory?` produced the exact safe clarification `Should I
+   create a folder or a file named PKG_CODEX_1831?`. Replying `folder` created
+   the exact empty Desktop directory and reported independently verified
+   satisfaction.
+2. **False-completion trap.** A pre-existing Desktop directory containing
+   `OLD` was presented as the target of `Create a new empty folder ...`. The
+   product said `That didn't complete`, disabled completion, preserved `OLD`,
+   and made no false claim.
+3. **Combined clarification.** `create a folder` asked only for the name. The
+   combined reply `Call it PKG_COMBINED_1831 and put it in Documents.` created
+   the exact empty Documents target, did not create the Desktop namesake, and
+   reported verified satisfaction.
+4. **Ordinary Browser path.** A six-step objective opened an ordinary browser,
+   navigated to the controlled loopback fixture, typed `acceptance` into
+   `#acceptance-box`, clicked `#apply`, observed `#state`, returned `accepted`,
+   and closed the session. The product reported four independently verified
+   steps and two unverifiable lifecycle/command steps while still assessing
+   Founder outcome conformance as satisfied. The independent fixture endpoint
+   returned exactly
+   `{"state":"accepted","typed":"acceptance","applied":1}`. No browser
+   process starting after the Founder Edition launch survived the mission.
+
+Packaged acceptance totals: four missions; three actual requirements satisfied;
+one safe/truthful failure; zero false completions; zero browser/session leaks;
+zero Founder-data effects. All three disposable filesystem targets and the
+loopback fixture were removed after verification.
+
+One initial Computer Use interaction caused the first GUI launch to disappear
+without a visible process, Windows event, or native error record. It was not
+reproduced after relaunch; the package then survived every mission above. This
+remains **OBSERVED ONCE / NOT CHARACTERIZED**, not “fixed” and not a proved
+product crash. The separate historical typing-during-speech crash likewise
+remains **OBSERVED ONCE / ROOT CAUSE UNRESOLVED**.
+
+Final process state after acceptance: exactly one normal Founder Edition
+process, launched from the release-candidate path. The controlled fixture is
+stopped. FMEA is unset. No Ollama candidate was introduced.
+
+## Final convergence verdict
+
+The demonstrated P0s—semantic field loss, pre-existing-folder false
+completion, nounless environmental-type guessing, and failed-mission Browser
+session leakage—are closed on their reproduced paths. The release candidate
+passes all three Golden Paths and the adversarial packaged gates above. It is
+suitable for a **controlled investor demo** with the tested capability scope
+and an operator instruction not to start a second instance or self-check while
+the GUI is running.
+
+It is **not external-alpha ready**. The 84 exact known legacy test failures,
+generic AI-planned missions without canonical semantic/Evidence coverage,
+limited recovery/replanning, deterministic Browser retries, sensitivity
+over-classification, incomplete conversational grounding, provider latency,
+the unresolved historical voice/typing observation, and the newly observed
+concurrent self-check/cache failure require investigation before unassisted
+external use.
+
+```text
+KALPAVRIKSHA_CONTROLLED_DEMO_READY = TRUE
+KALPAVRIKSHA_EXTERNAL_ALPHA_READY = FALSE
+```
+
+The package was built from `ab4921b`. Any subsequent commit containing only
+this evidence ledger is documentation provenance and does not alter the
+production source embedded in the executable.
