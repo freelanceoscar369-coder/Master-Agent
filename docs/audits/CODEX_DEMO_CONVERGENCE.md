@@ -617,3 +617,35 @@ The pre-existing 46-capability executable remains stale and is not a release
 candidate. The next action is a clean PyInstaller build from a committed,
 known HEAD, followed by package hash, self-check, no-Ollama/FMEA verification,
 launch, packaged acceptance, and exactly one normal Founder Edition instance.
+
+## Gate 9 — clean package build dependency blocker
+
+**Checkpoint:** 30 August 2026 18:37 IST
+**Committed source:** `2d11d54cd1de9cd60015cd97cd05e0875a460dd7`
+
+The stale `dist\Kalpavriksha` output (SHA-256
+`49B8480F4714D4749C2CBD821F946AC51FB2B776BDF1B7A5AE608CD2A8A7A336`)
+and exact `build\kalpavriksha` cache were resolved inside the repository and
+removed before building. No `Kalpavriksha.exe` process was visible through the
+ordinary process list.
+
+The clean PyInstaller invocation stopped before Analysis:
+
+```text
+ModuleNotFoundError: No module named 'piper'
+```
+
+The isolated `.venv-codex` contains PyInstaller, Playwright and pywebview but
+does not contain the project-declared `voice` extra (`piper-tts`,
+`faster-whisper`, `sounddevice`, `pycaw`) or the `pypdf`/`python-docx`
+libraries named by the package spec. Neither the system Python nor another
+repository environment supplies them. The only surviving PyInstaller cache is
+an August 7 build and cannot prove current source identity.
+
+An attempted install into `.venv-codex` was rejected by the host safety
+reviewer because the earlier read-only stress-test instructions expressly said
+not to install software. No alternate download, extraction, cached-wheel
+workaround, or voice-less package was attempted. Packaging is therefore
+blocked pending explicit Founder authorization to install the already-declared
+dependencies into the isolated repository virtual environment. There is
+currently no release-candidate executable in `dist\Kalpavriksha`.
