@@ -1837,7 +1837,7 @@ PARENT = "parent"
 
 
 class CreateFolderIntent(BaseIntentParser):
-    r"""Parse 'create a folder called X [on/in Y]'.
+    r"""Parse 'create/make a folder called X [on/in Y]'.
 
     TWO PATTERNS, TRIED IN ORDER, rather than one pattern with an optional
     trailing group. The single-pattern form was
@@ -1860,19 +1860,33 @@ class CreateFolderIntent(BaseIntentParser):
     name. Nothing is guessed either way.
     """
 
+    #: One structural command grammar shared by every shape below.
+    #:
+    #: The Intent registry deliberately routes both "create a folder" and
+    #: "make a folder" here.  Keeping the verb in three separate regexes
+    #: let the registry and parser disagree: the latter accepted only
+    #: ``create``, so a fully specified ``make`` objective escaped as
+    #: generic prose and made the Planner rediscover this typed mapping.
+    #: This is grammar, not a sentence table -- verb, optional article and
+    #: noun remain independent of the name and location the Founder gives.
+    _COMMAND = (
+        r"\b(?:create|make)\s+"
+        r"(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder"
+    )
+
     #: The name runs to the end of the input. Used only after the
     #: with-location pattern has already failed.
     _NAME_ONLY = (
-        r"create\s+(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder\s+"
-        r"(?:called|named)\s+[\"']?(?P<name>[^\"'.]+?)[\"']?\.?\s*$"
+        _COMMAND
+        + r"\s+(?:called|named)\s+[\"']?(?P<name>[^\"'.!?]+?)[\"']?[.!?]?\s*$"
     )
     #: The location clause is anchored to the end, so the name group can no
     #: longer swallow it. `name` is lazy; `location` takes the last
     #: on/in clause.
     _NAME_AND_LOCATION = (
-        r"create\s+(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder\s+"
-        r"(?:called|named)\s+[\"']?(?P<name>[^\"'.]+?)[\"']?"
-        r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)\.?\s*$"
+        _COMMAND
+        + r"\s+(?:called|named)\s+[\"']?(?P<name>[^\"'.!?]+?)[\"']?"
+        + r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)[.!?]?\s*$"
     )
     #: A location with NO name -- "create a folder in Documents". Neither
     #: pattern above matches it, because both require `called`/`named`, so
@@ -1883,8 +1897,8 @@ class CreateFolderIntent(BaseIntentParser):
     #: arrives from a clarification answer, so it can never compete with
     #: the two above for an ordinary one-shot command.
     _LOCATION_ONLY = (
-        r"create\s+(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder\s+"
-        r"(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)\.?\s*$"
+        _COMMAND
+        + r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)[.!?]?\s*$"
     )
 
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:

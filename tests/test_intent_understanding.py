@@ -475,6 +475,40 @@ class TestTheDirectPathIsUntouched:
         assert payload["name"] == name
         assert payload["location"].lower() == place
 
+    @pytest.mark.parametrize("sentence,name,place", [
+        ("make a folder called Research on my Desktop", "Research", "desktop"),
+        ("Please make a folder named Notes in Documents.", "Notes", "documents"),
+        ("MAKE A FOLDER CALLED Archive ON THE DESKTOP!", "Archive", "desktop"),
+    ])
+    def test_make_is_the_same_create_folder_meaning(
+        self, sentence, name, place
+    ):
+        """The registered trigger and its parser must speak one grammar.
+
+        The Intent registry has advertised ``make a folder`` since the
+        CreateFolder family was introduced.  The concrete parser accepted
+        only ``create`` though, so the exact Founder objective escaped as
+        generic prose and consumed six Planner provider decisions to
+        rediscover one typed capability.  Courtesy, case and punctuation
+        are variations of the same meaning, not separate special cases.
+        """
+        result = layer().parse(sentence)
+        assert result.intent is not None
+        assert result.intent.capability == "create_folder"
+        payload = dict(result.intent.payload)
+        assert payload["name"] == name
+        assert payload["location"].lower() == place
+
+    def test_make_without_a_name_asks_instead_of_falling_through(self):
+        result = layer().parse("make a folder on the Desktop")
+        assert result.needs_clarification
+        assert result.clarification.key == "folder_name"
+
+    def test_make_without_a_location_does_not_invent_one(self):
+        result = layer().parse("make a folder called Research")
+        assert result.needs_clarification
+        assert result.clarification.key == "location"
+
     def test_an_under_specified_request_still_asks(self):
         result = layer().parse("create a folder")
         assert result.needs_clarification
