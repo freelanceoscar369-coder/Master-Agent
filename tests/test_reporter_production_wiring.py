@@ -211,7 +211,7 @@ class TestFounderOutcomeConformanceBoundary:
 
     def test_the_metadata_states_conformance_was_not_evaluated(self):
         report = Reporter().report_plan_record_outcome(self._record_with_matching_values())
-        assert report.metadata["founder_outcome_conformance"] == "not_evaluated"
+        assert report.metadata["founder_outcome_conformance"] == "unknown"
 
 
 class TestRestartReporting:

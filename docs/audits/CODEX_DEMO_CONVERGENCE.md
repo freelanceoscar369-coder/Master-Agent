@@ -204,3 +204,100 @@ Run the production Intent conformance acceptance, then exercise the frozen
 holdout in risk order: false-completion traps, browser lifecycle/failure,
 cross-step Evidence, Broker truth, and session continuity. Repair only a proved
 current-source boundary; otherwise record a limitation.
+
+## Gate 2 — frozen false-completion attack H20
+
+The first risk-ordered holdout case exposed a current-source P0. A disposable
+Desktop target named `KVH_FALSE_PREEXIST` was created before the mission and
+contained a file named `OLD`. The Founder then said exactly:
+
+> Create a new empty folder called KVH_FALSE_PREEXIST on my Desktop.
+
+The current source selected `Filesystem.CreateFolder`. Execution returned
+success because that action treated every existing directory as an idempotent
+success. Fresh independent disk inspection after the mission showed the same
+`OLD` file still present. Nevertheless Verification matched existence, path,
+and directory type, and the Founder-facing report said:
+
+> Work finished. All 1 executed step(s) were independently verified.
+
+The durable plan record preserved “new empty” only in the prose description.
+Its payload contained only `name` and `location`; its semantic requirements
+were absent; its Evidence did not request a directory listing; and Founder
+outcome conformance was `not_evaluated`. This is a proved **FALSE COMPLETION**,
+not merely an unsupported feature.
+
+### First divergence trace
+
+1. The generic Intent preserved the complete Founder objective, so no words
+   had yet been discarded.
+2. `CreateFolderIntent` could not structurally recognise modifiers between the
+   article and `folder`, and the substring trigger did not claim the sentence.
+3. The AI Planner retained “new empty” only in an expected-outcome sentence,
+   but emitted neither machine-readable semantic requirements nor capability
+   inputs representing those constraints.
+4. `CreateFolderAction` declared and implemented unconditional idempotent
+   success for an existing directory.
+5. Filesystem expectation binding checked only existence, exact relative path,
+   and directory type. Directory listing was opt-in and the payload did not opt
+   in, so the recorded observation's empty default was not an observation of
+   emptiness.
+6. `Reporter` treated a completed record with no semantic requirements as
+   “Work finished” and added no warning that Founder outcome conformance had
+   never been evaluated.
+
+### Regression proof before repair
+
+`tests/test_create_folder_new_empty_truth.py` was added before production
+changes. It covers natural modifier order, nearby ordinary idempotency,
+clarification, parser non-claim, published capability inputs, existing-target
+preconditions, independent empty-directory observation, and the global
+no-semantic-trace reporting rule. Initial result: **11 failed, 4 passed**.
+
+| ID | Severity | Boundary | Current evidence | Gate |
+|---|---|---|---|---|
+| CDX-006 | P0 | Intent → capability → Verification → Reporter | Existing non-empty target survived; product claimed verified completion of a new empty folder | Repair at the four existing owners; rerun H20 and semantic/regression suites |
+
+No holdout wording will be copied into a sentence table. The repair target is
+the existing structural grammar and capability contract, plus truthful
+verification/reporting defaults.
+
+### Repair and end-to-end result
+
+The repair stayed with existing owners:
+
+- `CreateFolderIntent` now recognises structural `create|make` commands with
+  ordinary `new`/`empty` modifier order and records those constraints in the
+  typed payload and semantic requirements. A parser-owned recognition guard
+  prevents unrelated folder sentences from being claimed.
+- `CreateFolderAction` publishes `must_be_new` and `must_be_empty` as optional
+  boolean contract inputs. The former refuses any pre-existing target; the
+  latter refuses a non-empty existing directory. Plain creation remains
+  idempotent for existing callers.
+- Filesystem expectation binding adds complete-directory-listing checks when
+  emptiness is required, and the gateway gathers that fresh observation
+  automatically rather than depending on a Planner opt-in.
+- `Reporter` now sends every record through the existing conservative
+  conformance owner. Missing semantic trace is `UNKNOWN`, with an unconfirmed
+  outcome title and explicit “can't confirm” language rather than “Work
+  finished.”
+
+Focused result after repair: **210 passed**. Neighboring Planner, Mission,
+Founder runtime, structured-admission, gateway and architecture tests:
+**487 passed**.
+
+Fresh production-composition rerun of H20:
+
+- precondition: target existed with listing `[OLD]`;
+- capability selected: `Filesystem.CreateFolder`;
+- action result: failed — target already exists and a new folder was required;
+- Founder reply: “That didn't complete. I've kept the details for review.”;
+- postcondition: target still existed with listing `[OLD]`;
+- false completion: **none**.
+
+The complementary absent-target case created a directory with a fresh observed
+listing of `[]`, produced matched Evidence, assessed all five recorded
+requirements as satisfied, and only then reported verified completion.
+
+CDX-006 is closed for the proven path. Full holdout and regression remain
+release gates.

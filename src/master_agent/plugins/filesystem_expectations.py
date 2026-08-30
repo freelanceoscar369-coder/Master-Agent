@@ -184,6 +184,15 @@ def bind_for_environment(
             field="target_is_dir", operator="equals", value=True,
             description=f"'{target}' is a directory",
         ))
+        if payload.get("must_be_empty") is True:
+            checks.append(ObservationCheck(
+                field="directory_listing", operator="equals", value=[],
+                description=f"'{target}' contains no entries",
+            ))
+            checks.append(ObservationCheck(
+                field="directory_listing_truncated", operator="equals", value=False,
+                description=f"the complete listing of '{target}' was observed",
+            ))
         return ExpectedOutcome(description=description, checks=checks)
 
     checks.append(ObservationCheck(

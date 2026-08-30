@@ -105,7 +105,10 @@ class FilesystemGateway:
             target_path=str(target_path),
             base_path=str(base),
             include_content_preview=payload.get("include_content_preview", False),
-            include_directory_listing=payload.get("include_directory_listing", False),
+            include_directory_listing=(
+                payload.get("include_directory_listing", False)
+                or payload.get("must_be_empty") is True
+            ),
             # Paid for only when there is an exact expectation to compare
             # against, since every verified step re-observes.
             include_content_digest=wants_content_digest(capability, payload),

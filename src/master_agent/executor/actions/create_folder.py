@@ -58,8 +58,9 @@ class CreateFolderAction(Action):
     risk_tier = RiskTier.REVERSIBLE_WRITE
     permission_category = PermissionCategory.WRITE
     expected_result = (
-        "The target folder exists on disk after this action succeeds "
-        "(idempotent if it already existed as a folder)."
+        "The target folder exists on disk after this action succeeds. "
+        "Ordinary creation is idempotent; must_be_new refuses an existing "
+        "target and must_be_empty refuses an existing non-empty directory."
     )
 
     def __init__(self, locations: dict[str, Path] | None = None) -> None:
@@ -100,6 +101,24 @@ class CreateFolderAction(Action):
                 ),
                 "default": "desktop",
             },
+            {
+                "name": "must_be_new",
+                "type": "boolean",
+                "description": (
+                    "When true, fail if the target already exists instead "
+                    "of treating it as an idempotent success."
+                ),
+                "default": False,
+            },
+            {
+                "name": "must_be_empty",
+                "type": "boolean",
+                "description": (
+                    "When true, fail if an existing target directory "
+                    "contains anything."
+                ),
+                "default": False,
+            },
         ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
@@ -123,6 +142,10 @@ class CreateFolderAction(Action):
             known = ", ".join(sorted(self._locations)) or "none configured"
             errors.append(f"unknown location '{location_key}' (known: {known})")
 
+        for flag in ("must_be_new", "must_be_empty"):
+            if flag in parameters and not isinstance(parameters[flag], bool):
+                errors.append(f"'{flag}' must be a boolean if provided")
+
         return errors
 
     def run(self, parameters: dict[str, Any]) -> ExecutionResult:
@@ -137,6 +160,23 @@ class CreateFolderAction(Action):
 
         if target.exists():
             if target.is_dir():
+                if parameters.get("must_be_new") is True:
+                    return ExecutionResult(
+                        success=False,
+                        errors=[f"{target} already exists; a new folder was required"],
+                    )
+                if parameters.get("must_be_empty") is True:
+                    try:
+                        next(target.iterdir())
+                    except StopIteration:
+                        pass
+                    except OSError as exc:
+                        return ExecutionResult(success=False, errors=[str(exc)])
+                    else:
+                        return ExecutionResult(
+                            success=False,
+                            errors=[f"{target} already exists and is not empty"],
+                        )
                 return ExecutionResult(
                     success=True,
                     output=str(target),

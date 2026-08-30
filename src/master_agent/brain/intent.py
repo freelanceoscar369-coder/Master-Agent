@@ -661,12 +661,13 @@ class IntentLayer:
             # folder" (no name yet, which is exactly the case that needs
             # clarifying) fell through to the PROJECT parser and asked
             # "What should the project be called?" about a folder.
-            ("create a folder called", CreateFolderIntent),
-            ("create a folder named", CreateFolderIntent),
-            ("create a folder", CreateFolderIntent),
-            ("create folder", CreateFolderIntent),
-            ("create a new folder", CreateFolderIntent),
-            ("make a folder", CreateFolderIntent),
+            # The parser owns the structural create/make grammar.  The
+            # registry only needs the noun that makes the parser relevant;
+            # a parser-level ``recognizes`` guard below prevents unrelated
+            # folder sentences from being claimed.  Keeping six exact
+            # command fragments here previously made valid adjective order
+            # ("a new empty folder") fall off the typed path.
+            ("folder", CreateFolderIntent),
             ("set up a project called", SetUpProjectIntent),  # "set up a project called X"
             ("set up a project named", SetUpProjectIntent),  # "set up a project named X"
             ("set up a", SetUpProjectIntent),  # "set up a demo project" - specific first
@@ -1203,8 +1204,15 @@ class IntentLayer:
             for pattern, handler in self._patterns:
                 if pattern not in text.lower():
                     continue
+                recognizes = getattr(handler, "recognizes", None)
+                if recognizes is not None and not recognizes(text):
+                    continue
+                claim_trigger = pattern
+                structural_trigger = getattr(handler, "claim_trigger", None)
+                if structural_trigger is not None:
+                    claim_trigger = structural_trigger(text) or pattern
                 claimed = handler().parse(text, supplied)
-                if _may_claim(text, pattern, claimed, supplied):
+                if _may_claim(text, claim_trigger, claimed, supplied):
                     return self._with_roles(claimed, text)
                 # This parser recognised a phrase, could not read the
                 # sentence, and the sentence says much more than the
@@ -1871,7 +1879,8 @@ class CreateFolderIntent(BaseIntentParser):
     #: noun remain independent of the name and location the Founder gives.
     _COMMAND = (
         r"\b(?:create|make)\s+"
-        r"(?:a\s+|an\s+|new\s+|a\s+new\s+)?folder"
+        r"(?:(?:a|an)\s+)?"
+        r"(?:(?:new|empty)\s+)*folder"
     )
 
     #: The name runs to the end of the input. Used only after the
@@ -1901,8 +1910,34 @@ class CreateFolderIntent(BaseIntentParser):
         + r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)[.!?]?\s*$"
     )
 
+    @classmethod
+    def recognizes(cls, text: str) -> bool:
+        """Whether this sentence contains this parser's command grammar.
+
+        The Intent registry uses broad lexical relevance while the parser
+        owns meaning.  This guard is what lets the registry say merely
+        ``folder`` without allowing "delete the folder" to become a create
+        request.
+        """
+        import re
+
+        return re.search(cls._COMMAND, text or "", re.IGNORECASE) is not None
+
+    @classmethod
+    def claim_trigger(cls, text: str) -> str:
+        """The structural trigger text used by the generic claim guard."""
+        import re
+
+        found = re.search(cls._COMMAND, text or "", re.IGNORECASE)
+        return found.group(0) if found else ""
+
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re
+
+        command = re.search(self._COMMAND, text, re.IGNORECASE)
+        command_words = command.group(0) if command else ""
+        must_be_new = bool(re.search(r"\bnew\b", command_words, re.IGNORECASE))
+        must_be_empty = bool(re.search(r"\bempty\b", command_words, re.IGNORECASE))
 
         location: str | None = None
         match = re.search(self._NAME_AND_LOCATION, text, re.IGNORECASE)
@@ -2003,7 +2038,18 @@ class CreateFolderIntent(BaseIntentParser):
                 raw_input=text,
             )
 
-        context: dict[str, Any] = {"folder_name": name, "location": location}
+        context: dict[str, Any] = {
+            "folder_name": name,
+            "location": location,
+            "field_evidence": {
+                "folder_name": FieldEvidence(
+                    value=name, evidence=text, source=STATED
+                ).as_dict(),
+                "location": FieldEvidence(
+                    value=location, evidence=text, source=STATED
+                ).as_dict(),
+            },
+        }
         constraints: list[str] = [f"Location: {location}"]
 
         where = f" at {location}"
@@ -2025,6 +2071,16 @@ class CreateFolderIntent(BaseIntentParser):
         # the capability is always called with an explicit founder-owned
         # location and never falls through to its own default.
         payload: dict[str, Any] = {"name": name, "location": location}
+        if must_be_new:
+            payload["must_be_new"] = True
+            context["field_evidence"]["must_be_new"] = FieldEvidence(
+                value=True, evidence=text, source=STATED
+            ).as_dict()
+        if must_be_empty:
+            payload["must_be_empty"] = True
+            context["field_evidence"]["must_be_empty"] = FieldEvidence(
+                value=True, evidence=text, source=STATED
+            ).as_dict()
 
         return IntentResult(
             intent=Intent(

@@ -68,7 +68,12 @@ def _unmet_sentence(conformance: Any) -> str:
 
 def _unproven_sentence(conformance: Any) -> str:
     named = conformance.unproven
-    first = named[0].description if named else "part of what you asked for"
+    if not named:
+        return (
+            "I can't confirm it did what you asked because this mission "
+            "carries no recorded Founder requirements."
+        )
+    first = named[0].description
     return (
         f"I can't confirm it did what you asked: {first} — "
         f"nothing independently observed that."
@@ -197,6 +202,8 @@ class Reporter:
         state = getattr(record, "state", "")
         total = len(executed)
 
+        conformance = self._conformance(record)
+
         if state == FAILED:
             opening = "That didn't finish."
             if objective:
@@ -211,7 +218,7 @@ class Reporter:
             if verified:
                 lines.append(f"{len(verified)} of {total} step(s) were verified before it stopped.")
             title = "Mission failed"
-        else:
+        elif conformance.state == "satisfied":
             lines = ["Work finished."]
             if total == 0:
                 lines.append("No steps were executed.")
@@ -235,6 +242,36 @@ class Reporter:
                     f"All {total} executed step(s) were independently verified."
                 )
             title = "Mission completed"
+        else:
+            # A completed execution is not necessarily a completed Founder
+            # objective.  UNKNOWN and NOT_SATISFIED must never inherit the
+            # completion opening/title merely because every Step returned.
+            lines = ["The planned steps finished."]
+            if total == 0:
+                lines.append("No steps were executed.")
+            elif unverified and verified:
+                lines.append(
+                    f"{len(verified)} of {total} steps were independently verified; "
+                    f"{len(unverified)} could not be independently verified."
+                )
+            elif unverified and not verified:
+                lines.append(
+                    "I don't have independent verification for the executed steps."
+                )
+            elif contradicted:
+                lines.append(
+                    f"{len(verified)} of {total} steps were independently verified; "
+                    f"{len(contradicted)} did not match what was expected."
+                )
+            else:
+                lines.append(
+                    f"All {total} executed step(s) were independently verified."
+                )
+            title = (
+                "Mission outcome not satisfied"
+                if conformance.state == "not_satisfied"
+                else "Mission outcome unconfirmed"
+            )
 
         if ctx.include_evidence_details and ctx.tone == ReportTone.DETAILED:
             for step, evidence in evidence_by_step:
@@ -247,15 +284,12 @@ class Reporter:
                         f"{evidence.verdict.value}"
                     )
 
-        conformance = self._conformance(record)
-        if conformance is not None:
-            # What the founder actually asked about. The step tally above
-            # says how much of the WORK stands on independent
-            # observation; this says whether the REQUEST was met, and a
-            # founder told "all steps verified" about a mission that
-            # missed what they wanted has been told something true and
-            # useless.
-            lines.append(_CONFORMANCE_SENTENCE[conformance.state](conformance))
+        # What the founder actually asked about. The step tally above says
+        # how much of the WORK stands on independent observation; this says
+        # whether the REQUEST was met.  ``assess`` deliberately returns
+        # UNKNOWN for legacy/no-trace records, so this sentence is never
+        # omitted merely because semantic trace is absent.
+        lines.append(_CONFORMANCE_SENTENCE[conformance.state](conformance))
 
         return Report(
             title=title,
@@ -280,29 +314,22 @@ class Reporter:
                 # trace, and stays unevaluated when it does not: a legacy
                 # record gets no correspondence invented for it
                 # retrospectively.
-                "founder_outcome_conformance": (
-                    conformance.state if conformance is not None else "not_evaluated"
-                ),
-                "founder_outcome_detail": (
-                    conformance.as_dict() if conformance is not None else None
-                ),
+                "founder_outcome_conformance": conformance.state,
+                "founder_outcome_detail": conformance.as_dict(),
             },
         )
 
     @staticmethod
     def _conformance(record: Any):
-        """The mission's founder-outcome conformance, or `None`.
+        """The mission's conservative founder-outcome conformance.
 
-        `None` means the mission carries no recorded requirements -- a
-        legacy plan, or one built by hand. Deliberately distinct from
-        `UNKNOWN`, which means requirements exist and the evidence does
-        not settle them.
+        ``assess`` already defines a missing semantic trace as UNKNOWN.
+        Bypassing it here previously turned precisely that unknown state
+        into an unconditional completion claim.
         """
         from master_agent.brain.conformance import assess
 
         requirements = tuple(getattr(record, "requirements", ()) or ())
-        if not requirements:
-            return None
         return assess(requirements, tuple(getattr(record, "steps", ()) or ()))
 
     def report_plan_result(
