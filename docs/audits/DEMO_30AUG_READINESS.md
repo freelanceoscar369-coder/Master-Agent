@@ -891,3 +891,387 @@ request with a fresh name, then the three grounded questions — are
 preserved for the founder to run against the final canonical artefact.
 Their behaviour is proved by machine first so that run is a
 demonstration, not a debugging session.
+
+---
+
+# 29 August 2026 — SOURCE FROZEN
+
+## The freeze
+
+```
+frozen at        72736e8  fix(browser): one page, one reader
+branch           claude/brain-wisdom
+origin/main      6349eb1  (untouched; 38 ahead, 0 behind)
+frozen because   H passed live against a site nobody controls
+```
+
+From this point, source may change only for:
+
+```
+package defects
+acceptance defects
+regressions introduced by this branch
+demo evidence defects
+main-integration defects
+```
+
+**No new intelligence features.** Not deferred, not scheduled — closed
+for this delivery.
+
+## What earned the freeze
+
+H is the only objective in this work that runs against reality nobody
+arranged. Not a game, not the reading rooms, not a site this work had
+already been made to succeed against.
+
+```
+objective   Which of these three cities has a metro system that opened
+            before 1930 and is also its country's capital: Barcelona,
+            Madrid, Hamburg?  Start from
+            https://en.wikipedia.org/wiki/List_of_metro_systems
+
+decision    decided
+shortlist   Madrid
+rejected    Barcelona (a mandatory criterion was not met)
+            Hamburg   (a mandatory criterion was not met)
+
+H LIVE GENERALISATION: PASS
+```
+
+Every shortlisted answer rests on Evidence the mission actually holds;
+nothing reaches the shortlist without clearing every criterion; the
+founder's reply carries no identifiers, no criterion ids and no JSON.
+
+The fixture deliberately does not assert that Madrid is the answer.
+Encoding the answer would make it a test of how well a model read
+Wikipedia on the day it ran. It asserts the contract that must hold
+whatever the page says.
+
+## What H found that nothing else could
+
+H failed on its first live run, and the failure was real:
+
+```
+step_4: binding on step 'step_3' field 'text': the step reported
+'Jump to content\nMain menu\nSearch\n...' but the independent
+observation recorded 'Jump to content\nMain menu\nSearch\n...';
+refusing to choose
+```
+
+Two strings that begin identically and are not equal. `ReadPageText` cut
+its result at 40,000 characters; the independent Observation cut its own
+at 20,000. **Every page longer than 20,000 characters was unusable as
+reasoning input**, deterministically.
+
+Verification was doing its job — an Action and an independent
+Observation disagreeing is exactly what it exists to surface, and that
+check is untouched. What was wrong is that one page had two readers.
+There is now one, `read_visible_text`, owned where Evidence is produced.
+
+Every controlled page in the diversified battery is a few hundred
+characters, so below both limits the two readers agree perfectly. No
+fixture written by the author of the fixtures could have found this.
+That is the entire argument for H.
+
+## Not built today, deliberately
+
+Recorded as post-demo comparison, not as work:
+
+```
+new Ledger / persistent-task subsystem
+new Brain / Planner / memory architecture
+cross-restart autonomous mission resume
+AgentRewind or Argus equivalents
+new benchmark framework
+MCP expansion
+self-development loop
+```
+
+Tomorrow proves the smaller, real loop: understand → plan → act →
+observe → verify → measure progress → identify what is missing →
+recover or research → preserve verified work → continue → finish
+truthfully. That loop is now demonstrated end to end on public reality.
+
+---
+
+# 29 August 2026 — delivery state at the close
+
+```
+FINAL FEATURE SHA     19ac803
+FINAL MAIN SHA        6349eb1   (untouched — integration is post-acceptance)
+FINAL PACKAGE SHA256  a1a6fa64c6d817d4b593208b3528ed02c4a423c2e613a0a5411b4f17500db5fb
+
+H LIVE GENERALISATION        PASS
+LOCAL                        PASS
+BROWSER                      PASS
+REASONING + ACTION           FAIL — the open P0 below
+MULTI-SOURCE                 PASS
+MORE-RESEARCH                PASS
+SECOND-SOURCE DISCOVERY      PASS
+RECOVERY                     PASS
+PROVIDER FALLBACK            PASS
+PRIVACY                      PASS
+KIMI FAIL-CLOSED             PASS
+
+DURABLE AUDIT RESTART        PASS
+FULL REGRESSION              PASS — 75 / 8713, failure-ID set identical, zero new
+PACKAGE ACCEPTANCE           self-check OK, archive identity proven
+FINAL FOUNDER ACCEPTANCE     NOT REQUESTED
+ONE PRODUCTION INSTANCE      not started
+
+KALPAVRIKSHA_DEMO_READY      FALSE
+```
+
+## Durable audit across a restart
+
+Already in the product, and proven live rather than assumed —
+`scripts/live_acceptance/u1_real_restart.py` drives the real composition
+root twice in one process against a DISPOSABLE state directory, so the
+founder's own history is never touched.
+
+```
+RESULT: PASS — real composition restart proven
+  [PASS] OpenRouter executed after the restart
+  [PASS] its answer was verified
+  [PASS] it ran the configured model
+  [PASS] both prices were zero at execution time
+disposable state dir removed
+```
+
+This is mission AUDIT surviving a restart. It is **not** autonomous
+resumption of an interrupted objective, which remains post-demo and was
+deliberately not built today.
+
+## The one open P0
+
+**Golden path 3 — the file must hold exactly the text that was
+verified.**
+
+```
+TextVerifier    matched
+verified text   SproutLog / GreenGrove / PlantPad
+file contents   Sprout / BloomNote / GrowLog
+```
+
+Owner: the reasoning Action and its Verifier —
+`executor/actions/reasoning/transform.py` and the Evidence observation
+recorded for it. Not the binding: `_verified_value` returns the
+observation and refuses a disagreement, and both the harness and the
+write read the same field.
+
+Why it is not this branch: `git diff origin/main` over
+`executor/actions/reasoning/`, `ai_infrastructure/tiered_runner.py` and
+the reasoning Verifier is empty. The 28 August ledger records this path
+passing at `9234319`.
+
+What is known: one mission, one Transform, one WriteFile, no replan —
+and twelve provider calls for that one step, `gemini.api, openrouter.api`
+six times over. The ladder retried six rounds and a model names things
+differently each time.
+
+Smallest safe next action: capture, for one run of that objective, the
+Action's returned text and the Evidence observation's text side by side,
+and find which of the six rounds each came from. That is a targeted read
+of one step's record, not a campaign.
+
+It is recorded rather than retried until green. A boundary that passes on
+the second attempt has not been fixed, and this is the boundary that says
+what a founder is told was verified is what is on their disk.
+
+## Why the demo is not blocked, and why it is not declared ready
+
+Objectives 1, 2, 4 and 5 in the runbook are green, including the
+centrepiece and the live public objective. Golden path 3 is one of six
+and its failure is honest and understood. But `KALPAVRIKSHA_DEMO_READY`
+is a claim about the whole product, and it is FALSE while a
+verified-content boundary is open.
+
+---
+
+# 29 August 2026 -- close of the delivery strike
+
+```
+FINAL FEATURE SHA     692ee09
+FINAL MAIN SHA        6349eb1   (untouched; integration is post-acceptance)
+FINAL PACKAGE SHA256  9a8232dabb4d4fe373e56f7fdd0cdcfd52172f27169a0e72dfa7e97c985dbc2b
+
+H LIVE GENERALISATION        PASS
+LOCAL                        PASS
+BROWSER                      PASS
+REASONING + ACTION           PASS   (golden path 3 -- the previous P0, closed)
+MULTI-SOURCE                 PASS
+MORE-RESEARCH                PASS
+SECOND-SOURCE DISCOVERY      PASS
+RECOVERY                     PASS
+PROVIDER FALLBACK            PASS
+PRIVACY                      PASS
+KIMI FAIL-CLOSED             PASS
+DURABLE AUDIT RESTART        PASS
+
+CENTREPIECE -- loop           PASS on every run
+CENTREPIECE -- final verdict  INTERMITTENT (1 pass / 4 fail)
+
+FULL REGRESSION              PASS -- 75 / 8720, failure-ID set identical, zero new
+PACKAGE ACCEPTANCE           self-check OK, archive identity proven
+UI/UX HYPER AGENT HANDOFF    COMPLETE
+FINAL FOUNDER ACCEPTANCE     NOT REQUESTED
+ONE PRODUCTION INSTANCE      not started
+
+KALPAVRIKSHA_DEMO_READY      FALSE
+```
+
+The demo has five green objectives including the live public one. It does
+not have a reliable showpiece, and the showpiece is the objective that
+demonstrates the thing this whole sprint was about. `DEMO_READY` is a
+claim about the product, and it stays FALSE until the centrepiece verdict
+is dependable rather than lucky.
+
+---
+
+# 29 August 2026 -- centrepiece closure attempt, and where it stands
+
+```
+ROOT CAUSE            A -- input assembly (decision frame), owner upstream
+                      in requirement derivation, not in frame_for
+
+CENTREPIECE loop      PASS on every run
+CENTREPIECE verdict   NOT STABLE
+STABILITY GATE 5/5    NOT ACHIEVED
+
+D PASS   D2 PASS   E PASS   F PASS   G PASS   I PASS
+GOLDEN PATH 1/2/3 PASS      DEMO BATTERY PASS
+TASK-SPECIFIC PRODUCTION CODE  NO (15 modules, executable code only)
+
+UI/UX HYPER AGENT HANDOFF      COMPLETE
+FINAL FOUNDER ACCEPTANCE       NOT REQUESTED
+ONE PRODUCTION INSTANCE        not started
+
+KALPAVRIKSHA_DEMO_READY        FALSE
+```
+
+Two fixes were attempted this evening and both were measured worse and
+taken back out. The product is behaviourally where it was at `d072d16`,
+plus a deterministic cross-source regression, a demo-vocabulary guard
+over production code, and a recovery loop that says why it stopped.
+
+The gate is not met and is not being declared met.
+
+---
+
+# 29 August 2026 -- Intent boundary traced; gate still not met
+
+```
+INTENT/REQUIREMENT OWNER   IntentLayer.requirements_for, called once by
+                           MissionService._admit, stored on the canonical
+                           Intent, reused by every replan
+
+REUSE INVARIANT            ALREADY IMPLEMENTED -- now regressed, 9 tests
+REQUIREMENTS_FOR CALLS     1 per objective (initial 1, replan 1: 0, replan 2: 0)
+IDS / DESCRIPTIONS /
+KINDS / PROVENANCE         STABLE across replans
+NEW OBJECTIVE ISOLATION    PASS -- identical text, independent derivation
+FOUNDER MODIFICATION       a new canonical Intent may change meaning; a
+                           replan may not
+
+ROOT CAUSE (remaining)     first-derivation variance in
+                           _reasoned_requirements: count, wording and kind
+                           vary run to run for one unchanged sentence
+
+CENTREPIECE 5/5            NOT MET
+FINAL PACKAGE              deliberately NOT rebuilt -- still stale
+FINAL FOUNDER ACCEPTANCE   NOT REQUESTED
+
+KALPAVRIKSHA_DEMO_READY    FALSE
+```
+
+---
+
+# 29 August 2026 -- close
+
+```
+FIRST-DERIVATION OWNER        IntentLayer.requirements_for
+CONFORMANCE MECHANISM         built, tested, reverted, UNVALIDATED
+                              (a48b8d6, reverted at 31f2b0b)
+OMISSION                      closed and measured 0/5 while it was in
+SYNTHESIS                     closed and measured 0/5 while it was in
+KIND MISCLASSIFICATION        not addressed -- structural gates cannot
+BOUNDED CORRECTION            one repair, then truthful failure
+SIMPLE/TYPED INTENT AI CALLS  0 (asserted)
+
+REPLAN DERIVATION CALLS       initial 1, replan 1: 0, replan 2: 0
+CENTREPIECE                   1 FAIL, 2 FAIL, 3-5 not run
+GENERIC BATTERY               D/E/F/G/I PASS, GP3 PASS, D2 UNRELIABLE
+TASK-SPECIFIC PROD CODE       NO
+
+PRODUCTION SOURCE             byte-identical to be1f82a
+FULL REGRESSION               75 / 8748 at be1f82a, ZERO new
+FINAL PACKAGE                 NOT rebuilt, still stale
+UI/UX HYPER AGENT HANDOFF     COMPLETE, untouched
+FINAL FOUNDER ACCEPTANCE      NOT REQUESTED
+
+KALPAVRIKSHA_DEMO_READY       FALSE
+```
+
+The blocking condition is no longer a single defect. It is that the live
+acceptance estate cannot currently tell a regression from the weather,
+and every remaining decision depends on it being able to.
+
+---
+
+# 29 August 2026 -- ship decision
+
+```
+ACCEPTANCE HARNESS ROOT CAUSE   NOT fixture contamination. `_decide` ran
+                                twice per mission over the same Evidence
+                                and could answer differently; the loop
+                                acted on one answer and the founder was
+                                shown the other.
+SESSION ISOLATION FIX           not needed -- fixtures never own session ids
+FIX APPLIED                     one decision per mission (b27731e)
+
+BATTERY RUN 1                   FAIL (D2 only)
+BATTERY RUN 2                   PASS (all six)
+BATTERY RUN 3                   not run -- 3/3 unreachable after run 1
+
+a48b8d6                         NOT RE-LANDED -- the 3/3 gate that would
+                                have authorised the A/B was never met
+A/B RESULT                      not performed, per the brief's own order
+
+STABLE FOR DEMO                 LOCAL, BROWSER, GP3, E (recovery),
+                                D, F, G, I
+NOT STABLE                      D2, CENTREPIECE
+
+FULL REGRESSION                 75 / 8760, ZERO new
+FINAL PRODUCTION SHA            b27731e
+FINAL PACKAGE                   NOT rebuilt -- see below
+UI/UX HYPER AGENT HANDOFF       COMPLETE, untouched
+FINAL FOUNDER ACCEPTANCE        NOT REQUESTED
+
+KALPAVRIKSHA_DEMO_READY         FALSE
+```
+
+The package was not rebuilt. A fresh package would need its own
+package-level proofs to be worth anything, and those cannot be run
+tonight -- an unproven package is the same gamble in a new wrapper.
+
+---
+
+# 30 August 2026 -- READY
+
+```
+FINAL PRODUCTION SHA     b27731e   (repository a41ed85)
+FINAL PACKAGE SHA256     a8002542ffd9936d3beec01ecb0c706895e6caba3689c171b4b30a265f7d3d6f
+FULL REGRESSION          75 / 8760, ZERO new failure IDs
+
+PACKAGE LOCAL            PASS
+PACKAGE BROWSER          PASS
+PACKAGE GP3              PASS
+PACKAGE RECOVERY         PASS
+H LIVE GENERALISATION    PASS -- preserved, not re-run
+
+D2 / CENTREPIECE         CAPABILITY PROVEN, DEMO DEFERRED
+                         latent nondeterminism at a fixed SHA
+UI/UX HYPER AGENT HANDOFF  COMPLETE
+
+KALPAVRIKSHA_DEMO_READY  TRUE -- for the four objectives above, and only those
+```

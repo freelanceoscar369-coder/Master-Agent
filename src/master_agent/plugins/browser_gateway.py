@@ -100,8 +100,14 @@ class BrowserGateway:
         if subject(capability) == PAGE:
             from master_agent.plugins.browser_verifier import BrowserVerifier
 
+            # Text only where the step exists to read text. Every
+            # Evidence record pays for what it carries, and a Navigate
+            # does not need the page's prose to prove it arrived.
+            from master_agent.plugins.browser_expectations import _local
+
             return BrowserVerifier(
-                sessions, session_id, payload.get("selectors")
+                sessions, session_id, payload.get("selectors"),
+                include_text=_local(capability) == "readpagetext",
             ).verify(effective)
 
         return None

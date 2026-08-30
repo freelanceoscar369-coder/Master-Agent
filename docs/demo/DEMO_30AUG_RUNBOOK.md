@@ -83,7 +83,61 @@ reply says both steps were verified.
 *inside* `Reasoning.Transform` — and the file holds exactly the text that
 TextVerifier passed, bound from Evidence rather than predicted.
 
-### 4 — A QUESTION · thinking without doing
+### 4 — MULTI-SOURCE RESEARCH · the centrepiece
+
+Serve the stage first, then use its URL:
+
+```
+python scripts/live_acceptance/demo_centrepiece.py
+```
+
+That runs the whole thing end to end and reports PASS/FAIL. To show it
+live instead, serve the same pages and type:
+
+> Which community repair workshops accept laptops and are also open on
+> Saturday? Start from http://127.0.0.1:PORT/directory.html
+
+**Expect:** a reply naming ONE workshop, with the other two ruled out and
+a reason for each:
+
+> 1 of what I found meets everything you asked for:
+>   - Ashcombe Repair Workshop
+> I ruled out 2: Brindle Repair Workshop (a mandatory criterion was not
+> met); Calder Repair Workshop (a mandatory criterion was not met)
+
+**The point — and this is the demo.** The page you named cannot answer
+the question. It knows what each workshop accepts and says nothing about
+Saturdays. Kalpavriksha reads it, works out which criterion nobody has
+established, follows a link *you never mentioned*, finds that route dead,
+carries on without asking you to pick another, reads the page that does
+answer it, and only then commits to one name — with the two it rejected
+named and reasoned.
+
+Nothing about repair workshops exists in the product. Nothing hard-codes
+the answer or the site. Take away either page and it says so truthfully
+instead of guessing.
+
+### 5 — LIVE GENERALISATION · a site nobody arranged
+
+> Which of these three cities has a metro system that opened before 1930
+> and is also its country's capital: Barcelona, Madrid, Hamburg? Start
+> from https://en.wikipedia.org/wiki/List_of_metro_systems
+
+**Expect:** Madrid, with Barcelona and Hamburg ruled out.
+
+**The point:** every other objective here runs against pages this
+repository serves to itself. This one runs against a real public
+encyclopedia that nobody here controls. It is also the objective that
+found the defect no fixture could: `ReadPageText` and the independent
+Observation were cutting the same page at different lengths, so every
+page over 20,000 characters was unusable. Fixture pages are a few hundred
+characters, and agreed perfectly.
+
+**If it fails:** a public site being slow, blocked or changed is an
+external limitation, not a product failure. Say so and move to objective
+4, which is hermetic.
+
+### 6 — A QUESTION · thinking without doing
 
 > what is required to make Kalpavriksha self-improving?
 
@@ -115,6 +169,8 @@ something only the Brain may decide. Architectural guards in
 |---|---|
 | A mission reports a failure | Read the reply. It names what was expected and what was observed. That is the product working, not a bug to hide. |
 | A public website blocks automation | Expected. Verification reports the mismatch. **Do not** switch to the founder's browser, add stealth flags, or retry through the trusted lane. Use the loopback fixture for the demo instead. |
+| A reasoning provider answers with "High demand… Upgrade to…" | That is a service notice, not an answer. It is detected, rejected, and the Broker moves to the next provider. Let it. An agent that notices its own tools are unwell is a stronger demo than one that pretends every provider works. |
+| A mission gives the answer and then says some of it did not work | Both are true. It answered the question and lost a route on the way. Read the answer; the detail is in the log. |
 | A browser is left open after a failed mission | Known, recorded, post-demo. Close it by hand; it does not affect a later mission, which uses its own session id. |
 | The app seems stuck | Check for a pending approval or clarification in the window. Waiting on the founder is not slowness. |
 | Reasoning is slow or refuses | The ladder walks providers in order. Let it. Pinning a tier for a demo hides the behaviour the ladder exists for. |
@@ -128,6 +184,13 @@ something only the Brain may decide. Architectural guards in
 - Do **not** run a second Kalpavriksha instance.
 - Do **not** use Google Search as a demo objective. It serves an anti-bot
   interstitial to automation, and that is outside our control.
+- Do **not** re-run **Golden objective 3** hoping it passes. It has one
+  open boundary — the file must hold exactly the text that was verified —
+  and it failed once on this build with `verified text` and `file
+  contents` differing. It is recorded in the evidence pack as the open
+  P0. A boundary that passes on the second attempt has not been fixed,
+  and demonstrating it while it is open would be showing a founder
+  something we know is not yet true.
 
 ---
 
@@ -178,3 +241,34 @@ exactly the defect this run exists to expose.
 
 Nothing is deleted to tidy up. `D:\Rudra` from the first failed run stays
 where it is unless you ask for it to go — it is yours, not test scaffolding.
+
+
+---
+
+## 30 August -- the four objectives to demonstrate
+
+These four passed on the final binary's own source, and each has passed
+every time it has been run. Use these.
+
+1. **LOCAL** -- golden objective 1. Two dictated steps, zero AI planning
+   calls.
+2. **ORDINARY BROWSER** -- golden objective 2. Six dictated steps, and
+   the answer comes from a fresh observation rather than from what the
+   click reported about itself.
+3. **REASONING + REAL ACTION** -- golden objective 3. The file holds
+   exactly the text that was verified, bound from Evidence.
+4. **RECOVERY** -- a dead source does not end the objective. Serve the
+   diversified fixture and ask for a page that fails plus one that
+   works; the mission attempts the dead route, reaches the alternate,
+   and never asks you to pick another source.
+
+### Not on the list, and why
+
+**The multi-source centrepiece and D2 are excluded.** The capability is
+real and has been demonstrated many times -- a second source the founder
+never named, discovered because the mission knew what it was missing.
+Its repeatability is not: on identical production source it both passes
+and fails. Recorded as post-demo P0 in the evidence pack.
+
+Do not substitute them in on the night. A capability that works four
+times in seven is a research result, not a demonstration.

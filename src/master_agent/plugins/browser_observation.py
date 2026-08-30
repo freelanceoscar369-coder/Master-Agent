@@ -31,6 +31,14 @@ from playwright.sync_api import Page
 # silently -- `accessibility_tree_truncated` says so out loud.
 MAX_ACCESSIBILITY_TREE_CHARS = 20_000
 
+#: How much visible page text one observation may carry.
+#:
+#: Bounded for the same reason the tree is: an Evidence record is
+#: persisted, replayed and sometimes handed to a reasoning step, and an
+#: unbounded page would make all three expensive. Generous enough for a
+#: listing or an article, which is what research actually reads.
+MAX_PAGE_TEXT_CHARS = 20_000
+
 # Same reasoning for interactive affordances: a large page can have
 # hundreds. Capped, with `available_actions_truncated` reporting it.
 MAX_AVAILABLE_ACTIONS = 100
@@ -85,6 +93,37 @@ class AvailableAction:
         }
 
 
+#: How many links one page contributes.
+#:
+#: A directory page can carry hundreds. This is not a safety limit, it is
+#: the same "what a later step can actually hold" limit `MAX_PAGE_TEXT_CHARS`
+#: already states -- and it is declared in the observation when it bites,
+#: never silently applied.
+MAX_PAGE_LINKS = 60
+
+#: Schemes that are not somewhere to go.
+_NOT_A_DESTINATION = ("javascript:", "mailto:", "tel:", "about:", "data:")
+
+
+@dataclass
+class PageLink:
+    """Somewhere this page says you can go next.
+
+    Deterministic, from the page itself -- never a model's idea of where
+    to look. It exists because a research mission that decides it needs
+    more evidence had no way to act on that decision: the page's TEXT
+    keeps the words "Sunday opening hours" and loses the `href` behind
+    them, so a system that had already read the page holding the answer's
+    address could only re-read the same page.
+    """
+
+    text: str
+    url: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"text": self.text, "url": self.url}
+
+
 @dataclass
 class BrowserObservation:
     url: str
@@ -102,6 +141,26 @@ class BrowserObservation:
     elements: list[BrowserElement] = field(default_factory=list)
     accessibility_tree: str | None = None
     accessibility_tree_truncated: bool = False
+    #: What a person can actually SEE on the page.
+    #:
+    #: Opt-in like the tree, and for the same reason -- most steps do not
+    #: need it and every Evidence record pays for what it carries.
+    #:
+    #: It exists because research had no way to reach reasoning.
+    #: `Browser.ReadPageText` returned text as an Action RESULT, and an
+    #: Action result is not Evidence: `input_bindings` refused it with
+    #: "source has no canonical Evidence, so its output cannot be trusted
+    #: as an input", and the Brain, which may only read canonical
+    #: Evidence, saw nothing at all. A mission could visit three sites,
+    #: verify all three, and have nothing to think about.
+    text: str | None = None
+    text_truncated: bool = False
+    #: Where this page says you can go next. Gathered with the text, for
+    #: the same reason and by the same opt-in: the read that wants to
+    #: know what a page SAYS is the read that may need to know where it
+    #: POINTS.
+    links: list[PageLink] = field(default_factory=list)
+    links_truncated: bool = False
     available_actions: list[AvailableAction] = field(default_factory=list)
     available_actions_truncated: bool = False
     captured_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -116,6 +175,10 @@ class BrowserObservation:
             "elements": [element.as_dict() for element in self.elements],
             "accessibility_tree": self.accessibility_tree,
             "accessibility_tree_truncated": self.accessibility_tree_truncated,
+            "text": self.text,
+            "text_truncated": self.text_truncated,
+            "links": [link.as_dict() for link in self.links],
+            "links_truncated": self.links_truncated,
             "available_actions": [action.as_dict() for action in self.available_actions],
             "available_actions_truncated": self.available_actions_truncated,
             "captured_at": self.captured_at.isoformat(),
@@ -237,11 +300,81 @@ def normalise_url(url: str) -> str:
     ))
 
 
+def read_visible_text(page: Page) -> tuple[str | None, bool]:
+    """The visible text of a page, and whether it was cut.
+
+    `inner_text` rather than `text_content`: it returns what a person can
+    actually see, leaving out script bodies and hidden nodes. A reasoning
+    step given hidden markup would be reasoning about something the
+    founder never saw.
+
+    **Public, and the only implementation, on purpose.** The Action that
+    reads a page and the Observation that independently verifies it must
+    produce the same string for the same page, because
+    `_verified_value()` compares them for EQUALITY and -- correctly --
+    refuses to pick a winner when they differ.
+
+    They did not. `read_page_text` cut at 40,000 characters and this cut
+    at 20,000, so every page longer than 20,000 characters produced a
+    reported value and an observed value that could never match, and any
+    binding from it failed with
+
+        the step reported '...' but the independent observation recorded
+        '...'; refusing to choose
+
+    Found live on Wikipedia. Nothing in the controlled battery could have
+    found it: those fixture pages are a few hundred characters, so the
+    two limits never had anything to disagree about. Two truncations of
+    one string, compared for equality, is a bug by construction -- and
+    the fix is one reader, not two constants that happen to agree today.
+    """
+    try:
+        text = page.inner_text("body") or ""
+    except Exception:  # noqa: BLE001 -- an unreadable page observes nothing
+        return None, False
+    if len(text) > MAX_PAGE_TEXT_CHARS:
+        return text[:MAX_PAGE_TEXT_CHARS], True
+    return text, False
+
+
+def _observe_links(page: Page) -> tuple[list[PageLink], bool]:
+    """Every anchor with a destination, absolute and deduplicated.
+
+    `el.href` rather than `getAttribute('href')`: the browser has already
+    resolved it against the page's own base, so a relative
+    `hours.html` arrives as somewhere a later step can actually navigate
+    to. An unreadable page contributes no links, the same posture
+    `read_visible_text` already takes.
+    """
+    try:
+        rows = page.eval_on_selector_all(
+            "a[href]",
+            "els => els.map(el => ({text: (el.innerText || '').trim(), url: el.href}))",
+        ) or []
+    except Exception:  # noqa: BLE001 -- an unreadable page observes nothing
+        return [], False
+
+    links: list[PageLink] = []
+    seen: set[str] = set()
+    for row in rows:
+        url = str((row or {}).get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        if any(url.lower().startswith(scheme) for scheme in _NOT_A_DESTINATION):
+            continue
+        seen.add(url)
+        links.append(PageLink(text=str((row or {}).get("text") or "").strip()[:120], url=url))
+        if len(links) >= MAX_PAGE_LINKS:
+            return links, len(seen) < len(rows)
+    return links, False
+
+
 def normalize_observation(
     page: Page,
     selectors: list[str] | None = None,
     include_accessibility_tree: bool = False,
     include_available_actions: bool = False,
+    include_text: bool = False,
 ) -> BrowserObservation:
     """Reads generic, universal facts off a live Page. `selectors` names
     the specific elements a caller cares about; the two `include_*` flags
@@ -256,6 +389,8 @@ def normalize_observation(
     available_actions, actions_truncated = (
         _observe_available_actions(page) if include_available_actions else ([], False)
     )
+    text, text_truncated = read_visible_text(page) if include_text else (None, False)
+    links, links_truncated = _observe_links(page) if include_text else ([], False)
 
     return BrowserObservation(
         url=page.url,
@@ -268,5 +403,9 @@ def normalize_observation(
         accessibility_tree_truncated=tree_truncated,
         available_actions=available_actions,
         available_actions_truncated=actions_truncated,
+        text=text,
+        text_truncated=text_truncated,
+        links=links,
+        links_truncated=links_truncated,
         captured_at=datetime.now(UTC),
     )

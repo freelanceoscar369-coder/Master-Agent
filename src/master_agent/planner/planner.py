@@ -60,6 +60,7 @@ from master_agent.planner.plan import (
     LOCAL_ONLY,
     BROKER_REFUSED,
     NO_CAPABILITIES,
+    NO_STEPS,
     NOT_JSON,
     PROVIDER_FAILED,
     UNVERIFIED,
@@ -223,15 +224,7 @@ class Planner:
             )
 
         prompt = build_prompt(intent, options)
-        context = RoutingContext(
-            is_online=not self._offline,
-            is_sensitive=intent.is_sensitive,
-            requires_strong_reasoning=self._requires_strong_reasoning,
-            capability=PLANNING_CAPABILITY,
-            task_id=task_id,
-            objective_id=objective_id,
-            requester=self._requester,
-        )
+        context = self._context(intent, task_id=task_id, objective_id=objective_id)
         # MB038. A planning prompt carries the whole capability catalogue,
         # so it is enormous-in and moderate-out -- a shape no single
         # timeout describes, and the one that reported a healthy provider
@@ -267,8 +260,49 @@ class Planner:
                 raw=outcome.text,
             )
 
+        requirements = getattr(intent, "requirements", ()) or ()
         document = outcome.evidence.observation.get("json")
-        plan, invalid = validate(document, options, objective=intent.goal)
+        plan, invalid = validate(
+            document, options, objective=intent.goal,
+            requirements=requirements,
+        )
+
+        # `no_steps` is not a malformed plan -- it is the model's honest
+        # answer that the catalogue cannot reach this objective, and rule
+        # 6 exists to give that answer a shape it can express. Re-asking
+        # pressures it to invent one, which is exactly the fabrication
+        # this Planner refuses; and for a blank objective there is
+        # nothing to correct toward at all. A guard caught this: a blank
+        # objective must cost exactly one provider call.
+        repairable = (
+            invalid is not None
+            and plan is None
+            and getattr(invalid, "code", "") != NO_STEPS
+            and intent.goal.strip()
+        )
+        if repairable:
+            # ONE correction attempt, with the errors we already have.
+            #
+            # `validate()` knows precisely what was wrong -- which step,
+            # which argument, which missing dependency. Discarding that
+            # and reporting "I couldn't plan that just now" spends a
+            # provider call, teaches the model nothing, and makes the
+            # founder the retry button for a defect the system already
+            # diagnosed.
+            #
+            # Bounded at one, deliberately. A model that cannot produce a
+            # valid plan given the exact error twice is not going to on
+            # the third try, and each attempt is time a founder waits.
+            # The same catalogue and the same objective are reused: the
+            # capability set cannot change inside one `plan()` call, and
+            # re-deriving it would invite a different plan for a
+            # different reason.
+            corrected = self._correct(
+                intent, options, outcome, invalid, mode, attempts
+            )
+            if corrected is not None:
+                return corrected
+
         return PlanOutcome(
             plan=plan,
             refusal=invalid,
@@ -279,6 +313,83 @@ class Planner:
             entry_id=outcome.entry_id,
             provider_id=outcome.provider_id,
             raw=outcome.text,
+        )
+
+    def _context(self, intent, *, task_id: str = "", objective_id=None):
+        """The routing facts for one planning request.
+
+        Factored so the correction pass asks under the SAME conditions as
+        the first attempt -- most importantly the same sensitivity. A
+        repair that quietly routed somewhere the original request was not
+        allowed to go would be a privacy hole wearing the shape of a
+        retry.
+        """
+        return RoutingContext(
+            is_online=not self._offline,
+            is_sensitive=intent.is_sensitive,
+            requires_strong_reasoning=self._requires_strong_reasoning,
+            capability=PLANNING_CAPABILITY,
+            task_id=task_id,
+            objective_id=objective_id,
+            requester=self._requester,
+        )
+
+    def _correct(self, intent, options, first, invalid, mode, attempts):
+        """One repair pass. `None` when it did not produce a valid plan,
+        and the caller then reports the ORIGINAL refusal -- the first
+        diagnosis is the honest one, and a second failure's wording would
+        only describe a second symptom."""
+        import logging
+
+        from master_agent.planner.prompting import build_correction_prompt
+
+        logging.info(
+            "plan rejected (%s); attempting one correction: %s",
+            getattr(invalid, "code", ""), getattr(invalid, "reason", ""),
+        )
+        try:
+            prompt = build_correction_prompt(
+                intent, options,
+                rejected=str(getattr(first, "text", "") or ""),
+                reason=str(getattr(invalid, "reason", "") or ""),
+                detail=str(getattr(invalid, "detail", "") or ""),
+            )
+            request = BudgetedSelectionRequest(
+                **vars(SelectionRequest.from_context(self._context(intent))),
+                request_class=PLANNING_CLASS,
+                prompt=prompt,
+            )
+            outcome = self._runner.run(
+                prompt, request, expected=plan_expectation()
+            )
+        except Exception:  # noqa: BLE001 -- a failed repair is not a crash
+            return None
+        if self._rejected(outcome) is not None:
+            return None
+
+        plan, still_invalid = validate(
+            outcome.evidence.observation.get("json"), options,
+            objective=intent.goal,
+            requirements=getattr(intent, "requirements", ()) or (),
+        )
+        if plan is None:
+            logging.info(
+                "correction did not produce a valid plan either: %s",
+                getattr(still_invalid, "reason", ""),
+            )
+            return None
+        logging.info("correction produced a valid plan")
+        return PlanOutcome(
+            plan=plan,
+            refusal=None,
+            attempts=attempts + _attempt_trail(self._runner),
+            selected_mode=mode,
+            effective_mode=mode,
+            evidence=outcome.evidence,
+            entry_id=outcome.entry_id,
+            provider_id=outcome.provider_id,
+            raw=outcome.text,
+            corrected=True,
         )
 
     # ---- the ways it stops -----------------------------------------------

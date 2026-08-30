@@ -375,6 +375,36 @@ class BrowserSessionManager:
     def list_sessions(self) -> list[BrowserSessionHandle]:
         return list(self._handles.values())
 
+    def close_anonymous(self) -> dict[str, list[str]]:
+        """Release task-owned sessions, and never the founder's own.
+
+        An anonymous session is ephemeral by construction: a fresh
+        automated context that starts empty and forgets everything. It
+        belongs to the task that opened it and to nothing else, so when
+        that task's mission ends there is no one left to own it.
+
+        An IDENTITY session is the opposite -- it carries the founder's
+        signed-in state, and closing it would sign them out of something
+        they were using. Those are skipped here whatever else happens.
+
+        ## Why this exists
+
+        A mission that failed before its planned `CloseBrowserSession`
+        left session `'main'` open. The next attempt planned its own
+        `OpenBrowserSession('main')` and died on `session already open:
+        'main'` -- a second failure caused entirely by the first
+        attempt's leftovers, which made autonomous recovery impossible.
+
+        Releasing an environment is not a claim about the mission. A
+        cleaned-up failure is still a failure.
+        """
+        warnings: dict[str, list[str]] = {}
+        for session_id, handle in list(self._handles.items()):
+            if getattr(handle, "identity_id", None):
+                continue
+            warnings[session_id] = self.close_session(session_id)
+        return warnings
+
     def close_all(self) -> dict[str, list[str]]:
         """Best-effort cleanup — used by test teardown and by a future
         Operator Instance shutdown path. Never raises; per-session

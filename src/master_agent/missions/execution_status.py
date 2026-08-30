@@ -214,6 +214,21 @@ class ExecutionStatus:
     #: and Stop are not Approve and Decline, and a founder should not
     #: be taught that the two are the same thing.
     approval_kind: str = ""
+    #: The decision this mission reached, when it faced one.
+    #:
+    #: Declared rather than attached at runtime because this class calls
+    #: itself a JSON-shaped contract, and an undeclared attribute is one
+    #: a serialiser is entitled to drop. Reviewable conclusions only --
+    #: shortlist, what was rejected and why, what stayed unresolved --
+    #: never a reasoning transcript.
+    #:
+    #: `None` for the great majority of missions, which face no decision.
+    deliberation: dict | None = None
+    #: The Brain's reading of a failure, when a mission stopped short.
+    #: Recorded whether or not anything was attempted, so a founder --
+    #: and a later audit -- can see that the failure was classified
+    #: rather than merely reported.
+    recovery: dict | None = None
     #: What the founder is being shown. For a review this is the
     #: RESOLVED proposal the earlier steps actually produced.
     approval_preview: str = ""

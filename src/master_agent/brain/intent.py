@@ -1476,7 +1476,23 @@ class IntentLayer:
                     kind=CONSTRAINT,
                     description=f"{name} = {value}",
                     provenance=evidence,
-                    founder_evidence=_said_for(recorded, name, value),
+                    # Per-field words when the conversation recorded
+                    # them; otherwise the founder's sentence.
+                    #
+                    # A ONE-SENTENCE request records no per-field
+                    # evidence -- nothing asked, so nothing was
+                    # answered -- and this returned "" for every
+                    # constraint on the commonest path a founder uses.
+                    # The multi-turn path carried evidence and the
+                    # direct path did not, so the acceptance that
+                    # proved this contract proved it on the narrower
+                    # of the two.
+                    #
+                    # The sentence is coarser than the field but it is
+                    # the founder's own words and it is never empty,
+                    # which is what an audit needs to compare an
+                    # interpretation against.
+                    founder_evidence=_said_for(recorded, name, value) or evidence,
                 ))
             return tuple(found)
 
@@ -1564,6 +1580,20 @@ class IntentLayer:
                 kind=kind,
                 description=description,
                 provenance=objective,
+                # The founder's own words, kept beside the model's
+                # reading of them. `description` here is a PARAPHRASE --
+                # "free demo download links for those games" is not what
+                # anybody typed -- so without this the requirement would
+                # carry only an interpretation, and conformance would be
+                # comparing a reading against itself. That is the exact
+                # circularity ADR-0026 exists to prevent, and it applied
+                # to every compound objective.
+                #
+                # The objective sentence is the honest evidence
+                # available at this granularity. Per-clause founder
+                # wording would be finer and is recorded as debt in
+                # ADR-0027 rather than invented here.
+                founder_evidence=objective,
             ))
         return tuple(found)
 
@@ -1741,6 +1771,32 @@ class IntentLayer:
             getattr(result.intent, "capability", "")
             or getattr(result.intent, "answers_founder", "")
         ):
+            # Only what costs nothing HERE.
+            #
+            # A capability-bearing intent derives its requirements
+            # deterministically, so it is free and belongs at parse
+            # time. A compound objective needs the reasoning door, and
+            # `parse()` must never reach a provider -- it is a
+            # structural operation on every path, including the ones a
+            # founder never sees. `MissionService._admit` derives the
+            # rest, once per mission, at the admission boundary that
+            # already owns the semantic gate.
+            #
+            # This was gated on the intent carrying a `capability` or
+            # `answers_founder`, which excluded exactly the objectives
+            # that most need requirements: the compound natural ones the
+            # AI Planner handles. `_reasoned_requirements` was written
+            # for that case and was unreachable for it.
+            #
+            # Measured on the failed founder acceptance -- "search for
+            # action rpg games released in 2026 and give me free demo
+            # download links" produced a ten-step plan whose
+            # `requirements` list was EMPTY and whose every step carried
+            # `covers=[]`. Outcome conformance over an empty requirement
+            # set can only ever answer UNKNOWN, so a research mission
+            # could not be judged against founder intent even when it
+            # worked.
+            #
             result.intent.requirements = self.requirements_for(
                 result.intent, raw=text
             )

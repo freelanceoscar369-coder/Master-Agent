@@ -50,10 +50,13 @@ def judge(reply: str) -> tuple[bool, str]:
     # three-name answer, because it only counted lines. Counting is not
     # judging. Chrome the founder never asked for is a failure however
     # many lines of it there are.
-    chrome = ("copy", "share", "update", "instant", "high", "regenerate",
-              "your chats will appear here", "create or select a file to start",
-              "ai-generated, for reference only")
-    offenders = [line for line in lines if line.strip().lower() in chrome]
+    # The vocabulary used to live here, in this script, which meant the
+    # acceptance run was the only thing protected by it. It now lives in
+    # the provider that does the classifying, and this imports it -- one
+    # owner, and a real run is checked against the same knowledge the
+    # product uses.
+    from master_agent.providers.desktop_app import _INTERFACE_LABELS
+    offenders = [line for line in lines if line.strip().lower() in _INTERFACE_LABELS]
     if offenders:
         return False, f"UI chrome captured as reply: {offenders[:3]}"
     if len(lines) > 6:

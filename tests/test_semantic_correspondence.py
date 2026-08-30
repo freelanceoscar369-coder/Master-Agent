@@ -438,3 +438,172 @@ class TestTheContractSaysWhatTheContractDoes:
         """Not broken for a test. The acceptance harness carries that
         burden with a precondition instead."""
         assert "idempotent" in self.action().expected_result
+
+
+# =====================================================================
+# The semantic spine must reach the lane the founder actually failed on
+# =====================================================================
+
+
+class TestRequirementsReachEveryLane:
+    """ADR-0026's guarantees were proved on the deterministic lanes and
+    silently absent everywhere else.
+
+    The failed founder acceptance --
+
+        search for action rpg games released in 2026 and give me free
+        demo download links
+
+    -- produced a ten-step plan whose `requirements` list was EMPTY and
+    whose every step carried `covers=[]`. Outcome conformance over an
+    empty requirement set can only answer UNKNOWN, so a research mission
+    could not be judged against founder intent even in the case where it
+    worked. Two independent breaks caused it, and both were BUILT BUT NOT
+    WIRED rather than missing."""
+
+    def test_a_compound_objective_gets_requirements_at_admission(self):
+        """`requirements_for` was reachable only for intents carrying a
+        `capability`, which excluded exactly the compound objectives
+        `_reasoned_requirements` was written for.
+
+        Derived at the ADMISSION boundary rather than at parse: parsing
+        is structural and must never reach a provider, and a compound
+        objective needs the reasoning door. Asserted as a property of an
+        admitted mission, not as the presence of a line of source."""
+        from master_agent.missions.service import MissionService
+        from master_agent.planner.plan import Intent
+
+        derived = SemanticRequirement(
+            "req_1", CONSTRAINT, "action RPG games released in 2026",
+            founder_evidence="search for action rpg games released in 2026",
+        )
+
+        class Layer:
+            def requirements_for(self, intent, *, raw=""):
+                return (derived,)
+
+        class Planner:
+            def __init__(self):
+                self.seen = None
+
+            def plan(self, intent, **kwargs):
+                self.seen = tuple(getattr(intent, "requirements", ()))
+                raise AssertionError("reached the planner")
+
+        service = MissionService.__new__(MissionService)
+        service._counter = 0
+        service.planner = Planner()
+        service.reporter = None
+        service.intent_layer = Layer()
+        service._publish_phase = lambda *a, **k: None
+
+        intent = Intent(goal="search for action rpg games released in 2026",
+                        constraints=[], context={}, success_criteria=[])
+        assert not getattr(intent, "requirements", ())
+        with pytest.raises(AssertionError, match="reached the planner"):
+            service._admit(intent, task_id="plan-1", objective_id=None)
+        assert service.planner.seen == (derived,), (
+            "a compound objective reached the Planner with no requirements; "
+            "outcome conformance over an empty set can only answer UNKNOWN"
+        )
+
+    def test_parsing_still_reaches_no_provider(self):
+        """The boundary that made this necessary. Parsing is structural
+        and runs on paths a founder never sees; a provider call there
+        would put a model on every keystroke."""
+        calls = []
+
+        class Spy:
+            def run(self, prompt, request, **kwargs):
+                calls.append(prompt)
+                raise AssertionError("parse reached a provider")
+
+        layer = IntentLayer(reasoner=Spy(), vocabularies={"location": PLACES})
+        layer.parse("search for action rpg games released in 2026")
+        layer.parse("something it has never seen before at all")
+        assert calls == []
+
+    def test_the_ai_plan_path_carries_requirements_onto_the_plan(self):
+        """`MissionPlan.requirements` was populated only in
+        `planner/direct.py`. An AI-planned mission reached execution,
+        Verification and the Reporter with nothing to conform against."""
+        from master_agent.planner.parsing import validate
+        from master_agent.planner.catalogue import CapabilityOption
+
+        requirement = SemanticRequirement(
+            "req_1", CONSTRAINT, "text is produced",
+            founder_evidence="write me something",
+        )
+        document = {"steps": [{
+            "id": "s1", "capability": "Reasoning.Transform",
+            "success": {"description": "text was produced"},
+        }]}
+        plan, refusal = validate(
+            document, (CapabilityOption(name="Reasoning.Transform"),),
+            objective="write me something", requirements=(requirement,),
+        )
+        assert refusal is None
+        assert len(plan.requirements) == 1
+        assert plan.requirements[0].founder_evidence == "write me something"
+
+    def test_an_ai_plan_with_no_requirements_is_still_a_valid_plan(self):
+        """Carrying them through must not become a new way to refuse.
+        Legacy and hand-built callers pass nothing, and conformance
+        already answers UNKNOWN for that -- correctly."""
+        from master_agent.planner.parsing import validate
+        from master_agent.planner.catalogue import CapabilityOption
+
+        plan, refusal = validate(
+            {"steps": [{
+                "id": "s1", "capability": "Reasoning.Transform",
+                "success": {"description": "text was produced"},
+            }]},
+            (CapabilityOption(name="Reasoning.Transform"),), objective="x",
+        )
+        assert refusal is None
+        assert plan.requirements == ()
+
+
+class TestFounderEvidenceOnTheDIRECTPath:
+    """A one-sentence request records no per-field evidence -- nothing
+    was asked, so nothing was answered -- and every constraint came out
+    with `founder_evidence=''`.
+
+    The multi-turn path carried evidence and the direct path did not, so
+    the acceptance that proved this contract proved it on the narrower of
+    the two. The sentence is coarser than the field, but it is the
+    founder's own words and it is never empty."""
+
+    def layer(self):
+        return IntentLayer(vocabularies={"location": PLACES})
+
+    def test_a_single_sentence_still_evidences_every_constraint(self):
+        result = self.layer().parse("create a folder called Rehearsal on my desktop")
+        requirements = getattr(result.intent, "requirements", ())
+        assert requirements, "the typed lane produced no requirements at all"
+        for requirement in requirements:
+            assert requirement.founder_evidence, (
+                f"{requirement.requirement_id} ({requirement.description}) "
+                "carries only the interpretation on the commonest path a "
+                "founder uses"
+            )
+
+    def test_per_field_words_still_win_when_the_conversation_recorded_them(self):
+        """The fallback must not flatten the better evidence. A
+        clarification answer is more precise than the whole sentence and
+        has to stay."""
+        layer = self.layer()
+        first = layer.clarify(
+            "create a folder", "Rehearsal",
+            ClarificationQuestion(question="What?", key="folder_name",
+                                  gathering=FIELDS),
+            supplied={}, evidence={},
+        )
+        second = layer.clarify(
+            "create a folder", "on my desktop", first.clarification,
+            supplied=first.resolved, evidence=first.evidence,
+        )
+        by_id = {r.description: r.founder_evidence
+                 for r in layer.requirements_for(second.intent, raw="create a folder")}
+        assert by_id["location = desktop"] == "on my desktop"
+        assert by_id["name = Rehearsal"] == "Rehearsal"

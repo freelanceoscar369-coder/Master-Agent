@@ -33,7 +33,16 @@ SESSION = "session"
 _SESSION_PRESENT: frozenset[str] = frozenset({"open_browser_session"})
 _SESSION_ABSENT: frozenset[str] = frozenset({"close_browser_session"})
 _PAGE_DESTINATION: frozenset[str] = frozenset({"navigate"})
-_PAGE_OBSERVABLE: frozenset[str] = frozenset({"observe_browser"})
+#: Capabilities whose whole point is to observe the page they are on.
+#:
+#: `read_page_text` was absent, so `subject()` returned None, no Verifier
+#: ran, and the capability that gathers research produced no canonical
+#: Evidence at all. Everything downstream then behaved correctly and
+#: uselessly: `input_bindings` refused its output as untrusted, and the
+#: Brain -- which may read only Evidence -- had nothing to reason about.
+_PAGE_OBSERVABLE: frozenset[str] = frozenset(
+    {"observe_browser", "read_page_text"}
+)
 
 
 def _local(capability: str) -> str:

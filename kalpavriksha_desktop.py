@@ -796,9 +796,8 @@ def _build_mission_pipeline():
     # still wins, so the Planner can ask for an invisible session when an
     # objective genuinely does not want a window.
     browser_identities = _browser_identity_store()
-    browser_plugin = BrowserPlugin(
-        executor,
-        BrowserSessionManager(
+    global _BROWSER_SESSIONS
+    _BROWSER_SESSIONS = BrowserSessionManager(
             default_headless=False,
             default_channel="chrome",
             # Declared, not defaulted: a session stays anonymous unless an
@@ -806,8 +805,8 @@ def _build_mission_pipeline():
             # the *ability* to be the founder without making anything
             # silently become them.
             identities=browser_identities,
-        ),
     )
+    browser_plugin = BrowserPlugin(executor, _BROWSER_SESSIONS)
     registry.register(browser_plugin)
 
     # Desktop Executive Foundation 1.0: the Desktop Executive
@@ -1574,6 +1573,527 @@ def _build_mission_pipeline():
             _set_mode, interactions, decide_approval)
 
 
+class _ExecutionThread:
+    """One long-lived thread that every Runtime step runs on.
+
+    ## The failure this exists for
+
+    Founder acceptance died here, verbatim:
+
+        failed to open browser session: cannot switch to a different
+        thread (which happens to have exited)
+
+    Playwright's synchronous API is bound to the thread that started its
+    driver, and `BrowserSessionManager` caches that driver for the life
+    of the process -- correctly, because one driver per manager is the
+    Constitution's Environment Session Manager rule. The founder surface
+    answers each message on a **different, short-lived HTTP worker
+    thread** from the JS-API server's pool. So the first mission started
+    the driver on a thread that then exited, and the next Playwright call
+    from any later thread hit exactly the error above.
+
+    Reproduced directly against the real manager before this was written:
+    open a session on a thread, let that thread exit, open another from a
+    second thread, and the second raises that sentence.
+
+    ## Why the fix is here and not in the browser code
+
+    Marshalling inside `BrowserSessionManager` would not be enough. The
+    Browser actions hold `Page` objects and call `page.goto(...)`,
+    `locator(...).click()` and the rest directly, and those objects carry
+    the same thread affinity -- so the manager could hand back a working
+    session that the very next line still could not use.
+
+    The defect is not that Playwright is fussy. It is that mission
+    execution ran on whichever HTTP worker happened to arrive. A Runtime
+    step may hold any thread-affine resource; giving execution one stable
+    thread fixes the whole class rather than one library.
+
+    Not a scheduler and not a second orchestration authority: it decides
+    nothing, holds no mission state, and runs exactly what
+    `_drive_until_settled` already ran, in the order it already ran it.
+    The caller still blocks on the result, so ordering and back-pressure
+    are unchanged.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pool = None
+
+    def run(self, call):
+        """Run `call` on the execution thread and return its result.
+
+        Exceptions propagate to the caller unchanged, so every existing
+        error path -- refusals, failures, the founder-facing sentences --
+        behaves exactly as it did when this ran inline.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        with self._lock:
+            if self._pool is None:
+                # `max_workers=1` IS the contract here, not a tuning
+                # choice: a second worker would reintroduce the exact
+                # defect this class exists to remove.
+                self._pool = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="kalpavriksha-exec"
+                )
+            pool = self._pool
+        return pool.submit(call).result()
+
+
+#: How many extra acquisition cycles one mission may spend.
+#:
+#: A system that can decide "research more" becomes an infinite
+#: researcher without a number here. Small on purpose: the founder waits
+#: through every cycle, and `no_useful_progress` stops it earlier than
+#: this whenever a cycle establishes nothing.
+_RESEARCH_BUDGET = 2
+
+
+#: The ordinary Browser lane's session manager, held by the composition
+#: root that built it so a mission which ends without running its planned
+#: `CloseBrowserSession` can still have its environment released.
+#:
+#: `None` until the pipeline is built, and nothing here assumes it is not.
+_BROWSER_SESSIONS = None
+
+
+def _release_task_browsers() -> None:
+    """Let go of task-owned browser sessions after a mission ends.
+
+    A mission that failed before its planned `CloseBrowserSession` left
+    session `'main'` open; the next attempt planned its own
+    `OpenBrowserSession('main')` and died on `session already open`. One
+    attempt's leftovers made the next one impossible, which is what took
+    autonomous recovery off the table.
+
+    Anonymous sessions only -- the founder's signed-in browser is theirs
+    and is never touched. Best-effort and silent: releasing an
+    environment is housekeeping, and a warning about it does not belong
+    in a founder's reply.
+    """
+    manager = _BROWSER_SESSIONS
+    if manager is None:
+        return
+    try:
+        # ON THE EXECUTION THREAD, like every other Playwright call.
+        #
+        # Closing a session drives the same thread-affine driver that
+        # opened it, so doing it from whichever thread happened to reach
+        # the end of a mission corrupts the driver for every mission
+        # after it. Measured immediately after this cleanup was added and
+        # called inline: the next `OpenBrowserSession` failed with "It
+        # looks like you are using Playwright Sync API inside the asyncio
+        # loop", and every step behind it stayed pending.
+        #
+        # The invariant was already established and this call broke it.
+        released = _EXECUTION.run(manager.close_anonymous)
+    except Exception:  # noqa: BLE001 -- cleanup never becomes the failure
+        logging.exception("browser session cleanup failed")
+        return
+    if released:
+        logging.info("released task-owned browser sessions: %s",
+                     ", ".join(sorted(released)))
+
+
+#: Process-wide, because the thread affinity being protected is
+#: process-wide: one Playwright driver, one browser, one execution
+#: thread. A per-mission thread would put the second mission back on a
+#: different thread from the driver the first one started.
+_EXECUTION = _ExecutionThread()
+
+
+def _observations_from(mission_control, objective_ids):
+    """Canonical Evidence, read as things that were actually seen.
+
+    Only Evidence carries an `evidence_id`, and only steps that produced
+    Evidence appear here -- so a claim can later be traced to an
+    independent observation rather than to a model's memory of one. A
+    step that ran and observed nothing contributes nothing, which is the
+    correct amount.
+
+    **What the system itself said is not something it saw.** A reasoning
+    step's Evidence is a deterministic measurement of the text a model
+    produced -- length, line count, whether it parses (see
+    `plugins/reasoning_gateway.py`, which is careful to say that the
+    answer is the artefact and that the producer never grades itself).
+    That measurement is proper Evidence about the ARTEFACT. It is not an
+    observation of the world, and a decision weighs the world.
+
+    Letting it in had a cost that was measured, not imagined. "Think of
+    exactly three short names for a gardening notes app and write them
+    one per line into <file>" ran THREE TIMES: the only observation was
+    the reasoning step's own output, the deliberation dutifully read
+    candidates out of it, found none it could establish, and asked for
+    more research on an objective that had already satisfied every
+    requirement. Each pass generated different names and rewrote the
+    founder's file, so the text the founder was told had been verified
+    came from the first run and the text on their disk came from the
+    third.
+
+    Excluding it costs nothing real: a research mission's material comes
+    from pages, files and documents, and those still arrive here. What
+    disappears is the system deliberating over its own sentences.
+    """
+    from master_agent.brain.deliberation import (
+        CORROBORATION, DISCOVERY, PRIMARY, Observation,
+    )
+
+    #: Evidence produced by the system's own reasoning, by capability
+    #: name. Matched on the executive prefix so a second reasoning
+    #: capability is excluded on the day it is written.
+    def _is_our_own_words(task) -> bool:
+        capability = str(getattr(task, "capability", "") or "").lower()
+        return capability.startswith("reasoning.")
+
+    if isinstance(objective_ids, str):
+        objective_ids = (objective_ids,)
+
+    found = []
+    tasks = []
+    for one in objective_ids:
+        try:
+            tasks.extend(mission_control.dispatcher.objective(one).tasks)
+        except Exception:  # noqa: BLE001 -- an unreadable record observes nothing
+            continue
+    for task in tasks:
+        if _is_our_own_words(task):
+            continue
+        evidence = getattr(task, "evidence", None) or {}
+        if not isinstance(evidence, dict):
+            continue
+        evidence_id = str(evidence.get("evidence_id") or "").strip()
+        if not evidence_id:
+            continue
+        observed = evidence.get("observation")
+        if not isinstance(observed, dict):
+            continue
+        text = ""
+        for key in ("text", "page_text", "content", "accessibility_tree"):
+            value = observed.get(key)
+            if isinstance(value, str) and value.strip():
+                text = value
+                break
+        if not text:
+            continue
+        url = str(observed.get("url") or "")
+        # Source class from what was observed, never from a hostname
+        # table. A page served by the party a claim is ABOUT is primary
+        # for that claim; a search or listing page is where candidates
+        # are FOUND, not where they are established.
+        lowered = url.lower()
+        if any(mark in lowered for mark in ("/search", "?q=", "&q=", "/browse")):
+            source_class = DISCOVERY
+        elif url:
+            source_class = PRIMARY
+        else:
+            source_class = CORROBORATION
+        found.append(Observation(
+            evidence_id=evidence_id, text=text,
+            source_class=source_class, url=url,
+        ))
+    return tuple(found)
+
+
+def _decide(mission_service, mission_control, intent, objective_ids):
+    """Perform the decision this mission was framed for, or return None.
+
+    The frame was written at admission, before any evidence existed. This
+    is the other end of it: the same criteria, now answered against what
+    was actually observed.
+
+    `objective_ids` is EVERY attempt this objective made, not the last
+    one. A replan starts a new mission record, and reading only the
+    newest one threw away everything the earlier attempts established --
+    so a mission that read the directory on its first pass and the
+    opening hours on its third could never decide anything, because no
+    single record ever held both. It reported "mandatory criteria remain
+    unestablished" while holding, between them, every fact it needed.
+
+    That is the direct opposite of the rule recovery is built on: a
+    second attempt must PRESERVE verified work, and Evidence is what
+    verified work IS.
+
+    `None` whenever there is nothing to decide -- no frame, or nothing
+    seen. Most missions are that, and they pay nothing for this.
+    """
+    frame_row = (getattr(intent, "context", None) or {}).get("decision_frame")
+    if not isinstance(frame_row, dict):
+        return None
+    observations = _observations_from(mission_control, objective_ids)
+    if not observations:
+        return None
+
+    from master_agent.brain.deliberation import Criterion, DecisionFrame, deliberate
+
+    frame = DecisionFrame(
+        objective=str(frame_row.get("objective") or ""),
+        requirement_ids=tuple(frame_row.get("requirement_ids") or ()),
+        decision_type=str(frame_row.get("decision_type") or ""),
+        mandatory=tuple(
+            Criterion(
+                criterion_id=str(row.get("criterion_id") or ""),
+                description=str(row.get("description") or ""),
+                requirement_id=str(row.get("requirement_id") or ""),
+                mandatory=bool(row.get("mandatory", True)),
+            )
+            for row in (frame_row.get("mandatory") or [])
+        ),
+    )
+    try:
+        return deliberate(
+            frame, observations,
+            getattr(mission_service.intent_layer, "_reasoner", None),
+        )
+    except Exception:  # noqa: BLE001 -- an undecided mission still reports
+        logging.exception("deliberation failed")
+        return None
+
+
+def _plain(claims) -> str:
+    """Claims as a founder can read them.
+
+    An internal claim carries its candidate id, criterion id and the
+    Evidence UUIDs behind it -- all necessary, none of it English. The
+    first real deliberation put four UUIDs into the founder's reply
+    twice over. Provenance belongs in the record, which keeps it; the
+    sentence gets the part a person can act on.
+    """
+    names = []
+    for claim in claims:
+        text = str(claim)
+        if ": " in text:
+            text = text.split(": ", 1)[1]
+        for separator in (". Evidence:", " Evidence:"):
+            if separator in text:
+                text = text.split(separator, 1)[0]
+        text = text.strip()
+        if text and text not in names:
+            names.append(text)
+    return "; ".join(names) if names else "something it could not name"
+
+
+def _unvisited_links(mission_control, objective_ids) -> list[dict]:
+    """Somewhere a page already read says you can go, that nobody went.
+
+    The missing half of a research system that can decide it needs more
+    evidence. Naming the unresolved criterion tells the Planner WHAT to
+    settle; this tells it WHERE it may be settled -- and both come out of
+    canonical Evidence, so neither is a model inventing a destination.
+
+    Concretely, this is what a mission looked like without it: read a
+    directory page, decide "nobody has established the Sunday hours",
+    replan, and re-read the same directory page, twice, because the page
+    TEXT keeps the words "Sunday opening hours" and loses the address
+    behind them.
+    """
+    if isinstance(objective_ids, str):
+        objective_ids = (objective_ids,)
+
+    tasks = []
+    for one in objective_ids:
+        try:
+            tasks.extend(getattr(
+                mission_control.dispatcher.objective(one), "tasks", ()) or ())
+        except Exception:  # noqa: BLE001 -- an unreadable record points nowhere
+            continue
+
+    visited: set[str] = set()
+    offered: dict[str, str] = {}
+    for task in tasks:
+        evidence = getattr(task, "evidence", None) or {}
+        observed = evidence.get("observation") if isinstance(evidence, dict) else None
+        if not isinstance(observed, dict):
+            continue
+        for key in ("url", "url_normalised"):
+            been = str(observed.get(key) or "").strip()
+            if been:
+                visited.add(been.rstrip("/"))
+        for link in observed.get("links") or ():
+            if not isinstance(link, dict):
+                continue
+            url = str(link.get("url") or "").strip()
+            if url and url not in offered:
+                offered[url] = str(link.get("text") or "").strip()
+
+    return [
+        {"text": text, "url": url}
+        for url, text in offered.items()
+        if url.rstrip("/") not in visited
+    ]
+
+
+def _evidence_question(result, unvisited: list[dict] | None = None) -> dict | None:
+    """What is still missing, said precisely enough to go and get.
+
+    `None` when there is nothing to ask for. Otherwise the unresolved
+    criteria and the candidates they belong to -- because "search more"
+    is not a question anybody can act on, and the difference between
+    that and "establish whether these three are open on Sunday" is the
+    difference between another broad sweep and one targeted look.
+
+    Nothing domain-specific: criteria and candidate names come from the
+    frame the Brain already built out of the founder's own requirements.
+    """
+    if result is None or not result.more_research:
+        return None
+    # By what it ASKS, never by its id. The Planner was being handed
+    # "still unresolved: crit_2" and asked to go and settle it.
+    asks = dict(result.criteria or {})
+    missing: dict[str, list[str]] = {}
+    for rejected in result.rejected:
+        for criterion in rejected.unverified:
+            question = asks.get(criterion, criterion)
+            missing.setdefault(question, [])
+            if rejected.summary not in missing[question]:
+                missing[question].append(rejected.summary)
+
+    # Nothing was extracted at all -- no shortlist and nothing rejected.
+    #
+    # That is not "nothing to ask for", it is the widest possible
+    # question: the first source established none of the criteria, so
+    # every one of them is still open. Returning None here was why a
+    # mission that read one page, learned nothing usable and knew it
+    # stopped after a single cycle -- it had decided more research was
+    # needed and then had nothing to say about what.
+    if not missing and not result.shortlist and not result.rejected:
+        missing = {question: [] for question in asks.values()}
+    if not missing:
+        return None
+    return {
+        "unresolved_criteria": sorted(missing),
+        "candidates": {k: v[:8] for k, v in missing.items()},
+        "already_established": [
+            candidate.summary for candidate in result.shortlist
+        ],
+        # Where to look, alongside what to look for. Both from Evidence.
+        "unvisited": (unvisited or [])[:12],
+    }
+
+
+def _decision_sentence(result) -> str:
+    """What the decision means, for a founder, in their terms.
+
+    Conclusions and the evidence behind them. Never the extraction
+    prompt, never a transcript, never internal scores -- a reviewable
+    answer is not a reasoning trace.
+    """
+    from master_agent.brain.deliberation import CONTESTED, DECIDED
+
+    if result is None:
+        return ""
+    if result.state == DECIDED and result.shortlist:
+        lines = [f"{len(result.shortlist)} of what I found meets everything you asked for:"]
+        for candidate in result.shortlist:
+            lines.append(f"  - {candidate.summary}")
+        if result.rejected:
+            lines.append(
+                f"I ruled out {len(result.rejected)}: "
+                + "; ".join(
+                    f"{r.summary} ({r.reason})" for r in result.rejected[:3]
+                )
+            )
+        return "\n".join(lines)
+    if result.state == CONTESTED:
+        return (
+            "Sources disagree about "
+            + _plain(result.unresolved[:3])
+            + ", and nothing authoritative settles it, so I am not going "
+            "to pick for you."
+        )
+    # Nothing cleared the bar. Saying so is the useful answer -- an empty
+    # list presented as a result is how a founder ends up with nothing
+    # and the impression of something.
+    rejected = (
+        f" I looked at {len(result.rejected)} and could not confirm all of "
+        "what you asked for any of them."
+        if result.rejected else ""
+    )
+    return (
+        f"I could not confirm anything that meets all of it.{rejected} "
+        f"{result.rationale}"
+    ).strip()
+
+
+def no_useful_progress(before, after) -> bool:
+    """Re-exported so the mission loop reads as one thought.
+
+    The rule itself lives in the Brain, which owns what progress means;
+    this is the name the surface calls it by.
+    """
+    from master_agent.brain.deliberation import (
+        no_useful_progress as _no_useful_progress,
+    )
+
+    return _no_useful_progress(before, after)
+
+
+def _mission_progress(mission_control, intent, objective_id):
+    """Where this mission stands, from the records that already hold it."""
+    from master_agent.brain.deliberation import progress_of
+
+    try:
+        objective = mission_control.dispatcher.objective(objective_id)
+    except Exception:  # noqa: BLE001 -- an unreadable record stands nowhere
+        return None
+    return progress_of(
+        str(getattr(intent, "goal", "") or ""),
+        tuple(getattr(intent, "requirements", ()) or ()),
+        # Read defensively: this is now consulted on EVERY mission, not
+        # only on the replan path, and the surface tests drive the bridge
+        # with the smallest record that makes their own point -- rightly.
+        getattr(objective, "tasks", ()) or (),
+    )
+
+
+def _recovery_decision(mission_control, intent, objective_id, attempts_used):
+    """Ask the Brain what a failed mission's failure MEANS.
+
+    The surface does not decide this and must not. It observes that a
+    mission stopped, hands the Brain the facts, and relays the answer to
+    the lifecycle authority that already exists. `MissionDispatcher`'s
+    own comment says auto-retry "would be a strategic recovery decision,
+    which belongs to the Brain"; this is the call it was waiting for.
+
+    Returns `None` when there is nothing to decide.
+    """
+    from master_agent.brain.conformance import SATISFIED, assess
+    from master_agent.brain.deliberation import recovery_for
+
+    requirements = tuple(getattr(intent, "requirements", ()) or ())
+    if not requirements:
+        return None
+    try:
+        objective = mission_control.dispatcher.objective(objective_id)
+        outcome = assess(requirements, objective.tasks)
+    except Exception:  # noqa: BLE001 -- an unreadable record decides nothing
+        return None
+
+    satisfied = tuple(
+        row.requirement_id for row in outcome.requirements
+        if row.state == SATISFIED
+    )
+    unmet = tuple(
+        row.requirement_id for row in outcome.requirements
+        if row.state != SATISFIED
+    )
+    # Partial success no longer stops recovery.
+    #
+    # This used to return `None` whenever anything was satisfied, because
+    # replanning from scratch would re-run work reality had already
+    # confirmed -- and for a capability with an external effect that is
+    # not a wasted step, it is a second real change to the founder's
+    # machine. The Planner now receives the satisfied requirement ids and
+    # is told plainly not to redo them, so the reason for the guard is
+    # gone and keeping it would abandon missions that are most of the way
+    # there.
+    return recovery_for(
+        unmet_requirements=unmet,
+        alternatives_available=True,
+        attempts_used=attempts_used,
+    )
+
+
 def _drive_until_settled(runtime, mission_control, status, objective_id,
                          timeout_seconds: float) -> None:
     """Turn the Runtime until this objective settles or waits on a human.
@@ -1615,10 +2135,22 @@ def _drive_until_settled(runtime, mission_control, status, objective_id,
     deadline = _time.monotonic() + timeout_seconds
     mark = _progress_mark()
     objective = mission_control.dispatcher.objective(objective_id)
+    # A failed step is not a finished mission.
+    #
+    # This read `objective.has_failure`, so the first failure stopped the
+    # loop -- abandoning every step that could still run. On the founder's
+    # research objective that meant one site refusing us ended a mission
+    # with two more sources sitting READY and never dispatched.
+    #
+    # `has_runnable_work` is Mission Control's own fact, the same one it
+    # computes before declaring an objective failed, so the loop now stops
+    # exactly when the lifecycle authority says there is nothing left.
     while _time.monotonic() < deadline and not (
-        objective.is_complete or objective.has_failure
+        objective.is_complete
+        or (objective.has_failure and not objective.has_runnable_work)
     ):
-        runtime.run_once()
+        # On the one execution thread, always. See `_ExecutionThread`.
+        _EXECUTION.run(runtime.run_once)
         objective = mission_control.dispatcher.objective(objective_id)
 
         # **The deadline bounds silence, not work.**
@@ -2092,10 +2624,201 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         return _founder_reply(status, status.message)
 
     objective_id = outcome.objective_id
+    # Every mission record this one objective produced. A replan makes a
+    # new record; what the previous one established is still the
+    # founder's, and still true.
+    attempts_made = [objective_id]
     _drive_until_settled(runtime, mission_control, status, objective_id,
                          timeout_seconds)
 
+    # A method that failed is not an objective that failed.
+    #
+    # The founder was told "That didn't complete." about a mission whose
+    # very first step could not open a browser -- nine planned steps,
+    # naming several different sources, never ran. Mission Control was
+    # right to stop; nothing was there to decide what the stop MEANT.
+    #
+    # The surface does not decide it here either. It asks the Brain and
+    # relays the answer to the admission boundary that already exists,
+    # bounded by the Brain's own budget.
+    attempts = 0
+    while True:
+        state = mission_control.founder_state(objective_id)
+
+        # What the mission has actually established, judged before
+        # deciding whether to go round again. Both diagnoses below need
+        # it, and it is the same judgement the founder is shown.
+        decided = _decide(
+            mission_service, mission_control, intent_result.intent, attempts_made
+        )
+        # Only when there is a question to attach it to. Reading every
+        # task's Evidence for links costs nothing worth paying on the
+        # ordinary mission that decided nothing and needs nothing.
+        needed = (
+            _evidence_question(decided, _unvisited_links(mission_control, attempts_made))
+            if decided is not None and decided.more_research
+            else None
+        )
+
+        # TWO DIAGNOSES, and they are not the same thing.
+        #
+        # A failed step means the METHOD did not work. Insufficient
+        # evidence means every step worked and the answer still is not
+        # supported -- fixture D's first cycle exactly: one source read
+        # cleanly, Evidence valid, no execution failure anywhere, and a
+        # criterion nobody could establish from it.
+        #
+        # Both may replan. Recording them as the same would tell a
+        # founder their mission failed when nothing failed, and would
+        # send the Planner looking for a broken route that does not
+        # exist.
+        if state.errors:
+            decision = _recovery_decision(
+                mission_control, intent_result.intent, objective_id, attempts
+            )
+            if decision is None or not decision.should_replan:
+                if decision is not None:
+                    logging.info(
+                        "recovery declined (%s): %s",
+                        decision.failure_class, decision.reason,
+                    )
+                break
+            status.recovery = decision.as_dict()
+            reason = f"recovery ({decision.failure_class})"
+        elif needed is not None and attempts < _RESEARCH_BUDGET:
+            # Execution succeeded. The objective did not.
+            logging.info(
+                "insufficient evidence; unresolved criteria: %s",
+                needed["unresolved_criteria"],
+            )
+            reason = "insufficient evidence"
+        else:
+            # WHY the loop stopped, every time it stops. A silent break
+            # is how "the mission simply did not go round again" became
+            # something to reconstruct from the outside.
+            logging.info(
+                "no further attempt: errors=%s decided=%s more_research=%s "
+                "question=%s attempts=%s/%s",
+                bool(state.errors),
+                None if decided is None else decided.state,
+                None if decided is None else decided.more_research,
+                needed is not None, attempts, _RESEARCH_BUDGET,
+            )
+            break
+
+        attempts += 1
+
+        # What the first attempt learned, carried into the second.
+        #
+        # An earlier version re-submitted the SAME intent and made things
+        # worse: the new plan opened a browser session the failed attempt
+        # still held, and the mission died on `session already open`. The
+        # rule `recovery_for` states -- a new attempt must differ
+        # materially in source, method, capability, environment, evidence
+        # question or strategy -- was being relayed and then violated.
+        #
+        # What differs now is knowledge, not identity. Same Intent, same
+        # requirement ids, same founder evidence; the Planner is
+        # additionally told which routes were already tried and which
+        # requirements are already satisfied, so it can plan around both.
+        # The environment is released first, so the second attempt does
+        # not inherit the first one's leftovers.
+        before = _mission_progress(
+            mission_control, intent_result.intent, objective_id
+        )
+        if before is None:
+            logging.info("no further attempt: this mission's record is unreadable")
+            break
+        logging.info(
+            "attempt %s (%s): satisfied=%s unresolved=%s failed=%s",
+            attempts, reason, list(before.satisfied),
+            list(before.unresolved), list(before.failed_routes),
+        )
+        _release_task_browsers()
+        intent_result.intent.context["recovery"] = before.as_dict()
+        if needed is not None:
+            # What to go and find, rather than "look again".
+            intent_result.intent.context["evidence_needed"] = needed
+        else:
+            intent_result.intent.context.pop("evidence_needed", None)
+
+        retried = mission_service.start(intent_result.intent)
+        if not retried.accepted:
+            # Admission refused the second attempt. That is a real
+            # answer -- and it used to be an invisible one.
+            logging.info(
+                "no further attempt: admission refused the retry (%s)",
+                getattr(getattr(retried, "refusal", None), "reason", None)
+                or "; ".join(getattr(retried, "reasons", ()) or ()) or "no reason given",
+            )
+            break
+        objective_id = retried.objective_id
+        attempts_made.append(objective_id)
+        _drive_until_settled(runtime, mission_control, status, objective_id,
+                             timeout_seconds)
+        # New Evidence exists, so the decision held from the top of this
+        # iteration is now stale. Cleared rather than kept, so whatever
+        # reports to the founder decides over what the mission actually
+        # ended up holding.
+        decided = None
+
+        # Did that change anything that matters?
+        after = _mission_progress(
+            mission_control, intent_result.intent, objective_id
+        )
+        if after is None:
+            break
+        if no_useful_progress(before, after):
+            # Same requirement standing, no new Evidence, no route
+            # eliminated. Going round again here would be a loop wearing
+            # the costume of persistence, and the founder would wait
+            # through every lap of it.
+            logging.info(
+                "no useful progress on attempt %s; changing nothing further",
+                attempts,
+            )
+            break
+
     state = mission_control.founder_state(objective_id)
+
+    # The mission is over one way or another. Whatever it opened and did
+    # not close is nobody's now.
+    _release_task_browsers()
+
+    # The decision this mission was framed for, before the branch below.
+    #
+    # It used to run only on the success path, which threw away the most
+    # useful half of a research mission: one that reached three sources,
+    # learned something real from two of them and then failed a fourth
+    # step told the founder "That didn't complete" and nothing else. What
+    # was actually established is still true, and still theirs.
+    #
+    # ONE DECISION PER MISSION, and it is the one already made above.
+    #
+    # This used to deliberate a SECOND time over the same Evidence, and
+    # deliberation involves a model, so the two answers could differ --
+    # and did. Measured on fixture D2: the loop's decision came back
+    # `decided, more_research=False`, so no further source was sought;
+    # the second decision came back `insufficient_evidence`, so the
+    # founder was told nothing could be confirmed. One mission, one set
+    # of Evidence, two verdicts, and the founder shown the one that did
+    # not drive the behaviour.
+    #
+    # Nothing about the decision changes here. It is asked once and the
+    # same answer both acts and reports, which is also one less provider
+    # call on every research mission.
+    if decided is None:
+        decided = _decide(
+            mission_service, mission_control, intent_result.intent, attempts_made
+        )
+    if decided is not None:
+        status.deliberation = decided.as_dict()
+        logging.info(
+            "deliberation: %s (%s shortlisted, %s rejected)",
+            decided.state, len(decided.shortlist), len(decided.rejected),
+        )
+    decision_text = _decision_sentence(decided)
+
     if state.errors:
         # Same hygiene as the refusal branch above: the founder gets a
         # sentence, the full executive/Playwright/gateway diagnostic stays
@@ -2103,6 +2826,27 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         joined = "; ".join(state.errors)
         logging.warning("objective failed: %s", joined)
         status.message = _founder_failure_sentence(joined)
+        if decision_text:
+            # What the mission DID establish, before what stopped it.
+            # A founder who asked for research and got two verified
+            # answers out of four is owed the two.
+            #
+            # And when the question was actually ANSWERED, "that didn't
+            # complete" is not the truth about it. The demo centrepiece
+            # ended with a decided shortlist -- every criterion cleared
+            # against Evidence, two candidates rejected with reasons --
+            # and then told the founder the work did not complete,
+            # because a route it had already recovered from had failed
+            # earlier in the mission. Both halves are facts; only one of
+            # them is the outcome. Saying the objective failed when it
+            # was answered is as untrue as the reverse, and the reverse
+            # is what this whole system is built against.
+            answered = decided is not None and bool(decided.shortlist)
+            status.message = f"{decision_text}\n\n" + (
+                "Some of what I tried along the way didn't work, and I've "
+                "kept the details."
+                if answered else status.message
+            )
         return _founder_reply(status, status.message)
     if state.progress >= 1.0:
         # `state.result` is still recorded -- other consumers legitimately
@@ -2126,11 +2870,14 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # a deterministic projection of canonical Evidence, never
         # something composed.
         answer = getattr(state, "answer", None)
+
         status.message = (
             _ANSWER_THEN_SUMMARY.format(answer=answer, report=report)
             if answer is not None
             else report
         )
+        if decision_text:
+            status.message = f"{decision_text}\n\n{status.message}"
         return _founder_reply(status, status.message)
     # Waiting on the founder is not slowness. `AWAITING_APPROVAL` means
     # the plan is ready and held at the permission boundary until a human

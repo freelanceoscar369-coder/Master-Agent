@@ -24,13 +24,21 @@ from master_agent.environment.browser_session import (
 )
 from master_agent.executor.action import Action, ExecutionResult
 from master_agent.plugins.base import PermissionCategory, RiskTier
+from master_agent.plugins.browser_observation import (
+    MAX_PAGE_TEXT_CHARS,
+    read_visible_text,
+)
 
 READ_PAGE_TEXT = "read_page_text"
 
-#: A page's text goes on to become part of a prompt, so the cap is about
-#: what a reasoning step can actually hold, not about safety. Declared in
-#: the result when it bites.
-MAX_TEXT_CHARS = 40_000
+#: How much page text this Action returns.
+#:
+#: NOT its own number. What this Action reports and what the independent
+#: Observation records are compared for EQUALITY before either can flow
+#: into another step, so a limit of its own is a limit on which pages can
+#: be used at all -- see `read_visible_text()` for the live Wikipedia
+#: failure that came of having two.
+MAX_TEXT_CHARS = MAX_PAGE_TEXT_CHARS
 
 
 class ReadPageTextAction(Action):
@@ -78,20 +86,19 @@ class ReadPageTextAction(Action):
             page = session.page
             url = page.url
             title = page.title()
-            # `inner_text` rather than `text_content`: it returns what a
-            # person can actually see, leaving out script bodies and
-            # hidden nodes. A reasoning step given hidden markup would be
-            # reasoning about something the founder never saw.
-            text = page.inner_text("body")
+            # The SAME reader the independent Observation uses. Not a
+            # second implementation that agrees with it -- the same one,
+            # so the equality check downstream cannot be failed by this
+            # step and that one having different ideas about a long page.
+            text, truncated = read_visible_text(page)
         except Exception as exc:  # noqa: BLE001 - a page failure is data
             return ExecutionResult(
                 success=False, errors=[f"could not read the page: {exc}"]
             )
-
-        text = text or ""
-        truncated = len(text) > MAX_TEXT_CHARS
-        if truncated:
-            text = text[:MAX_TEXT_CHARS]
+        if text is None:
+            return ExecutionResult(
+                success=False, errors=["could not read the page"]
+            )
 
         return ExecutionResult(
             success=True,

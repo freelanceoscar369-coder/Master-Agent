@@ -30,6 +30,7 @@ PLAN_SHAPE = """{
     {
       "id": "step_1",
       "capability": "<exactly one name from the catalogue above>",
+      "covers": ["<requirement id this step is responsible for>"],
       "payload": {"<argument>": "<value>"},
       "input_bindings": {},
       "depends_on": [],
@@ -144,6 +145,14 @@ _RULES = (
         "stops short of what was asked for is incomplete."
     ),
     (
+        "11b. Say which requirement each step is FOR. Every step carries "
+        "`covers`: the ids of the founder requirements it is responsible "
+        "for, taken from the list given above. A step that serves none of "
+        "them is a step nobody asked for. Between them the steps must "
+        "cover every requirement -- one step may cover several, and "
+        "several may cover one."
+    ),
+    (
         "11a. Medium objectives commonly run: acquire, inspect what "
         "was acquired, use those facts, act or research, collect the "
         "results, deliver what was asked for. When an objective "
@@ -245,6 +254,63 @@ _RULES = (
 )
 
 
+def build_correction_prompt(
+    intent: Intent,
+    options: tuple[CapabilityOption, ...] | list[CapabilityOption],
+    rejected: str,
+    reason: str,
+    detail: str,
+) -> str:
+    """The same request, plus exactly why the last answer was not a plan.
+
+    ## Why this exists
+
+    The identical objective produced, across eight runs: a valid plan, a
+    duplicate-argument plan, a plan binding to a step it did not depend
+    on, an empty plan, and plans that chained independent sources so one
+    block stalled the rest. Roughly half were refused before execution.
+
+    Every one of those was already DETECTED precisely -- `validate()`
+    names the step and the mistake. The refusal was then handed to the
+    founder as "I couldn't plan that just now", which spends a provider
+    call, tells the model nothing, and makes the founder the retry
+    button.
+
+    ## What it may and may not change
+
+    The objective, the requirements, the constraints and the catalogue
+    are repeated VERBATIM. The model is repairing its own representation
+    of a plan; it is not being invited to reconsider the request. That
+    boundary is the whole reason this is a separate prompt rather than a
+    free-form "try again".
+    """
+    sections = [
+        (
+            "Your previous reply was not a valid plan. Here is exactly what "
+            "was wrong with it. Correct THAT, and reply with the same JSON "
+            "shape."
+        ),
+        "",
+        f"What was rejected: {reason}",
+    ]
+    if detail:
+        sections.append(f"Specifically: {detail}")
+    sections += [
+        "",
+        "Your previous reply:",
+        (rejected or "").strip()[:4000],
+        "",
+        (
+            "Do not change the objective, the requirements or the "
+            "constraints -- they are unchanged below and are not yours to "
+            "revise. Fix only the plan."
+        ),
+        "",
+        build_prompt(intent, options),
+    ]
+    return "\n".join(sections)
+
+
 def build_prompt(
     intent: Intent, options: tuple[CapabilityOption, ...] | list[CapabilityOption]
 ) -> str:
@@ -275,13 +341,118 @@ def build_prompt(
         sections.append("The founder will consider this done when:")
         sections.extend(f"- {item}" for item in intent.success_criteria)
 
+    requirements = tuple(getattr(intent, "requirements", ()) or ())
+    if requirements:
+        # Named, with their ids, because `covers` has to refer to
+        # something. Before this the Planner was asked to "cover the whole
+        # request" (rule 11) with no idea what the requirements WERE --
+        # so every AI-planned step came back `covers=[]`, conformance
+        # found no step responsible for anything, and a research mission
+        # could only ever be reported UNKNOWN however well it ran.
+        sections.append("")
+        sections.append("Founder requirements. Every one must be covered:")
+        sections.extend(
+            f"- {getattr(r, 'requirement_id', '')}: "
+            f"{getattr(r, 'description', '')}"
+            for r in requirements
+        )
+
+    recovery = (intent.context or {}).get("recovery")
+    if isinstance(recovery, dict):
+        # A second attempt at the SAME founder objective.
+        #
+        # Stated as facts about what happened rather than as a rule about
+        # what to avoid, because the useful instruction is "these did not
+        # work, and these requirements are already met" -- not a list of
+        # forbidden URLs. Nothing here names a site as bad; it names what
+        # this mission has already learned.
+        satisfied = list(recovery.get("satisfied") or ())
+        failed = list(recovery.get("failed_routes") or ())
+        unresolved = list(recovery.get("unresolved") or ())
+        sections.append("")
+        sections.append(
+            "This is a second attempt at the same objective. What the "
+            "first attempt established:"
+        )
+        if satisfied:
+            sections.append(
+                "- Already satisfied, with independently verified evidence, "
+                "and NOT to be done again: " + ", ".join(satisfied)
+            )
+        if unresolved:
+            sections.append(
+                "- Still unresolved, and what this plan is for: "
+                + ", ".join(unresolved)
+            )
+        for route in failed[:8]:
+            sections.append(f"- Already tried and did not work: {route}")
+        if failed:
+            sections.append(
+                "Plan a materially DIFFERENT route -- a different source, "
+                "method or strategy. Repeating one of the above unchanged "
+                "is not a second attempt."
+            )
+
+    wanted = (intent.context or {}).get("evidence_needed")
+    if isinstance(wanted, dict):
+        # Not "search again" -- what is actually missing.
+        #
+        # A second broad sweep costs the same as the first and answers
+        # the same amount. Naming the unresolved criteria, and which
+        # candidates they belong to, is the difference between another
+        # listing page and one targeted look at the thing that would
+        # settle it.
+        sections.append("")
+        sections.append(
+            "A previous attempt gathered evidence and left something "
+            "unresolved. Plan ONLY what is needed to settle it:"
+        )
+        for criterion in wanted.get("unresolved_criteria") or ():
+            names = (wanted.get("candidates") or {}).get(criterion) or []
+            joined = ", ".join(str(n) for n in names[:6])
+            sections.append(
+                f"- still unresolved: {criterion}"
+                + (f" -- for: {joined}" if joined else "")
+            )
+        unvisited = wanted.get("unvisited") or []
+        if unvisited:
+            # Addresses a page already read actually contains, not
+            # guesses. "Search again" and "go to the page this one links
+            # to" cost the same and answer different amounts.
+            sections.append(
+                "- a page already read links to these, and none has been "
+                "visited yet; navigate to whichever could settle the above:"
+            )
+            for link in unvisited[:12]:
+                if not isinstance(link, dict):
+                    continue
+                label = str(link.get("text") or "").strip()
+                url = str(link.get("url") or "").strip()
+                if url:
+                    sections.append(f"    - {label or 'link'}: {url}")
+        established = wanted.get("already_established") or []
+        if established:
+            sections.append(
+                "- already established and NOT to be re-gathered: "
+                + ", ".join(str(n) for n in established[:6])
+            )
+
     if intent.context:
         sections.append("")
         sections.append("Context:")
         # Sorted, because a dict's insertion order is not a fact about the
         # work and would otherwise change the prompt between two runs that
         # asked the same question.
-        sections.extend(f"- {key}: {intent.context[key]}" for key in sorted(intent.context))
+        # Founder facts only. `field_evidence` and `decision_frame` are
+        # the Brain's own bookkeeping -- pasting either in as a raw dict
+        # tells the Planner nothing it can act on and buys a wall of
+        # JSON in the middle of the request.
+        _internal = {"field_evidence", "decision_frame", "requirements",
+                     "recovery", "evidence_needed"}
+        sections.extend(
+            f"- {key}: {intent.context[key]}"
+            for key in sorted(intent.context) if key not in _internal
+        )
 
     sections.extend(
         [

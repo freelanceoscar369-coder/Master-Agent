@@ -81,6 +81,180 @@ SUBMIT_UNVERIFIED = (
 )
 RESPONSE_TIMEOUT = "no response appeared within the bounded wait"
 EMPTY_RESPONSE = "the application produced no meaningful response text"
+SERVICE_NOTICE = "the application answered with a service notice, not an answer"
+PROMPT_TOO_LONG = (
+    "this request is longer than the application's own composer will "
+    "carry, and a shortened request is a different request"
+)
+
+#: Room for the `[Kalpavriksha Reasoning - ... ]` identity line that every
+#: submitted prompt carries. Counted against the composer's own limit
+#: because it is genuinely typed into the composer alongside the request.
+_MARKER_RESERVE_CHARS = 128
+PROMPT_ECHOED = (
+    "the application returned the request back with interface text around "
+    "it, not an answer"
+)
+
+#: How much genuinely new text a real answer must carry once our own
+#: request is removed from it.
+#:
+#: Small deliberately -- a terse but real reply ("Yes, both are
+#: step-free.") must survive, while a composer echoing the prompt beside
+#: its own buttons must not.
+MIN_ANSWER_CHARS = 40
+
+
+def _is_only_our_own_prompt(response: str, marked_prompt: str) -> bool:
+    """Is this our request wearing the application's furniture?
+
+    Compares on words rather than characters, because a rich composer
+    reflows whitespace on paste -- the same reason `_verify_readback`
+    already normalises before comparing.
+    """
+    body = _normalize_whitespace(response or "")
+    sent = _normalize_whitespace(marked_prompt or "")
+    if not body or not sent:
+        return False
+    if sent not in body:
+        # It did not hand our request back at all, so whatever this is,
+        # it is the application's own words. A test caught this: a short
+        # genuine reply that never quotes us was being rejected purely
+        # for being short, which would have thrown away real answers.
+        return False
+    remainder = body.replace(sent, " ")
+    # Whatever is left after removing what we sent, minus the short
+    # generic labels a chat surface puts around a message.
+    for label in ("Edit", "Copy", "Share", "Retry", "Regenerate", "New chat",
+                  "Send", "Stop", "Ask me. Task me."):
+        remainder = remainder.replace(label, " ")
+    return len(_normalize_whitespace(remainder)) < MIN_ANSWER_CHARS
+
+ONLY_INTERFACE_TEXT = (
+    "the application returned its own interface labels, not an answer"
+)
+
+#: The labels a chat surface paints around a conversation.
+#:
+#: Measured live, this session, against Kimi Desktop. Asked to reply with
+#: one nonce token, the provider returned `SUCCEEDED` carrying:
+#:
+#:     Copy
+#:     Share
+#:     Create or select a file to start
+#:     Your chats will appear here
+#:     Update
+#:     Instant
+#:     High
+#:     AI-generated, for reference only
+#:
+#: Not our prompt handed back, so `_is_only_our_own_prompt` did not fire.
+#: Not a service notice, so `_is_service_notice` did not fire. Eight
+#: lines of a window describing itself, propagating as a reasoning
+#: result -- and every consumer downstream then behaved correctly on
+#: furniture, which is how a battery of Brain fixtures came to be read as
+#: intelligence variance.
+#:
+#: This exact knowledge already existed in
+#: `scripts/live_acceptance/p0_3_complete_response.py`, where a hand-
+#: written judge rejected the same eight lines. A guard that lives only
+#: in an acceptance script protects the acceptance run and nothing else.
+#: It belongs where the classification happens, beside the two guards
+#: that already refuse the other kinds of fake success -- and there is
+#: now one owner of it, which that script imports.
+_INTERFACE_LABELS: frozenset[str] = frozenset({
+    # affordances on a message
+    "copy", "share", "edit", "delete", "retry", "regenerate", "rerun",
+    "like", "dislike", "good response", "bad response", "read aloud",
+    # affordances on the conversation
+    "send", "stop", "new chat", "new task", "new conversation", "rename",
+    "export", "attach", "attach file", "upload", "search", "voice",
+    # model / mode pickers
+    "update", "instant", "high", "auto", "thinking", "fast", "pro",
+    "model", "settings",
+    # empty-state and disclaimer copy
+    "your chats will appear here", "create or select a file to start",
+    "ai-generated, for reference only", "ask me. task me.",
+    "how can i help", "how can i help?", "what can i help with",
+    "what can i help with?", "start a new chat to begin",
+})
+
+#: A line long enough to be prose is not a label, whatever it says --
+#: which keeps a genuine sentence that happens to open with one of these
+#: words from ever being counted as furniture.
+_MAX_INTERFACE_LABEL_CHARS = 48
+
+
+def _is_only_interface_text(text: str) -> bool:
+    """Is every line of this the window describing itself?
+
+    ONE substantive line is enough to make it an answer. The question is
+    not whether furniture is present -- a real reply often arrives with
+    `Copy` and `Share` attached to it -- but whether there is anything
+    else at all.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return False
+    for line in lines:
+        if len(line) > _MAX_INTERFACE_LABEL_CHARS:
+            return False
+        if line.lower().strip(" .:-—") not in _INTERFACE_LABELS:
+            return False
+    return True
+
+
+#: What a desktop AI app says INSTEAD of answering.
+#:
+#: These apps put capacity, plan and sign-in messages in the same place
+#: the reply appears, so a scraper reads them exactly as it reads an
+#: answer. Measured live: asked to identify action RPGs from a page of
+#: store listings, one returned
+#:
+#:     "High demand. Switched to K2.6 Instant for speed. Upgrade to use
+#:      K2.6 Thinking."
+#:
+#: -- and `SUCCEEDED` carried it onward as the reasoning result.
+#:
+#: Kept here because this adapter is the only thing that knows what its
+#: own applications say. The generic contract already has the right word
+#: for it (`UNAVAILABLE`), and this file already refuses two other fake
+#: successes -- an empty reply and an echoed prompt -- for the same
+#: reason.
+#:
+#: SHAPES, not sentences. Nothing matches one product's wording; they
+#: match the kinds of thing a service says about itself.
+_SERVICE_NOTICE_MARKERS: tuple[str, ...] = (
+    "high demand",
+    "at capacity",
+    "capacity limit",
+    "rate limit",
+    "too many requests",
+    "try again later",
+    "temporarily unavailable",
+    "upgrade to",
+    "upgrade your plan",
+    "usage limit",
+    "quota",
+    "please sign in",
+    "log in to continue",
+)
+
+#: A service notice is a BANNER. An answer to a real question is not
+#: this short, and requiring both conditions is what stops a genuine
+#: reply that happens to mention "quota" from being thrown away -- a
+#: partial answer is still the founder's, and Verification is what
+#: judges whether it was enough.
+MAX_SERVICE_NOTICE_CHARS = 400
+
+
+def _is_service_notice(text: str) -> bool:
+    """Did the application talk about itself instead of answering?"""
+    body = (text or "").strip()
+    if not body or len(body) > MAX_SERVICE_NOTICE_CHARS:
+        return False
+    lowered = body.lower()
+    return any(marker in lowered for marker in _SERVICE_NOTICE_MARKERS)
 AUTONOMOUS_REASONING_UNSAFE = "AUTONOMOUS_REASONING_UNSAFE"
 CODING_AGENT_NOT_A_REASONING_PROVIDER = (
     "CODING_AGENT_NOT_A_REASONING_PROVIDER: this identity is a coding tool, "
@@ -290,6 +464,25 @@ class DesktopAppReasoningProvider(ModelProvider):
                 latency_ms=self._elapsed_ms(started),
             )
 
+        # 0.5. Will this application's own composer even carry the
+        # request? Asked here, before discovery, launch or focus, so a
+        # provider that cannot serve this prompt costs nothing but the
+        # question -- and so the answer is never "send a shorter one".
+        #
+        # `prompt[:limit]` is the whole failure mode this branch exists
+        # to make unreachable. Truncating turns "what are the Sunday
+        # hours for these three rooms" into "what are the Sunday" and
+        # gets a fluent answer to the wrong question, with nothing
+        # downstream able to tell that anything was lost. Failing here
+        # hands the request to the next provider intact.
+        limit = getattr(self._spec, "max_prompt_chars", None)
+        if limit is not None and len(prompt) + _MARKER_RESERVE_CHARS > limit:
+            return failure(
+                self._spec.provider_id, REJECTED, PROMPT_TOO_LONG,
+                latency_ms=self._elapsed_ms(started),
+                prompt_chars=len(prompt), max_prompt_chars=limit,
+            )
+
         # 1. Real discovery evidence, not an assumption.
         inventory = self._context.inventory(deep=True)  # cache-first; see module docstring
         app = self._resolve_app_record(inventory)
@@ -330,6 +523,21 @@ class DesktopAppReasoningProvider(ModelProvider):
             return failure(self._spec.provider_id, UNAVAILABLE, session.reason,
                             latency_ms=self._elapsed_ms(started))
 
+        # What was established, carried onto every result from here on --
+        # success AND failure. The first live run of
+        # `scripts/live_acceptance/kimi_session_health.py` could not say
+        # whether a fresh conversation had been created, because the run
+        # ended in a provider failure and the failure carried nothing
+        # about the session. A diagnosis is most needed exactly when
+        # something went wrong.
+        session_detail = {
+            "session_marker": session.session_marker,
+            "session_reused": session.reused,
+            "session_renamed": session.renamed,
+            "session_rotated": session.rotated,
+            "session_health": session.health.as_dict(),
+        }
+
         # Found live, this session: writing immediately after a
         # successfully-verified establishment can still fail — the
         # composer's *text content* settling (what establishment's own
@@ -360,7 +568,7 @@ class DesktopAppReasoningProvider(ModelProvider):
         written = self._write_prompt(window, marked_prompt, keyboard)
         if not written:
             return failure(self._spec.provider_id, REJECTED, WRITE_UNVERIFIED,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
 
         # 3.5. Baseline the window's text content *before* submitting —
         # `_await_response()`'s own generic response-discovery mechanism
@@ -388,14 +596,14 @@ class DesktopAppReasoningProvider(ModelProvider):
         submitted = self._submit(window, keyboard)
         if not submitted:
             return failure(self._spec.provider_id, REJECTED, SUBMIT_UNVERIFIED,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
 
         # 5. Bounded observation + verification — never treated as done
         # merely because Enter was pressed.
         response_text = self._await_response(window, marked_prompt, response_baseline)
         if response_text is None:
             return failure(self._spec.provider_id, TIMED_OUT, RESPONSE_TIMEOUT,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
         # Whitespace-normalized comparison, not raw `.strip()`: a rich-text
         # composer reflows pasted whitespace (blank lines collapsed,
         # indentation moved — see `uia_control.py`'s own finding). Leftover
@@ -405,7 +613,76 @@ class DesktopAppReasoningProvider(ModelProvider):
         # guards against, found live in this session's own testing.
         if not response_text.strip() or _normalize_whitespace(response_text) == _normalize_whitespace(marked_prompt):
             return failure(self._spec.provider_id, MALFORMED, EMPTY_RESPONSE,
-                            latency_ms=self._elapsed_ms(started))
+                            latency_ms=self._elapsed_ms(started), **session_detail)
+
+        # Our own prompt handed back with the furniture around it.
+        #
+        # The check above catches an EXACT echo. Reproduced live against
+        # Kimi Desktop, the real shape is not exact: the scrape returned
+        # the composer placeholder, our marked prompt, and the surrounding
+        # UI labels --
+        #
+        #     "Ask me. Task me.
+        #      [Kalpavriksha Reasoning - Kimi Desktop - ... - d477b9ad]
+        #      Create or select a file to start
+        #      Edit  Copy  Share ..."
+        #
+        # -- with `ok=True`. It propagated as a reasoning result, and
+        # every consumer behaved correctly on nonsense: the Planner could
+        # not build a plan from it and the candidate extractor found
+        # nothing, so a whole battery failed while the ladder reported
+        # success at every rung.
+        #
+        # Generic, not app-specific: "the reply is our own request plus
+        # decoration" is a fake success in any application. Removing the
+        # prompt we sent and asking whether anything substantial remains
+        # is the same question `EMPTY_RESPONSE` already asks, made to
+        # survive a composer that decorates.
+        if _is_only_our_own_prompt(response_text, marked_prompt):
+            return failure(
+                self._spec.provider_id, MALFORMED, PROMPT_ECHOED,
+                latency_ms=self._elapsed_ms(started),
+                observed=response_text.strip()[:200], **session_detail,
+            )
+
+        # The window describing itself is not an answer either.
+        #
+        # `MALFORMED`, alongside the echoed prompt: nothing is wrong with
+        # the request, and nothing here says the application cannot serve
+        # it -- the read came back with the surface instead of the reply.
+        # Measured live against Kimi Desktop; see `_INTERFACE_LABELS`.
+        if _is_only_interface_text(response_text):
+            return failure(
+                self._spec.provider_id, MALFORMED, ONLY_INTERFACE_TEXT,
+                latency_ms=self._elapsed_ms(started),
+                observed=response_text.strip()[:200], **session_detail,
+            )
+
+        # The application talking about itself is not an answer.
+        #
+        # `UNAVAILABLE` rather than `MALFORMED`: nothing was wrong with
+        # the request and there is nothing to fix by rephrasing it --
+        # this provider simply cannot serve it right now, which is
+        # exactly what the ladder's exclude-and-ask-again is for. The
+        # same class of judgement `gemini.py` makes about a 503, made
+        # where the signal happens to be text instead of a status code.
+        if _is_service_notice(response_text):
+            return failure(
+                self._spec.provider_id, UNAVAILABLE, SERVICE_NOTICE,
+                latency_ms=self._elapsed_ms(started),
+                notice=response_text.strip()[:200], **session_detail,
+            )
+
+        # The warning can appear because of the very turn that just
+        # succeeded. A real answer is not thrown away for it -- the
+        # request was owned, the response is genuine, and Verification
+        # judges it on its own merits. What changes is only that this
+        # conversation is not used again: retired now, so the NEXT call
+        # rotates instead of walking back into it.
+        after = self._sessions.inspect_session(window["handle"])
+        saturated_after = after.saturated
+        if saturated_after:
+            self._sessions.retire(self._spec.label)
 
         return ProviderResult(
             provider_id=self._spec.provider_id,
@@ -418,9 +695,13 @@ class DesktopAppReasoningProvider(ModelProvider):
             detail={
                 "application": self._spec.label,
                 "window_handle": window["handle"],
-                "session_marker": session.session_marker,
-                "session_reused": session.reused,
-                "session_renamed": session.renamed,
+                **session_detail,
+                # PROVIDER SESSION health, never provider health. False
+                # here says one accumulated conversation is finished; it
+                # says nothing at all about whether this application can
+                # answer the next question, which is why the Broker sees
+                # a `SUCCEEDED` result and no exclusion.
+                "session_reusable": not saturated_after,
             },
         )
 

@@ -298,11 +298,7 @@ class TaskDispatcher:
         # An objective is only *failed* once nothing further can run --
         # a single failed task alongside still-runnable work is not yet a
         # failed objective.
-        runnable = [
-            task for task in objective.tasks
-            if task.state not in {TaskState.COMPLETED, TaskState.FAILED, TaskState.BLOCKED}
-        ]
-        if objective.has_failure and not runnable:
+        if objective.has_failure and not objective.has_runnable_work:
             self._publish(
                 EventType.OBJECTIVE_FAILED,
                 objective_id=objective.objective_id,

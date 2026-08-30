@@ -168,6 +168,22 @@ class ProviderSpec:
     #: shows the runtime check cannot be trusted to catch the risk before
     #: causing it — see `claude-desktop`'s own entry below.
     autonomous_reasoning_unsafe_reason: str | None = None
+    #: The largest prompt this provider's own transport will carry, in
+    #: characters. `None` means no such limit is known.
+    #:
+    #: Characters, not tokens, and not `max_context_tokens`. Those two
+    #: describe what the MODEL can think about; this describes what the
+    #: TRANSPORT will accept -- a desktop application's composer that
+    #: stops taking input at a fixed count, regardless of how large a
+    #: context the model behind it has. Kimi Desktop shows both: 32k
+    #: context, and a composer that refuses past roughly four thousand
+    #: characters (founder observation, live).
+    #:
+    #: Exceeding it is a provider failure, never a reason to shorten the
+    #: prompt. A truncated prompt is a DIFFERENT QUESTION answered
+    #: confidently, which is worse than no answer at all -- the ladder
+    #: already knows what to do when one provider cannot serve a request.
+    max_prompt_chars: int | None = None
     #: `REASONING_ROLE` (the default) or `CODING_AGENT_ROLE`. A coding-agent
     #: spec is never constructed as a provider (`build_desktop_providers()`)
     #: and never ranked (`profiles.py::availability()`) — checked alongside
@@ -285,6 +301,12 @@ PROVIDER_CATALOG: tuple[ProviderSpec, ...] = (
         latency_ms=3000.0,
         max_context_tokens=32_000,
         inventory_key="kimi_desktop",
+        # Founder observation, live: the composer exposes a limit at
+        # roughly four thousand characters. Declared here so a prompt
+        # past it never reaches the composer at all -- see
+        # `max_prompt_chars` for why the answer is fallback, not a
+        # shorter prompt.
+        max_prompt_chars=4000,
         basis=DECLARED,
         notes="installed desktop application; runs on an existing subscription",
     ),

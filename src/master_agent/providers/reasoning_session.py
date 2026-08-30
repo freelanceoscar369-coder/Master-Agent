@@ -55,6 +55,8 @@ prior architecture's own behavior, not a regression below it).
 """
 from __future__ import annotations
 
+import dataclasses
+import logging
 import time
 import uuid
 from dataclasses import dataclass
@@ -145,6 +147,76 @@ RENAME_TRIGGER_VOCABULARY = (
 #: navigate, and `ensure_named_session()` proceeds unchanged.
 CHAT_SECTION_LABEL = "Chat"
 
+#: What an application says when its own conversation has grown past
+#: what it will keep serving well. Observed live by the founder, in Kimi
+#: Desktop, while Kalpavriksha was still sending requests into it:
+#:
+#:     Your conversation with Kimi is getting too long.
+#:     Try starting a new session.
+#:
+#: This is PROVIDER SESSION HEALTH, not model answer content. Nothing
+#: about the reasoning was wrong; the transport this adapter had been
+#: reusing was no longer suitable. Reading it as an answer, or ignoring
+#: it and sending anyway, is how a whole battery of fixtures came to be
+#: judged as intelligence variance.
+#:
+#: SHAPES, not one product's sentence -- the same discipline
+#: `NEW_SESSION_VOCABULARY` above already holds. Every phrase names the
+#: *conversation's own length*, which is what makes them safe to search
+#: for across a whole window: a "New chat" button's accessible name
+#: contains none of them, and neither does ordinary prose about anything
+#: except a chat that has run on too long.
+#:
+#: Deliberately NOT paired with a "try starting a new session" half. That
+#: conjunction would be more specific and would also miss the warning
+#: whenever the two sentences render as two separate elements, which is
+#: the common case. The asymmetry says to bias toward detection: a false
+#: positive costs one extra new-conversation click, and the founder's own
+#: architectural rule is that starting a fresh provider conversation must
+#: always be safe.
+SESSION_SATURATION_VOCABULARY = (
+    "getting too long",
+    "conversation is too long",
+    "conversation too long",
+    "chat is too long",
+    "this chat is getting long",
+    "maximum conversation length",
+    "maximum length of this conversation",
+    "conversation limit",
+    "context limit reached",
+    "reached the maximum length",
+    "chat is full",
+)
+
+#: Controls that only exist when something is already attached.
+#:
+#: Deliberately only the *removal* affordances. A bare "attach"/
+#: "attachment" match would find the permanent "Attach file" button that
+#: these applications show all the time, and would report a stale
+#: attachment on a session that has none. A "remove" control is evidence
+#: by its own existence: there is nothing to remove unless something is
+#: attached.
+#:
+#: The founder observed this live: in Kimi, a previous prompt remained
+#: visible as an attachment on the next turn. A clean text composer is
+#: not the same thing as an isolated session.
+STALE_ATTACHMENT_VOCABULARY = (
+    "remove attachment",
+    "remove file",
+    "remove image",
+    "remove upload",
+    "delete attachment",
+    "clear attachment",
+)
+
+#: A conversation observed saturated is never used again by this manager,
+#: and this is the reason returned when a *freshly created* one cannot be
+#: proven healthy either. `ok=False`, so the caller treats it exactly like
+#: any other provider failure: exclude and ask the next ranked provider.
+#: Never a permanent judgment about the provider itself.
+SESSION_SATURATED = "SESSION_SATURATED"
+
+
 #: Real UI settle time after invoking a "new chat"-style control, before
 #: trusting the resulting surface's content — the same asynchronous-
 #: rendering caution `_verify_readback()` already documents for Chromium/
@@ -152,6 +224,43 @@ CHAT_SECTION_LABEL = "Chat"
 _POST_CREATE_SETTLE_SECONDS = 0.6
 
 ISOLATION_UNVERIFIED = "ISOLATION_UNVERIFIED"
+
+
+@dataclass(frozen=True)
+class SessionHealth:
+    """What one look at the application's own window says about the
+    conversation currently open in it, *before* a prompt is written.
+
+    Not a judgment about the provider. Kimi can be perfectly available
+    while one accumulated conversation inside it is no longer suitable --
+    the distinction the founder drew, and the reason nothing here ever
+    reaches for a provider-wide exclusion.
+
+    `composer_text` is recorded rather than gated on: an unsent draft is
+    not conversation history (this module's own correction 3), and what
+    actually guarantees a clean composer at send time is
+    `_write_prompt()`'s already-verified clear-and-readback, which is
+    proof rather than a glance.
+    """
+
+    saturated: bool = False
+    stale_attachment: bool = False
+    warning: str = ""
+    composer_text: str = ""
+    observed: bool = False
+
+    @property
+    def usable(self) -> bool:
+        return not self.saturated and not self.stale_attachment
+
+    def as_dict(self) -> dict:
+        return {
+            "saturated": self.saturated,
+            "stale_attachment": self.stale_attachment,
+            "warning": self.warning[:200],
+            "composer_text": self.composer_text[:200],
+            "observed": self.observed,
+        }
 
 
 @dataclass(frozen=True)
@@ -177,6 +286,12 @@ class SessionEstablishment:
     session_marker: str = ""
     reused: bool = False
     renamed: bool = False
+    #: What the window said about this conversation just before the
+    #: prompt is written into it.
+    health: SessionHealth = SessionHealth()
+    #: True when a saturated conversation was retired and a fresh one was
+    #: established in its place during this same call.
+    rotated: bool = False
 
 
 def build_session_marker(provider_label: str) -> str:
@@ -213,6 +328,19 @@ class ReasoningSessionManager:
     def __init__(self, uia: Any, mouse: Any) -> None:
         self._uia = uia
         self._mouse = mouse
+        #: Provider labels whose `DEDICATED_SESSION_NAME` conversation has
+        #: been observed saturated. Never looked up by name again while
+        #: this manager lives -- otherwise the very next call would find
+        #: and reopen the conversation we just decided was unusable.
+        #:
+        #: In-process, deliberately. The named conversation is discovered
+        #: by its visible title, and nothing here writes a marker into the
+        #: application to say "retired". A later process therefore finds
+        #: the same saturated conversation once, observes the same
+        #: warning, and rotates again -- one wasted click, self-correcting,
+        #: and far cheaper than teaching this manager to rename or delete
+        #: conversations in the founder's own window.
+        self._retired: set[str] = set()
 
     def establish(self, window: dict, provider_label: str, keyboard: Any) -> SessionEstablishment:
         """The public entry point — kept named `establish()` for
@@ -234,19 +362,139 @@ class ReasoningSessionManager:
         # only one, and this call is then a no-op.
         self._navigate_to_chat_section(handle)
 
-        existing = self.find_named_session(handle)
-        if existing is not None:
-            opened = self.open_named_session(handle, existing)
-            if not opened:
-                return SessionEstablishment(
-                    False,
-                    f"{ISOLATION_UNVERIFIED}: found the existing {DEDICATED_SESSION_NAME!r} "
-                    "conversation but could not open it",
-                )
-            time.sleep(_POST_CREATE_SETTLE_SECONDS)
-            return SessionEstablishment(True, "", marker, reused=True, renamed=True)
+        opened = self._open_or_create(handle, provider_label, keyboard, marker)
+        if not opened.ok:
+            return opened
+
+        # PRE-FLIGHT. Before a single character is written, ask the
+        # application what state the conversation we are about to use is
+        # actually in. The founder watched Kalpavriksha keep sending into
+        # a conversation that was visibly telling it to stop.
+        health = self.inspect_session(handle)
+        if health.usable:
+            return dataclasses.replace(opened, health=health)
+
+        # Not usable. This conversation is finished as a transport, and
+        # saying so costs nothing that matters: the mission's meaning
+        # lives in Founder Intent, requirements, Evidence and
+        # MissionProgress, never in a provider's chat history.
+        self.retire(provider_label)
+
+        if not opened.reused:
+            # It was already brand new and still is not usable -- an
+            # attachment that survived a new conversation, most likely.
+            # Creating a second one would prove nothing the first did not.
+            return SessionEstablishment(
+                False, f"{SESSION_SATURATED}: {self._unusable_reason(health)}", health=health,
+            )
+
+        # ONE governed rotation. Not a loop: if the fresh conversation
+        # cannot be proven healthy either, this provider is unusable for
+        # this attempt and the ladder asks the next one. Clicking "New
+        # chat" until something looks right is how an adapter ends up
+        # filling a founder's sidebar.
+        fresh = self.create_named_session(handle, keyboard, marker, rename=False)
+        if not fresh.ok:
+            return fresh
+        after = self.inspect_session(handle)
+        if not after.usable:
+            return SessionEstablishment(
+                False,
+                f"{SESSION_SATURATED}: a fresh conversation was created and is "
+                f"still not usable ({self._unusable_reason(after)})",
+                health=after,
+            )
+        return dataclasses.replace(fresh, health=after, rotated=True)
+
+    def _open_or_create(
+        self, handle: int, provider_label: str, keyboard: Any, marker: str,
+    ) -> SessionEstablishment:
+        """Find-and-open the named conversation, or create one -- unchanged
+        behaviour, lifted out so `establish()` reads as what it now is:
+        get a conversation, then check it is fit to use."""
+        if provider_label not in self._retired:
+            existing = self.find_named_session(handle)
+            if existing is not None:
+                if not self.open_named_session(handle, existing):
+                    return SessionEstablishment(
+                        False,
+                        f"{ISOLATION_UNVERIFIED}: found the existing {DEDICATED_SESSION_NAME!r} "
+                        "conversation but could not open it",
+                    )
+                time.sleep(_POST_CREATE_SETTLE_SECONDS)
+                return SessionEstablishment(True, "", marker, reused=True, renamed=True)
 
         return self.create_named_session(handle, keyboard, marker)
+
+    # ---- provider SESSION health (never provider health) ---------------
+
+    def retire(self, provider_label: str) -> None:
+        """This application's named conversation must not be used again."""
+        self._retired.add(provider_label)
+
+    def is_retired(self, provider_label: str) -> bool:
+        return provider_label in self._retired
+
+    def inspect_session(self, handle: int) -> SessionHealth:
+        """One look at the window before writing into it.
+
+        Never raises. An unreadable window returns `observed=False` with
+        nothing claimed either way -- which is the honest answer, and is
+        not treated as ill health: the write/submit/read path downstream
+        verifies every one of its own steps and does not depend on this
+        succeeding. What this exists to catch is the case where the
+        application *is* readable and is plainly saying the conversation
+        is spent.
+        """
+        try:
+            return self._inspect(handle)
+        except Exception:  # noqa: BLE001
+            # "Never raises" has to be true, not stated. The automation
+            # stack below raises `_ctypes.COMError` for a window that
+            # closed or an element that went stale mid-read, and that is
+            # outside this module's declared vocabulary -- a health check
+            # that can kill the call it was meant to protect is worse
+            # than no health check.
+            logging.debug("session inspection failed", exc_info=True)
+            return SessionHealth()
+
+    def _inspect(self, handle: int) -> SessionHealth:
+        regions = self._text_regions(handle)
+        warning = ""
+        for text in regions:
+            lowered = text.lower()
+            if any(phrase in lowered for phrase in SESSION_SATURATION_VOCABULARY):
+                warning = text.strip()
+                break
+        attachment = self._find_by_vocabulary(handle, STALE_ATTACHMENT_VOCABULARY) is not None
+        return SessionHealth(
+            saturated=bool(warning),
+            stale_attachment=attachment,
+            warning=warning,
+            composer_text=self._read_composer(handle),
+            observed=bool(regions),
+        )
+
+    @staticmethod
+    def _unusable_reason(health: SessionHealth) -> str:
+        if health.saturated and health.stale_attachment:
+            return f"saturated, and a stale attachment is still on it: {health.warning!r}"
+        if health.saturated:
+            return f"the application says this conversation is spent: {health.warning!r}"
+        return "a previous request's attachment is still on this conversation"
+
+    def _text_regions(self, handle: int) -> tuple[str, ...]:
+        try:
+            snapshot = self._uia.snapshot_text_regions(handle)
+        except (UiaUnavailable, UiaTargetNotFound, OSError):
+            return ()
+        return tuple(str(text) for text in snapshot.values() if text)
+
+    def _read_composer(self, handle: int) -> str:
+        try:
+            return str(self._uia.read_text(self._uia.find_composer(handle)) or "")
+        except (UiaUnavailable, UiaTargetNotFound, OSError):
+            return ""
 
     def find_named_session(self, handle: int):
         """Exact-name search for `DEDICATED_SESSION_NAME` — never a
@@ -274,7 +522,9 @@ class ReasoningSessionManager:
         except (UiaUnavailable, UiaTargetNotFound):
             return False
 
-    def create_named_session(self, handle: int, keyboard: Any, marker: str) -> SessionEstablishment:
+    def create_named_session(
+        self, handle: int, keyboard: Any, marker: str, rename: bool = True,
+    ) -> SessionEstablishment:
         """No existing `DEDICATED_SESSION_NAME` conversation was found —
         create one via the existing generic 'start a new conversation'
         vocabulary search (unchanged from the prior architecture: the
@@ -348,7 +598,19 @@ class ReasoningSessionManager:
 
         time.sleep(_POST_CREATE_SETTLE_SECONDS)
 
-        renamed = self._rename_current_session(handle, keyboard, DEDICATED_SESSION_NAME)
+        # `rename=False` is how a rotation avoids leaving two
+        # conversations wearing the same name. The conversation just
+        # retired may still hold `DEDICATED_SESSION_NAME`; giving the
+        # replacement that name too would make `find_named_session()`'s
+        # exact match ambiguous, which is the one thing this module's
+        # exact-match discipline exists to prevent. Unnamed is not
+        # unidentified: the marker in the first message still says whose
+        # conversation this is, the strategy `app_knowledge.catalog`
+        # already records for these applications.
+        renamed = (
+            self._rename_current_session(handle, keyboard, DEDICATED_SESSION_NAME)
+            if rename else False
+        )
         return SessionEstablishment(True, "", marker, reused=False, renamed=renamed)
 
     def _navigate_to_chat_section(self, handle: int) -> bool:
@@ -356,6 +618,13 @@ class ReasoningSessionManager:
         exists. Returns whether a click happened — callers should not treat
         `False` as a failure; it just means no such section was found,
         which is the normal case for a single-purpose chat application."""
+        try:
+            return self._navigate(handle)
+        except Exception:  # noqa: BLE001
+            logging.debug("chat-section navigation was not possible", exc_info=True)
+            return False
+
+    def _navigate(self, handle: int) -> bool:
         try:
             control = self._uia.find(handle, name_exact=CHAT_SECTION_LABEL, visible_only=True, retries=0)
         except (UiaTargetNotFound, UiaUnavailable):
@@ -391,7 +660,22 @@ class ReasoningSessionManager:
         this window, never assumed) and confirms with Enter. Returns
         whether `new_name` is positively confirmed findable by exact
         name afterward — never raises; a failure at any step simply
-        returns `False`."""
+        returns `False`.
+
+        That last sentence was a claim rather than a fact until a live
+        run proved otherwise: `SetFocus()` on a rename field that had
+        already closed raised `_ctypes.COMError` out of this best-effort
+        step, through `complete()`, and ended the mission. Losing the
+        rename costs reuse on a future call. Losing the mission costs the
+        founder the work.
+        """
+        try:
+            return self._rename(handle, keyboard, new_name)
+        except Exception:  # noqa: BLE001
+            logging.debug("rename was not possible", exc_info=True)
+            return False
+
+    def _rename(self, handle: int, keyboard: Any, new_name: str) -> bool:
         action = self._find_by_vocabulary(handle, RENAME_ACTION_VOCABULARY)
         if action is None:
             trigger = self._find_by_vocabulary(handle, RENAME_TRIGGER_VOCABULARY)

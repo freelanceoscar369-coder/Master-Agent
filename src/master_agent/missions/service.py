@@ -255,6 +255,54 @@ class MissionService:
             description = str(intent.context.get("raw_input") or intent.goal)
         text = description
 
+        # Every admitted mission carries the founder's requirements.
+        #
+        # A compound natural objective -- the AI Planner's whole
+        # workload -- derives them through the reasoning door, which
+        # `parse()` may never touch: parsing is structural and reaching
+        # a provider there would put a model on every keystroke path.
+        # So the compound half is derived HERE, once per mission, at the
+        # boundary ADR-0024 already makes the only way to the Planner.
+        #
+        # Without it the failed research acceptance planned ten steps
+        # with an empty requirement list and `covers=[]` on every one,
+        # and outcome conformance over an empty requirement set can only
+        # answer UNKNOWN.
+        if not getattr(intent, "requirements", ()) and self.intent_layer is not None:
+            try:
+                intent.requirements = self.intent_layer.requirements_for(
+                    intent, raw=text
+                )
+            except Exception:  # noqa: BLE001 -- absent semantics, not a crash
+                intent.requirements = ()
+
+        # What decision, if any, this mission actually faces.
+        #
+        # Framed HERE because this is where the founder's requirements
+        # are complete and nothing has yet been planned -- a frame
+        # written after the evidence arrives is a rationalisation of
+        # whatever turned up, and its criteria quietly become the shape
+        # of the data instead of the shape of the request.
+        #
+        # `None` for a typed capability with settled arguments, which is
+        # most missions. Deliberation is a cost the founder pays in
+        # latency, and a folder is not a decision.
+        try:
+            from master_agent.brain import deliberation as _deliberation
+
+            frame = _deliberation.frame_for(
+                objective=text,
+                requirements=getattr(intent, "requirements", ()) or (),
+                capability=str(getattr(intent, "capability", "") or ""),
+            )
+            if frame is not None:
+                # Reviewable decision metadata, never a reasoning
+                # transcript: what is being decided and what would
+                # settle it (ADR-0027).
+                intent.context["decision_frame"] = frame.as_dict()
+        except Exception:  # noqa: BLE001 -- an unframed mission still runs
+            pass
+
         # An interpretation nobody settled may not become work.
         #
         # This was written as a comment on `SemanticRequirement`
