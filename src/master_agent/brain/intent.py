@@ -1878,7 +1878,7 @@ class CreateFolderIntent(BaseIntentParser):
     #: This is grammar, not a sentence table -- verb, optional article and
     #: noun remain independent of the name and location the Founder gives.
     _COMMAND = (
-        r"\b(?:create|make)\s+"
+        r"\b(?:(?:create|make)\s+|(?:i\s+)?need\s+)"
         r"(?:(?:a|an)\s+)?"
         r"(?:(?:new|empty)\s+)*folder"
     )
@@ -1887,15 +1887,25 @@ class CreateFolderIntent(BaseIntentParser):
     #: with-location pattern has already failed.
     _NAME_ONLY = (
         _COMMAND
-        + r"\s+(?:called|named)\s+[\"']?(?P<name>[^\"'.!?]+?)[\"']?[.!?]?\s*$"
+        + r"\s+(?:called|named)\s*:?\s*[\"']?(?P<name>[^\"'.!?]+?)[\"']?[.!?]?\s*$"
     )
     #: The location clause is anchored to the end, so the name group can no
     #: longer swallow it. `name` is lazy; `location` takes the last
     #: on/in clause.
     _NAME_AND_LOCATION = (
         _COMMAND
-        + r"\s+(?:called|named)\s+[\"']?(?P<name>[^\"'.!?]+?)[\"']?"
+        + r"\s+(?:called|named)\s*:?\s*[\"']?(?P<name>[^\"'.!?]+?)[\"']?"
         + r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)[.!?]?\s*$"
+    )
+    #: The same complete command with the location stated first:
+    #: "On Desktop, I need a folder named: Research."  Word order is
+    #: language, not ambiguity; the two fields remain structurally clear.
+    _LEADING_NAME_AND_LOCATION = (
+        r"^\s*(?:on|in)\s+(?:my\s+|the\s+)?"
+        r"(?P<location>[\w\s]+?)\s*,\s*"
+        + _COMMAND
+        + r"\s+(?:called|named)\s*:?\s*[\"']?"
+        r"(?P<name>[^\"'.!?]+?)[\"']?[.!?]?\s*$"
     )
     #: A location with NO name -- "create a folder in Documents". Neither
     #: pattern above matches it, because both require `called`/`named`, so
@@ -1940,9 +1950,13 @@ class CreateFolderIntent(BaseIntentParser):
         must_be_empty = bool(re.search(r"\bempty\b", command_words, re.IGNORECASE))
 
         location: str | None = None
-        match = re.search(self._NAME_AND_LOCATION, text, re.IGNORECASE)
+        match = re.search(self._LEADING_NAME_AND_LOCATION, text, re.IGNORECASE)
         if match:
             location = match.group("location").strip()
+        else:
+            match = re.search(self._NAME_AND_LOCATION, text, re.IGNORECASE)
+        if match:
+            location = location or match.group("location").strip()
         else:
             match = re.search(self._NAME_ONLY, text, re.IGNORECASE)
 
@@ -2007,6 +2021,8 @@ class CreateFolderIntent(BaseIntentParser):
             # before `supplied` was built, so what arrives here is a value
             # the capability accepts -- not a phrase to be de-grammared.
             location = self._answer(supplied, "location")
+        elif location.lower().endswith(" directory"):
+            location = location[:-len(" directory")].rstrip()
 
         # A folder inside that place, when the founder named one.
         #
@@ -2102,6 +2118,13 @@ _PROJECT_FIELDS: tuple[str, ...] = ("project_name",)
 
 class CreateProjectIntent(BaseIntentParser):
     """Parse 'create a [type] project called X'."""
+
+    @staticmethod
+    def recognizes(text: str) -> bool:
+        """Only project/application language belongs to this parser."""
+        import re
+
+        return re.search(r"\b(?:project|application)\b", text or "", re.IGNORECASE) is not None
 
     def parse(self, text: str, supplied: Mapping[str, str] | None = None) -> IntentResult:
         import re

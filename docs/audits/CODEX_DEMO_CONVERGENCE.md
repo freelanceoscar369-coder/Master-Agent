@@ -301,3 +301,51 @@ requirements as satisfied, and only then reported verified completion.
 
 CDX-006 is closed for the proven path. Full holdout and regression remain
 release gates.
+
+## Gate 3 — neighboring semantic pressure and core-path regression
+
+Frozen H21 began with a same-named directory in Documents and no Desktop
+target. The Founder said `Create KVH_<stamp>_M on my Desktop.` The existing
+generic `("create", CreateProjectIntent)` route claimed it and asked “What
+should the project be called?” even though the name was already present and no
+project had been requested. This was a semantic/wrong-parser defect, not a
+false completion.
+
+The local repair gives `CreateProjectIntent` a structural project/application
+recognition guard. Unrelated create language now remains intact on the generic
+planning route. The same existing CreateFolder structural parser was widened
+for two ordinary grammatical forms already frozen before repair: “I need a
+new folder” and a leading location (“On Desktop, I need a folder named: X”).
+No exact objective or test-name table was introduced.
+
+Red family: 3 failures, 15 passes. After repair: 140 focused Intent tests
+passed. Rerunning H21 then created the exact absent Desktop target while the
+similar Documents target remained; matched filesystem Evidence established the
+exact path. Because the AI-planned generic mission still carried no semantic
+requirements, the repaired Reporter correctly labeled Founder outcome
+`UNKNOWN` and said it could not confirm satisfaction. This is safe but remains
+a semantic-trace/autonomy limitation, not a release-quality success.
+
+Frozen H22 replaced a disposable file's actual contents from `alpha wrong
+omega` to exactly `alpha beta omega`. `Filesystem.WriteFile` produced matched
+full-content digest Evidence; the surrounding FileExists/ReadFile query steps
+have no domain Evidence, so the mission again reported outcome unconfirmed.
+Actual state was correct and no false completion occurred.
+
+Core-path regression after these changes:
+
+- Golden local: **PASS**, 0.3 seconds, zero planning-provider calls, exact file
+  contents and satisfied conformance.
+- Golden ordinary Browser: **PASS**, 8.5 seconds, six dictated steps, fresh
+  `#state == accepted`, fixture independently recorded the exact interaction,
+  and session close was verified.
+- Golden reasoning → file: **PASS**, 28.1 seconds, Gemini reasoning Evidence
+  bound unchanged into an exactly verified three-line file, zero AI planning
+  calls, satisfied conformance.
+- Production Intent/clarification/grounded-question conformance: **16/16 PASS**
+  with 48 registered capabilities.
+
+No architecture was added. Active non-P0 limitation: AI-planned generic
+missions do not yet carry the Intent owner's semantic requirements and Planner
+coverage projection, so the safe Reporter returns `UNKNOWN` even when step
+Evidence happens to match.

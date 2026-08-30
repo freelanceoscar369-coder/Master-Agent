@@ -66,6 +66,28 @@ class TestFounderMeaningSurvivesIntent:
         assert result.intent is not None
         assert result.intent.capability != "create_folder"
 
+    def test_need_wording_and_leading_location_are_structural(self):
+        result = IntentLayer().parse(
+            "On Desktop, I need a folder named: Demo."
+        )
+
+        assert not result.needs_clarification
+        assert result.intent.capability == "create_folder"
+        assert result.intent.payload == {"name": "Demo", "location": "Desktop"}
+
+    def test_need_wording_without_fields_asks_for_the_name(self):
+        result = IntentLayer().parse("I need a new folder")
+
+        assert result.needs_clarification
+        assert result.clarification.key == "folder_name"
+
+    def test_bare_create_does_not_become_a_project_request(self):
+        result = IntentLayer().parse("Create Demo on my Desktop.")
+
+        assert not result.needs_clarification
+        assert result.intent.capability != "workspace_bootstrap"
+        assert "project" not in result.intent.goal.lower()
+
 
 class TestCapabilityEnforcesTheFounderConstraint:
     def test_contract_publishes_both_semantic_flags(self, tmp_path):
