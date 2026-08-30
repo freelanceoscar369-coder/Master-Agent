@@ -79,12 +79,12 @@ class Surface:
     status, so a rig that built a fresh one per turn would prove nothing.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, intent_layer=None) -> None:
         self.planner = PlannerSpy()
         self.service = MissionService(
             planner=self.planner,
             mission_control=MissionControlSpy(),
-            intent_layer=IntentLayer(),
+            intent_layer=intent_layer or IntentLayer(),
         )
         self.admissions: list[Intent] = []
         inner = self.service.start
@@ -229,6 +229,50 @@ class TestB_ClarifiedEqualsDirect:
         surface.say("Research")
         surface.say("Desktop")
         assert surface.admissions[0].actor == SYSTEM
+
+    @pytest.mark.parametrize("answer,location", [
+        ("Call it Finance and put it in Documents", "Documents"),
+        ("Name it Finance, then create it on Desktop", "Desktop"),
+        ("Put it in Documents and call it Finance", "Documents"),
+    ])
+    def test_one_reply_can_resolve_every_missing_folder_field(
+        self, answer, location,
+    ):
+        surface = Surface(IntentLayer(vocabularies={
+            "location": ("Desktop", "Documents", "Downloads", "d_drive"),
+        }))
+
+        surface.say("Create a folder")
+        surface.say(answer)
+
+        assert len(surface.admissions) == 1
+        assert len(surface.planner.calls) == 1
+        admitted = surface.admissions[0]
+        assert admitted.context["raw_input"] == "Create a folder"
+        assert admitted.context["folder_name"] == "Finance"
+        assert admitted.context["location"] == location
+        assert admitted.payload == {"name": "Finance", "location": location}
+        assert admitted.requirements
+
+    def test_an_accounted_multi_field_answer_needs_no_model_call(self):
+        class ReasonerSpy:
+            def __init__(self):
+                self.calls = 0
+
+            def run(self, *_args, **_kwargs):
+                self.calls += 1
+
+        reasoner = ReasonerSpy()
+        surface = Surface(IntentLayer(
+            reasoner=reasoner,
+            vocabularies={"location": ("desktop", "documents")},
+        ))
+
+        surface.say("Create a folder")
+        surface.say("Call it Finance and put it in Documents")
+
+        assert len(surface.admissions) == 1
+        assert reasoner.calls == 0
 
 
 # =========================================================================
@@ -407,6 +451,7 @@ class TestClarificationTransport:
         assert carried["key"] == "folder_name", "the semantic key was dropped again"
         assert carried["required"] is True
         assert carried["options"] == []
+        assert carried["gathering"] == ["folder_name", "location", "parent"]
         assert carried["clarification_id"]
 
     def test_the_key_travels_as_data_not_as_prose(self):
@@ -427,6 +472,14 @@ class TestClarificationTransport:
         )
         assert pending.as_dict()["options"] == ["C:", "D:"]
         assert pending.as_dict()["required"] is False
+
+    def test_every_field_being_gathered_survives_the_surface_transport(self):
+        surface = Surface()
+        surface.say("Create a folder")
+
+        assert surface.pending.gathering == (
+            "folder_name", "location", "parent",
+        )
 
     def test_free_text_answers_are_possible(self):
         """A finite option list must never be a precondition. This value

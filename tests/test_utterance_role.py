@@ -99,6 +99,23 @@ class TestAPendingQuestionIsContextNotOwnership:
     def test_but_it_does_claim_a_plain_value(self, text):
         assert role_of(text, awaiting_answer=True) is UtteranceRole.ANSWER_TO_CLARIFICATION
 
+    @pytest.mark.parametrize("text", [
+        "Call it Finance and put it in Documents",
+        "Name it Finance, then create it on Desktop",
+        "Put it in Documents and call it Finance",
+        "Please title it Finance and place it in Documents",
+    ])
+    def test_referential_continuations_answer_the_open_question(self, text):
+        """Imperative grammar does not necessarily mean a redirect.
+
+        These clauses refer to the object already being clarified.  Treating
+        them as fresh objectives discards the founder's original request.
+        """
+        assert (
+            role_of(text, awaiting_answer=True)
+            is UtteranceRole.ANSWER_TO_CLARIFICATION
+        )
+
 
 class TestOfferedOptionsWinOutright:
     """A founder picking an option they were offered is answering, even

@@ -15,15 +15,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from master_agent.brain.agency import roles
+from master_agent.brain.utterance import UtteranceRole, structural_role
 from master_agent.planner.plan import (
     CONSTRAINT,
     EFFECT,
     INFORMATION,
     REQUIREMENT_KINDS,
+    Intent,
     SemanticRequirement,
 )
-from master_agent.brain.utterance import UtteranceRole, structural_role
-from master_agent.planner.plan import Intent
 
 
 @dataclass
@@ -112,7 +112,7 @@ _GRAMMAR_WORDS: frozenset[str] = frozenset({
     "put", "place", "use", "using", "stick", "save", "keep", "make",
     "create", "go", "set", "like", "want", "prefer", "drop",
     # generic container nouns
-    "folder", "directory", "dir", "location", "place",
+    "folder", "directory", "dir", "location",
     # assent
     "fine", "good", "great", "right", "sure", "yes", "yeah", "instead",
     # conjunctions, and the verbs of NAMING -- "call it X" says nothing
@@ -902,6 +902,16 @@ class IntentLayer:
         outstanding = [name for name in wanted if name not in stated.fields]
         answered_the_question = bool(asked) and asked in stated.fields
         if not outstanding:
+            return stated
+        if answered_the_question and not _unaccounted_by(
+            text, [field.value for field in stated.fields.values()]
+        ):
+            # Every word the founder used is already explained by the
+            # fields structure settled or by grammar.  An outstanding
+            # optional field (the parent folder, for example) is not a
+            # reason to ask a provider whether the founder said something
+            # they demonstrably did not say.  Parsing below will still ask
+            # for any required field that remains missing.
             return stated
         if answered_the_question and _is_single_clause(text):
             # One clause, and it settled what was asked. A sentence that

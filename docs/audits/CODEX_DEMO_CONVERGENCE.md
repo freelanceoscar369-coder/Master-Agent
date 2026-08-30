@@ -436,3 +436,46 @@ Browser gateway had no mission-scoped release operation. After the repair:
 CDX-004 is therefore closed on the reproduced same-process failure path. The
 normal explicit `CloseBrowserSession` plan step remains unchanged; terminal
 finalization is only its failure-safe resource lifecycle boundary.
+
+## Gate 5 — combined clarification semantic handoff
+
+Frozen H04 and H06 failed before this repair even though a direct
+`IntentLayer.clarify()` could understand the same replies. The first incorrect
+boundary was the Founder surface handoff:
+
+1. `brain.utterance.structural_role()` classified referential continuations
+   such as `call it ... and put it ...` as `MODIFY_OR_REDIRECT` merely because
+   one clause opened with an operational verb.
+2. `_submit_objective()` therefore abandoned the pending original objective
+   and parsed the answer as a new objective.
+3. Even on the answer branch, `PendingClarification` dropped
+   `ClarificationQuestion.gathering`, so the existing multi-field extractor was
+   reconstructed with only the currently asked key.
+
+Eight focused regressions failed before code changed: four role/surface cases,
+three complete-answer round trips, and the missing transport contract. The
+repair stays with the existing owners: utterance grammar now distinguishes a
+referential continuation (`put it`) from a new named object (`create a folder`),
+and `PendingClarification` carries the Intent parser's existing `gathering`
+tuple unchanged. No surface parser and no second semantic owner were added.
+
+The Intent layer's existing whole-utterance accounting also now avoids a model
+call when every founder word is already explained. It still invokes reasoning
+for H06's narrower nested place because `KVH_PARENT_*` remains an unexplained
+fact until extracted; it does not guess or discard it.
+
+### Gate 5 result
+
+- 226 role, clarification, correlation, provenance, and understanding tests
+  pass.
+- H04 now completes in 0.063 seconds with zero model/Broker calls, one
+  `Filesystem.CreateFolder` step, matched Evidence, and `SATISFIED` outcome
+  conformance. Independent state: Documents target exists and the Desktop
+  namesake does not.
+- H06 completes through the same typed capability with payload
+  `{"name": "KVH_PARENT_132831/KVH_132831_F", "location": "d_drive"}`,
+  matched Evidence and `SATISFIED` conformance. Independent state confirms the
+  exact empty directory at `D:\KVH_PARENT_132831\KVH_132831_F`.
+
+CDX-005 (combined clarification discarded as redirect) is closed on both the
+ordinary and nested-location frozen paths.

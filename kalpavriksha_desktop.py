@@ -1953,6 +1953,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                 key=pending.key,
                 options=tuple(pending.options),
                 required=pending.required,
+                gathering=tuple(pending.gathering),
             ),
             # What the founder resolved in EARLIER rounds. Without it a
             # second question silently discards the first answer: "Create
@@ -2011,6 +2012,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             objective=objective,
             options=tuple(question.options),
             required=question.required,
+            gathering=tuple(question.gathering),
             supplied=resolved,
             evidence=spoken,
         )

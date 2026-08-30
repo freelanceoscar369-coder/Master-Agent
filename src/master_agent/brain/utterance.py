@@ -61,7 +61,6 @@ seen ones, not by having been enumerated.
 from __future__ import annotations
 
 import re
-
 from collections.abc import Sequence
 from enum import Enum
 
@@ -159,7 +158,8 @@ _LEAD = frozenset({
 #: an instruction on its own; stripping "could you" from "could you tell
 #: me what happened" leaves "tell me what happened", which opens nothing.
 _MODAL_REQUEST = re.compile(
-    r"^(?:could|can|would|will|wo?nt|please)\s+(?:you\s+)?(?:please\s+)?", re.I
+    r"^(?:could|can|would|will|wo?nt|please)\s+(?:you\s+)?(?:please\s+)?",
+    re.IGNORECASE,
 )
 
 _STRIP = ".,!?;:'\"()"
@@ -220,6 +220,16 @@ _INTERROGATIVES = frozenset({
 
 _ASSISTANT_WORDS = frozenset({"you", "your", "youre", "somesh"})
 
+#: Imperatives that can continue describing the object already under
+#: clarification when their grammatical object is referential.  The verbs do
+#: not decide what any field means; they only distinguish ``put it ...`` from
+#: ``create a folder ...``.  The former still belongs to the open request, the
+#: latter names a fresh object and remains a redirect.
+_REFERENTIAL_CONTINUATION_OPENERS = frozenset({
+    "call", "name", "title", "put", "place", "save", "create", "make",
+})
+_REFERENTIAL_OBJECTS = frozenset({"it", "this", "that", "them"})
+
 
 def _is_abandonment(lowered: str) -> bool:
     """Is this utterance, as a whole, a request to stop?"""
@@ -249,6 +259,18 @@ def _is_question(lowered: str) -> bool:
     if tokens and tokens[0] in _INTERROGATIVES:
         return bool(set(tokens) & _ASSISTANT_WORDS)
     return False
+
+
+def _continues_pending_object(clause: str) -> bool:
+    """Does this clause add facts about the object already in context?"""
+    tokens = _tokens(_MODAL_REQUEST.sub("", clause.strip()))
+    while tokens and tokens[0] in _LEAD:
+        tokens = tokens[1:]
+    return (
+        len(tokens) >= 2
+        and tokens[0] in _REFERENTIAL_CONTINUATION_OPENERS
+        and tokens[1] in _REFERENTIAL_OBJECTS
+    )
 
 
 #: How many words an answer can be before it stops looking like a value.
@@ -305,7 +327,16 @@ def structural_role(
             return UtteranceRole.CANCEL_OR_STOP, True
         if _is_question(lowered):
             return UtteranceRole.FOLLOW_UP, True
-        if any(opens_an_instruction(clause) for clause in clauses(lowered)):
+        parts = clauses(lowered)
+        continuations = [
+            _continues_pending_object(clause) for clause in parts
+        ]
+        if any(continuations) and all(
+            continuation or not opens_an_instruction(clause)
+            for clause, continuation in zip(parts, continuations, strict=True)
+        ):
+            return UtteranceRole.ANSWER_TO_CLARIFICATION, True
+        if any(opens_an_instruction(clause) for clause in parts):
             return UtteranceRole.MODIFY_OR_REDIRECT, True
         if len(_tokens(lowered)) <= _VALUE_WORD_LIMIT:
             return UtteranceRole.ANSWER_TO_CLARIFICATION, True

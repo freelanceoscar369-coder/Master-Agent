@@ -102,6 +102,10 @@ class PendingClarification:
     objective: str
     options: tuple[str, ...] = ()
     required: bool = True
+    #: Every semantic field the owning parser is collecting for this Intent.
+    #: One reply may supply more than the field currently being asked; losing
+    #: this turns a complete answer into another unnecessary question.
+    gathering: tuple[str, ...] = ()
     #: Correlates the founder's answer with this question. A dedicated id
     #: rather than a reused one: `approval_id` names a permission decision
     #: on an objective that already exists, and `completion_id` names
@@ -146,6 +150,7 @@ class PendingClarification:
             "key": self.key,
             "options": list(self.options),
             "required": self.required,
+            "gathering": list(self.gathering),
             "supplied": dict(self.supplied),
         }
 
