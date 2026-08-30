@@ -105,3 +105,39 @@ class BrowserGateway:
             ).verify(effective)
 
         return None
+
+    def finalize_objective(self, tasks: list[Any]) -> list[str]:
+        """Close live sessions demonstrably owned by these Browser tasks.
+
+        A failed dependency can make the plan's normal Close step
+        unreachable. The task payloads and Open result are the existing
+        durable ownership evidence; unrelated manager sessions are never
+        touched.
+        """
+        sessions = getattr(self._worker, "_sessions", None)
+        if sessions is None:
+            return []
+
+        owned: set[str] = set()
+        for task in tasks:
+            payload = getattr(task, "payload", None) or {}
+            result = getattr(task, "result", None)
+            session_id = payload.get("session_id") if isinstance(payload, dict) else None
+            if isinstance(session_id, str) and session_id.strip():
+                owned.add(session_id.strip())
+            if isinstance(result, dict):
+                opened = result.get("session_id")
+                if isinstance(opened, str) and opened.strip():
+                    owned.add(opened.strip())
+
+        live = {
+            str(handle.session_id)
+            for handle in sessions.list_sessions()
+        }
+        warnings: list[str] = []
+        for session_id in sorted(owned & live):
+            try:
+                warnings.extend(sessions.close_session(session_id) or ())
+            except Exception as exc:  # noqa: BLE001 -- teardown is best effort
+                warnings.append(f"{session_id}: {exc}")
+        return warnings

@@ -65,6 +65,24 @@ class ExecutiveGateway(Protocol):
         ...
 
 
+@runtime_checkable
+class ObjectiveFinalizer(Protocol):
+    """Optional gateway extension for mission-scoped resource release.
+
+    Runtime owns the terminal moment and the concrete gateway owns how its
+    environment is cleaned.  Keeping this separate from ``ExecutiveGateway``
+    means stateless gateways do not acquire a meaningless method.
+    """
+
+    def finalize_objective(self, tasks: list[Any]) -> list[str]:
+        """Release resources owned by these terminal Objective tasks.
+
+        Best effort: return warnings and do not raise for ordinary teardown
+        failure.  Finalization never changes task outcome or creates Evidence.
+        """
+        ...
+
+
 class PluginGateway:
     """A gateway over any object implementing the `Plugin` contract.
 

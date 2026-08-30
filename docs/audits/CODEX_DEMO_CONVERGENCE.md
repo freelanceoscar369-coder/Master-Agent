@@ -349,3 +349,90 @@ No architecture was added. Active non-P0 limitation: AI-planned generic
 missions do not yet carry the Intent owner's semantic requirements and Planner
 coverage projection, so the safe Reporter returns `UNKNOWN` even when step
 Evidence happens to match.
+
+## Gate 4 — browser resource lifecycle expansion decision (before code)
+
+Frozen H09 reproduced CDX-004 on the current source. A six-step Browser →
+Reasoning → Filesystem plan failed when a downstream binding correctly refused
+to trust a source with no canonical Evidence. Because the explicit
+`CloseBrowserSession` step depended on the failed chain, it never became
+runnable. `BrowserSessionManager.list_sessions()` then reported the live
+`search_session`; the very next holdout mission would have inherited that
+environment. This is a demonstrated same-process resource leak and a controlled
+demo risk.
+
+**Problem:** An Objective can own an external resource whose normal close step
+becomes unreachable after failure. No current boundary tells its Executive that
+the Objective is terminal and its remaining owned resources must be released.
+
+**Existing owners inspected:** `MissionControl.Dispatcher` owns terminal state
+but must not operate environments; `RuntimeEngine` observes execution terminal
+transitions but must not know browsers; `BrowserSessionManager` owns browser
+resources but does not know Objectives; `BrowserGateway` is the existing
+Executive-specific seam between Runtime and the Browser environment.
+
+**Why an existing owner cannot absorb it alone:** Mission Control/Runtime cannot
+call browser APIs without violating Executive independence. The Browser manager
+cannot infer mission termination. An explicit close Step cannot run once a
+dependency fails. The responsibility therefore spans the already-existing
+Runtime/Gateway seam.
+
+**New responsibility:** When an Objective becomes terminal, Runtime offers its
+assigned tasks to any gateway that implements optional objective finalization;
+that gateway releases only resources identifiable as owned by those tasks.
+
+**Canonical owner:** Runtime owns *when an Objective is terminal*;
+`BrowserGateway` owns *how Browser resources for those tasks are released*.
+There is no second lifecycle authority.
+
+**Inputs:** Terminal Objective's existing task records (assigned Executive,
+payload, and execution result).
+**Outputs:** Best-effort release of matching live session IDs; no fabricated
+task success or Evidence.
+**State ownership:** Browser sessions remain solely in
+`BrowserSessionManager`; Objective/task state remains solely in Mission Control.
+**Authority:** Cleanup can only reverse resources the same Objective opened. It
+cannot authenticate, navigate, execute a new capability, or close sessions
+owned only by another Objective.
+
+**Consumers:** `RuntimeEngine` calls the narrow optional gateway hook;
+`BrowserGateway` consumes it. Gateways without mission-scoped resources remain
+unchanged.
+
+**Overlap analysis:** This does not add an orchestrator or cleanup service.
+`CloseBrowserSession` remains the planned normal path; terminal finalization is
+the failure-safe lifecycle path for the same manager-owned resource.
+
+**Domino analysis:** Expected changes are limited to the generic gateway
+lifecycle protocol, Runtime terminal handling, BrowserGateway finalization,
+focused runtime/browser tests, and the holdout evidence runner. Planner, Brain,
+Mission Control state machines, Broker, permissions and Verification do not
+change.
+
+**Rollback boundary:** Revert the optional hook and its two call sites; explicit
+Browser close behavior remains exactly as before.
+
+**Tests proving ownership:** A generic Runtime test must prove finalization is
+called once with only the terminal Objective's tasks after success and failure;
+a BrowserGateway test must prove it closes matching session IDs and preserves
+an unrelated live session; H09 must leave zero sessions before H10 begins.
+
+### Gate 4 result
+
+The red test failed three assertions before the hook existed: Runtime never
+offered terminal work for finalization after either success or failure, and the
+Browser gateway had no mission-scoped release operation. After the repair:
+
+- 69 Runtime/finalization/architecture tests pass in the restricted runner.
+- 24 browser-dependent Runtime, Worker, lifecycle, and session tests pass when
+  allowed to launch the repository's local Playwright Chromium. Their initial
+  restricted-run failures were uniformly `BrowserType.launch: spawn EPERM`, not
+  changed product verdicts.
+- Frozen H09 still fails its requested web outcome truthfully at the Browser
+  verification boundary, but `browser_sessions_after` is now `[]` before the
+  evidence harness performs its own cleanup.
+- An unrelated live Browser session is preserved by the focused gateway test.
+
+CDX-004 is therefore closed on the reproduced same-process failure path. The
+normal explicit `CloseBrowserSession` plan step remains unchanged; terminal
+finalization is only its failure-safe resource lifecycle boundary.

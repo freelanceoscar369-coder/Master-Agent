@@ -36,18 +36,18 @@ from master_agent.runtime.approval import (
     ApprovalRequest,
 )
 from master_agent.runtime.checkpoint import CheckpointSink, RuntimeCheckpoint
+from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.founder_review import (
     ReviewPending,
     ReviewStopped,
     preview_of,
 )
-from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.gateway import ExecutiveGateway, GatewayResult
+from master_agent.runtime.health import RuntimeHealth
 from master_agent.runtime.input_resolution import (
     BindingResolutionError,
     resolve_inputs,
 )
-from master_agent.runtime.health import RuntimeHealth
 from master_agent.runtime.states import RuntimeState, assert_transition
 
 RUNTIME_SOURCE = "runtime_engine"
@@ -116,6 +116,10 @@ class RuntimeEngine:
         self._tasks_failed = 0
         self._retries_performed = 0
         self._escalations = 0
+        # Terminal finalization is exactly once per Objective in this
+        # Runtime process. Re-polling a completed Objective must not offer
+        # the same resources to a gateway again.
+        self._finalized_objectives: set[str] = set()
 
     # ---- wiring ------------------------------------------------------
 
@@ -551,6 +555,8 @@ class RuntimeEngine:
             objective_id=self._objective_of(task),
         )
         self._tasks_completed += 1
+        if objective_id is not None:
+            self._finalize_objective_if_terminal(objective_id)
 
     def _execute_with_retry(
         self, gateway: ExecutiveGateway, task: Task, local_capability: str,
@@ -811,6 +817,8 @@ class RuntimeEngine:
             reported = self._mc.task_failed(task.task_id, error, objective_id=objective_id)
             if evidence_id:
                 reported.evidence_id = evidence_id
+            if objective_id is not None:
+                self._finalize_objective_if_terminal(objective_id)
         except Exception as exc:  # noqa: BLE001 — reporting must never take down the loop
             self._publish(
                 EventType.RUNTIME_ERROR,
@@ -818,6 +826,54 @@ class RuntimeEngine:
                 error=f"could not report failure: {exc}",
             )
         self._tasks_failed += 1
+
+    def _finalize_objective_if_terminal(self, objective_id: str) -> None:
+        """Offer one terminal Objective's tasks to capable gateways once.
+
+        Mission Control decides terminal state. Runtime knows the gateway
+        assignments. A gateway alone knows how to reverse its environment;
+        this method deliberately does not inspect payloads or name resources.
+        """
+        if objective_id in self._finalized_objectives:
+            return
+        objective = self._mc.dispatcher.objective(objective_id)
+        terminal = objective.is_complete or (
+            objective.has_failure
+            and all(
+                task.state in {
+                    TaskState.COMPLETED,
+                    TaskState.FAILED,
+                    TaskState.BLOCKED,
+                }
+                for task in objective.tasks
+            )
+        )
+        if not terminal:
+            return
+
+        self._finalized_objectives.add(objective_id)
+        for executive_id, gateway in self._gateways.items():
+            finalize = getattr(gateway, "finalize_objective", None)
+            if finalize is None:
+                continue
+            tasks = [
+                task for task in objective.tasks
+                if task.assigned_executive == executive_id
+            ]
+            if not tasks:
+                continue
+            try:
+                warnings = list(finalize(tasks) or ())
+            except Exception as exc:  # noqa: BLE001 -- cleanup cannot rewrite outcome
+                warnings = [f"gateway finalization raised: {exc}"]
+            for warning in warnings:
+                self._publish(
+                    EventType.RUNTIME_ERROR,
+                    error=(
+                        f"objective {objective_id} resource cleanup warning: "
+                        f"{warning}"
+                    ),
+                )
 
     def _recover(self) -> None:
         if self._state is RuntimeState.RECOVERING:
