@@ -429,6 +429,7 @@ def profile_from_descriptor(
         benchmark=None,
         benchmark_confidence=0.0,
         cost=descriptor.cost_per_call,
+        economic_class=descriptor.economic_class.value,
         latency_ms=descriptor.latency_ms,
         available=available,
         requires_network=descriptor.requires_network,

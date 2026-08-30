@@ -757,6 +757,7 @@ def _build_mission_pipeline():
     )
     import os as _os
     from master_agent.ai_infrastructure.service import AiCapabilityService
+    from master_agent.ai_infrastructure.approval import ProviderApprovalGate
     from master_agent.ai_infrastructure.execution import PromptExecutor
     from master_agent.ai_infrastructure.ledger import DecisionLedger
     from master_agent.ai_infrastructure.tiered_runner import TieredPromptRunner
@@ -1068,9 +1069,12 @@ def _build_mission_pipeline():
     from master_agent.ai_infrastructure.ledger import LEDGER_FILENAME, JsonFileDecisionStore
 
     ledger = DecisionLedger(store=JsonFileDecisionStore(_app_state_dir() / LEDGER_FILENAME))
-    broker = CapabilityBroker(policy=get_policy("prefer_free"), sink=ledger.record)
+    broker = CapabilityBroker(policy=get_policy("free_first"), sink=ledger.record)
     intelligence = AiCapabilityService(
-        broker=broker, providers=providers_source, ledger=ledger, approvals=None,
+        broker=broker,
+        providers=providers_source,
+        ledger=ledger,
+        approvals=ProviderApprovalGate(mission_control, permissions),
     )
     # The EXECUTABLE registry. Live provider objects, and nothing
     # administrative: `canonical_providers` above is the metadata

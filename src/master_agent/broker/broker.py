@@ -383,6 +383,7 @@ def _candidate(
         reason=reason,
         quality=provider.effective_quality,
         cost=provider.cost,
+        economic_class=provider.economic_class,
         latency_ms=provider.latency_ms,
         locality=provider.locality,
         rank=rank,

@@ -341,6 +341,7 @@ class ProviderDescriptor:
             benchmark=self.benchmark,
             benchmark_confidence=self.benchmark_confidence,
             cost=self.cost_per_call,
+            economic_class=self.economic_class.value,
             latency_ms=self.latency_ms,
             available=self.health in (ProviderHealth.HEALTHY, ProviderHealth.DEGRADED),
             requires_network=self.requires_network,

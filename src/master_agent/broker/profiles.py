@@ -60,6 +60,12 @@ class ProviderProfile:
     #: Cost per unit of work, in whatever currency the caller uses
     #: consistently. 0.0 means free.
     cost: float = 0.0
+    #: The canonical descriptor's economic category.  Kept as an open
+    #: string here because `broker.registry` imports this projection and
+    #: importing its Enum back would create a cycle.  ``unknown`` is a
+    #: real state, never rewritten to "free" merely because marginal
+    #: cost happens to be recorded as zero.
+    economic_class: str = "unknown"
     latency_ms: float | None = None
     available: bool = True
     requires_network: bool = True
@@ -164,6 +170,7 @@ class ProviderProfile:
             "benchmark_confidence": self.benchmark_confidence,
             "effective_quality": self.effective_quality,
             "cost": self.cost,
+            "economic_class": self.economic_class,
             "latency_ms": self.latency_ms,
             "available": self.available,
             "requires_network": self.requires_network,
@@ -194,6 +201,7 @@ class ProviderProfile:
             benchmark=data.get("benchmark"),
             benchmark_confidence=data.get("benchmark_confidence", 0.0),
             cost=data.get("cost", 0.0),
+            economic_class=data.get("economic_class", "unknown"),
             latency_ms=data.get("latency_ms"),
             available=data.get("available", True),
             requires_network=data.get("requires_network", True),

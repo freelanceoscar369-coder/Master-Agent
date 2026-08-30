@@ -54,6 +54,7 @@ class Candidate:
     reason: str = ""
     quality: float = 0.0
     cost: float = 0.0
+    economic_class: str = "unknown"
     latency_ms: float | None = None
     locality: str = ""
     rank: int | None = None
@@ -65,6 +66,7 @@ class Candidate:
             "reason": self.reason,
             "quality": self.quality,
             "cost": self.cost,
+            "economic_class": self.economic_class,
             "latency_ms": self.latency_ms,
             "locality": self.locality,
             "rank": self.rank,
@@ -78,6 +80,7 @@ class Candidate:
             reason=data.get("reason", ""),
             quality=data.get("quality", 0.0),
             cost=data.get("cost", 0.0),
+            economic_class=data.get("economic_class", "unknown"),
             latency_ms=data.get("latency_ms"),
             locality=data.get("locality", ""),
             rank=data.get("rank"),

@@ -26,11 +26,19 @@ from master_agent.broker.profiles import CLOUD, DESKTOP, LOCAL
 # audit (ADR-0017 Decision 3).
 
 BY_COST = "cost"
+BY_ECONOMIC_CLASS = "economic_class"
 BY_QUALITY = "quality"
 BY_LATENCY = "latency"
 BY_LOCALITY = "locality"
 BY_PRIVACY = "privacy"
-RANKING_KEYS = (BY_COST, BY_QUALITY, BY_LATENCY, BY_LOCALITY, BY_PRIVACY)
+RANKING_KEYS = (
+    BY_COST,
+    BY_ECONOMIC_CLASS,
+    BY_QUALITY,
+    BY_LATENCY,
+    BY_LOCALITY,
+    BY_PRIVACY,
+)
 
 # There is deliberately NO blended "balanced" ranking key.
 #
@@ -50,6 +58,20 @@ RANKING_KEYS = (BY_COST, BY_QUALITY, BY_LATENCY, BY_LOCALITY, BY_PRIVACY)
 #: Locality order for `BY_LOCALITY`: on this machine first, then an
 #: installed application, then someone else's computer.
 _LOCALITY_ORDER = {LOCAL: 0, DESKTOP: 1, CLOUD: 2}
+
+# Founder economic preference, expressed independently of marginal cost.
+# A promotional balance and a subscription can both have a zero marginal
+# cost while meaning very different things. Unknown comes last: it is not
+# promoted to a free category by inference and cannot outrank a category
+# whose economics were actually established.
+_ECONOMIC_ORDER = {
+    "no_license_fee": 0,
+    "recurring_free": 1,
+    "promotional_credit": 2,
+    "subscription_capacity": 3,
+    "paid": 4,
+    "unknown": 5,
+}
 
 
 class UnknownRanking(Exception):
@@ -168,6 +190,23 @@ PREFER_FREE = SelectionPolicy(
     description="free providers only",
 )
 
+# Free first, not free only.  The quality floor and all eligibility/privacy
+# filters run before this ordering.  If no adequate no-incremental-cost
+# route survives, a paid route may win and is then held by the existing
+# ProviderApprovalGate; this policy grants no spending authority itself.
+FREE_FIRST = SelectionPolicy(
+    name="free_first",
+    version="1",
+    ranking=(BY_ECONOMIC_CLASS, BY_COST, BY_QUALITY, BY_LATENCY),
+    default_min_quality=0.5,
+    allow_paid=True,
+    require_private_for_sensitive=True,
+    description=(
+        "adequate no-license-fee, recurring-free, promotional and "
+        "subscription capacity before incremental paid usage"
+    ),
+)
+
 OFFLINE_ONLY = SelectionPolicy(
     name="offline_only",
     version="1",
@@ -220,6 +259,7 @@ POLICIES: dict[str, SelectionPolicy] = {
         BEST_QUALITY,
         PREFER_LOCAL,
         PREFER_FREE,
+        FREE_FIRST,
         OFFLINE_ONLY,
         CLOUD_ALLOWED,
         PRIVACY_FIRST,
@@ -291,6 +331,11 @@ def sort_key(ranking: str, provider: Any) -> tuple:
 
     if ranking == BY_COST:
         return (provider.cost,)
+    if ranking == BY_ECONOMIC_CLASS:
+        return (_ECONOMIC_ORDER.get(
+            str(getattr(provider, "economic_class", "unknown") or "unknown"),
+            _ECONOMIC_ORDER["unknown"],
+        ),)
     if ranking == BY_QUALITY:
         return (-quality,)
     if ranking == BY_LATENCY:
