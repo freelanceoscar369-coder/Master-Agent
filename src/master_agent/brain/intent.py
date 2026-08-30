@@ -445,6 +445,11 @@ def _may_claim(text: str, trigger: str, result: Any, supplied: Any) -> bool:
         return False
     if supplied:
         return True
+    if getattr(result, "resolved", None):
+        # The parser read at least one field and is explicitly asking for
+        # another.  This is a partial understanding, not a broad lexical
+        # match that should fall through to generic planning.
+        return True
     beyond = len(text.split()) - len(trigger.split())
     return beyond <= _TRIGGER_SLACK_WORDS
 
@@ -1907,6 +1912,15 @@ class CreateFolderIntent(BaseIntentParser):
         + r"\s+(?:called|named)\s*:?\s*[\"']?(?P<name>[^\"'.!?]+?)[\"']?"
         + r"\s+(?:on|in)\s+(?:my\s+|the\s+)?(?P<location>[\w\s]+?)[.!?]?\s*$"
     )
+    #: A name followed by a location reference that only the founder can
+    #: resolve: ``called Notes where I normally keep these``.  The clause is
+    #: evidence that location is still unknown, never a long suffix of the
+    #: folder name and never permission for a Planner/model to choose a place.
+    _NAME_AND_UNRESOLVED_LOCATION = (
+        _COMMAND
+        + r"\s+(?:called|named)\s*:?\s*[\"']?"
+        r"(?P<name>[^\"'.!?]+?)[\"']?\s+where\b.+$"
+    )
     #: The same complete command with the location stated first:
     #: "On Desktop, I need a folder named: Research."  Word order is
     #: language, not ambiguity; the two fields remain structurally clear.
@@ -1960,6 +1974,7 @@ class CreateFolderIntent(BaseIntentParser):
         must_be_empty = bool(re.search(r"\bempty\b", command_words, re.IGNORECASE))
 
         location: str | None = None
+        unresolved_location = False
         match = re.search(self._LEADING_NAME_AND_LOCATION, text, re.IGNORECASE)
         if match:
             location = match.group("location").strip()
@@ -1968,7 +1983,12 @@ class CreateFolderIntent(BaseIntentParser):
         if match:
             location = location or match.group("location").strip()
         else:
-            match = re.search(self._NAME_ONLY, text, re.IGNORECASE)
+            match = re.search(
+                self._NAME_AND_UNRESOLVED_LOCATION, text, re.IGNORECASE
+            )
+            unresolved_location = match is not None
+            if match is None:
+                match = re.search(self._NAME_ONLY, text, re.IGNORECASE)
 
         name = match.group("name").strip() if match else ""
 
@@ -2048,6 +2068,15 @@ class CreateFolderIntent(BaseIntentParser):
             if branch and leaf:
                 name = f"{branch}/{leaf}"
         if location is None:
+            resolved = {"folder_name": name} if unresolved_location else {}
+            evidence = (
+                {
+                    "folder_name": FieldEvidence(
+                        value=name, evidence=text, source=STATED
+                    ).as_dict()
+                }
+                if unresolved_location else {}
+            )
             return IntentResult(
                 clarification=ClarificationQuestion(
                     # Uses what is already known. "Where should I create
@@ -2062,6 +2091,8 @@ class CreateFolderIntent(BaseIntentParser):
                     gathering=_FOLDER_FIELDS,
                 ),
                 raw_input=text,
+                resolved=resolved,
+                evidence=evidence,
             )
 
         context: dict[str, Any] = {

@@ -514,6 +514,17 @@ class TestTheDirectPathIsUntouched:
         assert result.needs_clarification
         assert result.clarification.key == "folder_name"
 
+    def test_a_personal_location_reference_is_not_a_planner_objective(self):
+        result = layer().parse(
+            "create a folder called KVH_G where I normally keep these"
+        )
+
+        assert result.intent is None
+        assert result.needs_clarification
+        assert result.clarification.key == "location"
+        assert "KVH_G" in result.clarification.question
+        assert result.resolved == {"folder_name": "KVH_G"}
+
     def test_the_question_carries_the_whole_field_set(self):
         result = layer().parse("create a folder")
         assert result.clarification.gathering == FOLDER_FIELDS

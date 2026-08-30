@@ -319,6 +319,25 @@ class TestC_NoInventedDefaults:
         assert surface.pending.key == "location"
         assert surface.admissions == []
 
+    def test_an_unresolved_personal_place_never_reaches_the_planner(self):
+        surface = Surface(IntentLayer(vocabularies={
+            "location": ("desktop", "documents", "downloads", "d_drive"),
+        }))
+
+        reply = surface.say(
+            "create a folder called KVH_G where I normally keep these"
+        )
+
+        assert reply == "Where should I create the KVH_G folder?"
+        assert surface.pending.key == "location"
+        assert surface.pending.supplied == {"folder_name": "KVH_G"}
+        assert surface.admissions == []
+        assert surface.planner.calls == []
+
+        surface.say("Documents")
+        admitted = surface.admissions[0]
+        assert admitted.payload == {"name": "KVH_G", "location": "documents"}
+
 
 # =========================================================================
 # D. Already-known information survives

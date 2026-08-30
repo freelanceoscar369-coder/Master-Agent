@@ -479,3 +479,30 @@ fact until extracted; it does not guess or discard it.
 
 CDX-005 (combined clarification discarded as redirect) is closed on both the
 ordinary and nested-location frozen paths.
+
+## Gate 6 — unresolved Founder-owned location
+
+Frozen H08 exposed a dangerous admission path. The folder parser recognised
+the command but treated `where I normally keep these` as part of an unreadable
+long tail, so its conservative claim guard sent the whole sentence to generic
+planning. The resulting AI plan attempted to use reasoning to choose a place
+only the Founder could know. Execution happened to be blocked by provider
+eligibility, but a successful model response could have turned missing Founder
+meaning into an environmental action.
+
+The Intent owner now recognises the grammatical boundary `named <name> where
+...` as partial understanding: the folder name is known, location is not. Its
+existing claim guard accepts that explicitly resolved field and the ordinary
+clarification path asks for location. It does not interpret the personal
+reference, select a location, or consult the Planner.
+
+### Gate 6 result
+
+- Two regressions failed before the repair and 228 neighboring Intent and
+  clarification tests pass afterward.
+- Frozen H08 returns `AWAITING_CLARIFICATION` immediately with `Where should I
+  create the KVH_174028_G folder?`.
+- Zero Planner steps, zero Broker/model decisions, zero browser sessions, and
+  neither Desktop nor Documents target exists.
+
+CDX-006 (generic planning invited to guess an unresolved location) is closed.
