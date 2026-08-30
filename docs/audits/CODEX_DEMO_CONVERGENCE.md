@@ -506,3 +506,114 @@ reference, select a location, or consult the Planner.
   neither Desktop nor Documents target exists.
 
 CDX-006 (generic planning invited to guess an unresolved location) is closed.
+
+## Gate 7 — nounless creation ambiguity and convergence verification
+
+**Checkpoint:** 30 August 2026 18:11 IST
+**Source before repair:** `21cf898577cc53db840e17384051dfed3000f027`
+
+Frozen H02 and H28 exposed one remaining P0 semantic class. Both asked to
+`create <name> ...` and supplied a location without saying whether the named
+thing was a file, folder, project, or something else. The generic Intent path
+preserved the words, but treated lexical clarity as semantic completeness. An
+AI Planner then guessed `Filesystem.WriteFile`; in H28 it created the wrong
+kind of artefact before the conservative Reporter returned `UNKNOWN`.
+
+This was not a false *report*, but it was an unauthorized semantic guess with
+an environmental effect. The first incorrect boundary was Intent admission:
+missing Founder-owned object kind was passed to Planning as though it were a
+decomposition choice.
+
+### Repair
+
+The existing `IntentLayer` now recognises the structural class “create/make a
+named thing at a supported place, with no explicit object noun” before either
+typed single-command routing or compound-objective routing. It asks:
+
+> Should I create a folder or a file named &lt;name&gt;?
+
+The answer remains Founder Evidence. `folder`/`directory` resumes through the
+existing `CreateFolderIntent` and existing capability contract for a single
+command. A compound objective remains whole and goes to the Planner only after
+the clarification is attached; no clause is collapsed. An invalid object kind
+asks again rather than escaping to Planning. Explicit folder, file, project,
+application, document, and report language is unaffected.
+
+No new semantic owner, Planner, capability, Broker, registry, or execution
+path was added.
+
+### Proof
+
+- Red semantic family: **8 failed, 6 passed** before production changed.
+- Green focused family: **189 passed** across nounless creation,
+  clarification, ordinary Intent understanding, compound routing, filesystem
+  Founder path, and clarification round trips.
+- Broader Intent/semantic/surface/planning/conformance family completed green.
+- Frozen production-surface H02 and H28 now both return
+  `AWAITING_CLARIFICATION` in 0.0 seconds with the exact object-kind question,
+  zero planned capabilities, zero Broker/model decisions, zero browser
+  sessions, and no Desktop/Documents artefact.
+- The frozen H02 oracle called the nounless wording “equivalent
+  CreateFolder meaning” and demanded no clarification. That expectation is
+  not used to override repository architecture or Founder meaning: the words
+  contain no folder noun. The frozen file remains unchanged; adjudication is
+  **correct clarification**, not a manufactured pass.
+
+CDX-007 (Planner guessed the type of a nounless environmental creation) is
+closed at the existing Intent owner.
+
+## Gate 8 — pre-package convergence results
+
+All required source-level convergence gates have now been run against this
+branch:
+
+- Founder checkpoint flow: Continue held the exact preview, performed the
+  previewed write only after approval, and verified exact content. Stop
+  prevented the write; the durable status remaining `awaiting_approval` after
+  Stop is a P1 state/UX limitation, not an unauthorized effect.
+- Irreversible permission gate: deletion remained held before approval and
+  executed only after approval; exact world state and Evidence matched.
+- Golden Path 1 local filesystem: PASS, satisfied conformance, exact file,
+  zero planning-model calls.
+- Golden Path 2 ordinary Playwright Browser: PASS, satisfied conformance,
+  exact fixture interaction and final page state, session closed.
+- Golden Path 3 Reasoning → Evidence → filesystem: PASS, Gemini output bound
+  unchanged into the downstream write, exact text verification, satisfied
+  conformance, zero AI planning calls.
+- Production Intent/clarification/grounded-question conformance: 16/16 PASS
+  before the final ambiguity repair; all affected semantic families remain
+  green after it.
+- Selected architecture and semantic guards: 406 passed, 1 skipped, 6 known
+  stale architecture-string failures.
+- Full tracked suite (`pytest tests`) completed across **8,568 tests**. It
+  initially reported **8,481 passed, 85 failed, 2 skipped**. Exact-ID
+  comparison found one new failure: an earlier convergence test still asserted
+  that nounless `Create Demo on my Desktop` must proceed without clarification.
+  The now-stale assertion was updated to require the safe object-kind question.
+  Its affected 152-test family passes, and a targeted rerun of every cached
+  failing ID leaves **84 failed**—the exact independently documented legacy
+  set—and **no convergence-owned failing ID**. Combining the completed run
+  with that corrected-ID proof gives 8,482 current passes, 84 known legacy
+  failures, and 2 skips; no failure was hidden by a count-only comparison.
+- Frozen holdout false completions after repairs: **0**.
+- Browser/session leaks after lifecycle repair: **0**.
+- Crashes during convergence: **0**. The historical speech/typing crash
+  remains `OBSERVED ONCE / ROOT CAUSE UNRESOLVED`, not “fixed.”
+- Ollama was not enabled, constructed, or made eligible.
+
+Known non-P0 limitations remain visible rather than being turned into claims:
+generic AI-planned missions often lack canonical domain Evidence and semantic
+requirements, so the Reporter correctly returns `UNKNOWN`; browser recovery
+mostly executes a plan rather than meaningfully changing strategy; some
+deterministic browser failures retry; public standalone reasoning is currently
+over-classified as sensitive; last-mission/referent grounding is incomplete;
+and provider-backed paths can take tens of seconds. These constrain external
+alpha readiness and demo scope, but none produced a post-repair false
+completion or unauthorized authority escalation in the frozen set.
+
+### Package gate
+
+The pre-existing 46-capability executable remains stale and is not a release
+candidate. The next action is a clean PyInstaller build from a committed,
+known HEAD, followed by package hash, self-check, no-Ollama/FMEA verification,
+launch, packaged acceptance, and exactly one normal Founder Edition instance.

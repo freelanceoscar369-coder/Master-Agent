@@ -381,6 +381,32 @@ _SEQUENCING_CONNECTIVES: tuple[str, ...] = (
 )
 
 
+#: A creation command that supplies a name and a supported place but omits
+#: what kind of object is to be created.  This is deliberately a structural
+#: shape, not a list of holdout sentences.  The location is the anchor: plain
+#: ``create a report`` remains ordinary generic prose, while ``create Budget
+#: on Desktop`` has supplied two fields and demonstrably omitted a third.
+_NOUNLESS_CREATE = re.compile(
+    r"\b(?:create|make)\s+"
+    r"(?P<name>[\w][\w ._'-]*?)\s+"
+    r"(?:on|in)\s+(?:my\s+|the\s+)?"
+    r"(?P<location>desktop|documents|downloads|d(?:[_ ]+)drive)\b",
+    re.IGNORECASE,
+)
+
+#: Words that already state what is being created.  Their exact action may
+#: still belong to a typed parser or to Planning, but it is not the
+#: ``creation_kind`` ambiguity handled here.  Exact tokens avoid treating a
+#: proper name such as ``ProjectFolder`` as an object declaration.
+_EXPLICIT_CREATE_KINDS = frozenset({
+    "folder", "directory", "file", "document", "project", "application",
+    "app", "report",
+})
+_CREATE_REFERENTS = frozenset({"it", "this", "that", "one", "them", "something"})
+_CREATION_KIND = "creation_kind"
+_CREATION_KIND_OPTIONS = ("folder", "file")
+
+
 #: How much a sentence may say beyond a parser's trigger phrase and still
 #: be that parser's sentence with a field missing.
 #:
@@ -1206,6 +1232,20 @@ class IntentLayer:
                 raw_input=text,
             )
 
+        # A name plus a place does not answer WHAT is being created.
+        #
+        # This check must precede both the single-command parsers and the
+        # compound-objective bypass.  Without it, ``create Budget on
+        # Desktop`` becomes generic prose and a Planner/provider is invited
+        # to choose file versus folder.  In a compound sentence the same
+        # guess can mutate the environment before the safe Reporter says it
+        # cannot confirm conformance.  Capability availability is not a
+        # source of Founder meaning; the missing object kind is therefore a
+        # clarification owned here.
+        ambiguous_create = self._parse_nounless_create(text, supplied)
+        if ambiguous_create is not None:
+            return self._with_roles(ambiguous_create, text)
+
         # Try exact patterns first -- but only for a message that asks for
         # ONE thing. Every parser below is a complete-command recogniser
         # (see `enumerates_multiple_requirements`); offering one a compound
@@ -1261,6 +1301,108 @@ class IntentLayer:
                 raw_input=text,
             ),
             text,
+        )
+
+    def _parse_nounless_create(
+        self,
+        text: str,
+        supplied: Mapping[str, str] | None,
+    ) -> IntentResult | None:
+        """Clarify a structurally omitted file/folder kind.
+
+        ``None`` means this is not the semantic class.  A result means the
+        class was recognised and must not escape to generic Planning until
+        the Founder supplies the missing meaning.
+        """
+        match = _NOUNLESS_CREATE.search(text)
+        if match is None:
+            return None
+
+        name = match.group("name").strip(_VALUE_STRIP)
+        tokens = {
+            token.strip(_VALUE_STRIP).lower()
+            for token in name.split()
+            if token.strip(_VALUE_STRIP)
+        }
+        if not name or tokens & _EXPLICIT_CREATE_KINDS:
+            return None
+        if name.lower() in _CREATE_REFERENTS:
+            # A missing referent is a different ambiguity.  Do not pretend
+            # this rule knows what ``it`` points to.
+            return None
+
+        location_words = match.group("location").lower().replace("_", " ")
+        location = location_words.replace(" ", "_") if location_words == "d drive" else location_words
+        for candidate in self._vocabularies.get("location", ()):
+            if candidate.lower().replace("_", " ") == location_words:
+                location = candidate
+                break
+
+        raw_kind = str((supplied or {}).get(_CREATION_KIND, "") or "").strip()
+        kind_tokens = {
+            token.strip(_VALUE_STRIP).lower()
+            for token in raw_kind.split()
+            if token.strip(_VALUE_STRIP)
+        }
+        kind = ""
+        if kind_tokens & {"folder", "directory"}:
+            kind = "folder"
+        elif kind_tokens & {"file", "document"}:
+            kind = "file"
+
+        base_resolved = {
+            "creation_name": name,
+            "location": location,
+        }
+        base_evidence = {
+            key: FieldEvidence(value=value, evidence=text, source=STATED).as_dict()
+            for key, value in base_resolved.items()
+        }
+        if not kind:
+            return IntentResult(
+                clarification=ClarificationQuestion(
+                    question=(
+                        f"Should I create a folder or a file named {name}?"
+                    ),
+                    key=_CREATION_KIND,
+                    options=_CREATION_KIND_OPTIONS,
+                    required=True,
+                    gathering=(_CREATION_KIND,),
+                ),
+                raw_input=text,
+                resolved=base_resolved,
+                evidence=base_evidence,
+            )
+
+        # One folder command can reuse the existing typed parser and its
+        # capability contract.  No second folder interpretation is authored
+        # here; this method only supplies the fields the Founder just made
+        # unambiguous.
+        if kind == "folder" and not enumerates_multiple_requirements(text):
+            result = CreateFolderIntent().parse(
+                "create a folder",
+                supplied={"folder_name": name, "location": location},
+            )
+            result.raw_input = text
+            return result
+
+        # A compound objective still belongs to Planning.  Preserve every
+        # original word and attach the Founder clarification as additional
+        # evidence; do not collapse the sentence into its creation clause.
+        clarified_goal = (
+            f"{text}\nFounder clarification: the named item {name!r} is a {kind}."
+        )
+        return IntentResult(
+            intent=Intent(
+                goal=clarified_goal,
+                constraints=[],
+                context={
+                    "raw_input": text,
+                    "clarified": {_CREATION_KIND: kind},
+                },
+                success_criteria=[],
+            ),
+            raw_input=text,
         )
 
 
