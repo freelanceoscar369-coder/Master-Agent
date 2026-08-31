@@ -200,15 +200,12 @@ class TestTheDesignationTravels:
         ))
         assert task.answers_founder == ""
 
-    def test_a_model_cannot_designate_an_answer(self):
-        """The deterministic lane knows what the founder dictated. A
-        planning prompt does not mention this field and the plan parser
-        does not read it, so a model cannot claim a step answers a
-        question it merely guessed the shape of."""
-        from master_agent.planner import parsing, prompting
-
-        source = "".join(
-            open(module.__file__, encoding="utf-8").read()
-            for module in (parsing, prompting)
+    def test_an_ai_designation_remains_only_a_verified_projection(self):
+        """The planning vocabulary may designate a published field, but
+        Mission Control still refuses to speak it without Evidence."""
+        task = completed(
+            "reason", "Reasoning.Transform", "unverified claim", at=NOW,
+            answers="text",
         )
-        assert "answers_founder" not in source
+        state = state_for(task)
+        assert state.answer is None

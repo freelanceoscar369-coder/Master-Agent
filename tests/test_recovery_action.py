@@ -291,3 +291,13 @@ class TestThePlannerIsToldWhatWasLearned:
         intent.requirements = REQUIREMENTS
         prompt = build_prompt(intent, (CapabilityOption(name="Browser.Navigate"),))
         assert "second attempt" not in prompt
+
+    def test_independent_sources_are_not_placed_in_one_failure_chain(self):
+        """Measured live: one help-page redirect blocked eleven unrelated
+        acquisition, synthesis, delivery and verification steps because
+        each source had been made to depend on the previous source.
+        """
+        prompt = self.build({})
+
+        assert "must not block an unrelated source route" in prompt
+        assert "stateful session" in prompt

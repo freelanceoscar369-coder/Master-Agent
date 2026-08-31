@@ -295,6 +295,7 @@ class TestReasoningOverEvidence:
 
         assert result.success
         assert result.output["missing_sections"] == ["gaps"]
+        assert result.output["sensitivity"] == "private"
 
     def test_an_empty_answer_is_a_failure(self, workspace):
         """A later step binding to emptiness would carry it forward

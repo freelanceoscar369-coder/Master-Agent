@@ -192,6 +192,12 @@ class SemanticRequirement:
     #: `UNCERTAIN` may never reach execution and may never be reported as
     #: satisfied.
     interpretation: str = "known"
+    #: Whether this requirement describes a property that each candidate
+    #: in a comparison can possess.  `False` keeps mission-level obligations
+    #: such as "recommend one" and "save the report" in Intent/conformance
+    #: without asking every candidate to satisfy them.  `None` is legacy or
+    #: not applicable; downstream projections must not guess a value.
+    candidate_property: bool | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -202,6 +208,7 @@ class SemanticRequirement:
             "provenance": self.provenance,
             "founder_evidence": self.founder_evidence,
             "interpretation": self.interpretation,
+            "candidate_property": self.candidate_property,
         }
 
 
@@ -335,10 +342,11 @@ class Step:
     #: composing an answer is precisely the authority the reporting path
     #: does not have.
     #:
-    #: Set only by the deterministic lane, which knows what the founder
-    #: dictated. The planning prompt does not mention it and the plan
-    #: parser does not read it, so a model cannot designate an answer for
-    #: work it merely guessed the shape of.
+    #: A deterministic lane may set this directly. An AI plan may only set
+    #: a dot-path whose first field the selected capability publishes, and
+    #: plan validation permits at most one designation. This grants no
+    #: authority to compose an answer: Mission Control still projects the
+    #: value only from fresh matched Evidence after the step runs.
     answers_founder: str = ""
     #: MB037. **Descriptive, never directive.** Mission Control owns
     #: execution order and resolves it from `depends_on`; a Planner that

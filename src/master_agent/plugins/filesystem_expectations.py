@@ -60,14 +60,17 @@ _DIRECTORY: frozenset[str] = frozenset({"create_folder", "workspace_bootstrap"})
 
 #: Capabilities that must leave a file behind.
 _FILE: frozenset[str] = frozenset(
-    {"write_file", "append_file", "copy_file", "move_file", "rename_file"}
+    {
+        "write_file", "write_document", "append_file", "copy_file",
+        "move_file", "rename_file",
+    }
 )
 
 #: Capabilities whose exact resulting content is knowable from the payload
 #: alone. `append_file` is deliberately absent: the finished file is prior
 #: content plus this step's, and this layer never saw the prior content,
 #: so a digest built from the payload would fail a correct append.
-_EXACT_CONTENT: frozenset[str] = frozenset({"write_file"})
+_EXACT_CONTENT: frozenset[str] = frozenset({"write_file", "write_document"})
 
 #: Capabilities that answer a question instead of changing the world.
 #:

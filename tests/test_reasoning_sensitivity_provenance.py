@@ -180,6 +180,46 @@ class TestItIsWiredIntoResolution:
         assert resolved.payload["context"] == "public page"
         assert resolved.payload["sensitive"] is False
 
+    @pytest.mark.parametrize(
+        ("observed_sensitivity", "expected"),
+        [("public", False), ("private", True)],
+    )
+    def test_reasoning_output_inherits_its_verified_material_classification(
+        self, observed_sensitivity, expected
+    ):
+        from types import SimpleNamespace
+
+        from master_agent.runtime.input_resolution import resolve_inputs
+
+        source = SimpleNamespace(
+            capability="Reasoning.Transform",
+            state="completed",
+            result={"text": "derived report", "sensitivity": observed_sensitivity},
+            evidence={
+                "evidence_id": "ev-reasoning",
+                "verdict": "matched",
+                "observation": {
+                    "text": "derived report",
+                    "sensitivity": observed_sensitivity,
+                },
+            },
+        )
+        task = SimpleNamespace(
+            task_id="format",
+            payload={"instruction": "format"},
+            input_bindings={
+                "context": {
+                    "from_step": {"step_id": "compare", "field": "text"}
+                }
+            },
+            depends_on=["compare"],
+            intent_sensitive=False,
+        )
+
+        resolved = resolve_inputs(task, {"compare": source})
+
+        assert resolved.payload["sensitive"] is expected
+
     def test_the_resolver_derives_sensitivity_from_its_own_provenance(self):
         import inspect
 

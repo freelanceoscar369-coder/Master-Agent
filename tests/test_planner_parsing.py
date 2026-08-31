@@ -15,6 +15,7 @@ from master_agent.planner import outcomes
 from master_agent.planner.catalogue import CapabilityOption, catalogue_from, names, render
 from master_agent.planner.parsing import validate
 from master_agent.planner.plan import (
+    BAD_PAYLOAD,
     BAD_DEPENDENCY,
     CYCLIC,
     MALFORMED,
@@ -159,6 +160,66 @@ def test_a_null_depends_on_is_no_dependencies():
 
     assert refusal is None
     assert plan.steps[0].depends_on == []
+
+
+def test_a_published_output_may_be_designated_as_the_founder_answer():
+    reason = CapabilityOption(
+        name="Reasoning.Transform",
+        required_args=("instruction",),
+        args_complete=True,
+        output_fields=("text", "sensitivity"),
+    )
+    entry = {
+        "id": "answer",
+        "capability": reason.name,
+        "payload": {"instruction": "recommend one"},
+        "answers_founder": " text ",
+        "success": success(),
+    }
+
+    plan, refusal = validate(document(entry), (reason,))
+
+    assert refusal is None
+    assert plan.steps[0].answers_founder == "text"
+
+
+def test_an_unpublished_founder_answer_field_is_refused():
+    reason = CapabilityOption(
+        name="Reasoning.Transform", output_fields=("text",),
+    )
+    refusal = refusal_for(
+        {**step("answer", reason.name), "answers_founder": "rationale"},
+        options=(reason,),
+    )
+
+    assert refusal.code == BAD_PAYLOAD
+    assert "publishes: text" in refusal.detail
+
+
+def test_more_than_one_step_cannot_designate_the_founder_answer():
+    reason = CapabilityOption(
+        name="Reasoning.Transform", output_fields=("text",),
+    )
+    refusal = refusal_for(
+        {**step("first", reason.name), "answers_founder": "text"},
+        {**step("second", reason.name), "answers_founder": "text"},
+        options=(reason,),
+    )
+
+    assert refusal.code == BAD_PAYLOAD
+    assert "first, second" in refusal.detail
+
+
+def test_non_string_founder_answer_designation_is_malformed():
+    reason = CapabilityOption(
+        name="Reasoning.Transform", output_fields=("text",),
+    )
+    refusal = refusal_for(
+        {**step("answer", reason.name), "answers_founder": ["text"]},
+        options=(reason,),
+    )
+
+    assert refusal.code == MALFORMED
 
 
 # =========================================================================
@@ -348,6 +409,70 @@ def test_a_diamond_is_ordered_so_every_dependency_comes_first():
     order = [s.step_id for s in plan.steps]
     assert order.index("root") < order.index("left") < order.index("join")
     assert order.index("right") < order.index("join")
+
+
+def test_unordered_operations_cannot_share_one_stateful_browser_session():
+    options = CATALOGUE + (
+        CapabilityOption(name="Browser.Navigate"),
+        CapabilityOption(name="Browser.ReadPageText"),
+    )
+    plan, refusal = validate(
+        document(
+            step("open", capability="Browser.Navigate", payload={"session_id": "s"}),
+            step(
+                "left", capability="Browser.Navigate",
+                payload={"session_id": "s"}, depends_on=["open"],
+            ),
+            step(
+                "right", capability="Browser.ReadPageText",
+                payload={"session_id": "s"}, depends_on=["open"],
+            ),
+        ),
+        options,
+    )
+
+    assert plan is None
+    assert refusal.code == BAD_DEPENDENCY
+    assert "stateful browser session `s`" in refusal.detail
+    assert "left" in refusal.detail and "right" in refusal.detail
+
+
+def test_ordered_operations_may_share_one_stateful_browser_session():
+    options = CATALOGUE + (
+        CapabilityOption(name="Browser.Navigate"),
+        CapabilityOption(name="Browser.ReadPageText"),
+    )
+    plan, refusal = validate(
+        document(
+            step("open", capability="Browser.Navigate", payload={"session_id": "s"}),
+            step(
+                "navigate", capability="Browser.Navigate",
+                payload={"session_id": "s"}, depends_on=["open"],
+            ),
+            step(
+                "read", capability="Browser.ReadPageText",
+                payload={"session_id": "s"}, depends_on=["navigate"],
+            ),
+        ),
+        options,
+    )
+
+    assert refusal is None
+    assert [item.step_id for item in plan.steps] == ["open", "navigate", "read"]
+
+
+def test_independent_browser_sessions_do_not_need_cross_dependencies():
+    options = CATALOGUE + (CapabilityOption(name="Browser.Navigate"),)
+    plan, refusal = validate(
+        document(
+            step("one", capability="Browser.Navigate", payload={"session_id": "s1"}),
+            step("two", capability="Browser.Navigate", payload={"session_id": "s2"}),
+        ),
+        options,
+    )
+
+    assert refusal is None
+    assert plan is not None
 
 
 def test_the_objective_travels_with_the_plan():

@@ -978,14 +978,16 @@ def _build_mission_pipeline():
     # permission-granted, and could not run. Proven by planning each one
     # and watching the task fail, not inferred from the code path.
     #
-    # `PluginGateway` is the same generic seam Browser and Filesystem used
-    # before they earned verifying gateways of their own, and the one
-    # Desktop's non-verifiable capabilities still take. It executes and
-    # returns no Evidence, which is the truthful shape for Document: a
-    # written document has no generic read-only postcondition this layer
-    # could re-observe, and inventing one would be manufacturing Evidence.
+    # Text document writes have a real read-only postcondition: the target
+    # exists and its freshly re-read text has the digest of the content the
+    # step supplied.  DocumentGateway keeps DocumentPlugin as execution
+    # owner and reuses the existing filesystem Verifier for that observation.
+    # Binary .docx output remains explicitly unsupported by this verifier.
+    from master_agent.plugins.document_gateway import DocumentGateway  # noqa: PLC0415
+
     runtime.register_gateway(
-        document_plugin.manifest.name, PluginGateway(document_plugin),
+        document_plugin.manifest.name,
+        DocumentGateway(document_plugin, locations=_locations),
     )
 
     # Reasoning is different, and the difference was measured rather than

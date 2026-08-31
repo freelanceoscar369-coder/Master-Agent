@@ -126,6 +126,14 @@ class ReasoningTransformAction(Action):
                 "type": "string",
                 "description": "The reasoned answer, as text a later step may use.",
             },
+            {
+                "name": "sensitivity",
+                "type": "string",
+                "description": (
+                    "The material classification this transform actually "
+                    "ran under: public or private."
+                ),
+            },
         ]
 
     def validate(self, parameters: dict[str, Any]) -> list[str]:
@@ -300,6 +308,11 @@ class ReasoningTransformAction(Action):
             success=True,
             output={
                 "text": text,
+                # Action-owned metadata, never model output. A later
+                # reasoning step reads it only through matched Evidence,
+                # so public research remains public through synthesis and
+                # private material can never be laundered by the model.
+                "sensitivity": "private" if bool(sensitive) else "public",
                 # Mechanical facts about the answer -- what Verification
                 # can honestly check. None of this says the judgement is
                 # correct, and nothing here should be read as saying so.

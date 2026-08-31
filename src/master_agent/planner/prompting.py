@@ -35,6 +35,7 @@ PLAN_SHAPE = """{
       "input_bindings": {},
       "depends_on": [],
       "founder_checkpoint": "",
+      "answers_founder": "",
       "priority": "low | normal | high | critical",
       "complexity": "trivial | small | moderate | large",
       "success": {
@@ -78,6 +79,43 @@ _RULES = (
         "until that step runs. Declare it in `input_bindings` instead, "
         "referencing the step that produces it, and put that step in "
         "`depends_on` as well."
+    ),
+    (
+        "4f. Dependencies express a real prerequisite, not visual order. "
+        "When several sources or candidates can be acquired independently, "
+        "a failure in one must not block an unrelated source route: do not "
+        "chain those routes merely to make their steps appear sequential. "
+        "Stateful resources are the exception. Every operation sharing one "
+        "stateful session must be explicitly ordered; if the source routes "
+        "are genuinely independent, give each route its own session and "
+        "close it on that route. A synthesis step depends only on the "
+        "evidence-producing steps whose outputs it actually binds."
+    ),
+    (
+        "4g. A verified write already includes a fresh independent read of "
+        "the resulting artifact. When a final plain-text or Markdown "
+        "deliverable is written with Filesystem.WriteFile or "
+        "Document.WriteDocument, bind the final verified text into that "
+        "write and make the write step cover every requirement embodied "
+        "in the artifact. Do not add FileExists or ReadFile merely to "
+        "re-check that same write; those query steps add no stronger "
+        "verification and can make outcome coverage ambiguous."
+    ),
+    (
+        "4h. Research synthesis must preserve provenance. Bind the observed "
+        "source URL together with the source text whenever the producing "
+        "capability publishes both. The final deliverable must distinguish "
+        "evidence-backed facts from the system's inference, name material "
+        "unknowns or limitations, and include a Sources/Provenance section. "
+        "Never fill a missing fact from model memory."
+    ),
+    (
+        "4i. If the Founder asks to be told, shown, answered or given a "
+        "specific value, exactly one evidence-producing step may name that "
+        "value in `answers_founder` as a dot-path into that capability's "
+        "published output (for example `text`). Leave it empty on every "
+        "other step. Designate the step that produces the requested answer, "
+        "not a later write, close or cleanup step merely because it is last."
     ),
     (
         "5. Use the fewest steps that actually achieve the goal. "

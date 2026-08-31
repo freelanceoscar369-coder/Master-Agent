@@ -76,6 +76,11 @@ def classify(capability: str) -> str:
     name = str(capability or "").strip().lower()
     if not name:
         return UNKNOWN
+    # A previous reasoning step publishes the classification it actually
+    # ran under. This is read only from matched Evidence by input
+    # resolution, never from model text.
+    if name in {PUBLIC, PRIVATE}:
+        return name
     domain = name.split(".", 1)[0]
     if domain in _PRIVATE_DOMAINS:
         return PRIVATE

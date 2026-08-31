@@ -1530,8 +1530,17 @@ class IntentLayer:
             "    information - the founder must be TOLD something\n"
             "    deliverable - an artefact must be produced for them\n"
             "    constraint  - a condition another requirement must meet\n\n"
+            "For each requirement also state candidate_property. It is true "
+            "only when EACH candidate in a comparison can possess or fail "
+            "that property (for example price, a feature, availability, or "
+            "a constraint on the candidate). It is false for mission work "
+            "such as research three options, compare them, recommend one, "
+            "write/save a report, or use a named source. This field never "
+            "removes a Founder requirement; it only tells the later decision "
+            "projection whether the requirement applies to each candidate.\n\n"
             "Reply with JSON and nothing else:\n"
-            '    {"requirements": [{"kind": "...", "description": "..."}]}\n\n'
+            '    {"requirements": [{"kind": "...", "description": "...", '
+            '"candidate_property": true}]}\n\n'
             "Rules. Describe WHAT they require, never HOW to do it, and "
             "never name a tool, capability, program or website. Include "
             "only what their own words establish -- do not add steps that "
@@ -1575,6 +1584,10 @@ class IntentLayer:
                 # closed, and output that does not fit it is output that
                 # was not understood.
                 continue
+            property_value = item.get("candidate_property")
+            candidate_property = (
+                property_value if isinstance(property_value, bool) else None
+            )
             found.append(SemanticRequirement(
                 requirement_id=f"req_{len(found) + 1}",
                 kind=kind,
@@ -1594,6 +1607,7 @@ class IntentLayer:
                 # wording would be finer and is recorded as debt in
                 # ADR-0027 rather than invented here.
                 founder_evidence=objective,
+                candidate_property=candidate_property,
             ))
         return tuple(found)
 

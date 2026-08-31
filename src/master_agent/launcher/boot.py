@@ -568,6 +568,8 @@ def build_system(
     #    Runtime (step 4a), not in whether a gateway exists, so refusing
     #    to wire one would no longer be a safety measure -- just a system
     #    that cannot work.
+    from master_agent.plugins.document_gateway import DocumentGateway
+
     for plugin in registry.all_plugins():
         if plugin.manifest.name == "filesystem":
             # Wire FilesystemGateway with real verification (same pattern as BrowserGateway in tests)
@@ -582,6 +584,17 @@ def build_system(
                     break
             worker = FilesystemWorker(plugin_executor, locations=locations)
             runtime.register_gateway(plugin.manifest.name, FilesystemGateway(worker, plugin_permissions, plugin_executor.name))
+        elif plugin.manifest.name == "document":
+            actions = getattr(plugin, "_actions", {})
+            locations = None
+            for action in actions.values():
+                if hasattr(action, "_locations"):
+                    locations = action._locations
+                    break
+            runtime.register_gateway(
+                plugin.manifest.name,
+                DocumentGateway(plugin, locations=locations),
+            )
         else:
             runtime.register_gateway(plugin.manifest.name, PluginGateway(plugin))
     report.add(

@@ -78,6 +78,13 @@ class TestNoCapabilityIsRegisteredWithoutAWayToRunIt:
         assert "document" in runtime._gateways
         assert "reasoning" in runtime._gateways
 
+    def test_document_writes_use_the_verifying_gateway(self, pipeline):
+        from master_agent.plugins.document_gateway import DocumentGateway
+
+        _service, runtime, *_rest = pipeline
+
+        assert isinstance(runtime._gateways["document"], DocumentGateway)
+
     def test_no_gateway_is_registered_for_an_executive_with_no_capabilities(self, pipeline):
         """The other direction. A gateway for an executive that registers
         nothing is dead wiring — harmless, but it means the composition

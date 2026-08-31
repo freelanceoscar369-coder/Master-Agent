@@ -22,6 +22,9 @@ judgement about correspondence, never a `Verdict` and never `Evidence`.
 """
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from master_agent.brain.conformance import (
@@ -157,6 +160,42 @@ class TestRequirementsAreExtracted:
         staged = {r.description for r in result.intent.requirements}
         assert "name = Research" in staged
         assert "location = desktop" in staged
+
+    def test_compound_semantics_separate_candidate_properties_from_mission_outputs(self):
+        class Reasoner:
+            def run(self, _prompt, _request):
+                return SimpleNamespace(ok=True, text=json.dumps({
+                    "requirements": [
+                        {
+                            "kind": "information",
+                            "description": "free access/pricing",
+                            "candidate_property": True,
+                        },
+                        {
+                            "kind": "information",
+                            "description": "recommend one",
+                            "candidate_property": False,
+                        },
+                        {
+                            "kind": "deliverable",
+                            "description": "save a verified report",
+                            "candidate_property": False,
+                        },
+                    ]
+                }))
+
+        intent = SimpleNamespace(
+            goal="compare products, recommend one, and save a report",
+            capability="",
+            payload={},
+            answers_founder="",
+        )
+        requirements = layer(Reasoner()).requirements_for(intent, raw=intent.goal)
+
+        assert [r.candidate_property for r in requirements] == [True, False, False]
+        assert [r.description for r in requirements] == [
+            "free access/pricing", "recommend one", "save a verified report",
+        ]
 
 
 # =====================================================================

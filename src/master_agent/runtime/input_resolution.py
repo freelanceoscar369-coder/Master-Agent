@@ -253,13 +253,25 @@ def resolve_inputs(task: Any, sources: dict[str, Any]) -> ResolvedInputs:
     # lowering requires every bound source to be known-public.
     from master_agent.runtime.sensitivity import apply_to
 
-    sources = [
-        str(getattr(sources.get(entry["step_id"]), "capability", "") or "")
-        for row in provenance for entry in row["sources"]
-    ]
+    material_sources: list[str] = []
+    for row in provenance:
+        for entry in row["sources"]:
+            source_task = sources.get(entry["step_id"])
+            capability = str(getattr(source_task, "capability", "") or "")
+            observation = (
+                getattr(source_task, "evidence", None) or {}
+            ).get("observation") or {}
+            inherited = observation.get("sensitivity")
+            if (
+                capability.lower().startswith("reasoning.")
+                and inherited in {"public", "private"}
+            ):
+                material_sources.append(inherited)
+            else:
+                material_sources.append(capability)
     apply_to(
         payload,
-        [source for source in sources if source],
+        [source for source in material_sources if source],
         intent_sensitive=getattr(task, "intent_sensitive", None),
     )
 

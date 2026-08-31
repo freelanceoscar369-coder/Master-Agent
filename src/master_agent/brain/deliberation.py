@@ -794,6 +794,29 @@ def frame_for(
     # `constraint` then `information`. Everything downstream inherits
     # that. A frame cannot filter its way out of unstable input, and the
     # place to fix it is where requirements are derived.
+    # Intent retains EVERY requirement.  Candidate shortlisting is a
+    # projection over only requirements that explicitly describe a property
+    # each candidate can possess.  Before the semantic owner published that
+    # distinction, the frame made products satisfy "recommend one" and
+    # "save the report" and therefore rejected every product.  `None` keeps
+    # legacy records on their historical behaviour instead of retroactively
+    # inventing semantic metadata.
+    scoped = tuple(
+        requirement for requirement in kept
+        if getattr(requirement, "candidate_property", None) is True
+    )
+    has_scope = any(
+        getattr(requirement, "candidate_property", None) is not None
+        for requirement in kept
+    )
+    candidate_requirements = scoped if has_scope else kept
+    if has_scope and not candidate_requirements:
+        # The objective may still require substantial work, but it is not a
+        # candidate decision.  Conformance retains and judges every original
+        # requirement; deliberation would only manufacture candidates out of
+        # mission-level verbs.
+        return None
+
     mandatory = tuple(
         Criterion(
             criterion_id=f"crit_{index}",
@@ -801,7 +824,7 @@ def frame_for(
             requirement_id=str(getattr(requirement, "requirement_id", "")),
             mandatory=bool(getattr(requirement, "required", True)),
         )
-        for index, requirement in enumerate(kept, start=1)
+        for index, requirement in enumerate(candidate_requirements, start=1)
     )
     return DecisionFrame(
         objective=objective,

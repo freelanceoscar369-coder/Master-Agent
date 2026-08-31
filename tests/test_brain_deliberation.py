@@ -556,6 +556,33 @@ class TestFramingFromCanonicalInformationOnly:
         described = {c.description for c in frame.mandatory}
         assert described == {r.description for r in requirements}
 
+    def test_explicit_mission_level_requirements_are_not_candidate_properties(self):
+        """The mission still owns every requirement, but a product cannot
+        itself 'save the report' or 'recommend one'.  Candidate shortlisting
+        must not require it to."""
+        from master_agent.brain.deliberation import frame_for
+        from master_agent.planner.plan import INFORMATION, SemanticRequirement
+
+        requirements = (
+            SemanticRequirement(
+                "req_1", INFORMATION, "free access/pricing",
+                candidate_property=True,
+            ),
+            SemanticRequirement(
+                "req_2", INFORMATION, "recommend one",
+                candidate_property=False,
+            ),
+            SemanticRequirement(
+                "req_3", INFORMATION, "save the verified report",
+                candidate_property=False,
+            ),
+        )
+
+        frame = frame_for(objective="compare products", requirements=requirements)
+
+        assert frame.requirement_ids == ("req_1", "req_2", "req_3")
+        assert [c.requirement_id for c in frame.mandatory] == ["req_1"]
+
     def test_every_requirement_is_kept_even_when_it_is_not_a_candidate_property(self):
         """Filtering to the requirements that ARE candidate properties was
         tried and taken back out -- see `frame_for`.

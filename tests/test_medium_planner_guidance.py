@@ -141,6 +141,16 @@ class TestFullRequirementCoverage:
         assert says(prompt, "beats a two-step plan")
 
 
+class TestFounderAnswerDesignation:
+
+    def test_the_requested_value_is_designated_on_its_producer(self, prompt):
+        assert says(prompt, "answers_founder", "dot-path")
+        assert says(prompt, "exactly one evidence-producing step")
+
+    def test_cleanup_is_not_mistaken_for_the_answer(self, prompt):
+        assert says(prompt, "not a later write, close or cleanup step")
+
+
 class TestRefusalIsTheLastAnswer:
 
     def test_empty_steps_only_after_considering_composition(self, prompt):
@@ -251,3 +261,15 @@ class TestTheOriginalContractSurvives:
 
     def test_an_argument_may_not_be_set_twice(self, prompt):
         assert says(prompt, "must NOT also appear in `payload`")
+
+
+class TestVerifiedResearchDeliverables:
+
+    def test_a_verified_write_is_not_followed_by_a_weaker_query(self, prompt):
+        assert says(prompt, "verified write", "fresh independent read")
+        assert says(prompt, "do not add fileexists or readfile merely")
+
+    def test_research_keeps_sources_and_unknowns(self, prompt):
+        assert says(prompt, "bind the observed source url")
+        assert says(prompt, "sources/provenance section")
+        assert says(prompt, "never fill a missing fact from model memory")

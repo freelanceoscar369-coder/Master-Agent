@@ -212,6 +212,33 @@ def _read_step(
     # MB037's plan unrunnable: right capability, wrong argument name.
     option = _option_named(capability, options)
 
+    # The field the Founder asked to receive, when this step produces it.
+    # This is a designation, not proof: Mission Control reads the value only
+    # from matched Evidence after execution.  The capability contract still
+    # bounds what may be named, so a provider cannot invent a result field.
+    raw_answer = entry.get("answers_founder")
+    if raw_answer is None:
+        answers_founder = ""
+    elif not isinstance(raw_answer, str):
+        return None, _malformed(
+            f"step `{step_id}`: `answers_founder` must be a dot-path string"
+        )
+    else:
+        answers_founder = raw_answer.strip()
+    if answers_founder:
+        published = tuple(getattr(option, "output_fields", ()) or ())
+        root = answers_founder.split(".", 1)[0]
+        if root not in published:
+            return None, PlanRefusal(
+                code=BAD_PAYLOAD,
+                reason="a step designates an answer field that is not published",
+                detail=(
+                    f"step `{step_id}` designates `{answers_founder}`, but "
+                    f"`{capability}` publishes: "
+                    f"{', '.join(published) or 'no output fields'}."
+                ),
+            )
+
     # ---- declared input bindings ------------------------------------
     #
     # A value produced by an earlier step, named rather than predicted.
@@ -338,6 +365,7 @@ def _read_step(
             # is the point -- a checkpoint exists only because an
             # objective asked for one.
             founder_checkpoint=str(entry.get("founder_checkpoint") or "").strip(),
+            answers_founder=answers_founder,
             priority=priority,
             estimated_complexity=complexity,
             covers=covers,
@@ -379,6 +407,58 @@ def _ordered(steps: list[Step]) -> tuple[list[Step] | None, PlanRefusal | None]:
             pending.difference_update(ready)
 
     return order, None
+
+
+def _stateful_browser_order(steps: list[Step]) -> PlanRefusal | None:
+    """Refuse two incomparable operations against one browser session.
+
+    Mission Control is free to run dependency-ready steps in any valid
+    topological order.  A browser session is mutable state, so two steps
+    that share it but are not ordered by the DAG can observe whichever
+    page the other step happened to leave behind.  Declaration order is
+    not authority and must not be used to guess which operation came first.
+    """
+    by_id = {step.step_id: step for step in steps}
+
+    def waits_for(step: Step, target: str) -> bool:
+        pending = list(step.depends_on)
+        seen: set[str] = set()
+        while pending:
+            dependency = pending.pop()
+            if dependency == target:
+                return True
+            if dependency in seen:
+                continue
+            seen.add(dependency)
+            source = by_id.get(dependency)
+            if source is not None:
+                pending.extend(source.depends_on)
+        return False
+
+    sessions: dict[str, list[Step]] = {}
+    for step in steps:
+        if not step.capability.lower().startswith("browser."):
+            continue
+        session_id = step.payload.get("session_id")
+        if isinstance(session_id, str) and session_id.strip():
+            sessions.setdefault(session_id.strip(), []).append(step)
+
+    for session_id, operations in sessions.items():
+        for index, left in enumerate(operations):
+            for right in operations[index + 1:]:
+                if waits_for(left, right.step_id) or waits_for(right, left.step_id):
+                    continue
+                return PlanRefusal(
+                    code=BAD_DEPENDENCY,
+                    reason="operations sharing a stateful browser session are unordered",
+                    detail=(
+                        f"steps `{left.step_id}` and `{right.step_id}` both use "
+                        f"stateful browser session `{session_id}`, but neither "
+                        "depends on the other. Give independent routes separate "
+                        "sessions, or declare their real execution order."
+                    ),
+                )
+    return None
 
 
 def validate(
@@ -453,6 +533,17 @@ def validate(
         seen.add(step.step_id)
         steps.append(step)
 
+    answer_steps = [step.step_id for step in steps if step.answers_founder]
+    if len(answer_steps) > 1:
+        return None, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="more than one step designates the Founder's answer",
+            detail=(
+                "exactly one evidence-producing step may designate the answer; "
+                f"found designations on: {', '.join(answer_steps)}"
+            ),
+        )
+
     for step in steps:
         if step.step_id in step.depends_on:
             return None, PlanRefusal(
@@ -470,6 +561,10 @@ def validate(
                         "which is not in the plan"
                     ),
                 )
+
+    session_problem = _stateful_browser_order(steps)
+    if session_problem is not None:
+        return None, session_problem
 
     ordered, refusal = _ordered(steps)
     if ordered is None:
