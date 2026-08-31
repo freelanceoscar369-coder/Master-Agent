@@ -23,12 +23,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from master_agent.planner import outcomes
-from master_agent.planner.catalogue import CapabilityOption, names
 from master_agent.capabilities.input_bindings import (
     MalformedBinding,
     bindings_from_dict,
 )
+from master_agent.planner import outcomes
+from master_agent.planner.catalogue import CapabilityOption, names
 from master_agent.planner.plan import (
     BAD_DEPENDENCY,
     BAD_PAYLOAD,
@@ -469,6 +469,7 @@ def validate(
     is_sensitive: bool | None = None,
     required_coverage: Any = (),
     forbidden_coverage: Any = (),
+    exhausted_routes: Any = (),
 ) -> tuple[MissionPlan | None, PlanRefusal | None]:
     """Turn a parsed plan document into a `MissionPlan`, or explain why
     it is not one. Never raises, never returns a partial plan.
@@ -561,8 +562,32 @@ def validate(
     if repeated:
         return None, PlanRefusal(
             code=BAD_PAYLOAD,
-            reason="the recovery plan would redo an already-satisfied Founder requirement",
-            detail=f"already satisfied requirement ids: {', '.join(sorted(repeated))}",
+            reason=(
+                "the plan claims an untargeted or already-satisfied "
+                "Founder requirement"
+            ),
+            detail=(
+                "already satisfied or deliberately untargeted requirement ids: "
+                + ", ".join(sorted(repeated))
+            ),
+        )
+
+    exhausted = {str(route).strip() for route in (exhausted_routes or ()) if str(route).strip()}
+    repeated_routes: set[str] = set()
+    for step in steps:
+        target = ""
+        for key in ("url", "path", "query", "instruction"):
+            value = step.payload.get(key)
+            if isinstance(value, str) and value.strip():
+                target = value.strip()
+                break
+        if target and f"{step.capability} {target}" in exhausted:
+            repeated_routes.add(f"{step.capability} {target}")
+    if repeated_routes:
+        return None, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="the continuation repeats an exhausted strategy unchanged",
+            detail="repeated routes: " + "; ".join(sorted(repeated_routes)),
         )
 
     answer_steps = [step.step_id for step in steps if step.answers_founder]

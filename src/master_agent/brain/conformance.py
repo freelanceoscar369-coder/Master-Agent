@@ -132,7 +132,72 @@ def _verdict_of(task: Any) -> str:
     return str(evidence.get("verdict") or "")
 
 
-def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
+def _decision_field(decision: Any, name: str, default: Any = None) -> Any:
+    if decision is None:
+        return default
+    if isinstance(decision, Mapping):
+        value = decision.get(name, default)
+    else:
+        value = getattr(decision, name, default)
+    return default if value is None else value
+
+
+def _canonical_evidence_gaps(decision: Any) -> tuple[set[str], set[str]]:
+    """Requirement ids the canonical candidate decision cannot support.
+
+    Candidate deliberation and Founder conformance used to read the same
+    Evidence through unrelated projections: every covering task could be
+    ``matched`` while every candidate still had a mandatory criterion
+    marked ``unverified``.  This is the join.  It never creates Evidence;
+    it only prevents task-level success from outranking the Brain's
+    claim-level reading of that Evidence.
+    """
+    if decision is None:
+        return set(), set()
+
+    criterion_requirements = dict(
+        _decision_field(decision, "criterion_requirements", {}) or {}
+    )
+    raw_candidates = tuple(_decision_field(decision, "candidates", ()) or ())
+    if not raw_candidates:
+        # Backward-compatible durable records may have only the two
+        # projections. Rejected rows now retain full criterion state.
+        raw_candidates = tuple(
+            _decision_field(decision, "shortlist", ()) or ()
+        ) + tuple(_decision_field(decision, "rejected", ()) or ())
+
+    gaps: set[str] = set()
+    for criterion_id, requirement_id in criterion_requirements.items():
+        requirement_id = str(requirement_id or "")
+        if not requirement_id:
+            continue
+        if not raw_candidates:
+            gaps.add(requirement_id)
+            continue
+        for candidate in raw_candidates:
+            states = dict(_decision_field(candidate, "criteria", {}) or {})
+            evidence = dict(
+                _decision_field(candidate, "criterion_evidence", {}) or {}
+            )
+            state = str(states.get(criterion_id) or "unverified")
+            cited = tuple(evidence.get(criterion_id) or ())
+            if state not in ("met", "unmet") or not cited:
+                gaps.add(requirement_id)
+                break
+
+    undecided: set[str] = set()
+    if str(_decision_field(decision, "state", "") or "") != "decided":
+        undecided.update(
+            str(item) for item in (
+                _decision_field(decision, "decision_requirement_ids", ()) or ()
+            ) if str(item)
+        )
+    return gaps, undecided
+
+
+def assess(
+    requirements: Any, tasks: Any, deliberation: Any = None,
+) -> OutcomeConformance:
     """The mission's conformance, from requirements, coverage and Evidence.
 
     `tasks` are Mission Control's own tasks -- each carrying the
@@ -157,6 +222,8 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
     for task in tasks:
         for requirement_id in tuple(getattr(task, "covers", ()) or ()):
             by_requirement.setdefault(str(requirement_id), []).append(task)
+
+    evidence_gaps, undecided_requirements = _canonical_evidence_gaps(deliberation)
 
     outcomes: list[RequirementOutcome] = []
     for requirement in requirements:
@@ -200,6 +267,31 @@ def assess(requirements: Any, tasks: Any) -> OutcomeConformance:
                 state=NOT_SATISFIED,
                 covered_by=ids,
                 reason="what was observed did not match what was expected",
+            ))
+            continue
+
+        if requirement_id in evidence_gaps:
+            outcomes.append(RequirementOutcome(
+                requirement_id=requirement_id,
+                description=description,
+                required=required,
+                state=UNKNOWN,
+                covered_by=ids,
+                reason=(
+                    "a mandatory candidate claim remains unresolved in "
+                    "canonical Evidence"
+                ),
+            ))
+            continue
+
+        if requirement_id in undecided_requirements:
+            outcomes.append(RequirementOutcome(
+                requirement_id=requirement_id,
+                description=description,
+                required=required,
+                state=UNKNOWN,
+                covered_by=ids,
+                reason="the canonical candidate decision is not yet supported",
             ))
             continue
 

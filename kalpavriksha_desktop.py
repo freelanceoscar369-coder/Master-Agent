@@ -518,7 +518,11 @@ def _mission_facts(record) -> str:
         # The Brain's own conformance state, computed from what was
         # recorded. Never a Verification verdict -- see ADR-0026.
         # Stored rows read directly -- `assess` takes either shape.
-        conformance = assess(requirements, getattr(record, "steps", ()) or ())
+        conformance = assess(
+            requirements,
+            getattr(record, "steps", ()) or (),
+            deliberation=getattr(record, "deliberation", None),
+        )
         lines.append(f"    did it satisfy the request: {conformance.state}")
         lines.append(f"      because: {conformance.reason}")
     return "\n".join(lines)
@@ -652,6 +656,7 @@ def _grounded_answer(mission_service, question: str, objective_id) -> str:
             conformance = assess(
                 tuple(getattr(record, "requirements", ()) or ()),
                 getattr(record, "steps", ()) or (),
+                deliberation=getattr(record, "deliberation", None),
             )
 
     capabilities = providers = ()
@@ -1804,6 +1809,12 @@ def _observations_from(mission_control, objective_ids):
         found.append(Observation(
             evidence_id=evidence_id, text=text,
             source_class=source_class, url=url,
+            observed_at=str(
+                evidence.get("captured_at")
+                or evidence.get("created_at")
+                or observed.get("captured_at")
+                or ""
+            ),
         ))
     return tuple(found)
 
@@ -1842,6 +1853,9 @@ def _decide(mission_service, mission_control, intent, objective_ids):
     frame = DecisionFrame(
         objective=str(frame_row.get("objective") or ""),
         requirement_ids=tuple(frame_row.get("requirement_ids") or ()),
+        decision_requirement_ids=tuple(
+            frame_row.get("decision_requirement_ids") or ()
+        ),
         decision_type=str(frame_row.get("decision_type") or ""),
         mandatory=tuple(
             Criterion(
@@ -1936,52 +1950,60 @@ def _unvisited_links(mission_control, objective_ids) -> list[dict]:
     ]
 
 
-def _evidence_question(result, unvisited: list[dict] | None = None) -> dict | None:
-    """What is still missing, said precisely enough to go and get.
+def _evidence_question(
+    result, progress=None, unvisited: list[dict] | None = None,
+) -> dict | None:
+    """Project the Brain's strategic decision into Planner context.
 
-    `None` when there is nothing to ask for. Otherwise the unresolved
-    criteria and the candidates they belong to -- because "search more"
-    is not a question anybody can act on, and the difference between
-    that and "establish whether these three are open on Sunday" is the
-    difference between another broad sweep and one targeted look.
-
-    Nothing domain-specific: criteria and candidate names come from the
-    frame the Brain already built out of the founder's own requirements.
+    Selection lives in ``brain.deliberation.next_evidence_need``.  This
+    surface only serialises the decision into the existing Intent context;
+    it neither chooses a requirement nor names a capability.
     """
-    if result is None or not result.more_research:
-        return None
-    # By what it ASKS, never by its id. The Planner was being handed
-    # "still unresolved: crit_2" and asked to go and settle it.
-    asks = dict(result.criteria or {})
-    missing: dict[str, list[str]] = {}
-    for rejected in result.rejected:
-        for criterion in rejected.unverified:
-            question = asks.get(criterion, criterion)
-            missing.setdefault(question, [])
-            if rejected.summary not in missing[question]:
-                missing[question].append(rejected.summary)
+    from master_agent.brain.deliberation import next_evidence_need
 
-    # Nothing was extracted at all -- no shortlist and nothing rejected.
-    #
-    # That is not "nothing to ask for", it is the widest possible
-    # question: the first source established none of the criteria, so
-    # every one of them is still open. Returning None here was why a
-    # mission that read one page, learned nothing usable and knew it
-    # stopped after a single cycle -- it had decided more research was
-    # needed and then had nothing to say about what.
-    if not missing and not result.shortlist and not result.rejected:
-        missing = {question: [] for question in asks.values()}
-    if not missing:
+    # Historical callers passed ``(result, unvisited)``.  Preserve that
+    # projection shape while the production loop supplies the new
+    # MissionProgress explicitly.
+    if unvisited is None and isinstance(progress, list):
+        unvisited, progress = progress, None
+    if (
+        progress is None
+        and not dict(getattr(result, "criterion_requirements", {}) or {})
+    ):
+        # Legacy in-memory/durable results predate the requirement join.
+        # Preserve their historical broad projection; current production
+        # results always carry criterion_requirements and therefore take
+        # the one-need-at-a-time Brain path below.
+        asks = dict(getattr(result, "criteria", {}) or {})
+        missing: dict[str, list[str]] = {}
+        for rejected in getattr(result, "rejected", ()) or ():
+            for criterion in getattr(rejected, "unverified", ()) or ():
+                question = asks.get(criterion, criterion)
+                missing.setdefault(question, [])
+                summary = str(getattr(rejected, "summary", "") or "")
+                if summary and summary not in missing[question]:
+                    missing[question].append(summary)
+        if not missing and not getattr(result, "shortlist", ()) and not getattr(result, "rejected", ()):
+            missing = {question: [] for question in asks.values()}
+        if not missing:
+            return None
+        return {
+            "unresolved_criteria": sorted(missing),
+            "candidates": {key: value[:8] for key, value in missing.items()},
+            "already_established": [],
+            "unvisited": (unvisited or [])[:12],
+        }
+
+    decision = next_evidence_need(
+        result, progress, unvisited=tuple((unvisited or [])[:12])
+    )
+    if decision is None:
         return None
-    return {
-        "unresolved_criteria": sorted(missing),
-        "candidates": {k: v[:8] for k, v in missing.items()},
-        "already_established": [
-            candidate.summary for candidate in result.shortlist
-        ],
-        # Where to look, alongside what to look for. Both from Evidence.
-        "unvisited": (unvisited or [])[:12],
-    }
+    row = decision.as_dict()
+    row["already_established"] = [
+        candidate.summary for candidate in (getattr(result, "shortlist", ()) or ())
+    ]
+    return row
 
 
 def _decision_sentence(result) -> str:
@@ -2041,7 +2063,9 @@ def no_useful_progress(before, after) -> bool:
     return _no_useful_progress(before, after)
 
 
-def _mission_progress(mission_control, intent, objective_ids):
+def _mission_progress(
+    mission_control, intent, objective_ids, *, deliberation=None,
+):
     """Where the whole mission stands across every strategy attempt."""
     from master_agent.brain.deliberation import progress_of
 
@@ -2060,6 +2084,7 @@ def _mission_progress(mission_control, intent, objective_ids):
         # only on the replan path, and the surface tests drive the bridge
         # with the smallest record that makes their own point -- rightly.
         tasks,
+        deliberation=deliberation,
     )
 
 
@@ -2089,7 +2114,9 @@ def _persist_objective_state(
         logging.exception("could not persist objective state for %s", plan_id)
 
 
-def _recovery_decision(mission_control, intent, objective_id, attempts_used):
+def _recovery_decision(
+    mission_control, intent, objective_id, attempts_used, *, deliberation=None,
+):
     """Ask the Brain what a failed mission's failure MEANS.
 
     The surface does not decide this and must not. It observes that a
@@ -2108,7 +2135,9 @@ def _recovery_decision(mission_control, intent, objective_id, attempts_used):
         return None
     try:
         objective = mission_control.dispatcher.objective(objective_id)
-        outcome = assess(requirements, objective.tasks)
+        outcome = assess(
+            requirements, objective.tasks, deliberation=deliberation,
+        )
     except Exception:  # noqa: BLE001 -- an unreadable record decides nothing
         return None
 
@@ -2261,7 +2290,13 @@ def _founder_reply(status, reply: str, *, interaction_type: str = "") -> dict:
     }
 
 
-def _mission_report(mission_service, objective_id: str | None) -> str:
+def _mission_report(
+    mission_service,
+    objective_id: str | None,
+    *,
+    objective_ids=(),
+    deliberation=None,
+) -> str:
     """What the Brain's Reporter says about this mission, or "".
 
     Terminal Founder messages used to be composed from `state.result` --
@@ -2288,6 +2323,29 @@ def _mission_report(mission_service, objective_id: str | None) -> str:
         return ""
     if record is None:
         return ""
+    attempt_ids = tuple(objective_ids or ())
+    if len(attempt_ids) > 1:
+        # Reporter remains the one reporting authority.  Give it one
+        # derived view containing every attempt's verified steps, because
+        # a continuation plan intentionally covers only a local strategy
+        # target while the mission owns the complete requirement set.
+        from dataclasses import replace
+
+        combined = []
+        for attempt_id in attempt_ids:
+            attempt = history.get(attempt_id)
+            if attempt is not None:
+                combined.extend(getattr(attempt, "steps", ()) or ())
+        record = replace(record, steps=combined)
+    if deliberation is not None:
+        from dataclasses import replace
+
+        row = (
+            deliberation.as_dict()
+            if hasattr(deliberation, "as_dict")
+            else deliberation
+        )
+        record = replace(record, deliberation=row)
     try:
         return reporter.report_plan_record_outcome(record).body
     except Exception:  # noqa: BLE001
@@ -2685,25 +2743,31 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # relays the answer to the admission boundary that already exists,
     # bounded by the Brain's own budget.
     attempts = 0
+    decided = None
     while True:
         state = mission_control.founder_state(objective_id)
 
         # What the mission has actually established, judged before
         # deciding whether to go round again. Both diagnoses below need
         # it, and it is the same judgement the founder is shown.
-        decided = _decide(
-            mission_service, mission_control, intent_result.intent, attempts_made
+        if decided is None:
+            decided = _decide(
+                mission_service, mission_control, intent_result.intent, attempts_made
+            )
+        standing = _mission_progress(
+            mission_control, intent_result.intent, attempts_made,
+            deliberation=decided,
         )
         # Only when there is a question to attach it to. Reading every
         # task's Evidence for links costs nothing worth paying on the
         # ordinary mission that decided nothing and needs nothing.
         needed = (
-            _evidence_question(decided, _unvisited_links(mission_control, attempts_made))
-            if decided is not None and decided.more_research
+            _evidence_question(
+                decided, standing,
+                _unvisited_links(mission_control, attempts_made),
+            )
+            if decided is not None
             else None
-        )
-        standing = _mission_progress(
-            mission_control, intent_result.intent, attempts_made
         )
         _persist_objective_state(
             mission_service, objective_id, attempts_made, standing,
@@ -2725,7 +2789,8 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # exist.
         if state.errors:
             decision = _recovery_decision(
-                mission_control, intent_result.intent, objective_id, attempts
+                mission_control, intent_result.intent, objective_id, attempts,
+                deliberation=decided,
             )
             if decision is not None:
                 status.recovery = decision.as_dict()
@@ -2740,10 +2805,12 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         elif needed is not None and attempts < _RESEARCH_BUDGET:
             # Execution succeeded. The objective did not.
             logging.info(
-                "insufficient evidence; unresolved criteria: %s",
-                needed["unresolved_criteria"],
+                "next mission need (%s): targets=%s claim=%s",
+                needed.get("action", "acquire_evidence"),
+                needed.get("target_requirements", ()),
+                needed.get("missing_claim", ""),
             )
-            reason = "insufficient evidence"
+            reason = str(needed.get("action") or "insufficient evidence")
         else:
             # WHY the loop stopped, every time it stops. A silent break
             # is how "the mission simply did not go round again" became
@@ -2776,7 +2843,8 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # The environment is released first, so the second attempt does
         # not inherit the first one's leftovers.
         before = _mission_progress(
-            mission_control, intent_result.intent, attempts_made
+            mission_control, intent_result.intent, attempts_made,
+            deliberation=decided,
         )
         if before is None:
             logging.info("no further attempt: this mission's record is unreadable")
@@ -2791,8 +2859,14 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         if needed is not None:
             # What to go and find, rather than "look again".
             intent_result.intent.context["evidence_needed"] = needed
+            if (
+                needed.get("action") == "finalize_from_canonical_decision"
+                and decided is not None
+            ):
+                intent_result.intent.context["canonical_decision"] = decided.as_dict()
         else:
             intent_result.intent.context.pop("evidence_needed", None)
+            intent_result.intent.context.pop("canonical_decision", None)
 
         retried = mission_service.start(intent_result.intent)
         if not retried.accepted:
@@ -2813,6 +2887,10 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             break
         objective_id = retried.objective_id
         attempts_made.append(objective_id)
+        prior_decision = decided
+        strategy_action = (
+            str(needed.get("action") or "") if isinstance(needed, dict) else ""
+        )
         _drive_until_settled(runtime, mission_control, status, objective_id,
                              timeout_seconds)
         # New Evidence exists, so the decision held from the top of this
@@ -2822,8 +2900,17 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         decided = None
 
         # Did that change anything that matters?
+        after_decision = (
+            prior_decision
+            if strategy_action == "finalize_from_canonical_decision"
+            else _decide(
+                mission_service, mission_control, intent_result.intent, attempts_made
+            )
+        )
+        decided = after_decision
         after = _mission_progress(
-            mission_control, intent_result.intent, attempts_made
+            mission_control, intent_result.intent, attempts_made,
+            deliberation=after_decision,
         )
         if after is None:
             break
@@ -2884,7 +2971,8 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             decided.state, len(decided.shortlist), len(decided.rejected),
         )
     final_progress = _mission_progress(
-        mission_control, intent_result.intent, attempts_made
+        mission_control, intent_result.intent, attempts_made,
+        deliberation=decided,
     )
     _persist_objective_state(
         mission_service, objective_id, attempts_made, final_progress,
@@ -2921,12 +3009,17 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                 if answered else status.message
             )
         return _founder_reply(status, status.message)
-    if state.progress >= 1.0:
+    if final_progress is not None and not final_progress.unresolved:
         # `state.result` is still recorded -- other consumers legitimately
         # want the last Task result -- but it is no longer what the founder
         # is told the MISSION did.
         status.result = state.result
-        report = _mission_report(mission_service, status.objective_id) or (
+        report = _mission_report(
+            mission_service,
+            status.objective_id,
+            objective_ids=attempts_made,
+            deliberation=decided,
+        ) or (
             "The work finished, but I can't reconstruct a verified mission summary."
         )
         # If the founder ASKED for a value, tell them the value. The

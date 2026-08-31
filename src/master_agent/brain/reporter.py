@@ -13,8 +13,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from master_agent.verification.evidence import Evidence, Verdict
 from master_agent.mission_manager.mission import Mission, MissionStatus
+from master_agent.verification.evidence import Evidence, Verdict
 
 
 class ReportFormat(str, Enum):
@@ -330,7 +330,11 @@ class Reporter:
         from master_agent.brain.conformance import assess
 
         requirements = tuple(getattr(record, "requirements", ()) or ())
-        return assess(requirements, tuple(getattr(record, "steps", ()) or ()))
+        return assess(
+            requirements,
+            tuple(getattr(record, "steps", ()) or ()),
+            deliberation=getattr(record, "deliberation", None),
+        )
 
     def report_plan_result(
         self,

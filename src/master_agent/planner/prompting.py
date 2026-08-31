@@ -15,9 +15,11 @@ checking to be written in the same breath.
 """
 from __future__ import annotations
 
+import json
+
 from master_agent.ai_infrastructure.text_verifier import expect
 from master_agent.planner.catalogue import CapabilityOption, render
-from master_agent.planner.plan import Intent
+from master_agent.planner.plan import Intent, strategy_coverage
 from master_agent.planner.task_playbook import playbook_lines
 from master_agent.verification.evidence import ExpectedOutcome
 
@@ -174,21 +176,19 @@ _RULES = (
         "what the founder's sentence made look likely."
     ),
     (
-        "11. Cover the whole request. Before answering, check each "
-        "material requirement in the objective against the step or "
-        "output that satisfies it. Do not show this checking -- reply "
-        "with JSON only, as rule 1 says -- but the plan must cover "
-        "the outcome that was asked for, not merely its first "
-        "executable action. A plan that acquires the material and "
-        "stops short of what was asked for is incomplete."
+        "11. Cover every CURRENT STRATEGY TARGET listed above. The mission "
+        "continues to own every canonical Founder requirement, but a "
+        "continuation plan may deliberately advance only the subset the "
+        "Brain selected next. Do not silently add, satisfy or discard an "
+        "untargeted requirement."
     ),
     (
         "11b. Say which requirement each step is FOR. Every step carries "
         "`covers`: the ids of the founder requirements it is responsible "
         "for, taken from the list given above. A step that serves none of "
         "them is a step nobody asked for. Between them the steps must "
-        "cover every requirement -- one step may cover several, and "
-        "several may cover one."
+        "cover every CURRENT STRATEGY TARGET -- one step may cover several, "
+        "and several may cover one."
     ),
     (
         "11a. Medium objectives commonly run: acquire, inspect what "
@@ -388,12 +388,32 @@ def build_prompt(
         # found no step responsible for anything, and a research mission
         # could only ever be reported UNKNOWN however well it ran.
         sections.append("")
-        sections.append("Founder requirements. Every one must be covered:")
-        sections.extend(
-            f"- {getattr(r, 'requirement_id', '')}: "
-            f"{getattr(r, 'description', '')}"
-            for r in requirements
+        targets, _ = strategy_coverage(intent)
+        target_set = set(targets)
+        recovery = (intent.context or {}).get("recovery")
+        satisfied_set = {
+            str(requirement_id)
+            for requirement_id in (
+                recovery.get("satisfied", ()) if isinstance(recovery, dict) else ()
+            )
+        }
+        sections.append(
+            "Canonical Founder requirements. The MISSION owns every one "
+            "until it is satisfied; this plan owns only rows marked "
+            "CURRENT STRATEGY TARGET:"
         )
+        for requirement in requirements:
+            requirement_id = str(getattr(requirement, "requirement_id", "") or "")
+            if requirement_id in target_set:
+                state = "CURRENT STRATEGY TARGET"
+            elif requirement_id in satisfied_set:
+                state = "ALREADY SATISFIED -- DO NOT REDO"
+            else:
+                state = "MISSION-OWNED, NOT TARGETED BY THIS PLAN"
+            sections.append(
+                f"- {requirement_id}: {getattr(requirement, 'description', '')} "
+                f"[{state}]"
+            )
 
     recovery = (intent.context or {}).get("recovery")
     if isinstance(recovery, dict):
@@ -419,7 +439,8 @@ def build_prompt(
             )
         if unresolved:
             sections.append(
-                "- Still unresolved, and what this plan is for: "
+                "- Still unresolved in the canonical mission (not all must "
+                "be attempted by this continuation): "
                 + ", ".join(unresolved)
             )
         for route in failed[:8]:
@@ -474,6 +495,25 @@ def build_prompt(
                 "- already established and NOT to be re-gathered: "
                 + ", ".join(str(n) for n in established[:6])
             )
+        exhausted = wanted.get("exhausted_strategies") or []
+        for route in exhausted[:12]:
+            sections.append(
+                "- this exact strategy was already attempted; do not repeat "
+                f"it unchanged: {route}"
+            )
+
+    canonical_decision = (intent.context or {}).get("canonical_decision")
+    if isinstance(canonical_decision, dict):
+        sections += [
+            "",
+            "Canonical accepted candidate/Evidence state for final synthesis:",
+            json.dumps(canonical_decision, sort_keys=True, separators=(",", ":")),
+            (
+                "Use this exact candidate set and its claim-level Evidence. "
+                "Do not add, replace, rename or independently select candidates. "
+                "Source URLs may appear only when present in evidence_provenance."
+            ),
+        ]
 
     if intent.context:
         sections.append("")
@@ -486,7 +526,7 @@ def build_prompt(
         # tells the Planner nothing it can act on and buys a wall of
         # JSON in the middle of the request.
         _internal = {"field_evidence", "decision_frame", "requirements",
-                     "recovery", "evidence_needed"}
+                     "recovery", "evidence_needed", "canonical_decision"}
         sections.extend(
             f"- {key}: {intent.context[key]}"
             for key in sorted(intent.context) if key not in _internal

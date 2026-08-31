@@ -183,6 +183,10 @@ class DecisionFrame:
     objective: str
     #: The founder requirements this decision serves.
     requirement_ids: tuple[str, ...] = ()
+    #: Mission-level information requirements (for example, recommend one)
+    #: that depend on this decision but are not properties candidates must
+    #: individually possess.
+    decision_requirement_ids: tuple[str, ...] = ()
     decision_type: str = ""
     mandatory: tuple[Criterion, ...] = ()
     preferences: tuple[Criterion, ...] = ()
@@ -201,6 +205,7 @@ class DecisionFrame:
         return {
             "objective": self.objective,
             "requirement_ids": list(self.requirement_ids),
+            "decision_requirement_ids": list(self.decision_requirement_ids),
             "decision_type": self.decision_type,
             "mandatory": [c.as_dict() for c in self.mandatory],
             "preferences": [c.as_dict() for c in self.preferences],
@@ -265,6 +270,14 @@ class Candidate:
     #: claim.  The flat tuple remains as the convenient candidate-level
     #: projection, while this mapping is the durable claim-level truth.
     criterion_evidence: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: criterion_id -> the evidence-backed finding the extraction made.
+    #:
+    #: A state alone (``met``) is enough for deterministic shortlisting,
+    #: but not enough to produce a research deliverable.  Keeping the
+    #: finding beside its exact Evidence ids lets final synthesis consume
+    #: the canonical candidate state instead of selecting and describing
+    #: candidates for a second time from raw prose.
+    criterion_claims: Mapping[str, str] = field(default_factory=dict)
     supporting: tuple[str, ...] = ()
     contradicting: tuple[str, ...] = ()
     strengths: tuple[str, ...] = ()
@@ -281,6 +294,7 @@ class Candidate:
                 criterion_id: list(evidence_ids)
                 for criterion_id, evidence_ids in self.criterion_evidence.items()
             },
+            "criterion_claims": dict(self.criterion_claims),
             "supporting": list(self.supporting),
             "contradicting": list(self.contradicting),
             "strengths": list(self.strengths),
@@ -298,6 +312,12 @@ class RejectedCandidate:
     #: The mandatory criteria that were not met, by id.
     failed: tuple[str, ...] = ()
     unverified: tuple[str, ...] = ()
+    #: The full claim-level standing is retained even after rejection.
+    #: Rejection is a projection over a Candidate, not permission to
+    #: discard the Evidence that explains it.
+    criteria: Mapping[str, str] = field(default_factory=dict)
+    criterion_evidence: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    criterion_claims: Mapping[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -306,6 +326,12 @@ class RejectedCandidate:
             "reason": self.reason,
             "failed": list(self.failed),
             "unverified": list(self.unverified),
+            "criteria": dict(self.criteria),
+            "criterion_evidence": {
+                criterion_id: list(evidence_ids)
+                for criterion_id, evidence_ids in self.criterion_evidence.items()
+            },
+            "criterion_claims": dict(self.criterion_claims),
         }
 
 
@@ -316,8 +342,14 @@ class DeliberationResult:
     state: str
     shortlist: tuple[Candidate, ...] = ()
     rejected: tuple[RejectedCandidate, ...] = ()
+    #: Every extracted candidate in canonical form.  ``shortlist`` and
+    #: ``rejected`` remain convenient decision projections; this field is
+    #: the stable synthesis input and prevents a later model from choosing
+    #: a different candidate set while writing the deliverable.
+    candidates: tuple[Candidate, ...] = ()
     rationale: str = ""
     requirement_ids: tuple[str, ...] = ()
+    decision_requirement_ids: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     #: criterion_id -> what it actually asks, carried from the frame.
     #:
@@ -328,6 +360,11 @@ class DeliberationResult:
     #: reading room is open on Sunday", and that is a sentence a plan can
     #: be built from.
     criteria: Mapping[str, str] = field(default_factory=dict)
+    #: criterion_id -> canonical Founder requirement id.
+    criterion_requirements: Mapping[str, str] = field(default_factory=dict)
+    #: Evidence id -> reviewable source metadata already observed by the
+    #: mission.  No URL is reconstructed from memory during synthesis.
+    evidence_provenance: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     more_research: bool = False
     replan_needed: bool = False
     founder_decision_required: bool = False
@@ -338,15 +375,167 @@ class DeliberationResult:
             "state": self.state,
             "shortlist": [c.as_dict() for c in self.shortlist],
             "rejected": [r.as_dict() for r in self.rejected],
+            "candidates": [c.as_dict() for c in self.candidates],
             "rationale": self.rationale,
             "requirement_ids": list(self.requirement_ids),
+            "decision_requirement_ids": list(self.decision_requirement_ids),
             "unresolved": list(self.unresolved),
             "criteria": dict(self.criteria),
+            "criterion_requirements": dict(self.criterion_requirements),
+            "evidence_provenance": {
+                evidence_id: dict(provenance)
+                for evidence_id, provenance in self.evidence_provenance.items()
+            },
             "more_research": self.more_research,
             "replan_needed": self.replan_needed,
             "founder_decision_required": self.founder_decision_required,
             "critique_performed": self.critique_performed,
         }
+
+
+@dataclass(frozen=True)
+class NextEvidenceNeed:
+    """The Brain's next strategic question, never an executable plan.
+
+    The mission retains every canonical requirement.  This record names
+    only the subset a continuation should advance now, plus enough history
+    for the Planner to avoid repeating an exhausted route.  It contains no
+    capability invocation and therefore does not make the Brain a Planner.
+    """
+
+    target_requirements: tuple[str, ...]
+    criterion_id: str = ""
+    missing_claim: str = ""
+    candidate_ids: tuple[str, ...] = ()
+    candidate_summaries: tuple[str, ...] = ()
+    preferred_source_class: str = PRIMARY
+    exhausted_strategies: tuple[str, ...] = ()
+    reason: str = ""
+    unvisited: tuple[Mapping[str, str], ...] = ()
+    action: str = "acquire_evidence"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "target_requirements": list(self.target_requirements),
+            "criterion_id": self.criterion_id,
+            "missing_claim": self.missing_claim,
+            "unresolved_criteria": [self.missing_claim] if self.missing_claim else [],
+            "candidates": {
+                self.missing_claim: list(
+                    self.candidate_summaries or self.candidate_ids
+                )
+            } if self.missing_claim else {},
+            "candidate_ids": list(self.candidate_ids),
+            "preferred_source_class": self.preferred_source_class,
+            "exhausted_strategies": list(self.exhausted_strategies),
+            "reason": self.reason,
+            "unvisited": [dict(item) for item in self.unvisited],
+            "action": self.action,
+        }
+
+
+def next_evidence_need(
+    result: DeliberationResult | None,
+    progress: Any,
+    *,
+    unvisited: Sequence[Mapping[str, str]] = (),
+) -> NextEvidenceNeed | None:
+    """Choose one strategic need from the mission's canonical standing.
+
+    This is deliberately narrower than replanning.  It names the most
+    important unresolved criterion in frame order, the candidates for
+    which it is missing, and the routes already exhausted.  The Planner
+    later translates that decision into capabilities.  Requirements not
+    selected here remain untouched in ``MissionProgress.unresolved``.
+
+    Once the candidate decision is settled, the same boundary can select
+    the remaining mission-level deliverable requirements.  Their synthesis
+    is explicitly from ``DeliberationResult``'s canonical candidate state,
+    never a second candidate-selection pass.
+    """
+    if result is None:
+        return None
+
+    unresolved_requirements = tuple(
+        str(item) for item in (getattr(progress, "unresolved", ()) or ())
+        if str(item)
+    )
+    exhausted = tuple(dict.fromkeys(
+        tuple(getattr(progress, "failed_routes", ()) or ())
+        + tuple(getattr(progress, "successful_routes", ()) or ())
+    ))
+    criterion_requirements = dict(result.criterion_requirements or {})
+
+    if result.state == DECIDED and result.shortlist:
+        criterion_requirement_ids = {
+            requirement_id for requirement_id in criterion_requirements.values()
+            if requirement_id
+        }
+        remaining = tuple(
+            requirement_id for requirement_id in unresolved_requirements
+            if requirement_id not in criterion_requirement_ids
+        )
+        if not remaining:
+            return None
+        return NextEvidenceNeed(
+            target_requirements=remaining,
+            missing_claim=(
+                "produce the remaining Founder result from the canonical "
+                "candidate and Evidence state"
+            ),
+            candidate_ids=tuple(c.candidate_id for c in result.shortlist),
+            candidate_summaries=tuple(c.summary for c in result.shortlist),
+            exhausted_strategies=exhausted,
+            reason=(
+                "candidate evidence is settled; the mission-level result "
+                "and deliverable remain unresolved"
+            ),
+            unvisited=tuple(unvisited),
+            action="finalize_from_canonical_decision",
+        )
+
+    # Frame order is intentional: it is stable and preserves the Founder's
+    # own requirement order.  Select ONE criterion, not every unresolved
+    # obligation, so a continuation can be small and falsifiable.
+    candidates = tuple(result.candidates or ())
+    for criterion_id, description in (result.criteria or {}).items():
+        missing_candidates = tuple(
+            candidate
+            for candidate in candidates
+            if (candidate.criteria or {}).get(criterion_id, UNVERIFIED) == UNVERIFIED
+        )
+        missing_ids = tuple(candidate.candidate_id for candidate in missing_candidates)
+        missing_summaries = tuple(candidate.summary for candidate in missing_candidates)
+        if not missing_ids:
+            missing_rejected = tuple(
+                rejected
+                for rejected in result.rejected
+                if criterion_id in rejected.unverified
+            )
+            missing_ids = tuple(row.candidate_id for row in missing_rejected)
+            missing_summaries = tuple(row.summary for row in missing_rejected)
+        if not missing_ids and (candidates or result.rejected):
+            continue
+        requirement_id = str(criterion_requirements.get(criterion_id) or "")
+        targets = (
+            (requirement_id,)
+            if requirement_id
+            else unresolved_requirements[:1]
+        )
+        return NextEvidenceNeed(
+            target_requirements=targets,
+            criterion_id=str(criterion_id),
+            missing_claim=str(description),
+            candidate_ids=missing_ids,
+            candidate_summaries=missing_summaries,
+            exhausted_strategies=exhausted,
+            reason=(
+                "this mandatory claim is unresolved and establishing it "
+                "can change candidate eligibility"
+            ),
+            unvisited=tuple(unvisited),
+        )
+    return None
 
 
 # ---------------------------------------------------------------------
@@ -427,6 +616,9 @@ def shortlist(
                 summary=candidate.summary,
                 reason="a mandatory criterion was not met",
                 failed=failed, unverified=unverified,
+                criteria=dict(candidate.criteria),
+                criterion_evidence=dict(candidate.criterion_evidence),
+                criterion_claims=dict(candidate.criterion_claims),
             ))
             continue
         if unverified:
@@ -435,6 +627,9 @@ def shortlist(
                 summary=candidate.summary,
                 reason="a mandatory criterion could not be established",
                 unverified=unverified,
+                criteria=dict(candidate.criteria),
+                criterion_evidence=dict(candidate.criterion_evidence),
+                criterion_claims=dict(candidate.criterion_claims),
             ))
             continue
         selected.append(candidate)
@@ -844,6 +1039,12 @@ def frame_for(
         requirement_ids=tuple(
             str(getattr(r, "requirement_id", "")) for r in kept
         ),
+        decision_requirement_ids=tuple(
+            str(getattr(r, "requirement_id", ""))
+            for r in kept
+            if getattr(r, "candidate_property", None) is False
+            and str(getattr(r, "kind", "")).lower() == INFORMATION
+        ),
         decision_type="research_shortlist" if len(judged) > 1 else "assessment",
         mandatory=mandatory,
         stakes="reversible" if reversible else "consequential",
@@ -877,6 +1078,7 @@ class Observation:
     text: str
     source_class: str = DISCOVERY
     url: str = ""
+    observed_at: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -884,6 +1086,7 @@ class Observation:
             "text": self.text,
             "source_class": self.source_class,
             "url": self.url,
+            "observed_at": self.observed_at,
         }
 
 
@@ -958,25 +1161,30 @@ def _extraction_prompt(frame: DecisionFrame, observations: Sequence[Observation]
         "Reply with JSON only:",
         '  {"candidates": [{"id": "...", "summary": "<the candidate\'s NAME only>",',
         '     "criteria": {"<criterion_id>": {"state": "met|unmet|unverified",',
+        '                                     "finding": "what that source establishes",',
         '                                     "evidence_id": "<source label, or empty>"}}}]}',
         "",
-        "Rules. Report only what the observations SUPPORT. A state of met "
-        "requires a source label from the list above that actually shows it, "
-        "copied exactly as written -- different criteria of the same "
-        "candidate often come from different sources, and each must cite "
-        "the one that shows IT; "
-        "if the observations do not establish a criterion, say unverified -- "
-        "that is a useful answer and guessing is not. A state of unmet means "
-        "an observation shows it is false, not that you could not find it. "
-        "Report EVERY candidate the observations mention, including ones "
-        "you cannot fully assess -- a candidate with an unverified "
-        "criterion is the useful answer, because it says what to go and "
-        "find next. Returning nothing because you could not confirm "
-        "everything throws that away. "
-        "Do not add candidates the observations do not mention. "
-        "`summary` is the candidate's NAME and nothing else -- not a "
-        "description, not the evidence, not your reasoning about it. A "
-        "founder reads that field.",
+        (
+            "Rules. Report only what the observations SUPPORT. A state of met "
+            "requires a source label from the list above that actually shows it, "
+            "copied exactly as written -- different criteria of the same "
+            "candidate often come from different sources, and each must cite "
+            "the one that shows IT; "
+            "if the observations do not establish a criterion, say unverified -- "
+            "that is a useful answer and guessing is not. A state of unmet means "
+            "an observation shows it is false, not that you could not find it. "
+            "For both met and unmet, `finding` must say concisely what the cited "
+            "observation establishes; never add a value absent from that source. "
+            "Report EVERY candidate the observations mention, including ones "
+            "you cannot fully assess -- a candidate with an unverified "
+            "criterion is the useful answer, because it says what to go and "
+            "find next. Returning nothing because you could not confirm "
+            "everything throws that away. "
+            "Do not add candidates the observations do not mention. "
+            "`summary` is the candidate's NAME and nothing else -- not a "
+            "description, not the evidence, not your reasoning about it. A "
+            "founder reads that field."
+        ),
     ]
     return "\n".join(lines)
 
@@ -1124,6 +1332,7 @@ def _extract(
             continue
         states: dict[str, str] = {}
         criterion_evidence: dict[str, tuple[str, ...]] = {}
+        criterion_claims: dict[str, str] = {}
         supporting: list[str] = []
         unknowns: list[str] = []
         offered = row.get("criteria")
@@ -1136,11 +1345,12 @@ def _extract(
                 continue
             state = str(claim.get("state") or "").strip().lower()
             cited = str(claim.get("evidence_id") or "").strip()
+            finding = str(claim.get("finding") or claim.get("claim") or "").strip()
             evidence_id = by_label.get(cited.lower(), cited)
             if state not in CRITERION_STATES:
                 states[criterion_id] = UNVERIFIED
                 continue
-            if state == MET and evidence_id not in known_evidence:
+            if state in (MET, UNMET) and evidence_id not in known_evidence:
                 # Asserted without anything to stand on. Downgraded
                 # rather than believed -- this is the line between a
                 # supported link and a plausible one.
@@ -1154,11 +1364,14 @@ def _extract(
                 supporting.append(evidence_id)
             if evidence_id in known_evidence:
                 criterion_evidence[criterion_id] = (evidence_id,)
+                if finding:
+                    criterion_claims[criterion_id] = finding
         built.append(Candidate(
             candidate_id=str(row.get("id") or f"cand_{index}"),
             summary=summary,
             criteria=states,
             criterion_evidence=criterion_evidence,
+            criterion_claims=criterion_claims,
             supporting=tuple(supporting),
             unknowns=tuple(unknowns),
         ))
@@ -1213,7 +1426,7 @@ def deliberate(
                 )
                  if e in by_evidence), DISCOVERY,
             ),
-            state=FACT if state == MET else UNKNOWN,
+            state=FACT if state in (MET, UNMET) else UNKNOWN,
         )
         for candidate in candidates
         for criterion_id, state in (candidate.criteria or {}).items()
@@ -1248,10 +1461,24 @@ def deliberate(
         state=state,
         shortlist=selected,
         rejected=rejected,
+        candidates=tuple(candidates),
         rationale=why,
         requirement_ids=frame.requirement_ids,
+        decision_requirement_ids=frame.decision_requirement_ids,
         unresolved=unresolved,
         criteria={c.criterion_id: c.description for c in frame.mandatory},
+        criterion_requirements={
+            c.criterion_id: c.requirement_id for c in frame.mandatory
+        },
+        evidence_provenance={
+            observation.evidence_id: {
+                "url": observation.url,
+                "source_class": observation.source_class,
+                "observed_at": observation.observed_at,
+            }
+            for observation in observations
+            if observation.evidence_id
+        },
         more_research=not stop,
         founder_decision_required=False,
     )
@@ -1379,7 +1606,13 @@ def _observation_signature(record: Mapping[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def progress_of(objective: str, requirements: Sequence[Any], tasks: Sequence[Any]) -> MissionProgress:
+def progress_of(
+    objective: str,
+    requirements: Sequence[Any],
+    tasks: Sequence[Any],
+    *,
+    deliberation: Any = None,
+) -> MissionProgress:
     """Read the mission's standing off the records that already hold it.
 
     Requirement status comes from `conformance.assess` -- the same
@@ -1388,7 +1621,7 @@ def progress_of(objective: str, requirements: Sequence[Any], tasks: Sequence[Any
     """
     from master_agent.brain.conformance import _MATCHED, SATISFIED, assess
 
-    outcome = assess(requirements, tasks)
+    outcome = assess(requirements, tasks, deliberation=deliberation)
     satisfied = tuple(
         row.requirement_id for row in outcome.requirements
         if row.state == SATISFIED

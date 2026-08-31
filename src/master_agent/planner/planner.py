@@ -42,6 +42,7 @@ provider, for the same reason.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from master_agent.ai_infrastructure.budgeted_request import BudgetedSelectionRequest
@@ -57,8 +58,9 @@ from master_agent.planner.direct import direct_plan
 from master_agent.planner.modes import AI_MODE, BOTH, LOCAL, resolve_mode
 from master_agent.planner.parsing import validate
 from master_agent.planner.plan import (
-    LOCAL_ONLY,
+    BAD_PAYLOAD,
     BROKER_REFUSED,
+    LOCAL_ONLY,
     NO_CAPABILITIES,
     NO_STEPS,
     NOT_JSON,
@@ -69,6 +71,7 @@ from master_agent.planner.plan import (
     PlanOutcome,
     PlanRefusal,
     Step,
+    strategy_coverage,
 )
 from master_agent.planner.prompting import build_prompt, plan_expectation
 from master_agent.plugins.model_router import RoutingContext, SelectionRequest
@@ -85,6 +88,130 @@ __all__ = ["Intent", "MissionPlan", "Planner", "Step"]
 PLANNING_CAPABILITY = "reasoning"
 
 REQUESTER = "planner"
+
+
+def _canonical_synthesis_document(
+    document: Any, intent: Intent,
+) -> tuple[Any, PlanRefusal | None]:
+    """Bind final synthesis to the Brain's accepted candidate state.
+
+    The provider still chooses the executable steps.  Once it chooses the
+    existing ``Reasoning.Transform`` capability, this admission boundary
+    supplies the canonical mission state as that step's evidence context
+    and verifies that the eventual write consumes its output.  This is a
+    trusted-input binding, not a second plan and not a candidate decision.
+    """
+    context = getattr(intent, "context", {}) or {}
+    decision = context.get("canonical_decision") if isinstance(context, dict) else None
+    if not isinstance(decision, dict):
+        return document, None
+    if not isinstance(document, dict) or not isinstance(document.get("steps"), list):
+        return document, None  # ordinary structural validation names this precisely
+
+    transforms = [
+        row for row in document["steps"]
+        if isinstance(row, dict)
+        and str(row.get("capability") or "") == "Reasoning.Transform"
+    ]
+    if len(transforms) != 1:
+        return document, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="canonical research synthesis requires one reasoning transform",
+            detail=(
+                "the Brain supplied an accepted candidate/Evidence state, so "
+                "the continuation must synthesise that state exactly once"
+            ),
+        )
+
+    transform = transforms[0]
+    bindings = transform.get("input_bindings") or {}
+    if isinstance(bindings, dict) and "context" in bindings:
+        return document, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="canonical synthesis context cannot be replaced by a step output",
+            detail=(
+                f"step `{transform.get('id', '')}` binds `context` from another "
+                "step instead of the Brain's canonical candidate state"
+            ),
+        )
+
+    canonical_json = json.dumps(decision, sort_keys=True, separators=(",", ":"))
+    payload = transform.setdefault("payload", {})
+    if not isinstance(payload, dict):
+        return document, None  # validate() reports the malformed payload
+    payload["context"] = canonical_json
+    instruction = str(payload.get("instruction") or "").strip()
+    payload["instruction"] = (
+        instruction
+        + ("\n\n" if instruction else "")
+        + "Use only the candidates and claim-level Evidence in the supplied "
+          "canonical state. Do not add, replace, rename or independently "
+          "select candidates. Preserve every observed source URL in a "
+          "Sources/Provenance section and label inferences as inferences."
+    )
+
+    required_text: list[str] = []
+    for candidate in decision.get("shortlist") or ():
+        if isinstance(candidate, dict):
+            summary = str(candidate.get("summary") or "").strip()
+            if summary and summary not in required_text:
+                required_text.append(summary)
+    for provenance in (decision.get("evidence_provenance") or {}).values():
+        if isinstance(provenance, dict):
+            url = str(provenance.get("url") or "").strip()
+            if url and url not in required_text:
+                required_text.append(url)
+    if required_text:
+        payload["must_contain"] = list(dict.fromkeys(
+            list(payload.get("must_contain") or ()) + required_text
+        ))
+        success = transform.setdefault("success", {})
+        if isinstance(success, dict):
+            success["must_contain"] = list(dict.fromkeys(
+                list(success.get("must_contain") or ()) + required_text
+            ))
+
+    transform_id = str(transform.get("id") or "")
+    writes = [
+        row for row in document["steps"]
+        if isinstance(row, dict)
+        and str(row.get("capability") or "") in {
+            "Document.WriteDocument", "Filesystem.WriteFile",
+        }
+    ]
+    bound_write = False
+    for write in writes:
+        content = (write.get("input_bindings") or {}).get("content")
+        source = content.get("from_step") if isinstance(content, dict) else None
+        if (
+            isinstance(source, dict)
+            and str(source.get("step_id") or "") == transform_id
+            and str(source.get("field") or "") == "text"
+        ):
+            bound_write = True
+            break
+    if not bound_write:
+        return document, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="the research deliverable is not bound to canonical synthesis",
+            detail=(
+                "a Document.WriteDocument or Filesystem.WriteFile step must bind "
+                f"`content` from `{transform_id}.text`"
+            ),
+        )
+    return document, None
+
+
+def _exhausted_routes(intent: Intent) -> tuple[str, ...]:
+    context = getattr(intent, "context", {}) or {}
+    wanted = context.get("evidence_needed") if isinstance(context, dict) else None
+    if not isinstance(wanted, dict):
+        return ()
+    return tuple(
+        str(route).strip()
+        for route in wanted.get("exhausted_strategies", ())
+        if str(route).strip()
+    )
 
 
 class Planner:
@@ -268,13 +395,18 @@ class Planner:
         document = materialise_binding_dependencies(
             outcome.evidence.observation.get("json")
         )
-        plan, invalid = validate(
-            document, options, objective=intent.goal,
-            requirements=requirements,
-            is_sensitive=intent.is_sensitive,
-            required_coverage=required_coverage,
-            forbidden_coverage=forbidden_coverage,
-        )
+        document, invalid = _canonical_synthesis_document(document, intent)
+        if invalid is None:
+            plan, invalid = validate(
+                document, options, objective=intent.goal,
+                requirements=requirements,
+                is_sensitive=intent.is_sensitive,
+                required_coverage=required_coverage,
+                forbidden_coverage=forbidden_coverage,
+                exhausted_routes=_exhausted_routes(intent),
+            )
+        else:
+            plan = None
 
         # `no_steps` is not a malformed plan -- it is the model's honest
         # answer that the catalogue cannot reach this objective, and rule
@@ -345,26 +477,8 @@ class Planner:
 
     @staticmethod
     def _coverage_contract(intent: Intent) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        """Return the Founder requirements this attempt owes and must not redo."""
-        requirements = tuple(getattr(intent, "requirements", ()) or ())
-        all_required = tuple(
-            str(requirement.requirement_id)
-            for requirement in requirements
-            if getattr(requirement, "required", True)
-        )
-        context = getattr(intent, "context", {}) or {}
-        recovery = context.get("recovery") if isinstance(context, dict) else None
-        if not isinstance(recovery, dict):
-            return all_required, ()
-        unresolved = tuple(
-            str(requirement_id) for requirement_id in recovery.get("unresolved", ())
-            if str(requirement_id) in all_required
-        )
-        satisfied = tuple(
-            str(requirement_id) for requirement_id in recovery.get("satisfied", ())
-            if str(requirement_id) in all_required
-        )
-        return unresolved, satisfied
+        """Return this strategy's targets and already-settled exclusions."""
+        return strategy_coverage(intent)
 
     def _correct(self, intent, options, first, invalid, mode, attempts):
         """One repair pass. `None` when it did not produce a valid plan,
@@ -403,16 +517,22 @@ class Planner:
 
         required_coverage, forbidden_coverage = self._coverage_contract(intent)
 
-        plan, still_invalid = validate(
-            materialise_binding_dependencies(
-                outcome.evidence.observation.get("json")
-            ), options,
-            objective=intent.goal,
-            requirements=getattr(intent, "requirements", ()) or (),
-            is_sensitive=intent.is_sensitive,
-            required_coverage=required_coverage,
-            forbidden_coverage=forbidden_coverage,
+        document = materialise_binding_dependencies(
+            outcome.evidence.observation.get("json")
         )
+        document, still_invalid = _canonical_synthesis_document(document, intent)
+        if still_invalid is None:
+            plan, still_invalid = validate(
+                document, options,
+                objective=intent.goal,
+                requirements=getattr(intent, "requirements", ()) or (),
+                is_sensitive=intent.is_sensitive,
+                required_coverage=required_coverage,
+                forbidden_coverage=forbidden_coverage,
+                exhausted_routes=_exhausted_routes(intent),
+            )
+        else:
+            plan = None
         if plan is None:
             logging.info(
                 "correction did not produce a valid plan either: %s",

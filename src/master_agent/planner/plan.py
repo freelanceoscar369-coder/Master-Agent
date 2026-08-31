@@ -220,6 +220,80 @@ def required_ids(requirements: Any) -> tuple[str, ...]:
     return tuple(r.requirement_id for r in (requirements or ()) if r.required)
 
 
+def strategy_coverage(intent: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What this plan advances, versus what the mission permanently owns.
+
+    ``Intent.requirements`` remains the complete canonical obligation set
+    on every attempt.  A continuation may deliberately target one subset
+    selected by the Brain; omitted requirements remain unresolved because
+    the full tuple still travels on ``MissionPlan.requirements`` and every
+    later ``MissionProgress`` calculation.
+    """
+    requirements = tuple(getattr(intent, "requirements", ()) or ())
+    all_required = tuple(
+        str(getattr(requirement, "requirement_id", "") or "")
+        for requirement in requirements
+        if getattr(requirement, "required", True)
+        and str(getattr(requirement, "requirement_id", "") or "")
+    )
+    context = getattr(intent, "context", {}) or {}
+    recovery = context.get("recovery") if isinstance(context, dict) else None
+    evidence_need = (
+        context.get("evidence_needed") if isinstance(context, dict) else None
+    )
+
+    selected: tuple[str, ...] = ()
+    if isinstance(evidence_need, dict):
+        selected = tuple(
+            str(requirement_id)
+            for requirement_id in evidence_need.get("target_requirements", ())
+            if str(requirement_id) in all_required
+        )
+    if not selected and isinstance(recovery, dict):
+        selected = tuple(
+            str(requirement_id)
+            for requirement_id in recovery.get("unresolved", ())
+            if str(requirement_id) in all_required
+        )
+
+    # First pass of a framed candidate mission: acquire the candidate
+    # properties first. Recommendation/deliverable work is selected only
+    # after the canonical candidate decision exists.
+    if not selected and isinstance(context, dict) and context.get("decision_frame"):
+        scoped = tuple(
+            str(getattr(requirement, "requirement_id", "") or "")
+            for requirement in requirements
+            if getattr(requirement, "required", True)
+            and getattr(requirement, "candidate_property", None) is True
+        )
+        if scoped:
+            selected = scoped
+
+    selected = selected or all_required
+    satisfied = tuple(
+        str(requirement_id)
+        for requirement_id in (
+            recovery.get("satisfied", ()) if isinstance(recovery, dict) else ()
+        )
+        if str(requirement_id) in all_required
+    )
+    forbidden = list(satisfied)
+    # A Brain-selected continuation is intentionally local.  Claiming an
+    # untargeted requirement would let the plan silently expand its own
+    # responsibility and, for research, recreate recommendation/artifact
+    # work before the canonical candidate decision exists.
+    framed = isinstance(context, dict) and bool(context.get("decision_frame"))
+    if framed:
+        forbidden.extend(
+            requirement_id for requirement_id in all_required
+            if requirement_id not in selected
+        )
+    return (
+        tuple(dict.fromkeys(selected)),
+        tuple(dict.fromkeys(forbidden)),
+    )
+
+
 @dataclass
 class Intent:
     """Structured intent -- the output of the Intent Layer, the input to
