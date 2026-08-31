@@ -1312,7 +1312,14 @@ def _build_mission_pipeline():
         # not be secure"), so `browser.free-ai` cannot authenticate a
         # Google account at all and would occupy this rung without being
         # able to serve it.
-        browser_provider_ids=frozenset({TRUSTED_WEB_PROVIDER_ID}),
+        # The API-only validation scope must empty this rung too.  It used
+        # to empty only Desktop, so an ostensibly Gemini-scoped run could
+        # still disclose its prompt through the trusted browser fallback.
+        # Normal Founder launches and the explicit web scope are unchanged.
+        browser_provider_ids=(
+            frozenset() if _gemini_only
+            else frozenset({TRUSTED_WEB_PROVIDER_ID})
+        ),
         desktop_context=desktop_plugin._context,
         # The Broker sees every spec in `providers_source`'s own `specs`
         # tuple (`PROVIDER_CATALOG + (BROWSER_FREE_AI_SPEC,)` — Ollama,

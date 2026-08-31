@@ -5,6 +5,9 @@ import hashlib
 
 from master_agent.plugins.filesystem_observation import normalise_text
 from scripts.live_acceptance.founder_research_v1 import _artifact_verification
+from scripts.live_acceptance.founder_research_v1 import (
+    AUTHORIZED_REASONING_PROVIDERS, _activate_authorized_provider_scope,
+)
 
 
 def _digest(text: str) -> str:
@@ -63,3 +66,18 @@ def test_artifact_gate_rejects_non_write_evidence_even_with_same_digest(tmp_path
     }]
 
     assert _artifact_verification(evidence, artifact, content)["verified"] is False
+
+
+def test_live_acceptance_disclosure_scope_names_only_the_authorized_apis():
+    assert AUTHORIZED_REASONING_PROVIDERS == {"gemini.api", "openrouter.api"}
+
+
+def test_activating_acceptance_scope_is_explicit_not_an_import_side_effect(monkeypatch):
+    # `setenv` registers teardown even when the variable started absent;
+    # the helper writes through os.environ deliberately because it runs
+    # outside pytest in acceptance.
+    monkeypatch.setenv("KALPAVRIKSHA_FMEA_REASONING_TIER", "not-scoped")
+
+    _activate_authorized_provider_scope()
+
+    assert __import__("os").environ["KALPAVRIKSHA_FMEA_REASONING_TIER"] == "gemini"

@@ -67,6 +67,18 @@ CASES = {
     },
 }
 
+AUTHORIZED_REASONING_PROVIDERS = frozenset({"gemini.api", "openrouter.api"})
+
+
+def _activate_authorized_provider_scope() -> None:
+    """Constrain this process without changing a normal Founder launch."""
+    # This acceptance carries a scoped disclosure authorization for
+    # configured cloud APIs only. Reuse Founder Edition's existing
+    # validation scope so a failed API cannot fall through to a desktop
+    # account or trusted browser. The API rung is derived by the composition
+    # root and currently contains only credentialled Gemini/OpenRouter.
+    os.environ["KALPAVRIKSHA_FMEA_REASONING_TIER"] = "gemini"
+
 
 def _evidence(control, objectives) -> list[dict]:
     rows = []
@@ -174,6 +186,7 @@ def _decision_rows(runner, start: int) -> list[dict]:
 
 
 def run(case_name: str, timeout: float) -> tuple[bool, dict]:
+    _activate_authorized_provider_scope()
     import kalpavriksha_desktop as kd
     from master_agent.missions.execution_status import ExecutionStatus
 
@@ -303,6 +316,13 @@ def run(case_name: str, timeout: float) -> tuple[bool, dict]:
         and len(provider_costs) == len(decisions)
         and all(cost == 0 for cost in provider_costs)
     )
+    authorized_provider_scope = bool(
+        decisions
+        and all(
+            str(row.get("provider_id") or "") in AUTHORIZED_REASONING_PROVIDERS
+            for row in decisions
+        )
+    )
     founder_requirement_satisfied = bool(
         artifact_valid
         and artifact_check["verified"]
@@ -311,6 +331,7 @@ def run(case_name: str, timeout: float) -> tuple[bool, dict]:
         and decision_grounded
         and policy_recorded
         and free_route
+        and authorized_provider_scope
         and status.pending_clarification is None
         and status.approval_id is None
         and bool(str(status.message or "").strip())
@@ -323,6 +344,7 @@ def run(case_name: str, timeout: float) -> tuple[bool, dict]:
     result["decision_grounded"] = decision_grounded
     result["selection_policy_recorded"] = policy_recorded
     result["free_route"] = free_route
+    result["authorized_provider_scope"] = authorized_provider_scope
     result["pass"] = bool(
         founder_requirement_satisfied
         and not result["false_completion"]
@@ -336,6 +358,7 @@ def probe_plan(case_name: str) -> tuple[bool, dict]:
     This is diagnostic observation around the production Planner.  It does
     not submit an Objective, execute a capability or write an artifact.
     """
+    _activate_authorized_provider_scope()
     import kalpavriksha_desktop as kd
 
     case = CASES[case_name]

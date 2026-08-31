@@ -61,11 +61,12 @@ def test_web_isolates_the_trusted_rung(monkeypatch, tmp_path):
 
 
 def test_gemini_keeps_its_existing_behaviour_exactly(monkeypatch, tmp_path):
-    """The pre-existing value must not shift because a second one was added."""
+    """The API-only scope cannot fall through to Desktop or browser."""
     tiers = _tiers(monkeypatch, tmp_path, "gemini")
 
     assert tiers[TIER_GEMINI], "the API rung stays configured under 'gemini'"
     assert tiers[TIER_DESKTOP] == frozenset(), "'gemini' empties the desktop rung"
+    assert tiers[TIER_BROWSER] == frozenset(), "'gemini' empties the browser rung"
 
 
 @pytest.mark.parametrize("value", ["", "  ", "WEB ", "browser", "trusted", "nonsense"])
