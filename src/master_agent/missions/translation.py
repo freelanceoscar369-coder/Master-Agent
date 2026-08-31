@@ -99,7 +99,9 @@ def incomplete_steps(plan: Any) -> tuple[str, ...]:
     return tuple(problems)
 
 
-def task_from_step(step: Any) -> Task:
+def task_from_step(
+    step: Any, *, intent_sensitive: bool | None = None
+) -> Task:
     """One Step, as a Task. Every field copied, nothing derived.
 
     `task_id` is the Planner's own `step_id` rather than a fresh UUID:
@@ -126,6 +128,7 @@ def task_from_step(step: Any) -> Task:
         # Which founder requirements this step answers for. Copied, never
         # derived -- translation stays 1:1.
         covers=tuple(getattr(step, "covers", ()) or ()),
+        intent_sensitive=intent_sensitive,
         task_id=step.step_id,
     )
 
@@ -143,5 +146,11 @@ def objective_from_plan(plan: Any, description: str = "") -> Objective:
 
     return Objective(
         description=description or getattr(plan, "objective", "") or "Mission",
-        tasks=[task_from_step(step) for step in plan.steps],
+        tasks=[
+            task_from_step(
+                step,
+                intent_sensitive=getattr(plan, "is_sensitive", None),
+            )
+            for step in plan.steps
+        ],
     )

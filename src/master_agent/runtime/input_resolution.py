@@ -257,6 +257,10 @@ def resolve_inputs(task: Any, sources: dict[str, Any]) -> ResolvedInputs:
         str(getattr(sources.get(entry["step_id"]), "capability", "") or "")
         for row in provenance for entry in row["sources"]
     ]
-    apply_to(payload, [source for source in sources if source])
+    apply_to(
+        payload,
+        [source for source in sources if source],
+        intent_sensitive=getattr(task, "intent_sensitive", None),
+    )
 
     return ResolvedInputs(payload=payload, provenance=provenance)

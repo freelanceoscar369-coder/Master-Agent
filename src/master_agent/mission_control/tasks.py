@@ -72,6 +72,10 @@ class Task:
     #: from the Step. Descriptive: the dispatcher never reads it, and a
     #: test asserts so. Outcome conformance does.
     covers: tuple[str, ...] = ()
+    #: Canonical Intent sensitivity projected onto execution. ``None``
+    #: means a legacy/non-Planner producer supplied no classification, so
+    #: the Runtime retains its conservative provenance rules.
+    intent_sensitive: bool | None = None
     #: The canonical Evidence projection Verification produced for THIS
     #: task, stored by Mission Control when it transports the verification
     #: event.
@@ -106,6 +110,7 @@ class Task:
             "founder_checkpoint": self.founder_checkpoint,
             "answers_founder": self.answers_founder,
             "covers": list(self.covers),
+            "intent_sensitive": self.intent_sensitive,
             "evidence": self.evidence,
             "errors": list(self.errors),
             "duration_seconds": self.duration_seconds,

@@ -382,6 +382,10 @@ class MissionPlan:
     #: did this mission owe?", and answering from the plan means the
     #: answer cannot drift from the coverage the steps declare.
     requirements: tuple[SemanticRequirement, ...] = ()
+    #: The Intent Layer's sensitivity judgement. It is execution metadata,
+    #: not a provider choice, and is projected onto Tasks so model output
+    #: cannot lower it.
+    is_sensitive: bool | None = None
 
 
 @dataclass(frozen=True)

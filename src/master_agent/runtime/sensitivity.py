@@ -88,7 +88,12 @@ def classify(capability: str) -> str:
     return UNKNOWN
 
 
-def derive(sources: list[str], declared: Any = None) -> bool | None:
+def derive(
+    sources: list[str],
+    declared: Any = None,
+    *,
+    intent_sensitive: bool | None = None,
+) -> bool | None:
     """The sensitivity this invocation should actually run under.
 
     `sources` are the capabilities of the steps whose output was bound
@@ -99,37 +104,58 @@ def derive(sources: list[str], declared: Any = None) -> bool | None:
     sources this module does not recognise -- and the caller then leaves
     the existing conservative default alone.
     """
-    if declared is True:
-        # Already the careful answer. Nothing here may relax it, and a
-        # plan is always allowed to be more careful than provenance
-        # requires.
+    if intent_sensitive is True:
+        # Founder meaning is authoritative. Neither a model-authored
+        # payload nor apparently public inputs may lower it.
         return True
     if not sources:
-        return None
+        # With no material inputs, the canonical Intent is the only
+        # provenance available.  ``None`` preserves the conservative
+        # historical default for callers that have not projected it yet.
+        return False if intent_sensitive is False else (True if declared is True else None)
 
     kinds = {classify(source) for source in sources}
     if PRIVATE in kinds:
         # The join rule. One private input makes the whole invocation
-        # private, whatever the plan claimed -- this is the line a model
-        # cannot write its way past.
+        # private, whatever the plan claimed.
         return True
     if UNKNOWN in kinds:
-        # Something we cannot vouch for. Saying nothing leaves the
-        # conservative default in place, which is the right failure.
-        return None
+        # With no declaration and no Intent projection, ``None`` retains
+        # the action's conservative default.  Any explicit model claim or
+        # projected Intent is insufficient to certify unknown material as
+        # public, so execution is stamped sensitive.
+        return (
+            None
+            if declared is None and intent_sensitive is None
+            else True
+        )
+    if declared is True and intent_sensitive is None:
+        # A legacy caller that did not project Intent may still raise the
+        # classification. Only an authoritative public Intent plus wholly
+        # public provenance may relax that conservative guess.
+        return True
     return False
 
 
-def apply_to(payload: dict[str, Any], sources: list[str]) -> dict[str, Any]:
+def apply_to(
+    payload: dict[str, Any],
+    sources: list[str],
+    *,
+    intent_sensitive: bool | None = None,
+) -> dict[str, Any]:
     """Stamp the derived sensitivity onto a resolved payload.
 
     Mutates and returns the payload it was given, which is execution
     material -- never the persisted plan. What the Planner decided stays
     what the Planner decided; what runs is what provenance allows.
     """
-    if "sensitive" not in payload and not sources:
+    if "sensitive" not in payload and not sources and intent_sensitive is None:
         return payload
-    derived = derive(sources, payload.get("sensitive"))
+    derived = derive(
+        sources,
+        payload.get("sensitive"),
+        intent_sensitive=intent_sensitive,
+    )
     if derived is not None:
         payload["sensitive"] = derived
     return payload

@@ -58,6 +58,7 @@ def task_to_dict(task: Task) -> dict[str, Any]:
         "assigned_executive": task.assigned_executive,
         "result": task.result,
         "evidence_id": task.evidence_id,
+        "intent_sensitive": task.intent_sensitive,
         "errors": list(task.errors),
         "created_at": _iso(task.created_at),
         "started_at": _iso(task.started_at),
@@ -87,6 +88,7 @@ def task_from_dict(data: dict[str, Any], quarantine_interrupted: bool = True) ->
         assigned_executive=data.get("assigned_executive"),
         result=data.get("result"),
         evidence_id=data.get("evidence_id"),
+        intent_sensitive=data.get("intent_sensitive"),
         errors=errors,
     )
     created = _parse_dt(data.get("created_at"))

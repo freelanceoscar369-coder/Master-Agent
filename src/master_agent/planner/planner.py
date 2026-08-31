@@ -191,6 +191,7 @@ class Planner:
         mode = self.mode()
         plan = direct_plan(intent, options)
         if plan is not None:
+            plan.is_sensitive = intent.is_sensitive
             return PlanOutcome(
                 plan=plan,
                 selected_mode=mode,
@@ -269,6 +270,7 @@ class Planner:
         plan, invalid = validate(
             document, options, objective=intent.goal,
             requirements=requirements,
+            is_sensitive=intent.is_sensitive,
         )
 
         # `no_steps` is not a malformed plan -- it is the model's honest
@@ -379,6 +381,7 @@ class Planner:
             ), options,
             objective=intent.goal,
             requirements=getattr(intent, "requirements", ()) or (),
+            is_sensitive=intent.is_sensitive,
         )
         if plan is None:
             logging.info(

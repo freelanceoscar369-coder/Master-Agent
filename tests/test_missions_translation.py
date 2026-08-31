@@ -150,6 +150,24 @@ def test_the_result_is_a_real_objective_that_mission_control_accepts():
     objective.validate()  # raises InvalidObjective if it would not dispatch
 
 
+def test_canonical_intent_sensitivity_is_projected_onto_every_task():
+    plan = MissionPlan(
+        steps=[a_step("a"), a_step("b", depends_on=["a"])],
+        objective="private work",
+        is_sensitive=True,
+    )
+
+    objective = objective_from_plan(plan)
+
+    assert [task.intent_sensitive for task in objective.tasks] == [True, True]
+
+
+def test_legacy_plan_without_sensitivity_remains_unknown_not_public():
+    objective = objective_from_plan(a_plan())
+
+    assert objective.tasks[0].intent_sensitive is None
+
+
 # =========================================================================
 # Deliverable 4 — reject a plan missing anything
 # =========================================================================

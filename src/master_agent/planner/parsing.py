@@ -386,6 +386,7 @@ def validate(
     options: tuple[CapabilityOption, ...] | list[CapabilityOption],
     objective: str = "",
     requirements: Any = (),
+    is_sensitive: bool | None = None,
 ) -> tuple[MissionPlan | None, PlanRefusal | None]:
     """Turn a parsed plan document into a `MissionPlan`, or explain why
     it is not one. Never raises, never returns a partial plan.
@@ -475,5 +476,8 @@ def validate(
         return None, refusal
 
     return MissionPlan(
-        steps=ordered, objective=objective, requirements=tuple(requirements or ())
+        steps=ordered,
+        objective=objective,
+        requirements=tuple(requirements or ()),
+        is_sensitive=is_sensitive,
     ), None

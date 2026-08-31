@@ -43,6 +43,7 @@ def test_task_round_trips_with_every_field():
         assigned_executive="browser",
         result={"ok": True},
         evidence_id="ev-1",
+        intent_sensitive=True,
         errors=["a warning"],
     )
     task.started_at = datetime.now(UTC)
@@ -58,6 +59,7 @@ def test_task_round_trips_with_every_field():
     assert restored.assigned_executive == "browser"
     assert restored.result == {"ok": True}
     assert restored.evidence_id == "ev-1"
+    assert restored.intent_sensitive is True
     assert restored.errors == ["a warning"]
     assert restored.started_at == task.started_at
     assert restored.ended_at == task.ended_at

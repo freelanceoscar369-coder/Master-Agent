@@ -103,15 +103,35 @@ class TestAModelCannotLowerSensitivity:
         apply_to(payload, ["Browser.ReadPageText"])
         assert payload["sensitive"] is True
 
+    def test_authoritative_public_intent_can_relax_model_caution_for_public_evidence(self):
+        """The model is not the sensitivity authority in either direction.
+
+        Keeping its conservative guess blocked the live public-research
+        mission after six anonymous public pages had been verified.
+        """
+        payload = {"sensitive": True}
+        apply_to(
+            payload,
+            ["Browser.ReadPageText", "Browser.ReadPageText"],
+            intent_sensitive=False,
+        )
+        assert payload["sensitive"] is False
+
+    def test_sensitive_intent_cannot_be_lowered_by_public_provenance(self):
+        payload = {"sensitive": False}
+        apply_to(
+            payload,
+            ["Browser.ReadPageText"],
+            intent_sensitive=True,
+        )
+        assert payload["sensitive"] is True
+
     def test_a_declared_false_over_unknown_provenance_becomes_conservative(self):
         """Unknown provenance cannot license a downgrade."""
         payload = {"sensitive": False}
         apply_to(payload, ["Something.New"])
-        # `derive` says nothing, so the payload keeps what it had -- and
-        # what it had is what the action's own conservative default will
-        # be checked against. The point is that nothing here CONFIRMED
-        # the downgrade.
-        assert derive(["Something.New"], False) is None
+        assert payload["sensitive"] is True
+        assert derive(["Something.New"], False) is True
 
 
 class TestPublicResearchIsNotRefused:
@@ -128,6 +148,38 @@ class TestPublicResearchIsNotRefused:
 
 
 class TestItIsWiredIntoResolution:
+    def test_public_intent_and_verified_public_binding_reach_execution_as_public(self):
+        from types import SimpleNamespace
+
+        from master_agent.runtime.input_resolution import resolve_inputs
+
+        source = SimpleNamespace(
+            capability="Browser.ReadPageText",
+            state="completed",
+            result={"text": "public page"},
+            evidence={
+                "evidence_id": "ev-public",
+                "verdict": "matched",
+                "observation": {"text": "public page"},
+            },
+        )
+        task = SimpleNamespace(
+            task_id="synthesise",
+            payload={"instruction": "compare", "sensitive": True},
+            input_bindings={
+                "context": {
+                    "from_step": {"step_id": "read", "field": "text"}
+                }
+            },
+            depends_on=["read"],
+            intent_sensitive=False,
+        )
+
+        resolved = resolve_inputs(task, {"read": source})
+
+        assert resolved.payload["context"] == "public page"
+        assert resolved.payload["sensitive"] is False
+
     def test_the_resolver_derives_sensitivity_from_its_own_provenance(self):
         import inspect
 
