@@ -821,6 +821,25 @@ class TestCandidateConstruction:
         assert set(built[0].criteria.values()) == {MET}
         assert built[0].supporting == ("ev1",)
 
+    def test_each_criterion_retains_its_own_evidence(self):
+        from master_agent.brain.deliberation import candidates_from
+
+        reasoner = self.reasoner({"candidates": [{
+            "id": "ashen", "summary": "Ashen Vale",
+            "criteria": {
+                "c1": {"state": "met", "evidence_id": "ev1"},
+                "c2": {"state": "met", "evidence_id": "ev2"},
+                "c3": {"state": "met", "evidence_id": "ev3"},
+                "c4": {"state": "met", "evidence_id": "ev1"},
+            },
+        }]})
+        candidate = candidates_from(FRAME, self.observations(), reasoner)[0]
+        assert candidate.criterion_evidence == {
+            "c1": ("ev1",), "c2": ("ev2",),
+            "c3": ("ev3",), "c4": ("ev1",),
+        }
+        assert candidate.as_dict()["criterion_evidence"]["c2"] == ["ev2"]
+
     def test_a_met_with_no_evidence_is_downgraded_not_believed(self):
         """The guard that matters. "The demo is free" and "something said
         the demo is free" are different claims, and only one of them

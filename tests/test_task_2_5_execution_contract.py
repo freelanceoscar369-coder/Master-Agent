@@ -37,6 +37,18 @@ from master_agent.runtime.config import RuntimeConfig
 from master_agent.runtime.engine import RuntimeEngine
 from tests.test_missions_execution import GOOD, TWO_STEPS, AlwaysApprove, RecordingGateway, wired
 
+
+def test_status_serializes_and_resets_brain_decisions():
+    status = ExecutionStatus()
+    status.deliberation = {"state": "decided"}
+    status.recovery = {"should_replan": False}
+    assert status.as_dict()["deliberation"] == {"state": "decided"}
+    assert status.as_dict()["recovery"] == {"should_replan": False}
+
+    status.begin("another objective")
+    assert status.deliberation is None
+    assert status.recovery is None
+
 # ---- 1. headless reaches the Planner's actual prompt -----------------------
 
 

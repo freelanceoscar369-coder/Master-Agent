@@ -262,6 +262,7 @@ class Planner:
             )
 
         requirements = getattr(intent, "requirements", ()) or ()
+        required_coverage, forbidden_coverage = self._coverage_contract(intent)
         from master_agent.planner.parsing import materialise_binding_dependencies
 
         document = materialise_binding_dependencies(
@@ -271,6 +272,8 @@ class Planner:
             document, options, objective=intent.goal,
             requirements=requirements,
             is_sensitive=intent.is_sensitive,
+            required_coverage=required_coverage,
+            forbidden_coverage=forbidden_coverage,
         )
 
         # `no_steps` is not a malformed plan -- it is the model's honest
@@ -340,6 +343,29 @@ class Planner:
             requester=self._requester,
         )
 
+    @staticmethod
+    def _coverage_contract(intent: Intent) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Return the Founder requirements this attempt owes and must not redo."""
+        requirements = tuple(getattr(intent, "requirements", ()) or ())
+        all_required = tuple(
+            str(requirement.requirement_id)
+            for requirement in requirements
+            if getattr(requirement, "required", True)
+        )
+        context = getattr(intent, "context", {}) or {}
+        recovery = context.get("recovery") if isinstance(context, dict) else None
+        if not isinstance(recovery, dict):
+            return all_required, ()
+        unresolved = tuple(
+            str(requirement_id) for requirement_id in recovery.get("unresolved", ())
+            if str(requirement_id) in all_required
+        )
+        satisfied = tuple(
+            str(requirement_id) for requirement_id in recovery.get("satisfied", ())
+            if str(requirement_id) in all_required
+        )
+        return unresolved, satisfied
+
     def _correct(self, intent, options, first, invalid, mode, attempts):
         """One repair pass. `None` when it did not produce a valid plan,
         and the caller then reports the ORIGINAL refusal -- the first
@@ -375,6 +401,8 @@ class Planner:
 
         from master_agent.planner.parsing import materialise_binding_dependencies
 
+        required_coverage, forbidden_coverage = self._coverage_contract(intent)
+
         plan, still_invalid = validate(
             materialise_binding_dependencies(
                 outcome.evidence.observation.get("json")
@@ -382,6 +410,8 @@ class Planner:
             objective=intent.goal,
             requirements=getattr(intent, "requirements", ()) or (),
             is_sensitive=intent.is_sensitive,
+            required_coverage=required_coverage,
+            forbidden_coverage=forbidden_coverage,
         )
         if plan is None:
             logging.info(

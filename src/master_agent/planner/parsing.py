@@ -467,6 +467,8 @@ def validate(
     objective: str = "",
     requirements: Any = (),
     is_sensitive: bool | None = None,
+    required_coverage: Any = (),
+    forbidden_coverage: Any = (),
 ) -> tuple[MissionPlan | None, PlanRefusal | None]:
     """Turn a parsed plan document into a `MissionPlan`, or explain why
     it is not one. Never raises, never returns a partial plan.
@@ -503,6 +505,11 @@ def validate(
         )
 
     allowed = names(options)
+    known_requirement_ids = {
+        str(getattr(requirement, "requirement_id", "") or "")
+        for requirement in (requirements or ())
+        if str(getattr(requirement, "requirement_id", "") or "")
+    }
     steps: list[Step] = []
     seen: set[str] = set()
 
@@ -532,6 +539,31 @@ def validate(
             return None, _malformed(f"two steps share the id `{step.step_id}`")
         seen.add(step.step_id)
         steps.append(step)
+
+    covered = {requirement_id for step in steps for requirement_id in step.covers}
+    unknown = covered - known_requirement_ids if known_requirement_ids else set()
+    if unknown:
+        return None, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="a step claims coverage of an unknown Founder requirement",
+            detail=f"unknown requirement ids: {', '.join(sorted(unknown))}",
+        )
+
+    missing = set(required_coverage or ()) - covered
+    if missing:
+        return None, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="the plan does not cover every unresolved Founder requirement",
+            detail=f"missing requirement ids: {', '.join(sorted(missing))}",
+        )
+
+    repeated = set(forbidden_coverage or ()) & covered
+    if repeated:
+        return None, PlanRefusal(
+            code=BAD_PAYLOAD,
+            reason="the recovery plan would redo an already-satisfied Founder requirement",
+            detail=f"already satisfied requirement ids: {', '.join(sorted(repeated))}",
+        )
 
     answer_steps = [step.step_id for step in steps if step.answers_founder]
     if len(answer_steps) > 1:

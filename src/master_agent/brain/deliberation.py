@@ -256,6 +256,15 @@ class Candidate:
     summary: str
     #: criterion_id -> MET / UNMET / UNVERIFIED
     criteria: Mapping[str, str] = field(default_factory=dict)
+    #: criterion_id -> canonical Evidence ids that support that exact
+    #: assessment.
+    #:
+    #: This cannot be reconstructed from ``supporting``.  A candidate may
+    #: have one source for price and another for availability; attaching
+    #: the union to every criterion makes each source appear to prove every
+    #: claim.  The flat tuple remains as the convenient candidate-level
+    #: projection, while this mapping is the durable claim-level truth.
+    criterion_evidence: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     supporting: tuple[str, ...] = ()
     contradicting: tuple[str, ...] = ()
     strengths: tuple[str, ...] = ()
@@ -268,6 +277,10 @@ class Candidate:
             "candidate_id": self.candidate_id,
             "summary": self.summary,
             "criteria": dict(self.criteria),
+            "criterion_evidence": {
+                criterion_id: list(evidence_ids)
+                for criterion_id, evidence_ids in self.criterion_evidence.items()
+            },
             "supporting": list(self.supporting),
             "contradicting": list(self.contradicting),
             "strengths": list(self.strengths),
@@ -1110,6 +1123,7 @@ def _extract(
         if not summary:
             continue
         states: dict[str, str] = {}
+        criterion_evidence: dict[str, tuple[str, ...]] = {}
         supporting: list[str] = []
         unknowns: list[str] = []
         offered = row.get("criteria")
@@ -1138,10 +1152,13 @@ def _extract(
             states[criterion_id] = state
             if evidence_id in known_evidence and evidence_id not in supporting:
                 supporting.append(evidence_id)
+            if evidence_id in known_evidence:
+                criterion_evidence[criterion_id] = (evidence_id,)
         built.append(Candidate(
             candidate_id=str(row.get("id") or f"cand_{index}"),
             summary=summary,
             criteria=states,
+            criterion_evidence=criterion_evidence,
             supporting=tuple(supporting),
             unknowns=tuple(unknowns),
         ))
@@ -1177,13 +1194,23 @@ def deliberate(
     assessments = tuple(
         EvidenceAssessment(
             claim=f"{candidate.candidate_id}/{criterion_id}: {candidate.summary}",
-            evidence_ids=candidate.supporting,
+            # Claim-level provenance.  Legacy/in-memory Candidates that
+            # predate the mapping retain their historical flat projection;
+            # newly extracted candidates never smear one criterion's
+            # citation across all the others.
+            evidence_ids=tuple(
+                candidate.criterion_evidence.get(criterion_id)
+                or candidate.supporting
+            ),
             requirement_id=next(
                 (c.requirement_id for c in frame.mandatory
                  if c.criterion_id == criterion_id), "",
             ),
             source_class=next(
-                (by_evidence[e].source_class for e in candidate.supporting
+                (by_evidence[e].source_class for e in (
+                    candidate.criterion_evidence.get(criterion_id)
+                    or candidate.supporting
+                )
                  if e in by_evidence), DISCOVERY,
             ),
             state=FACT if state == MET else UNKNOWN,
@@ -1268,6 +1295,10 @@ class MissionProgress:
     #: independently observed and does not stop being true because a
     #: later step failed.
     evidence_ids: tuple[str, ...] = ()
+    #: Stable fingerprints of what those Evidence records actually observed.
+    #: Evidence ids are unique per capture, so ids alone cannot detect a
+    #: retry that learned the identical fact under a new UUID.
+    observation_signatures: tuple[str, ...] = ()
     #: What was attempted and did not work -- capability plus target, so
     #: a new plan can differ from it rather than repeat it.
     failed_routes: tuple[str, ...] = ()
@@ -1288,7 +1319,10 @@ class MissionProgress:
         count is an attempt that satisfied nothing, learned nothing and
         ruled nothing out.
         """
-        return bool(self.satisfied or self.evidence_ids or self.failed_routes)
+        return bool(
+            self.satisfied or self.observation_signatures
+            or self.evidence_ids or self.failed_routes
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1297,6 +1331,7 @@ class MissionProgress:
             "unresolved": list(self.unresolved),
             "verified_steps": list(self.verified_steps),
             "evidence_ids": list(self.evidence_ids),
+            "observation_signatures": list(self.observation_signatures),
             "failed_routes": list(self.failed_routes),
             "successful_routes": list(self.successful_routes),
         }
@@ -1322,6 +1357,28 @@ def _route_of(task: Any) -> str:
     return f"{capability} {target}".strip()
 
 
+def _observation_signature(record: Mapping[str, Any]) -> str:
+    """Content identity for Evidence, excluding capture-time volatility."""
+    import hashlib
+    import json
+
+    def stable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): stable(item) for key, item in sorted(value.items())
+                if key not in {"captured_at", "evidence_id"}
+            }
+        if isinstance(value, (list, tuple)):
+            return [stable(item) for item in value]
+        return value
+
+    observation = record.get("observation")
+    if not isinstance(observation, dict):
+        return ""
+    payload = json.dumps(stable(observation), sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def progress_of(objective: str, requirements: Sequence[Any], tasks: Sequence[Any]) -> MissionProgress:
     """Read the mission's standing off the records that already hold it.
 
@@ -1343,6 +1400,7 @@ def progress_of(objective: str, requirements: Sequence[Any], tasks: Sequence[Any
 
     verified: list[str] = []
     evidence: list[str] = []
+    signatures: list[str] = []
     failed: list[str] = []
     succeeded: list[str] = []
     for task in tasks or ():
@@ -1360,6 +1418,9 @@ def progress_of(objective: str, requirements: Sequence[Any], tasks: Sequence[Any
             evidence_id = str(record.get("evidence_id") or "")
             if evidence_id:
                 evidence.append(evidence_id)
+            signature = _observation_signature(record)
+            if signature:
+                signatures.append(signature)
 
     return MissionProgress(
         objective=objective,
@@ -1367,6 +1428,7 @@ def progress_of(objective: str, requirements: Sequence[Any], tasks: Sequence[Any
         unresolved=unresolved,
         verified_steps=tuple(verified),
         evidence_ids=tuple(dict.fromkeys(evidence)),
+        observation_signatures=tuple(dict.fromkeys(signatures)),
         failed_routes=tuple(dict.fromkeys(failed)),
         successful_routes=tuple(dict.fromkeys(succeeded)),
     )
@@ -1385,8 +1447,16 @@ def no_useful_progress(previous: MissionProgress, current: MissionProgress) -> b
     Repeating after this is not persistence, it is a loop. The caller
     changes strategy or says truthfully that it is blocked.
     """
+    previous_knowledge = (
+        set(previous.observation_signatures)
+        if previous.observation_signatures else set(previous.evidence_ids)
+    )
+    current_knowledge = (
+        set(current.observation_signatures)
+        if current.observation_signatures else set(current.evidence_ids)
+    )
     return (
         set(current.satisfied) == set(previous.satisfied)
-        and set(current.evidence_ids) <= set(previous.evidence_ids)
+        and current_knowledge <= previous_knowledge
         and set(current.failed_routes) <= set(previous.failed_routes)
     )

@@ -47,14 +47,15 @@ REQUIREMENTS = (
 
 
 class Task:
-    def __init__(self, task_id, capability, covers, verdict, payload=None):
+    def __init__(self, task_id, capability, covers, verdict, payload=None, observation=None):
         self.task_id = task_id
         self.capability = capability
         self.covers = covers
         self.payload = payload or {}
         self.errors = []
         self.evidence = (
-            {"verdict": verdict, "evidence_id": f"ev-{task_id}"}
+            {"verdict": verdict, "evidence_id": f"ev-{task_id}",
+             "observation": observation or {}}
             if verdict else None
         )
 
@@ -186,6 +187,32 @@ class TestNoUsefulProgress:
             failed_routes=("Browser.Navigate a", "Browser.Navigate b"),
         )
         assert no_useful_progress(self.base(), after) is False
+
+    def test_a_new_evidence_id_for_the_same_observation_is_not_progress(self):
+        before = progress_of("research", REQUIREMENTS, [
+            Task("first", "Browser.ReadPageText", (), "matched",
+                 observation={"url": "https://a.test", "text": "same",
+                              "captured_at": "one"}),
+        ])
+        after = progress_of("research", REQUIREMENTS, [
+            Task("second", "Browser.ReadPageText", (), "matched",
+                 observation={"url": "https://a.test", "text": "same",
+                              "captured_at": "two"}),
+        ])
+        assert before.evidence_ids != after.evidence_ids
+        assert before.observation_signatures == after.observation_signatures
+        assert no_useful_progress(before, after) is True
+
+    def test_a_changed_observation_is_new_knowledge(self):
+        before = progress_of("research", REQUIREMENTS, [
+            Task("first", "Browser.ReadPageText", (), "matched",
+                 observation={"url": "https://a.test", "text": "old"}),
+        ])
+        after = progress_of("research", REQUIREMENTS, [
+            Task("second", "Browser.ReadPageText", (), "matched",
+                 observation={"url": "https://a.test", "text": "new"}),
+        ])
+        assert no_useful_progress(before, after) is False
 
 
 # =====================================================================

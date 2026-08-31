@@ -77,8 +77,6 @@ def bind_for_environment(
     description: str,
 ) -> ExpectedOutcome | None:
     """The Planner's claim, expressed as checks a browser can answer."""
-    from master_agent.plugins.browser_observation import normalise_url
-
     which = subject(capability)
     if which is None:
         return None
@@ -112,14 +110,10 @@ def bind_for_environment(
         return ExpectedOutcome(
             description=description,
             checks=[ObservationCheck(
-                field="url_normalised",
+                field="destination_matches",
                 operator="equals",
-                value=normalise_url(requested),
-                # EQUALITY on a normalised field, not `contains`. A
-                # substring test for "example.com" would also be satisfied
-                # by "example.com.attacker.test", which is a different
-                # place entirely.
-                description=f"the page is at {normalise_url(requested)}",
+                value=True,
+                description=f"the page reached the requested destination {requested}",
             )],
         )
 

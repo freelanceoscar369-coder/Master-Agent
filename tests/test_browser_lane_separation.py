@@ -273,7 +273,7 @@ class TestNeitherLaneFallsBackToTheOther:
         )
         check = expected.checks[0]
         assert check.operator == "equals"
-        assert check.field == "url_normalised"
+        assert check.field == "destination_matches"
 
     def test_the_trusted_provider_never_selects_a_provider(self):
         """MB033 Rule 4. A provider that could pick a provider would make

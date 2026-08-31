@@ -8,7 +8,10 @@ from __future__ import annotations
 from typing import Any
 
 from master_agent.environment.browser_session import BrowserSessionManager
-from master_agent.plugins.browser_observation import normalize_observation
+from master_agent.plugins.browser_observation import (
+    destination_semantics,
+    normalize_observation,
+)
 from master_agent.verification.verifier import Verifier
 
 
@@ -24,6 +27,7 @@ class BrowserVerifier(Verifier):
         include_accessibility_tree: bool = False,
         include_available_actions: bool = False,
         include_text: bool = False,
+        requested_url: str = "",
     ) -> None:
         self._sessions = sessions
         self._session_id = session_id
@@ -31,6 +35,7 @@ class BrowserVerifier(Verifier):
         self._include_accessibility_tree = include_accessibility_tree
         self._include_available_actions = include_available_actions
         self._include_text = include_text
+        self._requested_url = requested_url
 
     def capture_observation_dict(self) -> dict[str, Any]:
         # Always resolves the session and re-reads the page fresh at the
@@ -45,4 +50,11 @@ class BrowserVerifier(Verifier):
             include_available_actions=self._include_available_actions,
             include_text=self._include_text,
         )
-        return observation.as_dict()
+        document = observation.as_dict()
+        if self._requested_url:
+            matches, basis = destination_semantics(
+                self._requested_url, observation.url, observation.title,
+            )
+            document["destination_matches"] = matches
+            document["destination_match_basis"] = basis
+        return document

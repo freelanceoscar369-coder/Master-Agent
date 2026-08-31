@@ -277,6 +277,8 @@ class ExecutionStatus:
         self.approval_kind = ""
         self.approval_preview = ""
         self.approval_context = ""
+        self.deliberation = None
+        self.recovery = None
         # A new objective inherits no question. The founder surface reads
         # any pending clarification BEFORE calling this, precisely because
         # the message that answers one arrives as the next objective.
@@ -404,6 +406,8 @@ class ExecutionStatus:
             "approval_kind": self.approval_kind,
             "approval_preview": self.approval_preview,
             "approval_context": self.approval_context,
+            "deliberation": self.deliberation,
+            "recovery": self.recovery,
             "pending_clarification": (
                 self.pending_clarification.as_dict()
                 if self.pending_clarification is not None else None

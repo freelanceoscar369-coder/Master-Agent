@@ -220,6 +220,14 @@ class PlanRecord:
     #: a deterministic plan, which asked nobody -- and that emptiness is
     #: itself the answer to "did this mission use AI?".
     attempts: list[dict[str, Any]] = field(default_factory=list)
+    #: Mission lineage and the Brain's latest reviewable state.  Recovery
+    #: may produce several plan ids, but they remain attempts at one
+    #: Founder objective rather than unrelated missions.
+    root_plan_id: str = ""
+    previous_plan_id: str | None = None
+    objective_state: dict[str, Any] = field(default_factory=dict)
+    deliberation: dict[str, Any] | None = None
+    recovery: dict[str, Any] | None = None
 
     # ---- derived reads --------------------------------------------------
 
@@ -304,6 +312,11 @@ class PlanRecord:
             "effective_mode": self.effective_mode,
             "mode_reason": self.mode_reason,
             "attempts": [dict(a) for a in self.attempts],
+            "root_plan_id": self.root_plan_id,
+            "previous_plan_id": self.previous_plan_id,
+            "objective_state": dict(self.objective_state),
+            "deliberation": dict(self.deliberation) if self.deliberation else None,
+            "recovery": dict(self.recovery) if self.recovery else None,
             "steps": [record.as_dict() for record in self.steps],
             "requirements": [dict(r) for r in self.requirements],
         }
@@ -327,6 +340,17 @@ class PlanRecord:
             effective_mode=document.get("effective_mode", ""),
             mode_reason=document.get("mode_reason", ""),
             attempts=[dict(a) for a in (document.get("attempts") or [])],
+            root_plan_id=document.get("root_plan_id", ""),
+            previous_plan_id=document.get("previous_plan_id"),
+            objective_state=dict(document.get("objective_state") or {}),
+            deliberation=(
+                dict(document["deliberation"])
+                if isinstance(document.get("deliberation"), dict) else None
+            ),
+            recovery=(
+                dict(document["recovery"])
+                if isinstance(document.get("recovery"), dict) else None
+            ),
         )
 
 
@@ -521,6 +545,24 @@ class PlanHistory:
         for event_type, handler in wiring:
             mission_control.bus.subscribe(handler, event_type)
         return tuple(event_type.value for event_type, _ in wiring)
+
+    def record_objective_state(
+        self, plan_id: str, *, root_plan_id: str = "",
+        previous_plan_id: str | None = None, objective_state: Any = None,
+        deliberation: Any = None, recovery: Any = None,
+    ) -> PlanRecord | None:
+        """Persist the Brain's reviewable mission state on its plan record."""
+        record = self._records.get(plan_id)
+        if record is None:
+            return None
+        record.root_plan_id = root_plan_id or plan_id
+        record.previous_plan_id = previous_plan_id
+        if isinstance(objective_state, dict):
+            record.objective_state = dict(objective_state)
+        record.deliberation = dict(deliberation) if isinstance(deliberation, dict) else None
+        record.recovery = dict(recovery) if isinstance(recovery, dict) else None
+        self._flush()
+        return record
 
     # ---- event handlers -------------------------------------------------
 

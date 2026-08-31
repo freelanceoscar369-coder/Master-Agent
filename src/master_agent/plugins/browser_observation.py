@@ -300,6 +300,63 @@ def normalise_url(url: str) -> str:
     ))
 
 
+def destination_semantics(
+    requested_url: str, actual_url: str, title: str = ""
+) -> tuple[bool, str]:
+    """Conservatively decide whether a redirect reached the requested place.
+
+    Exact identity remains strongest.  Canonical redirects on the same
+    site are accepted, and a cross-site redirect needs distinctive words
+    from the requested path in the resulting URL/title.  Login, CAPTCHA
+    and error destinations never satisfy navigation merely because they
+    share a host.
+    """
+    import re
+    from urllib.parse import urlsplit
+
+    requested = normalise_url(requested_url)
+    actual = normalise_url(actual_url)
+    if requested == actual:
+        return True, "exact_normalised_url"
+    try:
+        wanted = urlsplit(requested)
+        reached = urlsplit(actual)
+    except ValueError:
+        return False, "invalid_url"
+    if wanted.scheme not in {"http", "https"} or reached.scheme not in {"http", "https"}:
+        return False, "unsupported_scheme"
+
+    visible_destination = f"{reached.path} {reached.query} {title}".lower()
+    blockers = ("login", "sign in", "signin", "captcha", "access denied",
+                "not found", "error", "robot", "automated quer")
+    if any(marker in visible_destination for marker in blockers):
+        return False, "blocked_or_error_destination"
+
+    def host(value: str) -> str:
+        return value.lower().split(":", 1)[0].removeprefix("www.")
+
+    generic = {"www", "com", "org", "net", "io", "co", "docs", "doc",
+               "help", "support", "api", "en", "index", "html", "htm"}
+    tokens = {
+        token for token in re.findall(r"[a-z0-9]+", wanted.path.lower())
+        if len(token) >= 4 and token not in generic
+    }
+    reached_words = set(re.findall(r"[a-z0-9]+", visible_destination))
+    wanted_host, reached_host = host(wanted.netloc), host(reached.netloc)
+    if wanted_host and wanted_host == reached_host:
+        if wanted.path.rstrip("/") == reached.path.rstrip("/"):
+            return True, "same_canonical_host_and_path"
+        if not wanted.path.strip("/"):
+            return True, "same_canonical_host"
+        if tokens and tokens & reached_words:
+            return True, "same_host_semantics_preserved"
+        return False, "same_host_unrelated_path"
+
+    if tokens and tokens & reached_words:
+        return True, "requested_path_semantics_preserved"
+    return False, "unrelated_destination"
+
+
 def read_visible_text(page: Page) -> tuple[str | None, bool]:
     """The visible text of a page, and whether it was cut.
 

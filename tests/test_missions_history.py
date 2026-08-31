@@ -299,6 +299,34 @@ def test_a_json_store_survives_a_restart(tmp_path):
     assert reopened.replay(outcome.objective_id).steps[0].verified
 
 
+def test_objective_beliefs_and_recovery_lineage_survive_a_restart(tmp_path):
+    path = tmp_path / HISTORY_FILENAME
+    system = pipeline(THREE_STEPS, tmp_path=tmp_path)
+    system.history = PlanHistory(store=JsonFilePlanStore(path))
+    system.history.attach_to(system.mission_control)
+    system.missions.history = system.history
+    outcome = system.start("Research the decision")
+
+    system.history.record_objective_state(
+        outcome.objective_id,
+        root_plan_id="root-attempt",
+        previous_plan_id="prior-attempt",
+        objective_state={
+            "satisfied": ["req_1"], "unresolved": ["req_2"],
+            "observation_signatures": ["fact-a"],
+        },
+        deliberation={"state": "insufficient_evidence"},
+        recovery={"should_replan": True, "failure_class": "method_failure"},
+    )
+
+    record = PlanHistory(store=JsonFilePlanStore(path)).get(outcome.objective_id)
+    assert record.root_plan_id == "root-attempt"
+    assert record.previous_plan_id == "prior-attempt"
+    assert record.objective_state["unresolved"] == ["req_2"]
+    assert record.deliberation["state"] == "insufficient_evidence"
+    assert record.recovery["should_replan"] is True
+
+
 def test_an_unreadable_history_is_moved_aside_never_overwritten(tmp_path):
     """MB034's rule. A founder can open a `.corrupt` file and read what
     their system did; they cannot recover a file the program replaced."""

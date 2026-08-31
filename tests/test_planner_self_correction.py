@@ -59,7 +59,7 @@ def step(step_id, capability="Browser.Navigate", **extra):
     row = {
         "id": step_id,
         "capability": capability,
-        "covers": ["req_1"],
+        "covers": ["req_1", "req_2"],
         "success": {"description": "it worked"},
     }
     row.update(extra)
@@ -79,6 +79,35 @@ class TestTheObservedInvalidShapesAreRejected:
     """Each of these was produced by the real Planner on the founder's
     real objective. Deterministic rejection is the precondition for
     correcting them -- something has to say precisely what is wrong."""
+
+    def test_a_plan_must_cover_every_unresolved_founder_requirement(self):
+        plan, refusal = validate(
+            plan_of(step("s1", covers=["req_1"])), OPTIONS,
+            requirements=REQUIREMENTS,
+            required_coverage=("req_1", "req_2"),
+        )
+        assert plan is None
+        assert refusal is not None
+        assert "req_2" in refusal.detail
+
+    def test_a_plan_cannot_invent_a_requirement_identity(self):
+        plan, refusal = validate(
+            plan_of(step("s1", covers=["req_99"])), OPTIONS,
+            requirements=REQUIREMENTS,
+        )
+        assert plan is None
+        assert refusal is not None
+        assert "unknown" in refusal.reason
+
+    def test_a_recovery_plan_cannot_redo_satisfied_work(self):
+        plan, refusal = validate(
+            plan_of(step("s1", covers=["req_1", "req_2"])), OPTIONS,
+            requirements=REQUIREMENTS,
+            required_coverage=("req_2",), forbidden_coverage=("req_1",),
+        )
+        assert plan is None
+        assert refusal is not None
+        assert "already-satisfied" in refusal.reason
 
     def test_the_same_argument_set_twice_is_rejected(self):
         """`payload.url` and `input_bindings.url` both deciding one
@@ -346,3 +375,13 @@ class TestTheDependencyViolationIsRepairable:
         assert outcome.plan is not None
         assert outcome.plan.steps[1].depends_on == ["s1"]
         assert len(runner.prompts) == 1
+
+    def test_recovery_keeps_unresolved_requirements_and_protects_satisfied_ones(self):
+        harness = TestBoundedSelfCorrection()
+        intent = harness.intent()
+        intent.context["recovery"] = {
+            "satisfied": ["req_1"], "unresolved": ["req_2"],
+        }
+        required, forbidden = harness.planner(Runner())._coverage_contract(intent)
+        assert required == ("req_2",)
+        assert forbidden == ("req_1",)

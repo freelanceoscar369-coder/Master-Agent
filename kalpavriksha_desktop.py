@@ -2041,22 +2041,52 @@ def no_useful_progress(before, after) -> bool:
     return _no_useful_progress(before, after)
 
 
-def _mission_progress(mission_control, intent, objective_id):
-    """Where this mission stands, from the records that already hold it."""
+def _mission_progress(mission_control, intent, objective_ids):
+    """Where the whole mission stands across every strategy attempt."""
     from master_agent.brain.deliberation import progress_of
 
-    try:
-        objective = mission_control.dispatcher.objective(objective_id)
-    except Exception:  # noqa: BLE001 -- an unreadable record stands nowhere
-        return None
+    ids = (objective_ids,) if isinstance(objective_ids, str) else tuple(objective_ids or ())
+    tasks = []
+    for objective_id in ids:
+        try:
+            objective = mission_control.dispatcher.objective(objective_id)
+        except Exception:  # noqa: BLE001 -- an unreadable record stands nowhere
+            return None
+        tasks.extend(getattr(objective, "tasks", ()) or ())
     return progress_of(
         str(getattr(intent, "goal", "") or ""),
         tuple(getattr(intent, "requirements", ()) or ()),
         # Read defensively: this is now consulted on EVERY mission, not
         # only on the replan path, and the surface tests drive the bridge
         # with the smallest record that makes their own point -- rightly.
-        getattr(objective, "tasks", ()) or (),
+        tasks,
     )
+
+
+def _persist_objective_state(
+    mission_service, plan_id, attempts_made, progress,
+    *, deliberation=None, recovery=None, evidence_needed=None,
+):
+    """Persist mission beliefs through the existing PlanHistory owner."""
+    history = getattr(mission_service, "history", None)
+    writer = getattr(history, "record_objective_state", None)
+    if not callable(writer):
+        return
+    state = progress.as_dict() if progress is not None else {}
+    state["attempt_ids"] = list(attempts_made)
+    if evidence_needed is not None:
+        state["evidence_needed"] = dict(evidence_needed)
+    try:
+        writer(
+            plan_id,
+            root_plan_id=attempts_made[0] if attempts_made else plan_id,
+            previous_plan_id=(attempts_made[-2] if len(attempts_made) > 1 else None),
+            objective_state=state,
+            deliberation=(deliberation.as_dict() if deliberation is not None else None),
+            recovery=recovery,
+        )
+    except Exception:  # noqa: BLE001 -- audit persistence cannot crash execution
+        logging.exception("could not persist objective state for %s", plan_id)
 
 
 def _recovery_decision(mission_control, intent, objective_id, attempts_used):
@@ -2672,6 +2702,14 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             if decided is not None and decided.more_research
             else None
         )
+        standing = _mission_progress(
+            mission_control, intent_result.intent, attempts_made
+        )
+        _persist_objective_state(
+            mission_service, objective_id, attempts_made, standing,
+            deliberation=decided, recovery=status.recovery,
+            evidence_needed=needed,
+        )
 
         # TWO DIAGNOSES, and they are not the same thing.
         #
@@ -2689,6 +2727,8 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             decision = _recovery_decision(
                 mission_control, intent_result.intent, objective_id, attempts
             )
+            if decision is not None:
+                status.recovery = decision.as_dict()
             if decision is None or not decision.should_replan:
                 if decision is not None:
                     logging.info(
@@ -2696,7 +2736,6 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                         decision.failure_class, decision.reason,
                     )
                 break
-            status.recovery = decision.as_dict()
             reason = f"recovery ({decision.failure_class})"
         elif needed is not None and attempts < _RESEARCH_BUDGET:
             # Execution succeeded. The objective did not.
@@ -2737,7 +2776,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # The environment is released first, so the second attempt does
         # not inherit the first one's leftovers.
         before = _mission_progress(
-            mission_control, intent_result.intent, objective_id
+            mission_control, intent_result.intent, attempts_made
         )
         if before is None:
             logging.info("no further attempt: this mission's record is unreadable")
@@ -2764,6 +2803,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                 getattr(getattr(retried, "refusal", None), "reason", None)
                 or "; ".join(getattr(retried, "reasons", ()) or ()) or "no reason given",
             )
+            retry_reason = (
+                getattr(getattr(retried, "refusal", None), "reason", None)
+                or "; ".join(getattr(retried, "reasons", ()) or ())
+                or "the recovery plan was not admitted"
+            )
+            status.status = FAILED
+            status.errors.append(str(retry_reason))
             break
         objective_id = retried.objective_id
         attempts_made.append(objective_id)
@@ -2777,7 +2823,7 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
 
         # Did that change anything that matters?
         after = _mission_progress(
-            mission_control, intent_result.intent, objective_id
+            mission_control, intent_result.intent, attempts_made
         )
         if after is None:
             break
@@ -2790,6 +2836,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
                 "no useful progress on attempt %s; changing nothing further",
                 attempts,
             )
+            status.recovery = {
+                "failure_class": "method_failure",
+                "should_replan": False,
+                "reason": "the latest strategy produced no new mission knowledge",
+                "must_differ": [],
+                "attempts_remaining": max(0, _RESEARCH_BUDGET - attempts),
+            }
             break
 
     state = mission_control.founder_state(objective_id)
@@ -2830,6 +2883,13 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             "deliberation: %s (%s shortlisted, %s rejected)",
             decided.state, len(decided.shortlist), len(decided.rejected),
         )
+    final_progress = _mission_progress(
+        mission_control, intent_result.intent, attempts_made
+    )
+    _persist_objective_state(
+        mission_service, objective_id, attempts_made, final_progress,
+        deliberation=decided, recovery=status.recovery,
+    )
     decision_text = _decision_sentence(decided)
 
     if state.errors:

@@ -25,6 +25,58 @@ touch it.
 """
 from __future__ import annotations
 
+
+class TestRedirectSemanticEquivalence:
+    def test_a_same_site_canonical_redirect_is_the_requested_destination(self):
+        from master_agent.plugins.browser_observation import destination_semantics
+
+        matched, basis = destination_semantics(
+            "https://www.example.com/pricing",
+            "https://example.com/pricing/",
+            "Pricing",
+        )
+        assert matched is True
+        assert basis == "same_canonical_host_and_path"
+
+    def test_a_documentation_redirect_can_preserve_the_founder_semantics(self):
+        from master_agent.plugins.browser_observation import destination_semantics
+
+        matched, basis = destination_semantics(
+            "https://docs.vendor.test/orchid-guide",
+            "https://developer.vendor.com/guides/orchid-guide-v2",
+            "Orchid Guide",
+        )
+        assert matched is True
+        assert basis == "requested_path_semantics_preserved"
+
+    def test_a_login_or_bot_interstitial_never_counts_as_arrival(self):
+        from master_agent.plugins.browser_observation import destination_semantics
+
+        assert destination_semantics(
+            "https://example.com/research",
+            "https://example.com/login?continue=/research",
+            "Sign in",
+        )[0] is False
+        assert destination_semantics(
+            "https://example.com/search?q=x",
+            "https://example.com/captcha?continue=/search?q=x",
+            "Automated queries",
+        )[0] is False
+
+    def test_an_unrelated_redirect_is_not_accepted(self):
+        from master_agent.plugins.browser_observation import destination_semantics
+
+        assert destination_semantics(
+            "https://example.com/research",
+            "https://unrelated.test/",
+            "Welcome",
+        )[0] is False
+        assert destination_semantics(
+            "https://example.com/research",
+            "https://example.com/home",
+            "Welcome",
+        )[0] is False
+
 import pytest
 
 from master_agent.executor.actions.browser._common import (

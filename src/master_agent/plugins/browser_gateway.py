@@ -108,6 +108,10 @@ class BrowserGateway:
             return BrowserVerifier(
                 sessions, session_id, payload.get("selectors"),
                 include_text=_local(capability) == "readpagetext",
+                requested_url=(
+                    str(payload.get("url") or "")
+                    if _local(capability) == "navigate" else ""
+                ),
             ).verify(effective)
 
         return None
