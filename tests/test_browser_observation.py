@@ -6,8 +6,32 @@ rule).
 from __future__ import annotations
 
 from master_agent.environment.browser_session import BrowserSessionManager
-from master_agent.plugins.browser_observation import normalize_observation
+from master_agent.plugins.browser_observation import (
+    destination_semantics,
+    normalize_observation,
+    page_content_semantics,
+)
 from tests.browser_test_support import SAMPLE_HTML
+
+
+def test_exact_error_destination_is_not_a_successful_navigation():
+    matched, basis = destination_semantics(
+        "https://source.invalid/missing",
+        "https://source.invalid/missing",
+        "Error 404 (Not Found)!!!",
+    )
+
+    assert matched is False
+    assert basis == "blocked_or_error_destination"
+
+
+def test_visible_load_error_is_not_usable_research_content():
+    usable, basis = page_content_semantics(
+        "", "This page couldn’t load\nReload to try again, or go back."
+    )
+
+    assert usable is False
+    assert basis == "error_body"
 
 
 def test_normalize_observation_reads_url_and_title():

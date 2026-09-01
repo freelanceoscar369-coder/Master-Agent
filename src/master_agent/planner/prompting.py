@@ -298,6 +298,7 @@ def build_correction_prompt(
     rejected: str,
     reason: str,
     detail: str,
+    code: str = "",
 ) -> str:
     """The same request, plus exactly why the last answer was not a plan.
 
@@ -329,6 +330,7 @@ def build_correction_prompt(
             "shape."
         ),
         "",
+        f"Validator code: {code or 'unspecified'}",
         f"What was rejected: {reason}",
     ]
     if detail:
@@ -556,16 +558,15 @@ def build_prompt(
 def plan_expectation() -> ExpectedOutcome:
     """What a usable *plan document* looks like, stated before asking.
 
-    Deliberately thin: it checks that something parseable with a `steps`
-    key came back, and nothing about whether the plan is any good. The
-    rest -- unknown capabilities, missing expectations, dependency cycles
-    -- is decided by `parsing.validate()`, which can say *which step* and
-    *why*. A verifier can only say matched or not, and "not matched" is a
-    poor answer to "your third step names a capability that does not
-    exist".
+    Deliberately thin: it checks that JSON came back and nothing about
+    whether the plan is any good.  The parser owns the small closed set of
+    harmless representation variants (for example a sole ``plan`` wrapper
+    or a one-step object), and semantic validation then names unknown
+    capabilities, missing targets, impossible bindings and dependency
+    errors precisely.  Requiring the literal top-level ``steps`` key here
+    would reject recoverable JSON before that owner could inspect it.
     """
     return expect(
-        description="a plan document: JSON with a `steps` list",
+        description="a JSON plan candidate for deterministic admission",
         json_body=True,
-        json_fields=("steps",),
     )

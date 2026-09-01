@@ -7,14 +7,14 @@ Product names and objective wording live here as acceptance data only.
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
 import hashlib
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 
 os.environ.setdefault("KALPAVRIKSHA_DISABLE_MIC", "1")
 
@@ -70,7 +70,7 @@ CASES = {
 AUTHORIZED_REASONING_PROVIDERS = frozenset({"gemini.api", "openrouter.api"})
 
 
-def _activate_authorized_provider_scope() -> None:
+def _activate_authorized_provider_scope(state_dir: Path | None = None) -> None:
     """Constrain this process without changing a normal Founder launch."""
     # This acceptance carries a scoped disclosure authorization for
     # configured cloud APIs only. Reuse Founder Edition's existing
@@ -78,6 +78,64 @@ def _activate_authorized_provider_scope() -> None:
     # account or trusted browser. The API rung is derived by the composition
     # root and currently contains only credentialled Gemini/OpenRouter.
     os.environ["KALPAVRIKSHA_FMEA_REASONING_TIER"] = "gemini"
+    # Acceptance must never rewrite the Founder's ordinary durable state.
+    # Keep the exact production persistence implementation and redirect
+    # only its already-supported validation root.  A caller-supplied output
+    # path gives every run its own inspectable state directory.
+    if state_dir is not None:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["KALPAVRIKSHA_STATE_DIR"] = str(state_dir)
+
+
+def _capture_planner_translations(
+    runner, *, trace_path: Path | None = None,
+) -> list[dict]:
+    """Capture exact authorized Planner inputs/outputs for offline replay.
+
+    The normal decision ledger deliberately stores metadata rather than
+    prompt content.  Live acceptance needs the narrower, explicitly
+    authorized evidence needed to reproduce admission failures.  This
+    wrapper observes the existing runner and changes neither selection nor
+    output.
+    """
+    traces: list[dict] = []
+    original_run = runner.run
+
+    def traced(prompt, request, **kwargs):
+        outcome = original_run(prompt, request, **kwargs)
+        if str(getattr(request, "requester", "") or "") == "planner":
+            evidence = getattr(outcome, "evidence", None)
+            observation = getattr(evidence, "observation", None)
+            traces.append({
+                "sequence": len(traces) + 1,
+                "provider_id": getattr(outcome, "provider_id", ""),
+                "entry_id": getattr(outcome, "entry_id", None),
+                "prompt_sha256": hashlib.sha256(
+                    str(prompt).encode("utf-8")
+                ).hexdigest(),
+                "prompt": str(prompt),
+                "response": str(getattr(outcome, "text", "") or ""),
+                "ok": bool(getattr(outcome, "ok", False)),
+                "verified": bool(getattr(outcome, "verified", False)),
+                "verdict": (
+                    getattr(getattr(evidence, "verdict", None), "value", "")
+                    if evidence is not None else ""
+                ),
+                "parsed_json": (
+                    observation.get("json")
+                    if isinstance(observation, dict) else None
+                ),
+            })
+            if trace_path is not None:
+                trace_path.parent.mkdir(parents=True, exist_ok=True)
+                trace_path.write_text(
+                    json.dumps(traces, indent=2, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
+        return outcome
+
+    runner.run = traced
+    return traces
 
 
 def _evidence(control, objectives) -> list[dict]:
@@ -185,8 +243,10 @@ def _decision_rows(runner, start: int) -> list[dict]:
     return rows
 
 
-def run(case_name: str, timeout: float) -> tuple[bool, dict]:
-    _activate_authorized_provider_scope()
+def run(
+    case_name: str, timeout: float, *, state_dir: Path | None = None,
+) -> tuple[bool, dict]:
+    _activate_authorized_provider_scope(state_dir)
     import kalpavriksha_desktop as kd
     from master_agent.missions.execution_status import ExecutionStatus
 
@@ -203,6 +263,13 @@ def run(case_name: str, timeout: float) -> tuple[bool, dict]:
     if pipeline is None:
         return False, {"case": case_name, "blocker": "production pipeline unavailable"}
     service, runtime, control, _, runner = pipeline[:5]
+    translation_path = (
+        state_dir / "planner_translation_trace.json"
+        if state_dir is not None else None
+    )
+    planner_translations = _capture_planner_translations(
+        runner, trace_path=translation_path,
+    )
     ledger = runner._executor._service.ledger
     decision_start = len(ledger)
     objective_start = len(control.dispatcher.objectives())
@@ -266,6 +333,11 @@ def run(case_name: str, timeout: float) -> tuple[bool, dict]:
         "recovery": status.recovery,
         "deliberation": status.deliberation,
         "provider_decisions": decisions,
+        "planner_translation_trace": planner_translations,
+        "planner_translation_trace_path": (
+            str(translation_path) if translation_path is not None else None
+        ),
+        "acceptance_state_dir": str(state_dir) if state_dir is not None else None,
         "reasoning_calls": len(decisions),
         "provider_cost_known_total": round(sum(provider_costs), 8),
         "provider_cost_unknown_calls": len(decisions) - len(provider_costs),
@@ -352,13 +424,15 @@ def run(case_name: str, timeout: float) -> tuple[bool, dict]:
     return result["pass"], result
 
 
-def probe_plan(case_name: str) -> tuple[bool, dict]:
+def probe_plan(
+    case_name: str, *, state_dir: Path | None = None,
+) -> tuple[bool, dict]:
     """Run understanding and planning only, exposing the existing refusal.
 
     This is diagnostic observation around the production Planner.  It does
     not submit an Objective, execute a capability or write an artifact.
     """
-    _activate_authorized_provider_scope()
+    _activate_authorized_provider_scope(state_dir)
     import kalpavriksha_desktop as kd
 
     case = CASES[case_name]
@@ -366,6 +440,13 @@ def probe_plan(case_name: str) -> tuple[bool, dict]:
     if pipeline is None:
         return False, {"case": case_name, "blocker": "production pipeline unavailable"}
     service, _, _, _, runner = pipeline[:5]
+    translation_path = (
+        state_dir / "planner_translation_trace.json"
+        if state_dir is not None else None
+    )
+    planner_translations = _capture_planner_translations(
+        runner, trace_path=translation_path,
+    )
     intent_result = service.intent_layer.parse(case["objective"])
     if intent_result.needs_clarification or intent_result.intent is None:
         return False, {
@@ -427,6 +508,11 @@ def probe_plan(case_name: str) -> tuple[bool, dict]:
             }
             for attempt in runner.last_attempts
         ],
+        "planner_translation_trace": planner_translations,
+        "planner_translation_trace_path": (
+            str(translation_path) if translation_path is not None else None
+        ),
+        "acceptance_state_dir": str(state_dir) if state_dir is not None else None,
     }
     return outcome.plan is not None, result
 
@@ -443,8 +529,15 @@ def main() -> int:
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
 
+    state_dir = (
+        args.output.parent / f"{args.output.stem}-state"
+        if args.output is not None else ROOT / ".codex-test-state" /
+        "founder-research-v1" / f"{args.case}-{os.getpid()}"
+    )
     passed, result = (
-        probe_plan(args.case) if args.plan_only else run(args.case, args.timeout)
+        probe_plan(args.case, state_dir=state_dir)
+        if args.plan_only else
+        run(args.case, args.timeout, state_dir=state_dir)
     )
     rendered = json.dumps(result, indent=2, ensure_ascii=False, default=str)
     print(rendered, flush=True)

@@ -15,8 +15,8 @@ from master_agent.planner import outcomes
 from master_agent.planner.catalogue import CapabilityOption, catalogue_from, names, render
 from master_agent.planner.parsing import validate
 from master_agent.planner.plan import (
-    BAD_PAYLOAD,
     BAD_DEPENDENCY,
+    BAD_PAYLOAD,
     CYCLIC,
     MALFORMED,
     MISSING_EXPECTATION,
@@ -37,7 +37,7 @@ def refusal_for(*steps, options=CATALOGUE):
 # =========================================================================
 
 
-@pytest.mark.parametrize("document_value", ["a string", 42, None, [1, 2], True])
+@pytest.mark.parametrize("document_value", ["a string", 42, None, True])
 def test_anything_that_is_not_an_object_is_not_a_plan(document_value):
     plan, refusal = validate(document_value, CATALOGUE)
 
@@ -46,13 +46,27 @@ def test_anything_that_is_not_an_object_is_not_a_plan(document_value):
     assert refusal.detail == "the reply was not a JSON object"
 
 
-@pytest.mark.parametrize("steps_value", [None, "one, then two", {"a": 1}, 3])
+@pytest.mark.parametrize("steps_value", [None, "one, then two", 3])
 def test_steps_must_be_a_list(steps_value):
     plan, refusal = validate({"steps": steps_value}, CATALOGUE)
 
     assert plan is None
     assert refusal.code == MALFORMED
     assert "`steps` is missing or is not a list" == refusal.detail
+
+
+def test_a_single_step_object_is_the_unambiguous_list_of_one():
+    plan, refusal = validate({"steps": step("only")}, CATALOGUE)
+
+    assert refusal is None
+    assert [item.step_id for item in plan.steps] == ["only"]
+
+
+def test_a_bare_step_list_is_the_unambiguous_steps_value():
+    plan, refusal = validate([step("only")], CATALOGUE)
+
+    assert refusal is None
+    assert [item.step_id for item in plan.steps] == ["only"]
 
 
 def test_an_empty_step_list_is_the_providers_honest_refusal():

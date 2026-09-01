@@ -132,6 +132,18 @@ def bind_for_environment(
         ),
     ]
 
+    if _in(capability, frozenset({"read_page_text"})):
+        checks.extend([
+            ObservationCheck(
+                field="text", operator="exists",
+                description="visible page text could be observed",
+            ),
+            ObservationCheck(
+                field="page_usable", operator="equals", value=True,
+                description="the observed page is not an explicit error surface",
+            ),
+        ])
+
     # When the step named selectors, the promise is larger by exactly one
     # thing: those selectors were the ones looked at. The verifier
     # re-observes the page from scratch and passes the same selectors, so

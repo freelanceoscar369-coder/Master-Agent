@@ -588,10 +588,11 @@ def test_a_plan_reports_how_many_steps_it_has():
         # *inside* it that is wrong, and the parser is the thing that can
         # say so precisely.
         ('{"steps": "one then two"}', vocabulary.MALFORMED),
-        # No `steps` at all, so it never gets that far: the expectation
-        # stated before the request already rules it out.
-        ('{"plan": []}', vocabulary.NOT_JSON),
-        ("[1, 2, 3]", vocabulary.NOT_JSON),
+        # A sole wrapper and a bare list reach the deterministic parser.
+        # The former is the provider's honest empty-plan refusal; the
+        # latter is a steps list whose entries are malformed.
+        ('{"plan": []}', vocabulary.NO_STEPS),
+        ("[1, 2, 3]", vocabulary.MALFORMED),
     ],
 )
 def test_a_document_that_is_not_a_plan_says_which_part_is_wrong(reply, code):

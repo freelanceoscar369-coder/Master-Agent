@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from master_agent.planner.catalogue import CapabilityOption
 from master_agent.planner.parsing import materialise_binding_dependencies, validate
 from master_agent.planner.plan import CONSTRAINT, SemanticRequirement
@@ -80,7 +78,7 @@ class TestTheObservedInvalidShapesAreRejected:
     real objective. Deterministic rejection is the precondition for
     correcting them -- something has to say precisely what is wrong."""
 
-    def test_a_plan_must_cover_every_unresolved_founder_requirement(self):
+    def test_a_plan_must_cover_every_current_strategy_target(self):
         plan, refusal = validate(
             plan_of(step("s1", covers=["req_1"])), OPTIONS,
             requirements=REQUIREMENTS,
@@ -88,6 +86,7 @@ class TestTheObservedInvalidShapesAreRejected:
         )
         assert plan is None
         assert refusal is not None
+        assert "current strategy target" in refusal.reason
         assert "req_2" in refusal.detail
 
     def test_a_plan_cannot_invent_a_requirement_identity(self):
@@ -250,6 +249,7 @@ class TestBoundedSelfCorrection:
         runner = Runner(bad, good)
         self.planner(runner).plan(self.intent())
         repair = runner.prompts[1]
+        assert "Validator code: bad_payload" in repair
         assert "same argument twice" in repair
         assert "was not a valid plan" in repair
 

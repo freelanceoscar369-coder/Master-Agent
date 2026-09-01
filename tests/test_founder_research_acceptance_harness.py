@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from types import SimpleNamespace
 
 from master_agent.plugins.filesystem_observation import normalise_text
-from scripts.live_acceptance.founder_research_v1 import _artifact_verification
 from scripts.live_acceptance.founder_research_v1 import (
-    AUTHORIZED_REASONING_PROVIDERS, _activate_authorized_provider_scope,
+    AUTHORIZED_REASONING_PROVIDERS,
+    _activate_authorized_provider_scope,
+    _artifact_verification,
+    _capture_planner_translations,
 )
 
 
@@ -81,3 +85,45 @@ def test_activating_acceptance_scope_is_explicit_not_an_import_side_effect(monke
     _activate_authorized_provider_scope()
 
     assert __import__("os").environ["KALPAVRIKSHA_FMEA_REASONING_TIER"] == "gemini"
+
+
+def test_acceptance_uses_the_existing_disposable_state_override(monkeypatch, tmp_path):
+    monkeypatch.delenv("KALPAVRIKSHA_STATE_DIR", raising=False)
+
+    _activate_authorized_provider_scope(tmp_path / "isolated-state")
+
+    assert __import__("os").environ["KALPAVRIKSHA_STATE_DIR"] == str(
+        tmp_path / "isolated-state"
+    )
+
+
+def test_planner_translation_capture_preserves_exact_local_replay_material(tmp_path):
+    class Runner:
+        def run(self, prompt, request, **kwargs):
+            return SimpleNamespace(
+                provider_id="provider.test",
+                entry_id=8,
+                text='{"plan":{"steps":[]}}',
+                ok=True,
+                verified=True,
+                evidence=SimpleNamespace(
+                    verdict=SimpleNamespace(value="matched"),
+                    observation={"json": {"plan": {"steps": []}}},
+                ),
+            )
+
+    runner = Runner()
+    trace_path = tmp_path / "planner_translation_trace.json"
+    traces = _capture_planner_translations(runner, trace_path=trace_path)
+
+    runner.run(
+        "exact prompt",
+        SimpleNamespace(requester="planner"),
+        expected=SimpleNamespace(),
+    )
+
+    assert traces[0]["prompt"] == "exact prompt"
+    assert traces[0]["response"] == '{"plan":{"steps":[]}}'
+    assert traces[0]["parsed_json"] == {"plan": {"steps": []}}
+    assert traces[0]["provider_id"] == "provider.test"
+    assert json.loads(trace_path.read_text(encoding="utf-8")) == traces

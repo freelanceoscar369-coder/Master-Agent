@@ -155,6 +155,11 @@ class BrowserObservation:
     #: verify all three, and have nothing to think about.
     text: str | None = None
     text_truncated: bool = False
+    #: Whether the visible document is usable page content rather than a
+    #: browser/site error surface.  This is deterministic UI state, not a
+    #: judgement about whether the research claim is true.
+    page_usable: bool = True
+    page_usability_basis: str = "no_error_surface_observed"
     #: Where this page says you can go next. Gathered with the text, for
     #: the same reason and by the same opt-in: the read that wants to
     #: know what a page SAYS is the read that may need to know where it
@@ -177,6 +182,8 @@ class BrowserObservation:
             "accessibility_tree_truncated": self.accessibility_tree_truncated,
             "text": self.text,
             "text_truncated": self.text_truncated,
+            "page_usable": self.page_usable,
+            "page_usability_basis": self.page_usability_basis,
             "links": [link.as_dict() for link in self.links],
             "links_truncated": self.links_truncated,
             "available_actions": [action.as_dict() for action in self.available_actions],
@@ -316,8 +323,6 @@ def destination_semantics(
 
     requested = normalise_url(requested_url)
     actual = normalise_url(actual_url)
-    if requested == actual:
-        return True, "exact_normalised_url"
     try:
         wanted = urlsplit(requested)
         reached = urlsplit(actual)
@@ -331,6 +336,8 @@ def destination_semantics(
                 "not found", "error", "robot", "automated quer")
     if any(marker in visible_destination for marker in blockers):
         return False, "blocked_or_error_destination"
+    if requested == actual:
+        return True, "exact_normalised_url"
 
     def host(value: str) -> str:
         return value.lower().split(":", 1)[0].removeprefix("www.")
@@ -355,6 +362,33 @@ def destination_semantics(
     if tokens and tokens & reached_words:
         return True, "requested_path_semantics_preserved"
     return False, "unrelated_destination"
+
+
+def page_content_semantics(title: str, text: str | None) -> tuple[bool, str]:
+    """Recognise only explicit, generic browser/site error surfaces.
+
+    A page may discuss an error and still be useful, so body markers are
+    checked only near the beginning and title markers are conservative.
+    Unknown content remains usable; claim sufficiency is still the Brain's
+    decision over Evidence.
+    """
+    visible_title = " ".join(str(title or "").lower().split())
+    visible_start = " ".join(str(text or "")[:800].lower().split())
+    title_markers = (
+        "404 not found", "error 404", "page not found", "access denied",
+        "service unavailable", "captcha",
+    )
+    body_markers = (
+        "this page couldn't load", "this page couldn’t load",
+        "this page doesn't exist", "this page doesn’t exist",
+        "page not found", "access denied", "service unavailable",
+        "temporarily unavailable", "something went wrong",
+    )
+    if any(marker in visible_title for marker in title_markers):
+        return False, "error_title"
+    if any(marker in visible_start for marker in body_markers):
+        return False, "error_body"
+    return True, "no_error_surface_observed"
 
 
 def read_visible_text(page: Page) -> tuple[str | None, bool]:
@@ -448,11 +482,13 @@ def normalize_observation(
     )
     text, text_truncated = read_visible_text(page) if include_text else (None, False)
     links, links_truncated = _observe_links(page) if include_text else ([], False)
+    title = page.title()
+    page_usable, page_usability_basis = page_content_semantics(title, text)
 
     return BrowserObservation(
         url=page.url,
         url_normalised=normalise_url(page.url),
-        title=page.title(),
+        title=title,
         viewport_width=viewport["width"] if viewport else None,
         viewport_height=viewport["height"] if viewport else None,
         elements=_observe_elements(page, selectors),
@@ -462,6 +498,8 @@ def normalize_observation(
         available_actions_truncated=actions_truncated,
         text=text,
         text_truncated=text_truncated,
+        page_usable=page_usable,
+        page_usability_basis=page_usability_basis,
         links=links,
         links_truncated=links_truncated,
         captured_at=datetime.now(UTC),

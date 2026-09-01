@@ -169,6 +169,16 @@ class TestTheObservationIsVerifiedFreshly:
         assert "elements.0.is_visible" not in fields
         assert not any(c.field.endswith(".text") for c in expected.checks)
 
+    def test_read_page_text_requires_a_usable_non_error_page(self):
+        expected = bind_for_environment(
+            capability="Browser.ReadPageText",
+            payload={"session_id": "s1"},
+            description="read the source",
+        )
+        fields = {(check.field, check.operator, check.value) for check in expected.checks}
+        assert ("text", "exists", None) in fields
+        assert ("page_usable", "equals", True) in fields
+
     def test_an_observation_with_no_selectors_is_unchanged(self):
         expected = bind_for_environment(
             capability="Browser.ObserveBrowser",

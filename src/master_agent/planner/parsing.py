@@ -55,6 +55,63 @@ def _malformed(detail: str) -> PlanRefusal:
     )
 
 
+def normalise_plan_document(document: Any) -> Any:
+    """Canonicalise only representation variants with one meaning.
+
+    Provider JSON is not authoritative until semantic validation accepts
+    it.  This function therefore repairs punctuation-level shape drift and
+    nothing else: it never chooses a capability, requirement, dependency,
+    argument, output field, or success condition.
+
+    Accepted equivalences are deliberately closed:
+
+    * a bare list is the value of ``steps``;
+    * a single step object is a one-element ``steps`` list;
+    * a sole ``plan``/``mission_plan``/``result`` wrapper is transparent;
+    * one ``steps`` object is a one-element list; and
+    * one ``covers`` id is a one-element list.
+
+    Ambiguous wrappers and every semantic error remain untouched for the
+    existing validator to reject precisely.
+    """
+    copied = deepcopy(document)
+
+    if isinstance(copied, list):
+        copied = {"steps": copied}
+    elif isinstance(copied, dict) and "steps" not in copied:
+        wrapper_keys = tuple(
+            key for key in ("plan", "mission_plan", "result")
+            if key in copied
+        )
+        if len(copied) == 1 and len(wrapper_keys) == 1:
+            nested = copied[wrapper_keys[0]]
+            if isinstance(nested, (dict, list)):
+                return normalise_plan_document(nested)
+        elif (
+            isinstance(copied.get("id"), str)
+            and isinstance(copied.get("capability"), str)
+        ):
+            copied = {"steps": [copied]}
+
+    if not isinstance(copied, dict):
+        return copied
+
+    raw_steps = copied.get("steps")
+    if isinstance(raw_steps, dict):
+        raw_steps = [raw_steps]
+        copied["steps"] = raw_steps
+    if not isinstance(raw_steps, list):
+        return copied
+
+    for entry in raw_steps:
+        if not isinstance(entry, dict):
+            continue
+        covers = entry.get("covers")
+        if isinstance(covers, (str, int)):
+            entry["covers"] = [covers]
+    return copied
+
+
 def materialise_binding_dependencies(document: Any) -> Any:
     """Copy a provider plan and make its already-declared dataflow explicit.
 
@@ -70,7 +127,7 @@ def materialise_binding_dependencies(document: Any) -> Any:
     observation remains immutable.  Malformed bindings are left for
     :func:`validate` to refuse through its existing precise path.
     """
-    copied = deepcopy(document)
+    copied = normalise_plan_document(document)
     if not isinstance(copied, dict) or not isinstance(copied.get("steps"), list):
         return copied
     for entry in copied["steps"]:
@@ -482,6 +539,8 @@ def validate(
     Passing them through is not a second semantic authority -- it is the
     absence of one.
     """
+    document = normalise_plan_document(document)
+
     if not isinstance(document, dict):
         return None, _malformed("the reply was not a JSON object")
 
@@ -554,7 +613,7 @@ def validate(
     if missing:
         return None, PlanRefusal(
             code=BAD_PAYLOAD,
-            reason="the plan does not cover every unresolved Founder requirement",
+            reason="the plan does not cover every current strategy target",
             detail=f"missing requirement ids: {', '.join(sorted(missing))}",
         )
 

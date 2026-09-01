@@ -499,6 +499,7 @@ class Planner:
                 rejected=str(getattr(first, "text", "") or ""),
                 reason=str(getattr(invalid, "reason", "") or ""),
                 detail=str(getattr(invalid, "detail", "") or ""),
+                code=str(getattr(invalid, "code", "") or ""),
             )
             request = BudgetedSelectionRequest(
                 **vars(SelectionRequest.from_context(self._context(intent))),
