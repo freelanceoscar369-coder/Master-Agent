@@ -259,6 +259,29 @@ def test_production_planner_admits_a_normalised_brain_selected_subset():
     )
 
 
+def test_framed_mission_without_brain_strategy_is_refused_before_provider():
+    runner = StubRunner(json.dumps({"steps": observation_step()}))
+    planner = Planner.__new__(Planner)
+    planner._runner = runner
+    planner._offline = False
+    planner._requires_strong_reasoning = False
+    planner._requester = "test"
+    planner.options = lambda: OPTIONS
+    planner.mode = lambda: "both"
+    intent = Intent(
+        goal="compare the options and produce the result",
+        requirements=REQUIREMENTS,
+        context={"decision_frame": {"requirement_ids": ["req_fact", "req_result"]}},
+    )
+
+    outcome = planner.plan(intent)
+
+    assert outcome.plan is None
+    assert outcome.refusal is not None
+    assert "Brain has not selected" in outcome.refusal.reason
+    assert runner.calls == []
+
+
 def task(task_id: str, url: str, evidence_id: str) -> SimpleNamespace:
     return SimpleNamespace(
         task_id=task_id,

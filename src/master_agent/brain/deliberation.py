@@ -187,6 +187,11 @@ class DecisionFrame:
     #: that depend on this decision but are not properties candidates must
     #: individually possess.
     decision_requirement_ids: tuple[str, ...] = ()
+    #: Canonical requirements that must establish the comparison subjects
+    #: before per-candidate criteria are actionable. Derived from the
+    #: Founder's requirement order and candidate-property boundary; never
+    #: invented from a domain word such as "product" or "investor".
+    candidate_prerequisite_ids: tuple[str, ...] = ()
     decision_type: str = ""
     mandatory: tuple[Criterion, ...] = ()
     preferences: tuple[Criterion, ...] = ()
@@ -206,6 +211,7 @@ class DecisionFrame:
             "objective": self.objective,
             "requirement_ids": list(self.requirement_ids),
             "decision_requirement_ids": list(self.decision_requirement_ids),
+            "candidate_prerequisite_ids": list(self.candidate_prerequisite_ids),
             "decision_type": self.decision_type,
             "mandatory": [c.as_dict() for c in self.mandatory],
             "preferences": [c.as_dict() for c in self.preferences],
@@ -350,6 +356,7 @@ class DeliberationResult:
     rationale: str = ""
     requirement_ids: tuple[str, ...] = ()
     decision_requirement_ids: tuple[str, ...] = ()
+    candidate_prerequisite_ids: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     #: criterion_id -> what it actually asks, carried from the frame.
     #:
@@ -379,6 +386,7 @@ class DeliberationResult:
             "rationale": self.rationale,
             "requirement_ids": list(self.requirement_ids),
             "decision_requirement_ids": list(self.decision_requirement_ids),
+            "candidate_prerequisite_ids": list(self.candidate_prerequisite_ids),
             "unresolved": list(self.unresolved),
             "criteria": dict(self.criteria),
             "criterion_requirements": dict(self.criterion_requirements),
@@ -466,6 +474,86 @@ def next_evidence_need(
     ))
     criterion_requirements = dict(result.criterion_requirements or {})
 
+    # Candidate properties are not actionable until there is a candidate
+    # state to evaluate. Previously the empty initial state fell through
+    # to the first criterion and asked the Planner to compare prices,
+    # browser use, autonomy and memory for subjects the mission had not
+    # established. Discovery is prerequisite state, not a new Founder
+    # requirement and not a capability choice.
+    has_candidate_state = bool(
+        result.candidates or result.rejected or result.shortlist
+    )
+    if not has_candidate_state and result.criteria:
+        prerequisite_targets = tuple(
+            requirement_id
+            for requirement_id in result.candidate_prerequisite_ids
+            if requirement_id in unresolved_requirements
+        )
+        if prerequisite_targets:
+            targets = prerequisite_targets[:1]
+        else:
+            criterion_targets = tuple(
+                requirement_id
+                for requirement_id in criterion_requirements.values()
+                if requirement_id in unresolved_requirements
+            )
+            targets = criterion_targets[:1] or unresolved_requirements[:1]
+        if not targets:
+            return None
+        return NextEvidenceNeed(
+            target_requirements=targets,
+            missing_claim=(
+                "identify viable candidates and gather enough qualification "
+                "evidence to establish a canonical comparison set"
+            ),
+            preferred_source_class=DISCOVERY,
+            exhausted_strategies=exhausted,
+            reason=(
+                "candidate-dependent criteria are blocked because no canonical "
+                "candidate state has been established"
+            ),
+            unvisited=tuple(unvisited),
+            action="discover_candidates",
+        )
+
+    # Finding subjects and establishing the canonical set are distinct
+    # prerequisite states.  Once observations have produced candidates,
+    # the first discovery prerequisite is established by that state, but
+    # a later selection/qualification prerequisite can still be open.
+    # Candidate-property comparison remains blocked until the Brain's
+    # canonical shortlist exists.
+    if has_candidate_state and not result.shortlist and result.criteria:
+        remaining_prerequisites = tuple(
+            requirement_id
+            for requirement_id in result.candidate_prerequisite_ids[1:]
+            if requirement_id in unresolved_requirements
+        )
+        if remaining_prerequisites:
+            candidates = tuple(result.candidates or ())
+            criteria = "; ".join(
+                str(description)
+                for description in (result.criteria or {}).values()
+                if str(description).strip()
+            )
+            return NextEvidenceNeed(
+                target_requirements=remaining_prerequisites[:1],
+                missing_claim=(
+                    "qualify the discovered candidates and establish the "
+                    "canonical candidate set"
+                    + (f" against: {criteria}" if criteria else "")
+                ),
+                candidate_ids=tuple(c.candidate_id for c in candidates),
+                candidate_summaries=tuple(c.summary for c in candidates),
+                preferred_source_class=DISCOVERY,
+                exhausted_strategies=exhausted,
+                reason=(
+                    "candidate-dependent comparison is blocked until the "
+                    "discovered subjects are qualified into a canonical set"
+                ),
+                unvisited=tuple(unvisited),
+                action="qualify_candidates",
+            )
+
     if result.state == DECIDED and result.shortlist:
         criterion_requirement_ids = {
             requirement_id for requirement_id in criterion_requirements.values()
@@ -497,7 +585,7 @@ def next_evidence_need(
     # Frame order is intentional: it is stable and preserves the Founder's
     # own requirement order.  Select ONE criterion, not every unresolved
     # obligation, so a continuation can be small and falsifiable.
-    candidates = tuple(result.candidates or ())
+    candidates = tuple(result.shortlist or result.candidates or ())
     for criterion_id, description in (result.criteria or {}).items():
         missing_candidates = tuple(
             candidate
@@ -536,6 +624,44 @@ def next_evidence_need(
             unvisited=tuple(unvisited),
         )
     return None
+
+
+def initial_evidence_need(
+    frame: DecisionFrame,
+    requirements: Sequence[Any],
+) -> NextEvidenceNeed | None:
+    """Choose the first actionable gap from an empty mission state.
+
+    This is the admission-time use of the same Brain decision contract
+    recovery already uses after execution. It creates no second Intent,
+    plan or Evidence record: every requirement id comes from the canonical
+    Intent and every criterion from the already-frozen DecisionFrame.
+    """
+    unresolved = tuple(
+        str(getattr(requirement, "requirement_id", "") or "")
+        for requirement in requirements
+        if getattr(requirement, "required", True)
+        and str(getattr(requirement, "requirement_id", "") or "")
+    )
+    result = DeliberationResult(
+        state=INSUFFICIENT_EVIDENCE,
+        requirement_ids=frame.requirement_ids,
+        decision_requirement_ids=frame.decision_requirement_ids,
+        candidate_prerequisite_ids=frame.candidate_prerequisite_ids,
+        criteria={
+            criterion.criterion_id: criterion.description
+            for criterion in frame.mandatory
+        },
+        criterion_requirements={
+            criterion.criterion_id: criterion.requirement_id
+            for criterion in frame.mandatory
+        },
+        more_research=True,
+    )
+    return next_evidence_need(
+        result,
+        MissionProgress(objective=frame.objective, unresolved=unresolved),
+    )
 
 
 # ---------------------------------------------------------------------
@@ -1034,6 +1160,22 @@ def frame_for(
         )
         for index, requirement in enumerate(candidate_requirements, start=1)
     )
+    candidate_positions = tuple(
+        index for index, requirement in enumerate(kept)
+        if getattr(requirement, "candidate_property", None) is True
+    )
+    first_candidate_position = (
+        candidate_positions[0] if candidate_positions else None
+    )
+    candidate_prerequisite_ids = tuple(
+        str(getattr(requirement, "requirement_id", "") or "")
+        for index, requirement in enumerate(kept)
+        if first_candidate_position is not None
+        and index < first_candidate_position
+        and getattr(requirement, "required", True)
+        and getattr(requirement, "candidate_property", None) is not True
+        and str(getattr(requirement, "requirement_id", "") or "")
+    )
     return DecisionFrame(
         objective=objective,
         requirement_ids=tuple(
@@ -1045,6 +1187,7 @@ def frame_for(
             if getattr(r, "candidate_property", None) is False
             and str(getattr(r, "kind", "")).lower() == INFORMATION
         ),
+        candidate_prerequisite_ids=candidate_prerequisite_ids,
         decision_type="research_shortlist" if len(judged) > 1 else "assessment",
         mandatory=mandatory,
         stakes="reversible" if reversible else "consequential",
@@ -1465,6 +1608,7 @@ def deliberate(
         rationale=why,
         requirement_ids=frame.requirement_ids,
         decision_requirement_ids=frame.decision_requirement_ids,
+        candidate_prerequisite_ids=frame.candidate_prerequisite_ids,
         unresolved=unresolved,
         criteria={c.criterion_id: c.description for c in frame.mandatory},
         criterion_requirements={

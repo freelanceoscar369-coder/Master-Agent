@@ -351,6 +351,26 @@ class Planner:
                 effective_mode=LOCAL,
             )
 
+        planner_context = getattr(intent, "context", {}) or {}
+        if (
+            isinstance(planner_context, dict)
+            and planner_context.get("decision_frame")
+            and not isinstance(planner_context.get("evidence_needed"), dict)
+        ):
+            return PlanOutcome(
+                refusal=PlanRefusal(
+                    code=BAD_PAYLOAD,
+                    reason="no plan: the Brain has not selected a current strategy target",
+                    detail=(
+                        "This mission has a canonical decision frame, but no "
+                        "explicit next Evidence need. The Planner may translate "
+                        "a Brain decision; it may not choose one implicitly."
+                    ),
+                ),
+                selected_mode=mode,
+                effective_mode=mode,
+            )
+
         prompt = build_prompt(intent, options)
         context = self._context(intent, task_id=task_id, objective_id=objective_id)
         # MB038. A planning prompt carries the whole capability catalogue,
@@ -393,7 +413,7 @@ class Planner:
         from master_agent.planner.parsing import materialise_binding_dependencies
 
         document = materialise_binding_dependencies(
-            outcome.evidence.observation.get("json")
+            outcome.evidence.observation.get("json"), options
         )
         document, invalid = _canonical_synthesis_document(document, intent)
         if invalid is None:
@@ -519,7 +539,7 @@ class Planner:
         required_coverage, forbidden_coverage = self._coverage_contract(intent)
 
         document = materialise_binding_dependencies(
-            outcome.evidence.observation.get("json")
+            outcome.evidence.observation.get("json"), options
         )
         document, still_invalid = _canonical_synthesis_document(document, intent)
         if still_invalid is None:

@@ -112,8 +112,8 @@ def normalise_plan_document(document: Any) -> Any:
     return copied
 
 
-def materialise_binding_dependencies(document: Any) -> Any:
-    """Copy a provider plan and make its already-declared dataflow explicit.
+def materialise_binding_dependencies(document: Any, options: Any = ()) -> Any:
+    """Copy a provider plan and compile unambiguous argument representation.
 
     A ``from_step`` binding says unambiguously that its consumer cannot run
     before the named producer.  Providers repeatedly emitted that dataflow
@@ -121,11 +121,18 @@ def materialise_binding_dependencies(document: Any) -> Any:
     providers to restate the graph cost twelve calls in a live Founder
     Research mission and still produced no mission.
 
-    This is representation normalisation, not planning: it never chooses a
-    source, field, capability or order that the binding did not already
-    state.  The returned document is a deep copy so the verified Evidence
-    observation remains immutable.  Malformed bindings are left for
-    :func:`validate` to refuse through its existing precise path.
+    A provider can also put a literal value under ``input_bindings`` even
+    though that map is reserved for dataflow expressions.  When, and only
+    when, the destination is a published argument of the named capability,
+    the value is plainly not a binding object, and the payload does not
+    already decide it, the literal is moved to ``payload``.  This compiles
+    one representation of the same call into another; it does not invent an
+    argument, value, source, dependency, or capability.
+
+    Ambiguous dictionaries, unpublished arguments and duplicate authorities
+    remain untouched for :func:`validate` to refuse through its existing
+    precise path.  The returned document is a deep copy so the verified
+    Evidence observation remains immutable.
     """
     copied = normalise_plan_document(document)
     if not isinstance(copied, dict) or not isinstance(copied.get("steps"), list):
@@ -133,6 +140,29 @@ def materialise_binding_dependencies(document: Any) -> Any:
     for entry in copied["steps"]:
         if not isinstance(entry, dict):
             continue
+        option = _option_named(str(entry.get("capability") or ""), options)
+        known_args = set(getattr(option, "required_args", ()) or ()) | set(
+            getattr(option, "optional_args", ()) or ()
+        )
+        raw_bindings = entry.get("input_bindings")
+        payload = entry.get("payload")
+        if payload is None:
+            payload = {}
+        if isinstance(raw_bindings, dict) and isinstance(payload, dict):
+            remaining = dict(raw_bindings)
+            for target, value in raw_bindings.items():
+                if (
+                    target in known_args
+                    and target not in payload
+                    and not isinstance(value, dict)
+                    and value is not None
+                ):
+                    payload[target] = value
+                    remaining.pop(target, None)
+            if payload or "payload" in entry:
+                entry["payload"] = payload
+            if remaining or "input_bindings" in entry:
+                entry["input_bindings"] = remaining
         raw_depends = entry.get("depends_on", [])
         if raw_depends is None:
             raw_depends = []

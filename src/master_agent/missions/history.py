@@ -228,6 +228,10 @@ class PlanRecord:
     objective_state: dict[str, Any] = field(default_factory=dict)
     deliberation: dict[str, Any] | None = None
     recovery: dict[str, Any] | None = None
+    #: System-visible causal handoffs for benchmark/review.  These rows
+    #: contain canonical objects and admission decisions, never hidden
+    #: model reasoning.  History observes them; it does not drive them.
+    micro_trace: list[dict[str, Any]] = field(default_factory=list)
 
     # ---- derived reads --------------------------------------------------
 
@@ -317,6 +321,7 @@ class PlanRecord:
             "objective_state": dict(self.objective_state),
             "deliberation": dict(self.deliberation) if self.deliberation else None,
             "recovery": dict(self.recovery) if self.recovery else None,
+            "micro_trace": [dict(row) for row in self.micro_trace],
             "steps": [record.as_dict() for record in self.steps],
             "requirements": [dict(r) for r in self.requirements],
         }
@@ -351,6 +356,7 @@ class PlanRecord:
                 dict(document["recovery"])
                 if isinstance(document.get("recovery"), dict) else None
             ),
+            micro_trace=[dict(row) for row in (document.get("micro_trace") or [])],
         )
 
 
@@ -557,10 +563,64 @@ class PlanHistory:
             return None
         record.root_plan_id = root_plan_id or plan_id
         record.previous_plan_id = previous_plan_id
+        previous_state = dict(record.objective_state)
         if isinstance(objective_state, dict):
             record.objective_state = dict(objective_state)
         record.deliberation = dict(deliberation) if isinstance(deliberation, dict) else None
         record.recovery = dict(recovery) if isinstance(recovery, dict) else None
+        if isinstance(objective_state, dict):
+            record.micro_trace.append({
+                "stage": "EVIDENCE_TO_MISSION_STATE",
+                "input": {
+                    "previous_state": previous_state,
+                    "deliberation": record.deliberation,
+                },
+                "processing_decision": (
+                    "derive canonical requirement standing from retained Evidence"
+                ),
+                "output": dict(record.objective_state),
+                "output_valid": True,
+                "next_consumer": "Brain next-action deliberation",
+                "next_consumer_accepted": True,
+                "information_lost": [],
+                "information_added": [],
+                "semantic_drift": False,
+            })
+            evidence_needed = record.objective_state.get("evidence_needed")
+            if isinstance(evidence_needed, dict):
+                record.micro_trace.append({
+                    "stage": "MISSION_STATE_TO_BRAIN_NEXT_ACTION",
+                    "input": {
+                        "mission_state": dict(record.objective_state),
+                        "deliberation": record.deliberation,
+                    },
+                    "processing_decision": (
+                        "select the next actionable unresolved Evidence need"
+                    ),
+                    "output": dict(evidence_needed),
+                    "output_valid": True,
+                    "next_consumer": "Planner",
+                    "next_consumer_accepted": True,
+                    "information_lost": [],
+                    "information_added": [],
+                    "semantic_drift": False,
+                })
+        self._flush()
+        return record
+
+    def record_micro_trace(
+        self, plan_id: str, rows: Any,
+    ) -> PlanRecord | None:
+        """Persist visible causal-boundary records for one mission.
+
+        The caller supplies JSON-plain rows.  This method neither infers a
+        decision nor changes mission state; it gives benchmark tooling a
+        durable projection beside the plan and Evidence it already reads.
+        """
+        record = self._records.get(plan_id)
+        if record is None:
+            return None
+        record.micro_trace = [dict(row) for row in (rows or ())]
         self._flush()
         return record
 
@@ -596,6 +656,31 @@ class PlanHistory:
             # declared no bindings.
             step.input_provenance = list(provenance)
         record.state = RUNNING
+        record.micro_trace.append({
+            "stage": "PLAN_TO_EXECUTION",
+            "input": {
+                "step_id": step.step_id,
+                "capability": step.capability,
+                "payload": dict(step.payload),
+                "input_bindings": dict(step.input_bindings),
+                "depends_on": list(step.depends_on),
+                "expectation": step.expectation,
+                "covers": list(step.covers),
+            },
+            "processing_decision": (
+                "Mission Control released the admitted ready task"
+            ),
+            "output": {
+                "state": RUNNING,
+                "input_provenance": list(step.input_provenance),
+            },
+            "output_valid": True,
+            "next_consumer": "assigned Executive",
+            "next_consumer_accepted": True,
+            "information_lost": [],
+            "information_added": [],
+            "semantic_drift": False,
+        })
         self._flush()
 
     def _on_task_completed(self, event: Any) -> None:
@@ -626,7 +711,7 @@ class PlanHistory:
         found = self._locate(event)
         if found is None:
             return
-        _record, step = found
+        record, step = found
         payload = event.payload or {}
         step.verdict = str(payload.get("verdict") or "")
         step.evidence_id = payload.get("evidence_id") or step.evidence_id
@@ -637,6 +722,28 @@ class PlanHistory:
         evidence = payload.get("evidence")
         if isinstance(evidence, dict):
             step.evidence = dict(evidence)
+        record.micro_trace.append({
+            "stage": "ACTION_TO_OBSERVATION",
+            "input": {
+                "step_id": step.step_id,
+                "capability": step.capability,
+                "expected": {
+                    "description": step.expectation,
+                    "checks": list(step.checks),
+                },
+            },
+            "processing_decision": "independent Verification re-observed reality",
+            "output": dict(evidence) if isinstance(evidence, dict) else {
+                "evidence_id": step.evidence_id,
+                "verdict": step.verdict,
+            },
+            "output_valid": step.verdict == "matched",
+            "next_consumer": "MissionProgress and Brain",
+            "next_consumer_accepted": bool(step.evidence_id),
+            "information_lost": [],
+            "information_added": [],
+            "semantic_drift": False,
+        })
         self._flush()
 
     def _on_objective_completed(self, event: Any) -> None:

@@ -65,6 +65,21 @@ def test_a_new_record_starts_planned_with_every_step_pending(tmp_path):
     assert record.progress == 0.0
 
 
+def test_an_admitted_mission_records_visible_causal_handoffs(tmp_path):
+    system, plan_id = started(tmp_path)
+
+    trace = system.record(plan_id).micro_trace
+
+    assert [row["stage"] for row in trace] == [
+        "FOUNDER_INPUT_TO_INTENT",
+        "PLANNER_TO_MISSION_CONTROL",
+    ]
+    assert all(row["output_valid"] for row in trace)
+    assert all(row["next_consumer_accepted"] for row in trace)
+    assert all(row["information_lost"] == [] for row in trace)
+    assert all(row["semantic_drift"] is False for row in trace)
+
+
 def test_the_first_step_is_current_and_the_rest_are_blocked(tmp_path):
     system, plan_id = started(tmp_path)
 
@@ -121,6 +136,15 @@ def test_a_matched_verdict_clears_the_unverified_list(tmp_path):
     complete(system, plan_id, "a")
 
     assert system.record(plan_id).unverified == []
+
+
+def test_execution_and_observation_handoffs_join_the_micro_trace(tmp_path):
+    system, plan_id = started(tmp_path)
+
+    complete(system, plan_id, "a")
+
+    stages = [row["stage"] for row in system.record(plan_id).micro_trace]
+    assert stages[-2:] == ["PLAN_TO_EXECUTION", "ACTION_TO_OBSERVATION"]
 
 
 def test_an_objective_completing_finishes_the_record(tmp_path):
@@ -325,6 +349,60 @@ def test_objective_beliefs_and_recovery_lineage_survive_a_restart(tmp_path):
     assert record.objective_state["unresolved"] == ["req_2"]
     assert record.deliberation["state"] == "insufficient_evidence"
     assert record.recovery["should_replan"] is True
+    assert record.micro_trace[-1]["stage"] == "EVIDENCE_TO_MISSION_STATE"
+
+
+def test_next_evidence_need_is_durable_as_a_brain_handoff(tmp_path):
+    path = tmp_path / HISTORY_FILENAME
+    system = pipeline(THREE_STEPS, tmp_path=tmp_path)
+    system.history = PlanHistory(store=JsonFilePlanStore(path))
+    system.history.attach_to(system.mission_control)
+    system.missions.history = system.history
+    outcome = system.start("Research the decision")
+
+    system.history.record_objective_state(
+        outcome.objective_id,
+        objective_state={
+            "satisfied": ["req_1"],
+            "unresolved": ["req_2"],
+            "evidence_needed": {
+                "target_requirements": ["req_2"],
+                "missing_claim": "establish the remaining fact",
+            },
+        },
+        deliberation={"state": "insufficient_evidence"},
+    )
+
+    record = PlanHistory(store=JsonFilePlanStore(path)).get(outcome.objective_id)
+    assert record.micro_trace[-1]["stage"] == "MISSION_STATE_TO_BRAIN_NEXT_ACTION"
+    assert record.micro_trace[-1]["output"]["target_requirements"] == ["req_2"]
+
+
+def test_visible_causal_micro_trace_survives_a_restart(tmp_path):
+    path = tmp_path / HISTORY_FILENAME
+    system = pipeline(THREE_STEPS, tmp_path=tmp_path)
+    system.history = PlanHistory(store=JsonFilePlanStore(path))
+    system.history.attach_to(system.mission_control)
+    system.missions.history = system.history
+    outcome = system.start("Set up a demo project")
+    rows = [{
+        "stage": "PLANNER_TO_MISSION_CONTROL",
+        "input": {"target": "req_1"},
+        "processing_decision": "validated canonical plan",
+        "output": {"task_id": "a"},
+        "output_valid": True,
+        "next_consumer": "Mission Control",
+        "next_consumer_accepted": True,
+        "information_lost": [],
+        "information_added": [],
+        "semantic_drift": False,
+    }]
+
+    system.history.record_micro_trace(outcome.objective_id, rows)
+
+    record = PlanHistory(store=JsonFilePlanStore(path)).get(outcome.objective_id)
+    assert record.micro_trace == rows
+    json.dumps(record.as_dict())
 
 
 def test_an_unreadable_history_is_moved_aside_never_overwritten(tmp_path):

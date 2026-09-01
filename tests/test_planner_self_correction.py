@@ -46,7 +46,13 @@ REQUIREMENTS = (
 OPTIONS = (
     CapabilityOption(name="Browser.Navigate", output_fields=("url", "title")),
     CapabilityOption(name="Browser.ReadPageText", output_fields=("url", "title", "text")),
-    CapabilityOption(name="Reasoning.Transform", output_fields=("text",)),
+    CapabilityOption(
+        name="Reasoning.Transform",
+        required_args=("instruction",),
+        optional_args=("context", "must_contain", "sensitive"),
+        args_complete=True,
+        output_fields=("text",),
+    ),
 )
 
 #: One that publishes nothing, for the "unknown output field" shape.
@@ -349,7 +355,7 @@ class TestTheDependencyViolationIsRepairable:
                      "from_step": {"step_id": "s1", "field": "title"}}}),
         )
 
-        normalised = materialise_binding_dependencies(document)
+        normalised = materialise_binding_dependencies(document, OPTIONS)
         plan, refusal = validate(normalised, OPTIONS, requirements=REQUIREMENTS)
 
         assert refusal is None
@@ -358,6 +364,54 @@ class TestTheDependencyViolationIsRepairable:
         assert "depends_on" not in document["steps"][1], (
             "normalisation mutated the verified Evidence document"
         )
+
+    def test_literal_values_in_binding_map_compile_to_published_payload(self):
+        document = plan_of(step(
+            "s1", capability="Reasoning.Transform",
+            payload={"instruction": "compare observed candidates"},
+            input_bindings={
+                "must_contain": ["candidate", "evidence"],
+                "sensitive": False,
+            },
+        ))
+
+        normalised = materialise_binding_dependencies(document, OPTIONS)
+        plan, refusal = validate(normalised, OPTIONS, requirements=REQUIREMENTS)
+
+        assert refusal is None
+        assert plan is not None
+        assert plan.steps[0].payload["must_contain"] == ["candidate", "evidence"]
+        assert plan.steps[0].payload["sensitive"] is False
+        assert plan.steps[0].input_bindings == {}
+        assert "must_contain" not in document["steps"][0]["payload"]
+
+    def test_malformed_binding_object_is_not_reinterpreted_as_a_literal(self):
+        document = plan_of(step(
+            "s1", capability="Reasoning.Transform",
+            payload={"instruction": "compare observed candidates"},
+            input_bindings={"context": {"from_step": {"step_id": "s0"}}},
+        ))
+
+        normalised = materialise_binding_dependencies(document, OPTIONS)
+        plan, refusal = validate(normalised, OPTIONS, requirements=REQUIREMENTS)
+
+        assert plan is None
+        assert refusal is not None
+        assert "field" in refusal.detail
+
+    def test_literal_for_unpublished_argument_is_not_compiled(self):
+        document = plan_of(step(
+            "s1", capability="Reasoning.Transform",
+            payload={"instruction": "compare observed candidates"},
+            input_bindings={"invented": "value"},
+        ))
+
+        normalised = materialise_binding_dependencies(document, OPTIONS)
+        plan, refusal = validate(normalised, OPTIONS, requirements=REQUIREMENTS)
+
+        assert plan is None
+        assert refusal is not None
+        assert "must be an object" in refusal.detail
 
     def test_the_real_planner_needs_no_second_model_call_for_redundant_omission(self):
         document = plan_of(

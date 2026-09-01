@@ -256,20 +256,13 @@ def strategy_coverage(intent: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
             if str(requirement_id) in all_required
         )
 
-    # First pass of a framed candidate mission: acquire the candidate
-    # properties first. Recommendation/deliverable work is selected only
-    # after the canonical candidate decision exists.
-    if not selected and isinstance(context, dict) and context.get("decision_frame"):
-        scoped = tuple(
-            str(getattr(requirement, "requirement_id", "") or "")
-            for requirement in requirements
-            if getattr(requirement, "required", True)
-            and getattr(requirement, "candidate_property", None) is True
-        )
-        if scoped:
-            selected = scoped
-
-    selected = selected or all_required
+    framed = isinstance(context, dict) and bool(context.get("decision_frame"))
+    # A framed candidate mission must carry an explicit Brain strategy.
+    # The Planner is a consumer of that decision; selecting candidate
+    # properties (or the whole mission) here would recreate a second,
+    # implicit next-action owner.
+    if not selected and not framed:
+        selected = all_required
     satisfied = tuple(
         str(requirement_id)
         for requirement_id in (
@@ -282,7 +275,6 @@ def strategy_coverage(intent: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
     # untargeted requirement would let the plan silently expand its own
     # responsibility and, for research, recreate recommendation/artifact
     # work before the canonical candidate decision exists.
-    framed = isinstance(context, dict) and bool(context.get("decision_frame"))
     if framed:
         forbidden.extend(
             requirement_id for requirement_id in all_required

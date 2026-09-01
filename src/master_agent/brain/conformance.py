@@ -192,6 +192,35 @@ def _canonical_evidence_gaps(decision: Any) -> tuple[set[str], set[str]]:
                 _decision_field(decision, "decision_requirement_ids", ()) or ()
             ) if str(item)
         )
+
+        # A progressive candidate mission may establish its prerequisite
+        # states before the final recommendation is possible.  Treating
+        # every mission-level decision requirement as blocked until the
+        # whole candidate decision was final made verified discovery stay
+        # UNKNOWN, so MissionProgress could never reflect the observation
+        # that was meant to advance it.
+        prerequisites = tuple(
+            str(item) for item in (
+                _decision_field(decision, "candidate_prerequisite_ids", ()) or ()
+            ) if str(item)
+        )
+        candidates_present = bool(
+            _decision_field(decision, "candidates", ())
+            or _decision_field(decision, "rejected", ())
+            or _decision_field(decision, "shortlist", ())
+        )
+        shortlist_present = bool(_decision_field(decision, "shortlist", ()))
+        if candidates_present and prerequisites:
+            # The first prerequisite is the state that introduces the
+            # subjects. Candidate state is canonical proof that it exists;
+            # task Evidence still decides whether its requirement is
+            # satisfied below.
+            undecided.discard(prerequisites[0])
+        if shortlist_present:
+            # A canonical shortlist establishes every candidate-set
+            # prerequisite. It does not establish any criterion or final
+            # recommendation requirement.
+            undecided.difference_update(prerequisites)
     return gaps, undecided
 
 

@@ -254,6 +254,9 @@ class MissionService:
         if description is None:
             description = str(intent.context.get("raw_input") or intent.goal)
         text = description
+        frame = None
+        first_need = None
+        micro_trace: list[dict[str, Any]] = []
 
         # Every admitted mission carries the founder's requirements.
         #
@@ -275,6 +278,32 @@ class MissionService:
                 )
             except Exception:  # noqa: BLE001 -- absent semantics, not a crash
                 intent.requirements = ()
+
+        requirement_documents = [
+            requirement.as_dict()
+            for requirement in (getattr(intent, "requirements", ()) or ())
+        ]
+        micro_trace.append({
+            "stage": "FOUNDER_INPUT_TO_INTENT",
+            "input": {"founder_input": text},
+            "processing_decision": (
+                "preserve the objective and derive canonical semantic requirements"
+            ),
+            "output": {
+                "objective": intent.goal,
+                "requirements": requirement_documents,
+                "constraints": list(getattr(intent, "constraints", ()) or ()),
+                "success_criteria": list(
+                    getattr(intent, "success_criteria", ()) or ()
+                ),
+            },
+            "output_valid": bool(intent.goal.strip()),
+            "next_consumer": "Brain deliberation",
+            "next_consumer_accepted": True,
+            "information_lost": [],
+            "information_added": [],
+            "semantic_drift": False,
+        })
 
         # What decision, if any, this mission actually faces.
         #
@@ -300,8 +329,42 @@ class MissionService:
                 # transcript: what is being decided and what would
                 # settle it (ADR-0027).
                 intent.context["decision_frame"] = frame.as_dict()
+                first_need = _deliberation.initial_evidence_need(
+                    frame, getattr(intent, "requirements", ()) or (),
+                )
+                if first_need is not None:
+                    intent.context["evidence_needed"] = first_need.as_dict()
         except Exception:  # noqa: BLE001 -- an unframed mission still runs
             pass
+
+
+        if frame is not None:
+            micro_trace.append({
+                "stage": "INTENT_TO_BRAIN_NEXT_ACTION",
+                "input": {
+                    "objective": intent.goal,
+                    "requirements": requirement_documents,
+                    "mission_progress": {
+                        "satisfied": [],
+                        "unresolved": [
+                            row["requirement_id"] for row in requirement_documents
+                            if row.get("required", True)
+                        ],
+                    },
+                    "candidate_state": [],
+                },
+                "processing_decision": (
+                    "select the smallest actionable Evidence need whose "
+                    "prerequisite semantic state exists"
+                ),
+                "output": first_need.as_dict() if first_need is not None else None,
+                "output_valid": first_need is not None,
+                "next_consumer": "Planner",
+                "next_consumer_accepted": first_need is not None,
+                "information_lost": [],
+                "information_added": [],
+                "semantic_drift": False,
+            })
 
         # An interpretation nobody settled may not become work.
         #
@@ -345,6 +408,33 @@ class MissionService:
             )
 
         self._publish_phase(EventType.MISSION_PLANNING_STARTED, task_id, objective_id, text)
+        if frame is not None and first_need is not None:
+            micro_trace.append({
+                "stage": "BRAIN_TO_PLANNER",
+                "input": first_need.as_dict(),
+                "processing_decision": (
+                    "project the Brain-selected strategy with the complete "
+                    "canonical mission and capability catalogue"
+                ),
+                "output": {
+                    "objective": intent.goal,
+                    "canonical_requirements": requirement_documents,
+                    "current_strategy_target": first_need.as_dict(),
+                    "mission_state": (intent.context or {}).get("recovery") or {
+                        "satisfied": [],
+                        "unresolved": [
+                            row["requirement_id"] for row in requirement_documents
+                            if row.get("required", True)
+                        ],
+                    },
+                },
+                "output_valid": True,
+                "next_consumer": "Planner translation",
+                "next_consumer_accepted": True,
+                "information_lost": [],
+                "information_added": [],
+                "semantic_drift": False,
+            })
         outcome = self.planner.plan(
             intent, task_id=task_id, objective_id=objective_id
         )
@@ -395,6 +485,42 @@ class MissionService:
         # own.
         submitted = self.mission_control.submit_objective(mission)
 
+        micro_trace.append({
+            "stage": "PLANNER_TO_MISSION_CONTROL",
+            "input": {
+                "current_strategy_target": (
+                    first_need.as_dict() if first_need is not None else None
+                ),
+                "provider_id": outcome.provider_id,
+                "corrected": bool(getattr(outcome, "corrected", False)),
+            },
+            "processing_decision": (
+                "deterministically normalize, validate and translate the "
+                "semantic proposal into executable Tasks"
+            ),
+            "output": {
+                "objective_id": submitted.objective_id,
+                "tasks": [
+                    {
+                        "task_id": task.task_id,
+                        "capability": task.capability,
+                        "payload": dict(task.payload),
+                        "input_bindings": dict(task.input_bindings),
+                        "depends_on": list(task.depends_on),
+                        "success": task.expected_outcome.as_dict(),
+                        "covers": list(task.covers),
+                    }
+                    for task in submitted.tasks
+                ],
+            },
+            "output_valid": True,
+            "next_consumer": "Mission Control",
+            "next_consumer_accepted": True,
+            "information_lost": [],
+            "information_added": [],
+            "semantic_drift": False,
+        })
+
         record = None
         if self.history is not None:
             record = self.history.record_plan(
@@ -410,6 +536,9 @@ class MissionService:
                 effective_mode=getattr(outcome, "effective_mode", "") or "",
                 mode_reason=getattr(outcome, "mode_reason", "") or "",
                 attempts=getattr(outcome, "attempts", ()) or (),
+            )
+            self.history.record_micro_trace(
+                submitted.objective_id, micro_trace,
             )
 
         if self.reporter:
