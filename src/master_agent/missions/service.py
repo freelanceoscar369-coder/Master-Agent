@@ -83,6 +83,11 @@ class MissionOutcome:
     selected_mode: str = ""
     effective_mode: str = ""
     mode_reason: str = ""
+    #: Structured causal handoffs produced before an Objective exists.
+    #: Accepted missions persist the same rows in PlanHistory; a semantic
+    #: admission refusal has no Objective/plan id, so the outcome is the only
+    #: truthful place to return its Founder -> Intent verdict.
+    micro_trace: tuple[dict[str, Any], ...] = ()
 
     @property
     def accepted(self) -> bool:
@@ -112,6 +117,7 @@ class MissionOutcome:
             "entry_id": self.entry_id,
             "reason": self.reason,
             "reasons": list(self.reasons),
+            "micro_trace": [dict(row) for row in self.micro_trace],
         }
 
 
@@ -283,27 +289,87 @@ class MissionService:
             requirement.as_dict()
             for requirement in (getattr(intent, "requirements", ()) or ())
         ]
+        requirement_admission = (
+            (getattr(intent, "context", {}) or {}).get("requirement_admission")
+            if isinstance(getattr(intent, "context", {}), dict) else None
+        )
+        admission_known = isinstance(requirement_admission, dict)
+        semantic_valid = (
+            bool(requirement_admission.get("valid"))
+            if admission_known else True
+        )
+        lost = []
+        invented = []
+        if admission_known:
+            lost.extend(requirement_admission.get("lost_obligations") or ())
+            lost.extend(requirement_admission.get("merged_obligations") or ())
+            invented.extend(
+                requirement_admission.get("invented_obligations") or ()
+            )
         micro_trace.append({
             "stage": "FOUNDER_INPUT_TO_INTENT",
             "input": {"founder_input": text},
             "processing_decision": (
-                "preserve the objective and derive canonical semantic requirements"
+                "derive requirements, validate grounding and structure, then "
+                "apply the Intent owner's semantic-integrity verdict"
             ),
             "output": {
                 "objective": intent.goal,
                 "requirements": requirement_documents,
+                "semantic_admission": (
+                    dict(requirement_admission) if admission_known else {
+                        "valid": True,
+                        "semantic_verdict": "preexisting_canonical_contract",
+                    }
+                ),
                 "constraints": list(getattr(intent, "constraints", ()) or ()),
                 "success_criteria": list(
                     getattr(intent, "success_criteria", ()) or ()
                 ),
             },
-            "output_valid": bool(intent.goal.strip()),
+            "output_valid": bool(intent.goal.strip()) and semantic_valid,
             "next_consumer": "Brain deliberation",
-            "next_consumer_accepted": True,
-            "information_lost": [],
-            "information_added": [],
-            "semantic_drift": False,
+            "next_consumer_accepted": semantic_valid,
+            "information_lost": list(lost),
+            "information_added": list(invented),
+            "semantic_drift": not semantic_valid,
         })
+
+        # A rejected semantic proposal is not an empty-but-usable Intent.
+        # It never reaches framing, Brain or Planner.  The existing
+        # UNSETTLED_INTERPRETATION refusal is the contract for meaning that
+        # has not been established; this adds no second refusal vocabulary.
+        if admission_known and not semantic_valid:
+            details = list(
+                requirement_admission.get("structural_issues") or ()
+            )
+            details.extend(
+                "merged obligations: " + str(row)
+                for row in requirement_admission.get("merged_obligations") or ()
+            )
+            details.extend(
+                "lost obligation: " + str(row)
+                for row in requirement_admission.get("lost_obligations") or ()
+            )
+            details.extend(
+                "invented obligation: " + str(row)
+                for row in requirement_admission.get("invented_obligations") or ()
+            )
+            refusal = PlanRefusal(
+                code=UNSETTLED_INTERPRETATION,
+                reason=(
+                    "I could not preserve every part of your request as "
+                    "independently verifiable requirements, so I have not acted."
+                ),
+                detail="; ".join(details) or "semantic integrity was not established",
+            )
+            result = MissionOutcome(
+                status=REFUSED,
+                refusal=refusal,
+                micro_trace=tuple(micro_trace),
+            )
+            self._remember_refusal(text, result)
+            return result
 
         # What decision, if any, this mission actually faces.
         #
@@ -560,6 +626,7 @@ class MissionService:
             record=record,
             provider_id=outcome.provider_id,
             entry_id=outcome.entry_id,
+            micro_trace=tuple(micro_trace),
         )
 
     # ---- Task 2.5 phase reporting ------------------------------------

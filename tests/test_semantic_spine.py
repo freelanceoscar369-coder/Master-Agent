@@ -162,27 +162,46 @@ class TestRequirementsAreExtracted:
         assert "location = desktop" in staged
 
     def test_compound_semantics_separate_candidate_properties_from_mission_outputs(self):
+        offered = [
+            {
+                "kind": "information",
+                "description": "compare products",
+                "candidate_property": True,
+                "source_quote": "compare products",
+                "success_meaning": "the products are compared",
+            },
+            {
+                "kind": "information",
+                "description": "recommend one",
+                "candidate_property": False,
+                "source_quote": "recommend one",
+                "success_meaning": "one product is recommended",
+            },
+            {
+                "kind": "deliverable",
+                "description": "save a report",
+                "candidate_property": False,
+                "source_quote": "save a report",
+                "success_meaning": "the report is saved",
+            },
+        ]
+
         class Reasoner:
-            def run(self, _prompt, _request):
-                return SimpleNamespace(ok=True, text=json.dumps({
-                    "requirements": [
-                        {
-                            "kind": "information",
-                            "description": "free access/pricing",
-                            "candidate_property": True,
-                        },
-                        {
-                            "kind": "information",
-                            "description": "recommend one",
-                            "candidate_property": False,
-                        },
-                        {
-                            "kind": "deliverable",
-                            "description": "save a verified report",
-                            "candidate_property": False,
-                        },
-                    ]
-                }))
+            def run(self, prompt, _request):
+                if "semantic admission reviewer" in prompt:
+                    document = {
+                        "valid": True,
+                        "independently_verifiable": True,
+                        "preserved": [
+                            {"requirement_index": index,
+                             "source_quote": item["source_quote"]}
+                            for index, item in enumerate(offered, start=1)
+                        ],
+                        "merged": [], "lost": [], "invented": [],
+                    }
+                else:
+                    document = {"requirements": offered}
+                return SimpleNamespace(ok=True, text=json.dumps(document))
 
         intent = SimpleNamespace(
             goal="compare products, recommend one, and save a report",
@@ -194,7 +213,7 @@ class TestRequirementsAreExtracted:
 
         assert [r.candidate_property for r in requirements] == [True, False, False]
         assert [r.description for r in requirements] == [
-            "free access/pricing", "recommend one", "save a verified report",
+            "compare products", "recommend one", "save a report",
         ]
 
 

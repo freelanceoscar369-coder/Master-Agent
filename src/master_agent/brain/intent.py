@@ -73,6 +73,69 @@ class IntentResult:
         return self.clarification is not None
 
 
+@dataclass(frozen=True)
+class RequirementAdmission:
+    """The Intent owner's review of one proposed decomposition.
+
+    This is not another Intent representation.  ``requirements`` is the
+    existing canonical tuple; everything else is the bounded admission
+    verdict that explains why that tuple was or was not allowed to become
+    Intent.  It contains structured conclusions, never hidden reasoning.
+    """
+
+    requirements: tuple[SemanticRequirement, ...] = ()
+    valid: bool = False
+    semantic_verdict: str = "invalid"
+    founder_obligations_preserved: tuple[dict[str, Any], ...] = ()
+    merged_obligations: tuple[dict[str, Any], ...] = ()
+    lost_obligations: tuple[dict[str, Any], ...] = ()
+    invented_obligations: tuple[dict[str, Any], ...] = ()
+    independently_verifiable: bool = False
+    structural_issues: tuple[str, ...] = ()
+    detected_structural_issues: tuple[str, ...] = ()
+    detected_merged_obligations: tuple[dict[str, Any], ...] = ()
+    detected_lost_obligations: tuple[dict[str, Any], ...] = ()
+    detected_invented_obligations: tuple[dict[str, Any], ...] = ()
+    correction_attempted: bool = False
+    corrected: bool = False
+    initial_provider_output: tuple[dict[str, Any], ...] = ()
+    final_provider_output: tuple[dict[str, Any], ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "valid": self.valid,
+            "semantic_verdict": self.semantic_verdict,
+            "founder_obligations_preserved": [
+                dict(row) for row in self.founder_obligations_preserved
+            ],
+            "merged_obligations": [dict(row) for row in self.merged_obligations],
+            "lost_obligations": [dict(row) for row in self.lost_obligations],
+            "invented_obligations": [
+                dict(row) for row in self.invented_obligations
+            ],
+            "independently_verifiable": self.independently_verifiable,
+            "structural_issues": list(self.structural_issues),
+            "detected_structural_issues": list(self.detected_structural_issues),
+            "detected_merged_obligations": [
+                dict(row) for row in self.detected_merged_obligations
+            ],
+            "detected_lost_obligations": [
+                dict(row) for row in self.detected_lost_obligations
+            ],
+            "detected_invented_obligations": [
+                dict(row) for row in self.detected_invented_obligations
+            ],
+            "correction_attempted": self.correction_attempted,
+            "corrected": self.corrected,
+            "initial_provider_output": [
+                dict(row) for row in self.initial_provider_output
+            ],
+            "final_provider_output": [
+                dict(row) for row in self.final_provider_output
+            ],
+        }
+
+
 #: Punctuation a founder wraps a value in without meaning it.
 _VALUE_STRIP = " \t.,!?;:'\"()"
 
@@ -317,6 +380,200 @@ def _parsed_json(text: str) -> dict[str, Any] | None:
     except Exception:  # noqa: BLE001 -- unparseable output is not a crash
         return None
     return document if isinstance(document, dict) else None
+
+
+def _semantic_span(text: str) -> str:
+    """Comparable founder language without changing the retained quote."""
+    return " ".join((text or "").casefold().split()).strip()
+
+
+def _grounded_in(objective: str, quote: str) -> bool:
+    grounded = _semantic_span(quote)
+    return bool(grounded and grounded in _semantic_span(objective))
+
+
+def requirement_structure_issues(objective: str, offered: Any) -> list[str]:
+    """Deterministic defects in a proposed semantic requirement set.
+
+    This deliberately does not pretend grammar can decide atomicity.  It
+    establishes the facts that *can* be proved without semantic judgement:
+    every row is readable, uses the closed kind vocabulary, identifies its
+    candidate scope, names a separately verifiable success state, and points
+    to Founder language that actually exists.  Atomicity, coverage and
+    invention are reviewed separately after this gate.
+    """
+    if not isinstance(offered, list) or not offered:
+        return ["the provider returned no non-empty requirements list"]
+
+    issues: list[str] = []
+    descriptions: set[str] = set()
+    for index, item in enumerate(offered, start=1):
+        if not isinstance(item, dict):
+            issues.append(f"item {index} is not a requirement object")
+            continue
+        kind = str(item.get("kind", "") or "").strip().lower()
+        description = str(item.get("description", "") or "").strip()
+        source_quote = str(item.get("source_quote", "") or "").strip()
+        success_meaning = str(item.get("success_meaning", "") or "").strip()
+        if kind not in REQUIREMENT_KINDS:
+            issues.append(
+                f"item {index} has kind {kind!r}, not one of "
+                f"{', '.join(REQUIREMENT_KINDS)}"
+            )
+        if not description:
+            issues.append(f"item {index} has no canonical description")
+        elif _semantic_span(description) in descriptions:
+            issues.append(f"item {index} duplicates another requirement")
+        else:
+            descriptions.add(_semantic_span(description))
+        if not source_quote:
+            issues.append(f"item {index} has no Founder source_quote")
+        elif not _grounded_in(objective, source_quote):
+            issues.append(
+                f"item {index} source_quote {source_quote!r} is not in the "
+                "Founder input"
+            )
+        if not success_meaning:
+            issues.append(
+                f"item {index} has no independently checkable success_meaning"
+            )
+        if not isinstance(item.get("candidate_property"), bool):
+            issues.append(
+                f"item {index} must state candidate_property as true or false"
+            )
+    return issues
+
+
+def _audit_structure_issues(
+    objective: str, offered: list[dict[str, Any]], audit: Any,
+) -> list[str]:
+    """Whether a semantic-integrity verdict is itself admissible."""
+    if not isinstance(audit, dict):
+        return ["the semantic-integrity review was not a JSON object"]
+    if not isinstance(audit.get("valid"), bool):
+        return ["the semantic-integrity review did not state valid true/false"]
+    if not isinstance(audit.get("independently_verifiable"), bool):
+        return ["the semantic-integrity review did not settle verifiability"]
+
+    issues: list[str] = []
+    for name in ("preserved", "merged", "lost", "invented"):
+        if not isinstance(audit.get(name), list):
+            issues.append(f"the semantic-integrity review field {name!r} is not a list")
+    if issues:
+        return issues
+
+    limit = len(offered)
+    for name in ("preserved", "merged", "invented"):
+        for position, row in enumerate(audit[name], start=1):
+            if not isinstance(row, dict):
+                issues.append(f"{name} item {position} is not an object")
+                continue
+            index = row.get("requirement_index")
+            if not isinstance(index, int) or not 1 <= index <= limit:
+                issues.append(
+                    f"{name} item {position} has no valid requirement_index"
+                )
+    for name in ("preserved", "lost"):
+        for position, row in enumerate(audit[name], start=1):
+            if isinstance(row, dict) and not _grounded_in(
+                objective, str(row.get("source_quote", "") or "")
+            ):
+                issues.append(
+                    f"{name} item {position} does not cite Founder language"
+                )
+    for position, row in enumerate(audit["merged"], start=1):
+        obligations = row.get("obligations") if isinstance(row, dict) else None
+        if not isinstance(obligations, list) or len(obligations) < 2:
+            issues.append(
+                f"merged item {position} does not name at least two obligations"
+            )
+            continue
+        for obligation in obligations:
+            if not isinstance(obligation, dict) or not _grounded_in(
+                objective, str(obligation.get("source_quote", "") or "")
+            ):
+                issues.append(
+                    f"merged item {position} contains an ungrounded obligation"
+                )
+                break
+
+    if audit["valid"]:
+        if audit["merged"] or audit["lost"] or audit["invented"]:
+            issues.append("the review says valid while reporting semantic violations")
+        represented = {
+            row.get("requirement_index")
+            for row in audit["preserved"]
+            if isinstance(row, dict)
+        }
+        if represented != set(range(1, limit + 1)):
+            issues.append(
+                "a valid review must account for every proposed requirement exactly "
+                "through the preserved list"
+            )
+        if len(audit["preserved"]) != limit:
+            issues.append(
+                "a valid review must represent each proposed requirement once"
+            )
+        for row in audit["preserved"]:
+            if not isinstance(row, dict) or not isinstance(
+                row.get("requirement_index"), int
+            ):
+                continue
+            proposed = offered[row["requirement_index"] - 1]
+            reviewed_quote = _semantic_span(str(row.get("source_quote", "") or ""))
+            proposed_quote = _semantic_span(
+                str(proposed.get("source_quote", "") or "")
+            )
+            if not (
+                reviewed_quote in proposed_quote or proposed_quote in reviewed_quote
+            ):
+                issues.append(
+                    "the semantic review changed the Founder source span for "
+                    f"requirement {row['requirement_index']}"
+                )
+        if not audit["independently_verifiable"]:
+            issues.append(
+                "the review says valid while requirements are not independently "
+                "verifiable"
+            )
+    elif not (audit["merged"] or audit["lost"] or audit["invented"]):
+        issues.append("an invalid review did not identify a semantic violation")
+    return issues
+
+
+def _semantic_violation_messages(audit: Mapping[str, Any]) -> list[str]:
+    """Grounded correction instructions from a structured verdict."""
+    issues: list[str] = []
+    for row in audit.get("merged", ()) or ():
+        if not isinstance(row, Mapping):
+            continue
+        parts = [
+            str(item.get("source_quote", "") or "")
+            for item in row.get("obligations", ()) or ()
+            if isinstance(item, Mapping)
+        ]
+        issues.append(
+            "independent Founder obligations were merged in requirement "
+            f"{row.get('requirement_index')}: " + " | ".join(parts)
+        )
+    for row in audit.get("lost", ()) or ():
+        if isinstance(row, Mapping):
+            issues.append(
+                "a Founder obligation was lost: "
+                + str(row.get("source_quote", "") or row.get("meaning", ""))
+            )
+    for row in audit.get("invented", ()) or ():
+        if isinstance(row, Mapping):
+            issues.append(
+                "an unstated obligation was invented in requirement "
+                f"{row.get('requirement_index')}: {row.get('reason', '')}"
+            )
+    if not audit.get("independently_verifiable", False):
+        issues.append(
+            "the proposed requirements cannot all change state and be verified "
+            "independently"
+        )
+    return issues
 
 
 #: How a field's value came to be established.
@@ -1440,12 +1697,17 @@ class IntentLayer:
         if answers:
             # A question. The requirement is that the founder be TOLD
             # something -- not that anything change.
-            return (SemanticRequirement(
+            requirements = (SemanticRequirement(
                 requirement_id="req_1",
                 kind=INFORMATION,
                 description=f"{QUESTION_REQUIREMENT} {evidence}",
                 provenance=evidence,
+                founder_evidence=evidence,
             ),)
+            self._record_requirement_admission(
+                intent, self._deterministic_admission(requirements),
+            )
+            return requirements
 
         if capability:
             found = [SemanticRequirement(
@@ -1494,34 +1756,262 @@ class IntentLayer:
                     # interpretation against.
                     founder_evidence=_said_for(recorded, name, value) or evidence,
                 ))
-            return tuple(found)
+            requirements = tuple(found)
+            self._record_requirement_admission(
+                intent, self._deterministic_admission(requirements),
+            )
+            return requirements
 
-        return self._reasoned_requirements(evidence)
+        # Preserve the established no-reasoner composition used by offline
+        # deterministic/test pipelines: there was no provider proposal to
+        # admit or reject. Production compound-intent admission wires a
+        # reasoner and therefore always receives the verdict below.
+        if not evidence or self._reasoner is None:
+            return ()
+        admission = self._reasoned_requirement_admission(evidence)
+        self._record_requirement_admission(intent, admission)
+        return admission.requirements
+
+    @staticmethod
+    def _record_requirement_admission(
+        intent: Any, admission: RequirementAdmission,
+    ) -> None:
+        context = getattr(intent, "context", None)
+        if isinstance(context, dict):
+            context["requirement_admission"] = admission.as_dict()
+
+    @staticmethod
+    def _deterministic_admission(
+        requirements: tuple[SemanticRequirement, ...],
+    ) -> RequirementAdmission:
+        preserved = tuple({
+            "requirement_index": index,
+            "requirement_id": requirement.requirement_id,
+            "source_quote": requirement.founder_evidence,
+        } for index, requirement in enumerate(requirements, start=1))
+        return RequirementAdmission(
+            requirements=requirements,
+            valid=True,
+            semantic_verdict="valid_deterministic",
+            founder_obligations_preserved=preserved,
+            independently_verifiable=True,
+        )
 
     def _reasoned_requirements(self, objective: str) -> tuple:
-        """A compound objective's requirements, or `()`.
+        """Compatibility surface for callers that only need the tuple."""
+        return self._reasoned_requirement_admission(objective).requirements
 
-        Asked narrowly: *what does the founder require?* Never *which
-        tool should we use* -- that question invites a model to choose
-        capabilities, which is the Planner's job and which ADR-0026
-        rejects by name.
-
-        `()` on anything unusable: no reasoner, a refusal, output that is
-        not JSON, an unknown kind. An objective with no extracted
-        requirements is admitted exactly as it was before this existed --
-        the Planner still plans it, and conformance later reports
-        `UNKNOWN` rather than inventing correspondence.
-        """
+    def _reasoned_requirement_admission(
+        self, objective: str,
+    ) -> RequirementAdmission:
+        """Derive, validate, correct once, and admit canonical semantics."""
         if not objective or self._reasoner is None:
-            return ()
+            return RequirementAdmission(
+                valid=False,
+                semantic_verdict="unavailable",
+                structural_issues=("semantic requirement reasoning is unavailable",),
+            )
 
-        from master_agent.ai_infrastructure.budgeted_request import (
-            BudgetedSelectionRequest,
+        prompt = self._requirement_decomposition_prompt(objective)
+        initial_document = self._reasoned_json(
+            prompt, requester="brain_semantic_requirements",
         )
-        from master_agent.ai_infrastructure.workload import INTERACTIVE
-        from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+        initial = (
+            initial_document.get("requirements")
+            if isinstance(initial_document, dict) else None
+        )
+        initial_rows = self._requirement_rows(initial)
+        offered = initial
+        correction_attempted = False
+        corrected = False
+        issues = requirement_structure_issues(objective, offered)
+        detected_structural_issues = tuple(issues)
+        detected_merged: tuple[dict[str, Any], ...] = ()
+        detected_lost: tuple[dict[str, Any], ...] = ()
+        detected_invented: tuple[dict[str, Any], ...] = ()
 
-        prompt = (
+        if issues:
+            correction_attempted = True
+            offered = self._correct_requirement_decomposition(
+                objective, prompt, offered, issues,
+            )
+            issues = requirement_structure_issues(objective, offered)
+            if issues:
+                return RequirementAdmission(
+                    valid=False,
+                    semantic_verdict="invalid_structure_after_correction",
+                    structural_issues=tuple(issues),
+                    detected_structural_issues=detected_structural_issues,
+                    correction_attempted=True,
+                    initial_provider_output=initial_rows,
+                    final_provider_output=self._requirement_rows(offered),
+                )
+            corrected = True
+
+        rows = [dict(row) for row in offered]
+        audit = self._semantic_integrity_review(objective, rows)
+        audit_issues = _audit_structure_issues(objective, rows, audit)
+        if audit_issues:
+            return RequirementAdmission(
+                valid=False,
+                semantic_verdict="semantic_review_unusable",
+                structural_issues=tuple(audit_issues),
+                detected_structural_issues=detected_structural_issues,
+                correction_attempted=correction_attempted,
+                corrected=corrected,
+                initial_provider_output=initial_rows,
+                final_provider_output=tuple(rows),
+            )
+
+        if not audit["valid"]:
+            detected_merged = tuple(
+                dict(row) for row in audit.get("merged", ())
+            )
+            detected_lost = tuple(dict(row) for row in audit.get("lost", ()))
+            detected_invented = tuple(
+                dict(row) for row in audit.get("invented", ())
+            )
+            semantic_issues = _semantic_violation_messages(audit)
+            if correction_attempted:
+                return self._invalid_semantic_admission(
+                    initial_rows, rows, audit, semantic_issues,
+                    detected_merged=detected_merged,
+                    detected_lost=detected_lost,
+                    detected_invented=detected_invented,
+                )
+            correction_attempted = True
+            corrected_rows = self._correct_requirement_decomposition(
+                objective, prompt, rows, semantic_issues,
+            )
+            issues = requirement_structure_issues(objective, corrected_rows)
+            if issues:
+                return RequirementAdmission(
+                    valid=False,
+                    semantic_verdict="invalid_structure_after_correction",
+                    structural_issues=tuple(issues),
+                    detected_structural_issues=detected_structural_issues,
+                    detected_merged_obligations=detected_merged,
+                    detected_lost_obligations=detected_lost,
+                    detected_invented_obligations=detected_invented,
+                    correction_attempted=True,
+                    initial_provider_output=initial_rows,
+                    final_provider_output=self._requirement_rows(corrected_rows),
+                    merged_obligations=tuple(
+                        dict(row) for row in audit.get("merged", ())
+                    ),
+                    lost_obligations=tuple(
+                        dict(row) for row in audit.get("lost", ())
+                    ),
+                    invented_obligations=tuple(
+                        dict(row) for row in audit.get("invented", ())
+                    ),
+                )
+            rows = [dict(row) for row in corrected_rows]
+            audit = self._semantic_integrity_review(objective, rows)
+            audit_issues = _audit_structure_issues(objective, rows, audit)
+            if audit_issues:
+                return RequirementAdmission(
+                    valid=False,
+                    semantic_verdict="semantic_review_unusable_after_correction",
+                    structural_issues=tuple(audit_issues),
+                    detected_structural_issues=detected_structural_issues,
+                    detected_merged_obligations=detected_merged,
+                    detected_lost_obligations=detected_lost,
+                    detected_invented_obligations=detected_invented,
+                    correction_attempted=True,
+                    initial_provider_output=initial_rows,
+                    final_provider_output=tuple(rows),
+                )
+            if not audit["valid"]:
+                return self._invalid_semantic_admission(
+                    initial_rows,
+                    rows,
+                    audit,
+                    _semantic_violation_messages(audit),
+                    detected_merged=detected_merged,
+                    detected_lost=detected_lost,
+                    detected_invented=detected_invented,
+                )
+            corrected = True
+
+        requirements = tuple(
+            SemanticRequirement(
+                requirement_id=f"req_{index}",
+                kind=str(item["kind"]).strip().lower(),
+                description=str(item["description"]).strip(),
+                provenance=objective,
+                founder_evidence=str(item["source_quote"]).strip(),
+                candidate_property=bool(item["candidate_property"]),
+            )
+            for index, item in enumerate(rows, start=1)
+        )
+        return RequirementAdmission(
+            requirements=requirements,
+            valid=True,
+            semantic_verdict="valid_after_correction" if corrected else "valid",
+            founder_obligations_preserved=tuple(
+                dict(row) for row in audit.get("preserved", ())
+            ),
+            independently_verifiable=True,
+            detected_structural_issues=detected_structural_issues,
+            detected_merged_obligations=detected_merged,
+            detected_lost_obligations=detected_lost,
+            detected_invented_obligations=detected_invented,
+            correction_attempted=correction_attempted,
+            corrected=corrected,
+            initial_provider_output=initial_rows,
+            final_provider_output=tuple(rows),
+        )
+
+    @staticmethod
+    def _requirement_rows(offered: Any) -> tuple[dict[str, Any], ...]:
+        if not isinstance(offered, list):
+            return ()
+        return tuple(dict(row) for row in offered if isinstance(row, dict))
+
+    @staticmethod
+    def _invalid_semantic_admission(
+        initial: tuple[dict[str, Any], ...],
+        final: list[dict[str, Any]],
+        audit: Mapping[str, Any],
+        issues: list[str],
+        *,
+        detected_merged: tuple[dict[str, Any], ...] = (),
+        detected_lost: tuple[dict[str, Any], ...] = (),
+        detected_invented: tuple[dict[str, Any], ...] = (),
+    ) -> RequirementAdmission:
+        return RequirementAdmission(
+            valid=False,
+            semantic_verdict="invalid_semantics_after_correction",
+            founder_obligations_preserved=tuple(
+                dict(row) for row in audit.get("preserved", ())
+            ),
+            merged_obligations=tuple(
+                dict(row) for row in audit.get("merged", ())
+            ),
+            lost_obligations=tuple(dict(row) for row in audit.get("lost", ())),
+            invented_obligations=tuple(
+                dict(row) for row in audit.get("invented", ())
+            ),
+            independently_verifiable=bool(audit.get("independently_verifiable")),
+            structural_issues=tuple(issues),
+            detected_merged_obligations=detected_merged or tuple(
+                dict(row) for row in audit.get("merged", ())
+            ),
+            detected_lost_obligations=detected_lost or tuple(
+                dict(row) for row in audit.get("lost", ())
+            ),
+            detected_invented_obligations=detected_invented or tuple(
+                dict(row) for row in audit.get("invented", ())
+            ),
+            correction_attempted=True,
+            initial_provider_output=initial,
+            final_provider_output=tuple(final),
+        )
+
+    @staticmethod
+    def _requirement_decomposition_prompt(objective: str) -> str:
+        return (
             "A founder has asked an assistant to do something. Break their "
             "request into the separate things they REQUIRE.\n\n"
             f"    The founder said: {objective}\n\n"
@@ -1530,29 +2020,40 @@ class IntentLayer:
             "    information - the founder must be TOLD something\n"
             "    deliverable - an artefact must be produced for them\n"
             "    constraint  - a condition another requirement must meet\n\n"
-            "For each requirement also state candidate_property. It is true "
-            "only when EACH candidate in a comparison can possess or fail "
-            "that property (for example price, a feature, availability, or "
-            "a constraint on the candidate). It is false for mission work "
-            "such as research three options, compare them, recommend one, "
-            "write/save a report, or use a named source. This field never "
-            "removes a Founder requirement; it only tells the later decision "
-            "projection whether the requirement applies to each candidate.\n\n"
+            "For each requirement state candidate_property. It is true only "
+            "when EACH candidate can possess or fail that property. It is "
+            "false for mission work such as establishing a candidate set, "
+            "recommending one, or producing a deliverable.\n\n"
             "Reply with JSON and nothing else:\n"
             '    {"requirements": [{"kind": "...", "description": "...", '
-            '"candidate_property": true}]}\n\n'
-            "Rules. Describe WHAT they require, never HOW to do it, and "
-            "never name a tool, capability, program or website. Include "
-            "only what their own words establish -- do not add steps that "
-            "would be sensible, and do not merge two things they asked "
-            "for into one. Keep each description short and in their own "
-            "terms."
+            '"candidate_property": true, "source_quote": "...", '
+            '"success_meaning": "..."}]}\n\n'
+            "Rules. Describe WHAT is required, never HOW. source_quote must "
+            "be copied from the Founder input and identify the language that "
+            "establishes this obligation. success_meaning must state the "
+            "independently observable semantic state that would make it true. "
+            "Do not add sensible execution steps. Do not split one inseparable "
+            "outcome merely because execution may use several capabilities. "
+            "Do not merge obligations when one can legitimately be satisfied, "
+            "blocked or unresolved independently of the other, or when one "
+            "produces the subject/state consumed by the other. Establishing a "
+            "candidate set is independently stateful from evaluating properties "
+            "of that set. An outcome and its verification condition may remain "
+            "one requirement."
         )
+
+    def _reasoned_json(self, prompt: str, *, requester: str) -> dict[str, Any] | None:
+        from master_agent.ai_infrastructure.budgeted_request import (
+            BudgetedSelectionRequest,
+        )
+        from master_agent.ai_infrastructure.workload import INTERACTIVE
+        from master_agent.plugins.model_router import RoutingContext, SelectionRequest
+
         context = RoutingContext(
             is_online=True,
             requires_strong_reasoning=False,
             capability=REASONING_CAPABILITY,
-            requester="brain_semantic_requirements",
+            requester=requester,
         )
         request = BudgetedSelectionRequest(
             **vars(SelectionRequest.from_context(context)),
@@ -1561,55 +2062,77 @@ class IntentLayer:
         )
         try:
             outcome = self._reasoner.run(prompt, request)
-        except Exception:  # noqa: BLE001 -- a dead ladder is a default, not a crash
-            return ()
+        except Exception:  # noqa: BLE001 -- unavailable reasoning is not a crash
+            return None
         if outcome is None or not getattr(outcome, "ok", False):
-            return ()
+            return None
+        return _parsed_json(getattr(outcome, "text", "") or "")
 
-        document = _parsed_json(getattr(outcome, "text", "") or "")
-        if document is None:
-            return ()
-        offered = document.get("requirements")
-        if not isinstance(offered, list):
-            return ()
+    def _semantic_integrity_review(
+        self, objective: str, offered: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        import json
 
-        found = []
-        for item in offered:
-            if not isinstance(item, dict):
-                continue
-            kind = str(item.get("kind", "") or "").strip().lower()
-            description = str(item.get("description", "") or "").strip()
-            if kind not in REQUIREMENT_KINDS or not description:
-                # An unknown kind is not a new kind. The vocabulary is
-                # closed, and output that does not fit it is output that
-                # was not understood.
-                continue
-            property_value = item.get("candidate_property")
-            candidate_property = (
-                property_value if isinstance(property_value, bool) else None
-            )
-            found.append(SemanticRequirement(
-                requirement_id=f"req_{len(found) + 1}",
-                kind=kind,
-                description=description,
-                provenance=objective,
-                # The founder's own words, kept beside the model's
-                # reading of them. `description` here is a PARAPHRASE --
-                # "free demo download links for those games" is not what
-                # anybody typed -- so without this the requirement would
-                # carry only an interpretation, and conformance would be
-                # comparing a reading against itself. That is the exact
-                # circularity ADR-0026 exists to prevent, and it applied
-                # to every compound objective.
-                #
-                # The objective sentence is the honest evidence
-                # available at this granularity. Per-clause founder
-                # wording would be finer and is recorded as debt in
-                # ADR-0027 rather than invented here.
-                founder_evidence=objective,
-                candidate_property=candidate_property,
-            ))
-        return tuple(found)
+        prompt = (
+            "Act as the semantic admission reviewer inside an Intent Layer. "
+            "Review a proposed canonical decomposition against only the "
+            "Founder's words. Do not plan execution or improve the objective.\n\n"
+            f"FOUNDER INPUT:\n{objective}\n\nPROPOSED REQUIREMENTS:\n"
+            + json.dumps(offered, indent=2, ensure_ascii=False)
+            + "\n\nA requirement is atomic only if its semantic state can be "
+            "tracked and verified independently. If one part can be SATISFIED "
+            "while another is UNRESOLVED/BLOCKED, or one part produces the "
+            "entity/state consumed by another, they must be separate. Do not "
+            "split an inseparable outcome from its completion condition; saving "
+            "and verifying one artifact may be one deliverable. Do not derive "
+            "requirements from implementation steps or the word 'and'.\n\n"
+            "Return JSON only with this exact shape:\n"
+            '{"valid": true, "independently_verifiable": true, '
+            '"preserved": [{"requirement_index": 1, "source_quote": "..."}], '
+            '"merged": [{"requirement_index": 1, "obligations": '
+            '[{"source_quote": "...", "meaning": "..."}], "reason": "..."}], '
+            '"lost": [{"source_quote": "...", "meaning": "..."}], '
+            '"invented": [{"requirement_index": 1, "reason": "..."}]}\n\n'
+            "valid may be true only when merged, lost and invented are empty, "
+            "every requirement index appears in preserved, every Founder "
+            "obligation is represented, and every requirement has an "
+            "independently checkable success state. Return structured verdicts "
+            "only, never a reasoning transcript."
+        )
+        return self._reasoned_json(
+            prompt, requester="brain_semantic_requirement_validation",
+        )
+
+    def _correct_requirement_decomposition(
+        self,
+        objective: str,
+        original_prompt: str,
+        rejected: Any,
+        issues: Sequence[str],
+    ) -> Any:
+        import json
+
+        try:
+            shown = json.dumps(
+                {"requirements": rejected}, indent=2, ensure_ascii=False,
+            )[:12000]
+        except Exception:  # noqa: BLE001
+            shown = repr(rejected)[:12000]
+        correction = (
+            f"{original_prompt}\n\nYour previous proposed decomposition was:\n"
+            f"{shown}\n\nIt cannot become canonical Intent for these exact "
+            "reasons:\n"
+            + "\n".join(f"    - {issue}" for issue in issues)
+            + "\n\nCorrect only those semantic-admission violations. Preserve "
+            "the original Founder input, every unaffected obligation and its "
+            "source provenance. Do not reinterpret the mission from scratch "
+            "and do not add execution steps. Reply once with the original JSON "
+            "shape."
+        )
+        document = self._reasoned_json(
+            correction, requester="brain_semantic_requirements_correction",
+        )
+        return document.get("requirements") if isinstance(document, dict) else None
 
 
     def question_subject(self, text: str) -> str:
