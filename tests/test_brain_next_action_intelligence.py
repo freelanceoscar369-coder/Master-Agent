@@ -711,3 +711,49 @@ def test_q6_an_internal_failure_never_becomes_a_founder_question():
 
     assert need.action != "ask_founder"
     assert len(need.exhausted_strategies) == 2
+
+
+# ---------------------------------------------------------------------
+# What the Brain is given when a clarification happened
+# ---------------------------------------------------------------------
+
+
+def test_a_clarified_prose_objective_reaches_the_brain_whole():
+    """The Brain reasons about the objective STRING. On the compound path
+    -- the one a multi-requirement mission takes, and therefore the one
+    that reaches deliberation -- the clarified goal carries the Founder's
+    original request AND the answer they gave, not the answer alone."""
+    from master_agent.brain.intent import IntentLayer
+
+    request = ("Create Finance on my Desktop, then write the summary into "
+               "it and tell me when done")
+    layer = IntentLayer()
+
+    asked = layer.parse(request)
+    assert asked.needs_clarification is True
+
+    answered = layer.parse(request, supplied={asked.clarification.key: "folder"})
+    goal = answered.intent.goal
+
+    # ORIGINAL REQUEST, verbatim, is what the Brain deliberates about.
+    assert request in goal
+    # ...and the Founder's answer travels with it rather than replacing it.
+    assert "folder" in goal.casefold()
+    assert answered.intent.context["raw_input"] == request
+
+    # And that goal is what a DecisionFrame is built from.
+    frame = frame_for(
+        objective=goal,
+        requirements=(
+            SemanticRequirement(
+                requirement_id="req_1", kind="effect",
+                description="create the named folder", provenance=request,
+                founder_evidence=request),
+            SemanticRequirement(
+                requirement_id="req_2", kind="deliverable",
+                description="write the summary into it", provenance=request,
+                founder_evidence=request),
+        ),
+    )
+    if frame is not None:
+        assert request in frame.objective
