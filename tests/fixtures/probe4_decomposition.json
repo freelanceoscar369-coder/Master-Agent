@@ -1,0 +1,39 @@
+{
+  "requirements": [
+    {
+      "kind": "information",
+      "description": "Identify the top 3 AI-agent products most relevant to Kalpavriksha.",
+      "candidate_property": false,
+      "source_quote": "Research the current AI-agent products most relevant to Kalpavriksha.",
+      "success_meaning": "A candidate set of the 3 AI-agent products most relevant to Kalpavriksha is established."
+    },
+    {
+      "kind": "information",
+      "description": "Evaluate each top candidate across pricing/free access, computer/browser use, autonomous task execution, persistence/memory, and major differentiators.",
+      "candidate_property": true,
+      "source_quote": "Compare the top 3 across pricing/free access, computer/browser use, autonomous task execution, persistence/memory and major differentiators.",
+      "success_meaning": "Each candidate product in the top 3 has been evaluated against pricing/free access, computer/browser use capabilities, autonomous task execution, persistence/memory capabilities, and major differentiators."
+    },
+    {
+      "kind": "constraint",
+      "description": "Base the analysis and comparison on sufficient public evidence.",
+      "candidate_property": false,
+      "source_quote": "Use sufficient public evidence",
+      "success_meaning": "All research findings, comparisons, and evaluations are backed by publicly accessible evidence."
+    },
+    {
+      "kind": "information",
+      "description": "Identify which AI-agent product poses the closest competitive threat to Kalpavriksha and explain why.",
+      "candidate_property": false,
+      "source_quote": "tell me which poses the closest competitive threat and why",
+      "success_meaning": "The founder is informed of the specific AI-agent product that presents the closest competitive threat along with the supporting rationale."
+    },
+    {
+      "kind": "deliverable",
+      "description": "Save the verified competitive brief to a Markdown file on the founder's Desktop.",
+      "candidate_property": false,
+      "source_quote": "save a verified competitive brief as Kalpavriksha_Competitive_Brief.md on my Desktop.",
+      "success_meaning": "A verified file named 'Kalpavriksha_Competitive_Brief.md' containing the competitive brief exists on the founder's Desktop."
+    }
+  ]
+}

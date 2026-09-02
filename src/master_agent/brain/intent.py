@@ -2633,7 +2633,7 @@ class IntentLayer:
             )
 
         trusted_anchors = list(trust["anchors"])
-        prompt = self._requirement_decomposition_prompt(objective)
+        prompt = self._requirement_decomposition_prompt(objective, trusted_anchors)
         initial_document = self._reasoned_json(
             prompt, requester="brain_semantic_requirements",
         )
@@ -2930,12 +2930,57 @@ class IntentLayer:
         )
 
     @staticmethod
-    def _requirement_decomposition_prompt(objective: str) -> str:
+    def _requirement_decomposition_prompt(
+        objective: str, anchors: Sequence[Mapping[str, Any]] = (),
+    ) -> str:
+        """Refine an already-trusted obligation set into requirements.
+
+        Live Probe #4 established ten independently stateful Founder
+        obligations and then handed this layer the raw sentence alone. It
+        did what anyone would with only a sentence: it read the sentence
+        again, and re-fused the top-three selection with all five
+        comparison dimensions that Stage 1 had just spent four reasoning
+        passes separating.
+
+        Once meaning is trusted upstream, downstream refines it -- it does
+        not re-derive it. The objective stays for provenance and wording;
+        the obligations are the semantic input.
+        """
+        import json
+
+        trusted = ""
+        if anchors:
+            trusted = (
+                "\nTRUSTED FOUNDER OBLIGATIONS. These have already passed "
+                "Founder-meaning integrity review: each one is grounded in "
+                "the Founder's own words and is independently trackable, "
+                "meaning it can be SATISFIED while another remains "
+                "UNRESOLVED.\n"
+                + json.dumps(
+                    [{"anchor_id": row.get("anchor_id"),
+                      "state": row.get("meaning"),
+                      "founder_source": row.get("source_quote"),
+                      "depends_on": list(row.get("depends_on") or ())}
+                     for row in anchors],
+                    indent=2, ensure_ascii=False,
+                )
+                + "\n\nDo not merge them. Do not omit them. Do not invent "
+                "replacements. Do not reinterpret the original request into "
+                "a smaller obligation set. Produce canonical requirements "
+                "that preserve these trusted obligation states. One "
+                "obligation may become several MORE PRECISE requirements "
+                "where that genuinely helps tracking; it may never become "
+                "part of a requirement that also carries another "
+                "obligation's state. The Founder's sentence below is "
+                "provenance and wording -- where the two appear to differ, "
+                "the trusted obligations are what was established.\n"
+            )
         return (
             "A founder has asked an assistant to do something. Break their "
             "request into the separate things they REQUIRE.\n\n"
             f"    The founder said: {objective}\n\n"
-            "Report each requirement with a kind:\n"
+            + trusted
+            + "\nReport each requirement with a kind:\n"
             "    effect      - something in the world must change\n"
             "    information - the founder must be TOLD something\n"
             "    deliverable - an artefact must be produced for them\n"

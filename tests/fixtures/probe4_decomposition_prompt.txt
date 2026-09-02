@@ -1,0 +1,21 @@
+A founder has asked an assistant to do something. Break their request into the separate things they REQUIRE.
+
+    The founder said: Research the current AI-agent products most relevant to Kalpavriksha.
+Compare the top 3 across pricing/free access, computer/browser use,
+autonomous task execution, persistence/memory and major differentiators.
+Use sufficient public evidence, tell me which poses the closest competitive
+threat and why, and save a verified competitive brief as
+Kalpavriksha_Competitive_Brief.md on my Desktop.
+
+Report each requirement with a kind:
+    effect      - something in the world must change
+    information - the founder must be TOLD something
+    deliverable - an artefact must be produced for them
+    constraint  - a condition another requirement must meet
+
+For each requirement state candidate_property. It is true only when EACH candidate can possess or fail that property. It is false for mission work such as establishing a candidate set, recommending one, or producing a deliverable.
+
+Reply with JSON and nothing else:
+    {"requirements": [{"kind": "...", "description": "...", "candidate_property": true, "source_quote": "...", "success_meaning": "..."}]}
+
+Rules. Describe WHAT is required, never HOW. source_quote must be copied from the Founder input and identify the language that establishes this obligation. success_meaning must state the independently observable semantic state that would make it true. Do not add sensible execution steps. Do not split one inseparable outcome merely because execution may use several capabilities. Do not merge obligations when one can legitimately be satisfied, blocked or unresolved independently of the other, or when one produces the subject/state consumed by the other. Establishing a candidate set is independently stateful from evaluating properties of that set. An outcome and its verification condition may remain one requirement.
