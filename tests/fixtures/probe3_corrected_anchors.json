@@ -1,0 +1,83 @@
+{
+  "anchors": [
+    {
+      "anchor_id": "anchor_1",
+      "source_quote": "Research the current AI-agent products most relevant to Kalpavriksha.",
+      "meaning": "Identify the AI-agent products currently most relevant to Kalpavriksha.",
+      "depends_on": []
+    },
+    {
+      "anchor_id": "anchor_2",
+      "source_quote": "Compare the top 3",
+      "meaning": "Select the top three most relevant AI-agent products to compare.",
+      "depends_on": [
+        "anchor_1"
+      ]
+    },
+    {
+      "anchor_id": "anchor_3",
+      "source_quote": "pricing/free access",
+      "meaning": "Compare the top three products on pricing models and free access availability.",
+      "depends_on": [
+        "anchor_2"
+      ]
+    },
+    {
+      "anchor_id": "anchor_4",
+      "source_quote": "computer/browser use",
+      "meaning": "Compare the top three products on computer and browser use capabilities.",
+      "depends_on": [
+        "anchor_2"
+      ]
+    },
+    {
+      "anchor_id": "anchor_5",
+      "source_quote": "autonomous task execution",
+      "meaning": "Compare the top three products on autonomous task execution capabilities.",
+      "depends_on": [
+        "anchor_2"
+      ]
+    },
+    {
+      "anchor_id": "anchor_6",
+      "source_quote": "persistence/memory",
+      "meaning": "Compare the top three products on persistence and memory features.",
+      "depends_on": [
+        "anchor_2"
+      ]
+    },
+    {
+      "anchor_id": "anchor_7",
+      "source_quote": "major differentiators.",
+      "meaning": "Compare the top three products on their major differentiators.",
+      "depends_on": [
+        "anchor_2"
+      ]
+    },
+    {
+      "anchor_id": "anchor_8",
+      "source_quote": "Use sufficient public evidence, tell me which poses the closest competitive threat and why",
+      "meaning": "Determine which product presents the closest competitive threat to Kalpavriksha and provide the rationale using public evidence.",
+      "depends_on": [
+        "anchor_3",
+        "anchor_4",
+        "anchor_5",
+        "anchor_6",
+        "anchor_7"
+      ]
+    },
+    {
+      "anchor_id": "anchor_9",
+      "source_quote": "save a verified competitive brief as Kalpavriksha_Competitive_Brief.md on my Desktop.",
+      "meaning": "Save a verified competitive brief file named Kalpavriksha_Competitive_Brief.md on the user's Desktop containing the research and assessment.",
+      "depends_on": [
+        "anchor_3",
+        "anchor_4",
+        "anchor_5",
+        "anchor_6",
+        "anchor_7",
+        "anchor_8"
+      ]
+    }
+  ]
+}

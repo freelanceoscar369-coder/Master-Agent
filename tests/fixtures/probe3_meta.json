@@ -1,0 +1,27 @@
+{
+  "source_sha": "1ff9e33cd335c5b5f5e958636fad2e64337664bb",
+  "captured": "2026-09-02 live Founder->Intent Probe #3",
+  "provider": "gemini.api (all calls)",
+  "calls": [
+    {
+      "requester": "brain_founder_obligations",
+      "provider": "gemini.api",
+      "seconds": 44.08
+    },
+    {
+      "requester": "brain_founder_obligation_audit",
+      "provider": "gemini.api",
+      "seconds": 40.67
+    },
+    {
+      "requester": "brain_founder_obligation_correction",
+      "provider": "gemini.api",
+      "seconds": 25.13
+    },
+    {
+      "requester": "brain_founder_obligation_audit",
+      "provider": "gemini.api",
+      "seconds": 27.51
+    }
+  ]
+}

@@ -126,6 +126,9 @@ class RequirementAdmission:
     state_candidates: tuple[dict[str, Any], ...] = ()
     state_placements: tuple[dict[str, Any], ...] = ()
     intra_anchor_fusion: tuple[dict[str, Any], ...] = ()
+    #: Whether the semantic REVIEW itself needed one bounded repair --
+    #: a translation fault, distinct from correcting the requirements.
+    review_correction_attempted: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -148,6 +151,7 @@ class RequirementAdmission:
             "intra_anchor_fusion": [
                 dict(row) for row in self.intra_anchor_fusion
             ],
+            "review_correction_attempted": self.review_correction_attempted,
             "founder_obligation_anchors": [
                 dict(row) for row in self.founder_obligation_anchors
             ],
@@ -693,21 +697,42 @@ EVALUATION_CRITERION = "evaluation_criterion"
 CONSTRAINT_UNIT = "constraint_unit"
 SUCCESS_CONDITION_UNIT = "success_condition"
 RATIONALE_UNIT = "rationale"
+MODIFIER_UNIT = "modifier"
 CONTEXT_UNIT = "context"
 
 STATE_RELATIONSHIPS: tuple[str, ...] = (
     INDEPENDENT_OUTCOME, PREREQUISITE_STATE, EVALUATION_CRITERION,
-    CONSTRAINT_UNIT, SUCCESS_CONDITION_UNIT, RATIONALE_UNIT, CONTEXT_UNIT,
+    CONSTRAINT_UNIT, SUCCESS_CONDITION_UNIT, RATIONALE_UNIT, MODIFIER_UNIT,
+    CONTEXT_UNIT,
 )
 
-#: Relationships that name a SEPARATELY SATISFIABLE mission state. Two of
+#: Relationships that name a SEPARATELY TRACKABLE mission state. Two of
 #: these inside one anchor is intra-anchor fusion: one anchor exposes one
-#: satisfaction state, so the second meaning has nowhere to live. A
-#: success condition, a rationale, a constraint or plain context are not
-#: separately satisfiable and may legitimately share an anchor -- which
-#: is why "save AND verify" and "which is best AND why" stay whole.
+#: satisfaction state, so the second meaning has nowhere to live.
+#:
+#: The test is statefulness, never the type label. Live Probe #3 fused
+#: "Use sufficient public evidence" with the threat decision and this set
+#: could not see it, because a constraint was assumed to be a property of
+#: whatever it sat beside. That assumption is false: a recommendation can
+#: exist while the evidence behind it remains insufficient, a purchase can
+#: complete while a budget constraint is breached, and an action can
+#: succeed while a privacy constraint fails. Each of those is a DIFFERENT
+#: truthful status for two units, which is the whole definition.
+#:
+#: What genuinely cannot hold its own status is a unit whose truth is
+#: already part of another unit's completion: the verification that
+#: DEFINES a deliverable being done, the rationale that DEFINES an answer
+#: being complete, a modifier, or plain context. Those may share an
+#: anchor -- which is why "save AND verify report.md" and "which option
+#: is best AND why" stay whole.
 _SEPARATELY_STATEFUL = frozenset({
     INDEPENDENT_OUTCOME, PREREQUISITE_STATE, EVALUATION_CRITERION,
+    CONSTRAINT_UNIT,
+})
+
+#: Units whose truth is a property of the state they accompany.
+_SHARES_A_STATE = frozenset({
+    SUCCESS_CONDITION_UNIT, RATIONALE_UNIT, MODIFIER_UNIT, CONTEXT_UNIT,
 })
 
 #: Prepositions that introduce the criteria an evaluation is made ON.
@@ -1028,24 +1053,36 @@ def _intra_anchor_fusion(
     for anchor in anchors:
         anchor_id = str(anchor.get("anchor_id", "") or "").strip()
         states = held.get(anchor_id, [])
-        declared = anchor_id and audit_declares_multiple(audit, anchor_id)
-        if len(states) > 1 or declared:
-            fused.append({
-                "anchor_id": anchor_id,
-                "source_quote": anchor.get("source_quote", ""),
-                "meaning": anchor.get("meaning", ""),
-                "states": states,
-                "reason": (
-                    "one anchor exposes one satisfaction state but was asked "
-                    "to hold several independently satisfiable Founder "
-                    "meanings"
-                ),
-            })
+        if len(states) <= 1:
+            # The auditor may SAY this anchor holds several states. Its own
+            # placements say otherwise, and a declaration with no structured
+            # support is the mirror image of `valid=true`: an opinion, not
+            # evidence. It is recorded, and it does not decide.
+            continue
+        fused.append({
+            "anchor_id": anchor_id,
+            "source_quote": anchor.get("source_quote", ""),
+            "meaning": anchor.get("meaning", ""),
+            "states": states,
+            "auditor_declared_multiple": audit_declares_multiple(
+                audit, anchor_id,
+            ),
+            "reason": (
+                "one anchor exposes one satisfaction state but was asked "
+                "to hold several independently trackable Founder meanings"
+            ),
+        })
     return fused
 
 
 def audit_declares_multiple(audit: Mapping[str, Any], anchor_id: str) -> bool:
-    """The auditor's own admission that an anchor holds several states."""
+    """The auditor's own claim that an anchor holds several states.
+
+    Supporting evidence only. It is recorded beside a structurally proven
+    fusion and can neither create one nor excuse one: placements showing
+    two trackable states are fusion even when this says ``false``, and
+    this saying ``true`` over a single trackable state is not.
+    """
     for row in audit.get("anchors", ()) or ():
         if not isinstance(row, Mapping):
             continue
@@ -1148,25 +1185,29 @@ def _obligation_trust_decision(
             "the independent audit found Founder meaning with no anchor: "
             + str(row.get("meaning", "") or row.get("source_quote", ""))
         )
-    for row in collapses:
-        issues.append(
-            "the independent audit found independently stateful obligations "
-            "collapsed into one anchor: "
-            + str(row.get("reason", "") or row.get("anchor_id", ""))
-        )
     for row in invented:
         issues.append(
             "the independent audit found an anchor the Founder did not ask "
             "for: " + str(row.get("reason", "") or row.get("anchor_id", ""))
         )
 
+    # Fusion is decided by the placements, not by the report. A collapse
+    # the auditor names is recorded and, where the placements corroborate
+    # it, its own words are carried into the correction; a collapse it
+    # names over a single trackable state is an opinion and does not
+    # refuse on its own.
     fused = _intra_anchor_fusion(candidates, anchors, audit)
+    reported = {
+        str(row.get("anchor_id", "") or "").strip(): str(row.get("reason", "") or "")
+        for row in collapses
+    }
     for row in fused:
         held = ", ".join(
             f"{state['text']!r}" for state in row.get("states", ())
         ) or "several Founder meanings"
+        row["auditor_reason"] = reported.get(row["anchor_id"], "")
         issues.append(
-            f"anchor {row['anchor_id']!r} fuses independently satisfiable "
+            f"anchor {row['anchor_id']!r} fuses independently trackable "
             f"Founder states: {held}"
         )
 
@@ -2633,6 +2674,21 @@ class IntentLayer:
         rows = [dict(row) for row in offered]
         audit = self._semantic_integrity_review(objective, rows, trusted_anchors)
         audit_issues = _audit_structure_issues(objective, rows, audit)
+        review_correction_attempted = False
+        if audit_issues:
+            # A review that cannot be read is a TRANSLATION fault, not a
+            # semantic one: live Probe #2 lost a whole mission because the
+            # reviewer answered in 0-based indices. Every other Stage-1
+            # failure gets one grounded repair; this one had none, so a
+            # formatting slip was fatal where a genuine semantic violation
+            # was not. It gets the same single bounded correction -- of the
+            # REVIEW only. The Founder's obligations are already trusted
+            # and the requirements already stand; neither is regenerated.
+            review_correction_attempted = True
+            audit = self._correct_semantic_review(
+                objective, rows, trusted_anchors, audit, audit_issues,
+            )
+            audit_issues = _audit_structure_issues(objective, rows, audit)
         if audit_issues:
             return RequirementAdmission(
                 valid=False,
@@ -2643,6 +2699,16 @@ class IntentLayer:
                 corrected=corrected,
                 initial_provider_output=initial_rows,
                 final_provider_output=tuple(rows),
+                # The obligation boundary already passed. Refusing the
+                # review must not erase that truth from the record.
+                founder_obligation_anchors=tuple(trusted_anchors),
+                source_regions=tuple(trust["regions"]),
+                region_dispositions=tuple(trust["region_dispositions"]),
+                anchor_entailment=tuple(trust["anchor_entailment"]),
+                state_candidates=tuple(trust.get("state_candidates", ())),
+                state_placements=tuple(trust.get("state_placements", ())),
+                obligation_correction_attempted=trust["correction_attempted"],
+                review_correction_attempted=review_correction_attempted,
             )
 
         semantic = _coverage_decision(rows, audit)
@@ -2782,6 +2848,14 @@ class IntentLayer:
             detected_coverage_mapping=detected_coverage,
             correction_attempted=correction_attempted,
             corrected=corrected,
+            review_correction_attempted=review_correction_attempted,
+            source_regions=tuple(trust["regions"]),
+            region_dispositions=tuple(trust["region_dispositions"]),
+            anchor_entailment=tuple(trust["anchor_entailment"]),
+            state_candidates=tuple(trust.get("state_candidates", ())),
+            state_placements=tuple(trust.get("state_placements", ())),
+            obligation_correction_attempted=trust["correction_attempted"],
+            initial_obligation_anchors=tuple(trust["initial_anchors"]),
             initial_provider_output=initial_rows,
             final_provider_output=tuple(rows),
         )
@@ -3027,7 +3101,11 @@ class IntentLayer:
             "another remains UNRESOLVED or BLOCKED, they are separate "
             "anchors. If one state produces the entity another consumes, name "
             "that prerequisite in depends_on. Establishing a candidate set is "
-            "independently stateful from evaluating properties of that set.\n\n"
+            "independently stateful from evaluating properties of that set, "
+            "and a condition on the work is its own state whenever it can be "
+            "unmet while the outcome it governs already exists -- an "
+            "evidence-sufficiency, budget or privacy condition is a separate "
+            "anchor, not a decoration on the anchor beside it.\n\n"
             "Do not create anchors from sentence count, verbs, commas or the "
             "word 'and'. An inseparable outcome and its completion condition "
             "are ONE anchor: saving and verifying one artifact is one "
@@ -3104,11 +3182,17 @@ class IntentLayer:
             "remains UNRESOLVED, and evaluation_criterion for a "
             "requested property that could be established for one "
             "candidate while another stays unknown. Use "
-            "success_condition or rationale ONLY when the unit cannot "
-            "be satisfied separately from its anchor -- verifying the "
-            "artifact you just saved, or the reason for the decision "
-            "you just made. State per anchor whether it "
-            "contains_multiple_states.\n\n"
+            "constraint_unit for a condition on the work that can itself "
+            "be met or unmet independently -- an evidence-sufficiency, "
+            "budget or privacy condition can fail while the outcome it "
+            "governs already exists, so it is its own state. Use "
+            "success_condition, rationale, modifier or context ONLY when "
+            "the unit has no status of its own because its truth is "
+            "already part of another unit being complete -- verifying the "
+            "artifact you just saved, or the reason for the decision you "
+            "just made. The test is always: can these two units hold "
+            "DIFFERENT truthful statuses at the same moment? State per "
+            "anchor whether it contains_multiple_states.\n\n"
             "4. INTEGRITY. Report Founder-stated obligations no anchor "
             "carries (omissions), independently stateful obligations "
             "collapsed into one anchor (collapses), and anchors asserting "
@@ -3196,6 +3280,64 @@ class IntentLayer:
             return tuple(dict(row) for row in rejected)
         return tuple(dict(row) for row in proposed if isinstance(row, dict))
 
+    def _correct_semantic_review(
+        self,
+        objective: str,
+        offered: list[dict[str, Any]],
+        anchors: Sequence[Mapping[str, Any]],
+        rejected: Any,
+        issues: Sequence[str],
+    ) -> dict[str, Any] | None:
+        """One bounded repair of the REVIEW's own representation.
+
+        Nothing semantic is reconsidered here. The Founder obligations are
+        trusted, the requirements stand as proposed, and the reviewer is
+        asked only to restate its mapping in a form the caller can read --
+        the fault live Probe #2 hit when it answered in 0-based indices.
+        """
+        import json
+
+        try:
+            shown = json.dumps(rejected, indent=2, ensure_ascii=False)[:12000]
+        except Exception:  # noqa: BLE001
+            shown = repr(rejected)[:12000]
+        prompt = (
+            "Your previous semantic-review response could not be read by "
+            "the caller. Do not reconsider the Founder's meaning, the "
+            "obligation anchors or the proposed requirements -- only "
+            "restate your mapping so it is machine-readable.\n\n"
+            "THE REQUIREMENTS, WITH THE ONLY INDICES YOU MAY USE:\n"
+            + json.dumps(
+                [{"requirement_index": index, "description": row.get("description")}
+                 for index, row in enumerate(offered, start=1)],
+                indent=2, ensure_ascii=False,
+            )
+            + "\n\nTRUSTED FOUNDER OBLIGATION ANCHORS:\n"
+            + json.dumps(
+                [{"anchor_id": a.get("anchor_id"), "meaning": a.get("meaning")}
+                 for a in anchors], indent=2, ensure_ascii=False,
+            )
+            + "\n\nYOUR PREVIOUS RESPONSE:\n" + shown
+            + "\n\nIt was rejected for these exact reasons:\n"
+            + "\n".join(f"    - {issue}" for issue in issues)
+            + "\n\nrequirement_indices are 1-BASED and must be drawn from "
+            "the requirement_index values listed above. There is no index "
+            "0. Every anchor_id must be copied exactly from the trusted "
+            "anchors above.\n\n"
+            "Return JSON only with this exact shape:\n"
+            '{"valid": true, "independently_verifiable": true, '
+            '"coverage": [{"anchor_id": "...", '
+            '"requirement_indices": [1], "independently_trackable": true}], '
+            '"invented": [{"requirement_index": 1, "reason": "..."}]}'
+        )
+        document = self._reasoned_json(
+            prompt, requester="brain_semantic_review_correction",
+        )
+        if isinstance(document, dict) and anchors:
+            document = dict(document)
+            document["anchors"] = [dict(anchor) for anchor in anchors]
+        return document
+
     def _semantic_integrity_review(
         self,
         objective: str,
@@ -3226,8 +3368,18 @@ class IntentLayer:
             "and independently audited upstream; use them as given, do not "
             "add, remove or restate them):\n"
             + json.dumps(list(anchors), indent=2, ensure_ascii=False)
-            + "\n\nPROPOSED REQUIREMENTS:\n"
-            + json.dumps(offered, indent=2, ensure_ascii=False)
+            # Each row carries the ONLY index that may refer to it. The
+            # convention is machine-readable rather than described in
+            # prose, because a reviewer that answered 0-based cost a live
+            # mission and prose had not prevented it.
+            + "\n\nPROPOSED REQUIREMENTS (refer to these by "
+            "requirement_index; the numbering is 1-based and there is no "
+            "index 0):\n"
+            + json.dumps(
+                [{"requirement_index": index, **row}
+                 for index, row in enumerate(offered, start=1)],
+                indent=2, ensure_ascii=False,
+            )
             + "\n\nUse the anchors exactly as given. For reference, an "
             "Founder input. An anchor is a grounded source span plus one "
             "independently stateful meaning that must survive transformation. "

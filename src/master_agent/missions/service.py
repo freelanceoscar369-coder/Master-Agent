@@ -336,6 +336,9 @@ class MissionService:
             "state_placements": list(
                 requirement_admission.get("state_placements") or ()
             ) if admission_known else [],
+            "review_correction_attempted": bool(
+                requirement_admission.get("review_correction_attempted")
+            ) if admission_known else False,
             "intra_anchor_fusion": list(
                 requirement_admission.get("intra_anchor_fusion") or ()
             ) if admission_known else [],

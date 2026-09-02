@@ -241,10 +241,15 @@ def test_a_truthful_audit_of_the_probe_2_anchors_proves_intra_anchor_fusion():
         [c["text"] for c in candidates], PROBE2_ANCHORS, audit, candidates,
     )
 
-    assert [row["anchor_id"] for row in fused] == ["anchor_2"]
-    assert len(fused[0]["states"]) == 6
+    # Stage 1 convergence: a constraint holds its own status, so
+    # anchor_3 (evidence constraint + threat decision) is a second proven
+    # fusion. Collecting both is what lets ONE correction repair
+    # everything the evidence shows.
+    by_id = {row["anchor_id"]: row for row in fused}
+    assert set(by_id) == {"anchor_2", "anchor_3"}
+    assert len(by_id["anchor_2"]["states"]) == 6
     assert decision["trusted"] is False
-    assert any("fuses independently satisfiable" in issue
+    assert any("fuses independently trackable" in issue
                for issue in decision["issues"])
 
 
@@ -264,7 +269,7 @@ def test_model_valid_true_cannot_override_atomicity_evidence():
     assert decision["trusted"] is False
 
 
-def test_an_auditor_admitting_multiple_states_is_believed():
+def test_an_auditor_declaring_multiple_states_does_not_decide():
     candidates = _source_state_candidates("Save and verify report.md")
     anchors = [{"anchor_id": "a1", "source_quote": "Save and verify report.md",
                 "meaning": "one deliverable", "depends_on": []}]
@@ -282,7 +287,11 @@ def test_an_auditor_admitting_multiple_states_is_believed():
         [c["text"] for c in candidates], anchors, audit, candidates,
     )
 
-    assert decision["trusted"] is False
+    # Its own placements show ONE trackable state. A declaration with no
+    # structured support is the mirror image of valid=true -- recorded,
+    # never authoritative. Live Probe #3 refused a legitimate anchor on
+    # exactly such a declaration.
+    assert decision["trusted"] is True, decision["issues"]
 
 
 # ---------------------------------------------------------------------
@@ -389,7 +398,7 @@ def test_collapsing_selection_into_comparison_is_refused():
         2: ("evaluation_criterion", "a1"),
     })
     assert decision["trusted"] is False
-    assert any("fuses independently satisfiable" in issue
+    assert any("fuses independently trackable" in issue
                for issue in decision["issues"])
 
 

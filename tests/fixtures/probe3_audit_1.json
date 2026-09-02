@@ -1,0 +1,125 @@
+{
+  "regions": [
+    {
+      "region_index": 1,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_1",
+      "reason": "Region 1 defines the initial research requirement represented by anchor_1."
+    },
+    {
+      "region_index": 2,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_2",
+      "reason": "Region 2 specifies comparing the top 3 products across key features, represented by anchor_2."
+    },
+    {
+      "region_index": 3,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_2",
+      "reason": "Region 3 specifies evaluating major differentiators as part of the comparison in anchor_2."
+    },
+    {
+      "region_index": 4,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_3",
+      "reason": "Region 4 covers both determining the closest threat using public evidence (anchor_3) and saving the brief file (anchor_4)."
+    }
+  ],
+  "state_candidates": [
+    {
+      "candidate_index": 1,
+      "relationship": "prerequisite_state",
+      "anchor_id": "anchor_1",
+      "reason": "Identifying relevant AI-agent products is a prerequisite state prior to detailed comparison."
+    },
+    {
+      "candidate_index": 2,
+      "relationship": "independent_outcome",
+      "anchor_id": "anchor_2",
+      "reason": "Comparing the top 3 products is a core outcome of the evaluation."
+    },
+    {
+      "candidate_index": 3,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_2",
+      "reason": "Pricing and free access is an individual evaluation dimension that can be assessed independently for each product."
+    },
+    {
+      "candidate_index": 4,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_2",
+      "reason": "Computer/browser use capabilities is a distinct evaluation criterion."
+    },
+    {
+      "candidate_index": 5,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_2",
+      "reason": "Autonomous task execution is a distinct evaluation criterion."
+    },
+    {
+      "candidate_index": 6,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_2",
+      "reason": "Persistence and memory features constitute an independent evaluation criterion."
+    },
+    {
+      "candidate_index": 7,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_2",
+      "reason": "Major differentiators form a distinct evaluation criterion."
+    },
+    {
+      "candidate_index": 8,
+      "relationship": "constraint_unit",
+      "anchor_id": "anchor_3",
+      "reason": "Using sufficient public evidence is a operational constraint on the assessment method."
+    },
+    {
+      "candidate_index": 9,
+      "relationship": "independent_outcome",
+      "anchor_id": "anchor_3",
+      "reason": "Identifying the closest competitive threat and providing rationale is an independent mission outcome."
+    },
+    {
+      "candidate_index": 10,
+      "relationship": "independent_outcome",
+      "anchor_id": "anchor_4",
+      "reason": "Saving the competitive brief file on the Desktop is a distinct file delivery outcome."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "anchor_1",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning directly follows from the source quote."
+    },
+    {
+      "anchor_id": "anchor_2",
+      "entailed": true,
+      "contains_multiple_states": true,
+      "reason": "Meaning follows from quote, but combines multiple independent evaluation criteria (pricing, browser use, execution, persistence, differentiators) into one anchor."
+    },
+    {
+      "anchor_id": "anchor_3",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning directly follows from the source quote."
+    },
+    {
+      "anchor_id": "anchor_4",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning directly follows from the source quote."
+    }
+  ],
+  "omissions": [],
+  "collapses": [
+    {
+      "anchor_id": "anchor_2",
+      "reason": "Combines five distinct evaluation criteria (pricing/free access, computer/browser use, autonomous task execution, persistence/memory, and major differentiators) into a single comparison anchor."
+    }
+  ],
+  "invented": [],
+  "valid": true
+}

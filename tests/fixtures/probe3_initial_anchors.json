@@ -1,0 +1,35 @@
+{
+  "anchors": [
+    {
+      "anchor_id": "anchor_1",
+      "source_quote": "Research the current AI-agent products most relevant to Kalpavriksha.",
+      "meaning": "Identify the AI-agent products currently most relevant to Kalpavriksha.",
+      "depends_on": []
+    },
+    {
+      "anchor_id": "anchor_2",
+      "source_quote": "Compare the top 3 across pricing/free access, computer/browser use, autonomous task execution, persistence/memory and major differentiators.",
+      "meaning": "Evaluate and compare the top three identified AI-agent products across pricing/free access, computer/browser capabilities, autonomous task execution, persistence/memory, and key differentiators.",
+      "depends_on": [
+        "anchor_1"
+      ]
+    },
+    {
+      "anchor_id": "anchor_3",
+      "source_quote": "Use sufficient public evidence, tell me which poses the closest competitive threat and why",
+      "meaning": "Determine which product presents the closest competitive threat to Kalpavriksha and provide the rationale using public evidence.",
+      "depends_on": [
+        "anchor_2"
+      ]
+    },
+    {
+      "anchor_id": "anchor_4",
+      "source_quote": "save a verified competitive brief as Kalpavriksha_Competitive_Brief.md on my Desktop.",
+      "meaning": "Save a verified competitive brief file named Kalpavriksha_Competitive_Brief.md on the user's Desktop containing the research and assessment.",
+      "depends_on": [
+        "anchor_2",
+        "anchor_3"
+      ]
+    }
+  ]
+}

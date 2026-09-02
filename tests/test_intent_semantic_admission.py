@@ -587,10 +587,16 @@ def test_exact_captured_global_review_cannot_self_certify_without_anchors():
     assert admission["valid"] is False
     assert admission["semantic_verdict"] == "semantic_review_unusable"
     assert admission["final_provider_output"] == CAPTURED_LIVE_NINE
+    # The unusable review now gets ONE bounded repair of its own
+    # representation before refusal -- a translation fault gets the same
+    # single chance every other Stage-1 failure already had. It is still
+    # unusable afterwards, so admission still refuses.
     assert reasoner.requesters == [
         "brain_semantic_requirements",
         "brain_semantic_requirement_validation",
+        "brain_semantic_review_correction",
     ]
+    assert admission["review_correction_attempted"] is True
 
 
 def test_captured_live_merge_triggers_one_correction_and_admits_losslessly():

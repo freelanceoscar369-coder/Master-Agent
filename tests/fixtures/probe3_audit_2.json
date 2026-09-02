@@ -1,0 +1,155 @@
+{
+  "regions": [
+    {
+      "region_index": 1,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_1",
+      "reason": "Directly maps to anchor_1 for researching relevant AI-agent products."
+    },
+    {
+      "region_index": 2,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_2",
+      "reason": "Contains the instruction to select and compare the top 3 products across specified criteria."
+    },
+    {
+      "region_index": 3,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_7",
+      "reason": "Directly maps to anchor_7 for evaluating major differentiators."
+    },
+    {
+      "region_index": 4,
+      "disposition": "represented_by_anchor",
+      "anchor_id": "anchor_8",
+      "reason": "Contains evidence constraints, threat assessment task, and brief saving requirement."
+    }
+  ],
+  "state_candidates": [
+    {
+      "candidate_index": 1,
+      "relationship": "prerequisite_state",
+      "anchor_id": "anchor_1",
+      "reason": "Identifying relevant products is a necessary step before selecting the top three."
+    },
+    {
+      "candidate_index": 2,
+      "relationship": "prerequisite_state",
+      "anchor_id": "anchor_2",
+      "reason": "Filtering down to the top 3 products is required before comparing specific feature dimensions."
+    },
+    {
+      "candidate_index": 3,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_3",
+      "reason": "Specific dimension for evaluating pricing models and free tiers."
+    },
+    {
+      "candidate_index": 4,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_4",
+      "reason": "Specific dimension for evaluating computer and browser interaction capabilities."
+    },
+    {
+      "candidate_index": 5,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_5",
+      "reason": "Specific dimension for evaluating autonomous task execution capabilities."
+    },
+    {
+      "candidate_index": 6,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_6",
+      "reason": "Specific dimension for evaluating persistence and memory features."
+    },
+    {
+      "candidate_index": 7,
+      "relationship": "evaluation_criterion",
+      "anchor_id": "anchor_7",
+      "reason": "Specific dimension for identifying key product differentiators."
+    },
+    {
+      "candidate_index": 8,
+      "relationship": "constraint_unit",
+      "anchor_id": "anchor_8",
+      "reason": "Methodological constraint requiring findings to be grounded in public evidence."
+    },
+    {
+      "candidate_index": 9,
+      "relationship": "independent_outcome",
+      "anchor_id": "anchor_8",
+      "reason": "Core analytical determination identifying the closest competitive threat and rationale."
+    },
+    {
+      "candidate_index": 10,
+      "relationship": "independent_outcome",
+      "anchor_id": "anchor_9",
+      "reason": "Final file artifact creation on the user's Desktop."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "anchor_1",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately reflects researching relevant products."
+    },
+    {
+      "anchor_id": "anchor_2",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately captures selecting the top 3 products."
+    },
+    {
+      "anchor_id": "anchor_3",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately reflects evaluating pricing and free access."
+    },
+    {
+      "anchor_id": "anchor_4",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately reflects evaluating computer/browser capabilities."
+    },
+    {
+      "anchor_id": "anchor_5",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately reflects evaluating autonomous task execution."
+    },
+    {
+      "anchor_id": "anchor_6",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately reflects evaluating persistence and memory."
+    },
+    {
+      "anchor_id": "anchor_7",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately reflects evaluating major differentiators."
+    },
+    {
+      "anchor_id": "anchor_8",
+      "entailed": true,
+      "contains_multiple_states": true,
+      "reason": "Combines a methodological evidence constraint with an independent threat assessment decision outcome."
+    },
+    {
+      "anchor_id": "anchor_9",
+      "entailed": true,
+      "contains_multiple_states": false,
+      "reason": "Meaning accurately reflects saving the verified competitive brief file to the Desktop."
+    }
+  ],
+  "omissions": [],
+  "collapses": [
+    {
+      "anchor_id": "anchor_8",
+      "reason": "Combines Candidate 8 ('Use sufficient public evidence') constraint with Candidate 9 ('tell me which poses the closest competitive threat and why') decision outcome into a single anchor."
+    }
+  ],
+  "invented": [],
+  "valid": false
+}
