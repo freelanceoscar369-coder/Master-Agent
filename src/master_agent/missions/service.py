@@ -326,6 +326,19 @@ class MissionService:
             "obligation_issues": list(
                 requirement_admission.get("obligation_issues") or ()
             ) if admission_known else [],
+            # Stage 1D: the candidate state units inside those regions,
+            # where the independent audit placed each one, and any anchor
+            # those placements showed holding more than one satisfaction
+            # state.
+            "state_candidates": list(
+                requirement_admission.get("state_candidates") or ()
+            ) if admission_known else [],
+            "state_placements": list(
+                requirement_admission.get("state_placements") or ()
+            ) if admission_known else [],
+            "intra_anchor_fusion": list(
+                requirement_admission.get("intra_anchor_fusion") or ()
+            ) if admission_known else [],
             "obligation_correction_attempted": bool(
                 requirement_admission.get("obligation_correction_attempted")
             ) if admission_known else False,

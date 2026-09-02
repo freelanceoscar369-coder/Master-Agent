@@ -215,6 +215,13 @@ def _regions_in(prompt):
         r'"region_index":\s*(\d+)', prompt)})
 
 
+def _candidates_in(prompt):
+    import re
+
+    return sorted({int(found) for found in re.findall(
+        r'"candidate_index":\s*(\d+)', prompt)})
+
+
 def _span(text):
     return " ".join(str(text or "").casefold().split())
 
@@ -327,6 +334,21 @@ class Scripted:
         first = ""
         if anchors and isinstance(anchors[0], dict):
             first = str(anchors[0].get("anchor_id", "") or "")
+        ids = [str(a.get("anchor_id", "") or "")
+               for a in anchors if isinstance(a, dict)]
+        # Stage 1D places each candidate state unit. These cases exercise
+        # the REQUIREMENT boundary, so the placement is one candidate per
+        # anchor -- no intra-anchor fusion to assert about here.
+        state_rows = []
+        for position, index in enumerate(_candidates_in(prompt)):
+            if position < len(ids):
+                state_rows.append({"candidate_index": index,
+                                   "relationship": "independent_outcome",
+                                   "anchor_id": ids[position]})
+            else:
+                state_rows.append({"candidate_index": index,
+                                   "relationship": "context",
+                                   "reason": "not exercised by this case"})
         return {
             "regions": [
                 {"region_index": index,
@@ -334,6 +356,7 @@ class Scripted:
                  "anchor_id": first}
                 for index in _regions_in(prompt)
             ],
+            "state_candidates": state_rows,
             "anchors": [
                 {"anchor_id": str(anchor.get("anchor_id", "") or ""),
                  "entailed": True}

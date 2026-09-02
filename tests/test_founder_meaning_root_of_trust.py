@@ -132,6 +132,13 @@ def test_incomplete_anchor_set_is_refused_when_the_auditor_reports_it():
                            "separate state and no anchor carries it"},
             ],
             "anchors": [{"anchor_id": "a1", "entailed": True}],
+            # Stage 1D places each candidate state unit individually.
+            "state_candidates": [
+                {"candidate_index": 1, "relationship": "independent_outcome",
+                 "anchor_id": "a1"},
+                {"candidate_index": 2, "relationship": "context",
+                 "reason": "no anchor carries this state"},
+            ],
             "omissions": [{
                 "source_quote": "Research the current AI-agent products",
                 "meaning": "Establish the relevant product landscape",
@@ -213,6 +220,10 @@ def test_a_real_quote_carrying_an_unentailed_meaning_is_refused():
                 "reason": "the Founder asked for the brief to be saved and "
                           "verified on the Desktop, not emailed to anyone",
             }],
+            "state_candidates": [
+                {"candidate_index": 1, "relationship": "independent_outcome",
+                 "anchor_id": "b1"},
+            ],
             "omissions": [],
             "collapses": [],
             "invented": [],

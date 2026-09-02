@@ -120,6 +120,12 @@ class RequirementAdmission:
     initial_obligation_anchors: tuple[dict[str, Any], ...] = ()
     obligation_correction_attempted: bool = False
     obligation_corrected: bool = False
+    #: Stage 1D. The candidate state units the deterministic scaffold
+    #: exposed, where the audit placed each one, and any anchor the
+    #: placements showed holding more than one satisfaction state.
+    state_candidates: tuple[dict[str, Any], ...] = ()
+    state_placements: tuple[dict[str, Any], ...] = ()
+    intra_anchor_fusion: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -137,6 +143,11 @@ class RequirementAdmission:
             "obligation_correction_attempted":
                 self.obligation_correction_attempted,
             "obligation_corrected": self.obligation_corrected,
+            "state_candidates": [dict(row) for row in self.state_candidates],
+            "state_placements": [dict(row) for row in self.state_placements],
+            "intra_anchor_fusion": [
+                dict(row) for row in self.intra_anchor_fusion
+            ],
             "founder_obligation_anchors": [
                 dict(row) for row in self.founder_obligation_anchors
             ],
@@ -670,6 +681,128 @@ _ANCHOR_BEARING_DISPOSITIONS = frozenset({
     SUCCESS_CONDITION_OF_ANCHOR,
 })
 
+# ---------------------------------------------------------------------
+# Stage 1D -- state atomicity inside one anchor
+# ---------------------------------------------------------------------
+
+#: How a candidate semantic unit inside a region relates to an anchor.
+#: Closed, for the same reason the region vocabulary is closed.
+INDEPENDENT_OUTCOME = "independent_outcome"
+PREREQUISITE_STATE = "prerequisite_state"
+EVALUATION_CRITERION = "evaluation_criterion"
+CONSTRAINT_UNIT = "constraint_unit"
+SUCCESS_CONDITION_UNIT = "success_condition"
+RATIONALE_UNIT = "rationale"
+CONTEXT_UNIT = "context"
+
+STATE_RELATIONSHIPS: tuple[str, ...] = (
+    INDEPENDENT_OUTCOME, PREREQUISITE_STATE, EVALUATION_CRITERION,
+    CONSTRAINT_UNIT, SUCCESS_CONDITION_UNIT, RATIONALE_UNIT, CONTEXT_UNIT,
+)
+
+#: Relationships that name a SEPARATELY SATISFIABLE mission state. Two of
+#: these inside one anchor is intra-anchor fusion: one anchor exposes one
+#: satisfaction state, so the second meaning has nowhere to live. A
+#: success condition, a rationale, a constraint or plain context are not
+#: separately satisfiable and may legitimately share an anchor -- which
+#: is why "save AND verify" and "which is best AND why" stay whole.
+_SEPARATELY_STATEFUL = frozenset({
+    INDEPENDENT_OUTCOME, PREREQUISITE_STATE, EVALUATION_CRITERION,
+})
+
+#: Prepositions that introduce the criteria an evaluation is made ON.
+#: Structure, not vocabulary: no domain word appears here.
+_CRITERIA_PREPOSITIONS = (
+    "across", "on", "by", "against", "in terms of", "with respect to",
+)
+
+#: A bare interrogative trailing an outcome is the RATIONALE the founder
+#: asked for with it, not another item in a list. Interrogative form, not
+#: domain vocabulary.
+_RATIONALE_TOKENS = frozenset({"why", "how", "when", "where", "who", "what"})
+
+
+def _state_candidates_in(region: str) -> tuple[str, ...]:
+    """Candidate state-bearing units inside one source region.
+
+    Probe #2 proved the region scaffold too coarse: one region carried a
+    selection AND five requested comparison dimensions, one anchor
+    swallowed all six, and nothing downstream could see it because a
+    single anchor has a single satisfaction state.
+
+    These are CANDIDATES and nothing more. Exposing one costs nothing --
+    the audit may call it context with a reason -- while failing to
+    expose one is exactly how six Founder meanings became one opaque
+    obligation. Over-exposure is therefore the safe direction, and no
+    canonical requirement is created here.
+    """
+    text = " ".join((region or "").split()).strip()
+    if not text:
+        return ()
+    parts = [part.strip(" ,;") for part in text.split(",") if part.strip(" ,;")]
+    if len(parts) < 2 or sum(
+        1 for part in parts if len(part.split()) >= _MIN_REGION_WORDS
+    ) < 2:
+        return (text,)
+
+    # The head often carries an evaluation and the first criterion at
+    # once ("Compare the top 3 across pricing/free access"). Splitting on
+    # the criteria preposition separates WHAT is evaluated from the FIRST
+    # THING it is evaluated on; the remaining commas already separate the
+    # rest.
+    head = parts[0]
+    lowered = head.casefold()
+    for preposition in _CRITERIA_PREPOSITIONS:
+        marker = f" {preposition} "
+        position = lowered.find(marker)
+        if position == -1:
+            continue
+        subject = head[:position].strip(" ,;")
+        criterion = head[position + len(marker):].strip(" ,;")
+        if (len(subject.split()) >= _MIN_REGION_WORDS
+                and len(criterion.split()) >= 1):
+            parts = [subject, criterion, *parts[1:]]
+        break
+
+    # Inside an established list, a trailing "x and y" is the last two
+    # items of that list. Scoped to list context on purpose: with no comma
+    # there is no list, so "Save and verify report.md" never reaches this
+    # branch at all. And a bare interrogative is a RATIONALE, not a list
+    # item -- "...the closest competitive threat and why" is one requested
+    # outcome, and splitting it is the mechanical fragmentation this
+    # scaffold exists to avoid.
+    widened: list[str] = []
+    for part in parts:
+        halves = [half.strip(" ,;")
+                  for half in re.split(r"\s+and\s+", part) if half.strip(" ,;")]
+        if len(halves) > 1 and not any(
+            half.casefold().rstrip(".?!") in _RATIONALE_TOKENS
+            for half in halves
+        ):
+            widened.extend(halves)
+        else:
+            widened.append(part)
+    return tuple(
+        # A list item inherits the conjunction that introduced it.
+        re.sub(r"^and\s+", "", item).strip(" ,;") or item
+        for item in widened
+    )
+
+
+def _source_state_candidates(objective: str) -> tuple[dict[str, Any], ...]:
+    """Every candidate state unit, numbered, with its region."""
+    candidates: list[dict[str, Any]] = []
+    for region_index, region in enumerate(
+        _source_coverage_regions(objective), start=1,
+    ):
+        for text in _state_candidates_in(region):
+            candidates.append({
+                "candidate_index": len(candidates) + 1,
+                "region_index": region_index,
+                "text": text,
+            })
+    return tuple(candidates)
+
 
 def _coordinated_regions(sentence: str) -> tuple[str, ...]:
     """Candidate regions inside one sentence."""
@@ -711,6 +844,7 @@ def _obligation_audit_issues(
     regions: Sequence[str],
     anchors: Sequence[Mapping[str, Any]],
     audit: Any,
+    candidates: Sequence[Mapping[str, Any]] = (),
 ) -> list[str]:
     """Whether an independent obligation audit is inspectable at all.
 
@@ -787,13 +921,148 @@ def _obligation_audit_issues(
             issues.append(f"anchor verdict {position} names an unknown anchor")
         if not isinstance(row.get("entailed"), bool):
             issues.append(f"anchor verdict {position} does not settle entailment")
+
+    # Stage 1D. A region-level answer is too coarse: Probe #2's auditor
+    # said "region 2 -> anchor_2, represented" and six Founder meanings
+    # went into one satisfaction state. Each candidate state unit must
+    # now be placed individually.
+    if candidates:
+        if not isinstance(audit.get("state_candidates"), list):
+            issues.append(
+                "the obligation audit field 'state_candidates' is not a list"
+            )
+            return issues
+        seen_candidates: list[int] = []
+        for position, row in enumerate(audit["state_candidates"], start=1):
+            if not isinstance(row, dict):
+                issues.append(f"state candidate {position} is not an object")
+                continue
+            index = row.get("candidate_index")
+            if not isinstance(index, int) or not 1 <= index <= len(candidates):
+                issues.append(
+                    f"state candidate {position} names no valid candidate_index"
+                )
+                continue
+            seen_candidates.append(index)
+            relationship = str(row.get("relationship", "") or "").strip()
+            if relationship not in STATE_RELATIONSHIPS:
+                issues.append(
+                    f"state candidate {index} has an unusable relationship "
+                    f"{relationship!r}"
+                )
+                continue
+            if relationship == CONTEXT_UNIT:
+                if not str(row.get("reason", "") or "").strip():
+                    issues.append(
+                        f"state candidate {index} was called context with no "
+                        "reason"
+                    )
+                continue
+            named = str(row.get("anchor_id", "") or "").strip()
+            if named not in anchor_ids:
+                issues.append(
+                    f"state candidate {index} claims unknown anchor {named!r}"
+                )
+        missing = sorted(
+            set(range(1, len(candidates) + 1)) - set(seen_candidates)
+        )
+        if missing:
+            issues.append(
+                "the audit never placed Founder state candidate(s) "
+                + ", ".join(str(index) for index in missing)
+            )
+        duplicated = {
+            index for index in seen_candidates if seen_candidates.count(index) > 1
+        }
+        if duplicated:
+            issues.append(
+                "more than one placement for state candidate(s) "
+                + ", ".join(str(index) for index in sorted(duplicated))
+            )
     return issues
+
+
+def _intra_anchor_fusion(
+    candidates: Sequence[Mapping[str, Any]],
+    anchors: Sequence[Mapping[str, Any]],
+    audit: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Anchors asked to hold more than one separately satisfiable state.
+
+    One anchor exposes ONE satisfaction state. If the audit's own
+    placements put two independently stateful Founder meanings inside it,
+    the second has nowhere to live -- which is exactly how, live, a
+    top-three SELECTION and five requested COMPARISONS became a single
+    obligation that could only ever be wholly done or wholly not.
+
+    Derived from the audit's structured placements, never from its
+    opinion: the same discipline by which `_coverage_decision` reads two
+    anchors on one requirement as an improper merge, applied one level
+    up. A success condition, rationale, constraint or context is not
+    separately satisfiable and may share an anchor, so "save AND verify"
+    and "which is best AND why" remain whole.
+    """
+    by_text = {
+        int(row["candidate_index"]): row.get("text", "")
+        for row in candidates if isinstance(row, Mapping)
+        and isinstance(row.get("candidate_index"), int)
+    }
+    held: dict[str, list[dict[str, Any]]] = {}
+    for row in audit.get("state_candidates", ()) or ():
+        if not isinstance(row, Mapping):
+            continue
+        relationship = str(row.get("relationship", "") or "").strip()
+        if relationship not in _SEPARATELY_STATEFUL:
+            continue
+        anchor_id = str(row.get("anchor_id", "") or "").strip()
+        index = row.get("candidate_index")
+        if not anchor_id or not isinstance(index, int):
+            continue
+        held.setdefault(anchor_id, []).append({
+            "candidate_index": index,
+            "text": by_text.get(index, ""),
+            "relationship": relationship,
+        })
+
+    fused: list[dict[str, Any]] = []
+    for anchor in anchors:
+        anchor_id = str(anchor.get("anchor_id", "") or "").strip()
+        states = held.get(anchor_id, [])
+        declared = anchor_id and audit_declares_multiple(audit, anchor_id)
+        if len(states) > 1 or declared:
+            fused.append({
+                "anchor_id": anchor_id,
+                "source_quote": anchor.get("source_quote", ""),
+                "meaning": anchor.get("meaning", ""),
+                "states": states,
+                "reason": (
+                    "one anchor exposes one satisfaction state but was asked "
+                    "to hold several independently satisfiable Founder "
+                    "meanings"
+                ),
+            })
+    return fused
+
+
+def audit_declares_multiple(audit: Mapping[str, Any], anchor_id: str) -> bool:
+    """The auditor's own admission that an anchor holds several states."""
+    for row in audit.get("anchors", ()) or ():
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("anchor_id", "") or "").strip() != anchor_id:
+            continue
+        if row.get("contains_multiple_states") is True:
+            return True
+        if row.get("independently_satisfiable_together") is False:
+            return True
+    return False
 
 
 def _obligation_trust_decision(
     regions: Sequence[str],
     anchors: Sequence[Mapping[str, Any]],
     audit: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Decide deterministically whether the Founder obligation set may be
     trusted as the root the rest of Stage 1 stands on.
@@ -891,9 +1160,25 @@ def _obligation_trust_decision(
             "for: " + str(row.get("reason", "") or row.get("anchor_id", ""))
         )
 
+    fused = _intra_anchor_fusion(candidates, anchors, audit)
+    for row in fused:
+        held = ", ".join(
+            f"{state['text']!r}" for state in row.get("states", ())
+        ) or "several Founder meanings"
+        issues.append(
+            f"anchor {row['anchor_id']!r} fuses independently satisfiable "
+            f"Founder states: {held}"
+        )
+
     return {
         "trusted": not issues,
         "issues": issues,
+        "intra_anchor_fusion": fused,
+        "state_candidates": [dict(row) for row in candidates],
+        "state_placements": [
+            dict(row) for row in audit.get("state_candidates", ()) or ()
+            if isinstance(row, Mapping)
+        ],
         "unexplained_regions": unexplained,
         "unentailed_anchors": unentailed,
         "omissions": omissions,
@@ -2301,6 +2586,9 @@ class IntentLayer:
                 lost_obligations=tuple(trust["omissions"]),
                 merged_obligations=tuple(trust["collapses"]),
                 obligation_correction_attempted=trust["correction_attempted"],
+                state_candidates=tuple(trust.get("state_candidates", ())),
+                state_placements=tuple(trust.get("state_placements", ())),
+                intra_anchor_fusion=tuple(trust.get("intra_anchor_fusion", ())),
             )
 
         trusted_anchors = list(trust["anchors"])
@@ -2639,6 +2927,7 @@ class IntentLayer:
         can therefore shape the obligation set that judges it.
         """
         regions = _source_coverage_regions(objective)
+        candidates = _source_state_candidates(objective)
         initial_anchors = self._propose_founder_obligations(objective, regions)
         anchors = initial_anchors
         correction_attempted = False
@@ -2646,9 +2935,11 @@ class IntentLayer:
         verdict = "obligation_set_untrusted"
 
         for attempt in (1, 2):
-            audit = self._audit_founder_obligations(objective, regions, anchors)
+            audit = self._audit_founder_obligations(
+                objective, regions, anchors, candidates,
+            )
             structural = _obligation_audit_issues(
-                objective, regions, anchors, audit,
+                objective, regions, anchors, audit, candidates,
             )
             if structural:
                 decision = {
@@ -2656,11 +2947,15 @@ class IntentLayer:
                     "unexplained_regions": [], "unentailed_anchors": [],
                     "omissions": [], "collapses": [], "invented": [],
                     "regions": list(regions), "region_dispositions": [],
-                    "anchor_entailment": [],
+                    "anchor_entailment": [], "intra_anchor_fusion": [],
+                    "state_candidates": [dict(row) for row in candidates],
+                    "state_placements": [],
                 }
                 verdict = "obligation_audit_unusable"
             else:
-                decision = _obligation_trust_decision(regions, anchors, audit)
+                decision = _obligation_trust_decision(
+                    regions, anchors, audit, candidates,
+                )
                 verdict = "obligation_set_untrusted"
 
             if decision["trusted"]:
@@ -2672,6 +2967,9 @@ class IntentLayer:
                     "initial_anchors": [dict(row) for row in initial_anchors],
                     "region_dispositions": decision["region_dispositions"],
                     "anchor_entailment": decision["anchor_entailment"],
+                    "state_candidates": decision.get("state_candidates", []),
+                    "state_placements": decision.get("state_placements", []),
+                    "intra_anchor_fusion": [],
                     "issues": [], "omissions": [], "collapses": [],
                     "correction_attempted": correction_attempted,
                 }
@@ -2685,6 +2983,7 @@ class IntentLayer:
             correction_attempted = True
             anchors = self._correct_founder_obligations(
                 objective, regions, anchors, decision["issues"],
+                decision.get("intra_anchor_fusion", ()),
             )
 
         return {
@@ -2699,6 +2998,9 @@ class IntentLayer:
             "initial_anchors": [dict(row) for row in initial_anchors],
             "region_dispositions": decision.get("region_dispositions", []),
             "anchor_entailment": decision.get("anchor_entailment", []),
+            "state_candidates": decision.get("state_candidates", []),
+            "state_placements": decision.get("state_placements", []),
+            "intra_anchor_fusion": decision.get("intra_anchor_fusion", []),
             "issues": decision.get("issues", []),
             "omissions": decision.get("omissions", []),
             "collapses": decision.get("collapses", []),
@@ -2750,6 +3052,7 @@ class IntentLayer:
         objective: str,
         regions: Sequence[str],
         anchors: Sequence[Mapping[str, Any]],
+        candidates: Sequence[Mapping[str, Any]] = (),
     ) -> dict[str, Any] | None:
         """The independent auditor. It never sees the decomposition."""
         import json
@@ -2766,9 +3069,18 @@ class IntentLayer:
                  for index, text in enumerate(regions, start=1)],
                 indent=2, ensure_ascii=False,
             )
+            + "\n\nCANDIDATE STATE UNITS inside those regions "
+            "(deterministic; candidates only, NOT decided "
+            "obligations -- several may belong to one):\n"
+            + json.dumps(
+                [{"candidate_index": row.get("candidate_index"),
+                  "region_index": row.get("region_index"),
+                  "text": row.get("text")} for row in candidates],
+                indent=2, ensure_ascii=False,
+            )
             + "\n\nPROPOSED OBLIGATION ANCHORS:\n"
             + json.dumps(list(anchors), indent=2, ensure_ascii=False)
-            + "\n\nAnswer three questions with evidence, not opinion.\n\n"
+            + "\n\nAnswer four questions with evidence, not opinion.\n\n"
             "1. COVERAGE. Give every region exactly one disposition from: "
             + ", ".join(REGION_DISPOSITIONS)
             + ". Name the anchor_id whenever the disposition refers to one. "
@@ -2781,14 +3093,34 @@ class IntentLayer:
             "true: 'Save a verified brief on my Desktop' does not entail "
             "'Email the brief to the team'. Answer entailed true or false, "
             "with a reason when false.\n\n"
-            "3. INTEGRITY. Report Founder-stated obligations no anchor "
+            "3. STATE ATOMICITY. Place EVERY candidate state unit "
+            "individually. Saying a whole region is represented by "
+            "an anchor is NOT enough. Give each candidate one "
+            "relationship from: " + ", ".join(STATE_RELATIONSHIPS) + ". "
+            "Name the anchor_id for every relationship except "
+            "context, which needs a reason instead. Use "
+            "independent_outcome or prerequisite_state when the unit "
+            "is a mission state that could be SATISFIED while another "
+            "remains UNRESOLVED, and evaluation_criterion for a "
+            "requested property that could be established for one "
+            "candidate while another stays unknown. Use "
+            "success_condition or rationale ONLY when the unit cannot "
+            "be satisfied separately from its anchor -- verifying the "
+            "artifact you just saved, or the reason for the decision "
+            "you just made. State per anchor whether it "
+            "contains_multiple_states.\n\n"
+            "4. INTEGRITY. Report Founder-stated obligations no anchor "
             "carries (omissions), independently stateful obligations "
             "collapsed into one anchor (collapses), and anchors asserting "
             "work the Founder never asked for (invented).\n\n"
             "Return JSON only:\n"
             '{"regions": [{"region_index": 1, "disposition": "...", '
             '"anchor_id": "...", "reason": "..."}], '
+            '"state_candidates": [{"candidate_index": 1, '
+            '"relationship": "...", "anchor_id": "...", '
+            '"reason": "..."}], '
             '"anchors": [{"anchor_id": "...", "entailed": true, '
+            '"contains_multiple_states": false, '
             '"reason": "..."}], '
             '"omissions": [{"source_quote": "...", "meaning": "..."}], '
             '"collapses": [{"anchor_id": "...", "reason": "..."}], '
@@ -2808,6 +3140,7 @@ class IntentLayer:
         regions: Sequence[str],
         rejected: Sequence[Mapping[str, Any]],
         issues: Sequence[str],
+        fused: Sequence[Mapping[str, Any]] = (),
     ) -> tuple[dict[str, Any], ...]:
         """One bounded, grounded repair of the obligation set itself."""
         import json
@@ -2827,10 +3160,30 @@ class IntentLayer:
             + "\n\nYOUR PREVIOUS OBLIGATION SET:\n" + shown
             + "\n\nIt was refused for these exact reasons:\n"
             + "\n".join(f"    - {issue}" for issue in issues)
+            + (
+                "\n\nThese anchors each hold SEVERAL independently "
+                "satisfiable Founder states. One anchor exposes one "
+                "satisfaction state, so split each of them into anchors "
+                "that preserve those states separately, changing no other "
+                "Founder meaning:\n"
+                + "\n".join(
+                    "    - {id}: {states}".format(
+                        id=row.get("anchor_id", ""),
+                        states=", ".join(
+                            str(state.get("text", ""))
+                            for state in row.get("states", ()) or ()
+                        ) or str(row.get("meaning", "")),
+                    )
+                    for row in fused
+                )
+                if fused else ""
+            )
             + "\n\nCorrect only those violations. Every anchor's source_quote "
             "must be copied from the Founder input and its meaning must "
             "actually follow from that quote. Do not invent work the Founder "
-            "did not state. Do not fragment one inseparable outcome.\n\n"
+            "did not state. Do not fragment one inseparable outcome: an "
+            "outcome and its verification condition remain one anchor, and a "
+            "decision and its requested rationale remain one anchor.\n\n"
             "Reply with JSON and nothing else:\n"
             '{"anchors": [{"anchor_id": "anchor_1", "source_quote": "...", '
             '"meaning": "...", "depends_on": []}]}'

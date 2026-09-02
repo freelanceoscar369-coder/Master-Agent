@@ -206,7 +206,21 @@ class TestRequirementsAreExtracted:
                 if "Audit whether a proposed set" in prompt:
                     regions = sorted({int(found) for found in re.findall(
                         r'"region_index":\s*(\d+)', prompt)})
+                    cand = sorted({int(f) for f in re.findall(
+                        r'"candidate_index":\s*(\d+)', prompt)})
+                    ids = [f"anchor_{i}"
+                           for i, _ in enumerate(offered, start=1)]
                     return SimpleNamespace(ok=True, text=json.dumps({
+                        "state_candidates": [
+                            {"candidate_index": index,
+                             "relationship": "independent_outcome",
+                             "anchor_id": ids[position]}
+                            if position < len(ids) else
+                            {"candidate_index": index,
+                             "relationship": "context",
+                             "reason": "not exercised by this case"}
+                            for position, index in enumerate(cand)
+                        ],
                         "regions": [
                             {"region_index": index,
                              "disposition": "represented_by_anchor",
