@@ -565,6 +565,60 @@ def next_evidence_need(
         )
         if not remaining:
             return None
+
+        # A tie no further observation can break is not an evidence gap.
+        # When several candidates satisfy EVERY stated criterion and the
+        # founder is still owed a mission-level judgement, more research
+        # cannot separate them: what is missing is a preference they never
+        # stated, and choosing one anyway would answer a question they did
+        # not ask. This is the one case where asking is the intelligent
+        # move rather than a failure to cope.
+        #
+        # Deliberately narrow. A mission whose answer IS a set -- "find
+        # three tools and save a report" -- owes only its deliverable, has
+        # no outstanding judgement, and still finalises. `kind` is read
+        # only as supporting metadata through `decision_requirement_ids`;
+        # if it mislabels the judgement the result is a missed question
+        # rather than a spurious one, which is the safer way to be wrong.
+        owed_judgement = tuple(
+            requirement_id for requirement_id in result.decision_requirement_ids
+            if requirement_id in remaining
+        )
+        tied = tuple(result.shortlist)
+        if len(tied) > 1 and owed_judgement and all(
+            (candidate.criteria or {}).get(criterion_id) == MET
+            for candidate in tied
+            for criterion_id in (result.criteria or {})
+        ):
+            names = [candidate.summary or candidate.candidate_id
+                     for candidate in tied]
+            applied = "; ".join(
+                str(description)
+                for description in (result.criteria or {}).values()
+                if str(description).strip()
+            )
+            return NextEvidenceNeed(
+                target_requirements=owed_judgement,
+                missing_claim=(
+                    " and ".join(names)
+                    + " each satisfy every stated requirement"
+                    + (f" ({applied})" if applied else "")
+                    + ". Every criterion the founder gave has been applied and "
+                    "no further observation distinguishes them, so which to "
+                    "prefer is a judgement the objective does not contain"
+                ),
+                candidate_ids=tuple(c.candidate_id for c in tied),
+                candidate_summaries=tuple(c.summary for c in tied),
+                exhausted_strategies=exhausted,
+                reason=(
+                    "no remaining observation can separate these candidates, "
+                    "so the choice needs founder judgement rather than more "
+                    "evidence"
+                ),
+                unvisited=tuple(unvisited),
+                action="ask_founder",
+            )
+
         return NextEvidenceNeed(
             target_requirements=remaining,
             missing_claim=(
