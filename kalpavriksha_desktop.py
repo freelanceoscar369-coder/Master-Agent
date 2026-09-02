@@ -1988,11 +1988,33 @@ class BrainRoute:
     action: str = ""
 
 
-def route_brain_action(need: dict | None) -> BrainRoute:
+def _already_answered(need: dict | None, founder_decision: dict | None) -> bool:
+    """Has the founder already settled THIS decision?
+
+    Matched on the requirement the Brain asked about, not on the prose of
+    the question -- the same tie asked twice is worded by the same code
+    and would match itself, while a genuinely new decision about a
+    different requirement must still be asked.
+    """
+    if not isinstance(founder_decision, dict) or not founder_decision.get("answer"):
+        return False
+    asked = tuple(str(r) for r in (need or {}).get("target_requirements", ()))
+    answered = tuple(str(r) for r in founder_decision.get("target_requirements", ()))
+    return bool(asked) and set(asked) <= set(answered)
+
+
+def route_brain_action(
+    need: dict | None, *, founder_decision: dict | None = None,
+) -> BrainRoute:
     """Route one Brain decision to the subsystem that owns it.
 
     `None` is the Brain saying there is no next evidence need: nothing
     is left to find, so nothing is planned.
+
+    `founder_decision` is a judgement the founder has already given for
+    this mission, if any. It is read ONLY to stop re-asking a settled
+    question; it never turns work into a question, and it never chooses a
+    requirement.
     """
     if need is None:
         return BrainRoute(
@@ -2001,6 +2023,17 @@ def route_brain_action(need: dict | None) -> BrainRoute:
         )
     action = str((need or {}).get("action") or "").strip()
     if action in _ASKS_FOUNDER:
+        if _already_answered(need, founder_decision):
+            # Asked, and answered. Asking again would be a loop the
+            # founder cannot escape: the Brain re-derives the same tie
+            # from the same evidence every cycle, because evidence is not
+            # what was missing. The judgement exists now, so the mission
+            # finalises from it.
+            return BrainRoute(
+                consumer="planner", calls_planner=True, terminal=False,
+                action="finalize_from_canonical_decision",
+                reason="the founder has already settled this decision",
+            )
         return BrainRoute(
             consumer="founder_question", calls_planner=False, terminal=True,
             action=action,
@@ -2027,7 +2060,17 @@ def route_brain_action(need: dict | None) -> BrainRoute:
     )
 
 
-def _stop_for_route(route, status, need, objective: str) -> None:
+def _carried_objective_ids(intent_result) -> tuple[str, ...]:
+    """Attempts an earlier phase of THIS mission already made."""
+    intent = getattr(intent_result, "intent", None)
+    decision = (getattr(intent, "context", None) or {}).get("founder_decision")
+    if not isinstance(decision, dict):
+        return ()
+    return tuple(str(o) for o in decision.get("objective_ids", ()) if str(o))
+
+
+def _stop_for_route(route, status, need, objective: str,
+                    objective_ids=()) -> None:
     """Record the truthful stop this route represents.
 
     Three different stops, kept three different things. Collapsing them
@@ -2051,6 +2094,12 @@ def _stop_for_route(route, status, need, objective: str) -> None:
             key="founder_decision",
             objective=objective,
             options=tuple(str(c) for c in (need or {}).get("candidate_ids", ())),
+            # The mission is paused, not abandoned. These attempt ids are
+            # the only handle on the Evidence it has already established,
+            # and without them the answer would arrive to a mission that
+            # had forgotten its own candidates.
+            mission_objective_ids=tuple(str(o) for o in objective_ids),
+            decision=dict(need or {}),
         )
         status.status = AWAITING_CLARIFICATION
         status.message = question
@@ -2721,6 +2770,30 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # Reporting the answer as the objective would lose what they asked
         # for and leave "Research" standing where "Create a folder" should.
         status.objective = pending.objective
+        # A founder JUDGEMENT is not a missing field, and re-parsing alone
+        # loses what makes it one: the mission it belongs to. `clarify()`
+        # rebuilds the canonical Intent from the founder's original
+        # sentence -- correctly, and the requirement ids come back
+        # identical -- but the Evidence, the candidates and the standing
+        # of every requirement live on the ATTEMPTS, which a fresh Intent
+        # knows nothing about. Carried here, and read by the continuation
+        # loop, so the answer resumes the mission instead of restarting
+        # it. The Planner is not told any of this: it goes to the Brain.
+        if (
+            pending.key == "founder_decision"
+            and getattr(intent_result, "intent", None) is not None
+        ):
+            asked = dict(pending.decision or {})
+            intent_result.intent.context["founder_decision"] = {
+                "clarification_id": pending.clarification_id,
+                "question": pending.question,
+                "answer": text,
+                "options": list(pending.options),
+                "target_requirements": list(
+                    asked.get("target_requirements", ()) or ()),
+                "candidate_ids": list(asked.get("candidate_ids", ()) or ()),
+                "objective_ids": list(pending.mission_objective_ids),
+            }
     else:
         intent_result = mission_service.intent_layer.parse(text)
 
@@ -2845,7 +2918,11 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # Every mission record this one objective produced. A replan makes a
     # new record; what the previous one established is still the
     # founder's, and still true.
-    attempts_made = [objective_id]
+    # A mission resumed from a founder judgement inherits the attempts it
+    # already made, because `_decide` and `_mission_progress` read Evidence
+    # BY objective id. Starting this list at the new attempt alone is what
+    # made an answered question restart candidate discovery.
+    attempts_made = [*_carried_objective_ids(intent_result), objective_id]
     _drive_until_settled(runtime, mission_control, status, objective_id,
                          timeout_seconds)
 
@@ -2929,10 +3006,15 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             # mission went looking for evidence to settle a question that
             # exists precisely BECAUSE no evidence can settle it. The
             # Planner is not asked whether it should have been called.
-            route = route_brain_action(needed)
+            route = route_brain_action(
+                needed,
+                founder_decision=(intent_result.intent.context or {}).get(
+                    "founder_decision"),
+            )
             if not route.calls_planner:
                 _stop_for_route(route, status, needed,
-                                str(getattr(intent_result.intent, "goal", "")))
+                                str(getattr(intent_result.intent, "goal", "")),
+                                objective_ids=attempts_made)
                 break
             logging.info(
                 "next mission need (%s): targets=%s claim=%s",

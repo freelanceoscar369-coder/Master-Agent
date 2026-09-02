@@ -375,13 +375,21 @@ class TestWhatAnEarlierAttemptEstablishedIsStillTrue:
     def test_the_loop_carries_every_attempt_into_the_decision(self):
         """A source guard. The chain is only useful if it is the thing
         actually handed to `_decide`, and this is the line that regressed
-        silently once already."""
+        silently once already.
+
+        The chain now starts wider than one id, and for the same reason
+        it exists: a mission resumed from a founder judgement inherits the
+        attempts the paused one made, or the answer arrives to a mission
+        that has forgotten its own Evidence. What is guarded is unchanged
+        -- this attempt is on the chain, every later attempt is appended
+        to it, and the decision reads the chain rather than the last id.
+        """
         import inspect
 
         import kalpavriksha_desktop as kd
 
         source = inspect.getsource(kd._submit_objective)
-        assert "attempts_made = [objective_id]" in source
+        assert "attempts_made = [*_carried_objective_ids(intent_result), objective_id]" in source
         assert "attempts_made.append(objective_id)" in source
         assert "objective_id\n        )" not in source.split("attempts_made")[-1], (
             "a decision after the loop must read the chain, not the last id")

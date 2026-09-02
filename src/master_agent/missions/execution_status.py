@@ -142,6 +142,22 @@ class PendingClarification:
     #: itself -- which is how a folder on the wrong drive was reported as
     #: doing what the founder asked.
     evidence: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: The mission this question interrupted, so answering it RESUMES that
+    #: mission instead of starting a new one.
+    #:
+    #: A Stage-1 clarification asks what the founder meant, and nothing
+    #: has run yet -- there is no mission to carry. A Stage-4 founder
+    #: DECISION is the opposite: the request was understood, work ran, and
+    #: evidence accumulated, and what is missing is a judgement only the
+    #: founder can make. Those attempt ids are the only handle on that
+    #: accumulated Evidence, and they lived in one call's local variables,
+    #: so the answer arrived to a mission that had forgotten everything it
+    #: had established and would have started candidate discovery again.
+    mission_objective_ids: tuple[str, ...] = ()
+    #: The Brain decision that required a founder judgement, as the Brain
+    #: stated it. Carried so the answer resolves THIS decision rather than
+    #: being matched to a question by re-reading its prose.
+    decision: dict | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
