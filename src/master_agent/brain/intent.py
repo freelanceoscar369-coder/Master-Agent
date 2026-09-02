@@ -21,6 +21,7 @@ from master_agent.planner.plan import (
     EFFECT,
     INFORMATION,
     REQUIREMENT_KINDS,
+    UNSETTLED_INTERPRETATION,
     Intent,
     SemanticRequirement,
 )
@@ -107,11 +108,35 @@ class RequirementAdmission:
     corrected: bool = False
     initial_provider_output: tuple[dict[str, Any], ...] = ()
     final_provider_output: tuple[dict[str, Any], ...] = ()
+    #: Stage 1C. The Founder obligation set is itself a root of trust, so
+    #: the evidence that established it is recorded beside the evidence
+    #: that policed the decomposition below it. `source_regions` is
+    #: deterministic; everything else is what the blind producer proposed
+    #: and what the independent auditor said about it.
+    source_regions: tuple[str, ...] = ()
+    region_dispositions: tuple[dict[str, Any], ...] = ()
+    anchor_entailment: tuple[dict[str, Any], ...] = ()
+    obligation_issues: tuple[str, ...] = ()
+    initial_obligation_anchors: tuple[dict[str, Any], ...] = ()
+    obligation_correction_attempted: bool = False
+    obligation_corrected: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "valid": self.valid,
             "semantic_verdict": self.semantic_verdict,
+            "source_regions": list(self.source_regions),
+            "region_dispositions": [
+                dict(row) for row in self.region_dispositions
+            ],
+            "anchor_entailment": [dict(row) for row in self.anchor_entailment],
+            "obligation_issues": list(self.obligation_issues),
+            "initial_obligation_anchors": [
+                dict(row) for row in self.initial_obligation_anchors
+            ],
+            "obligation_correction_attempted":
+                self.obligation_correction_attempted,
+            "obligation_corrected": self.obligation_corrected,
             "founder_obligation_anchors": [
                 dict(row) for row in self.founder_obligation_anchors
             ],
@@ -614,6 +639,274 @@ def _founder_source_regions(objective: str) -> tuple[str, ...]:
         for part in re.split(r"(?<=[.!?;])\s+(?=[A-Z])", flattened)
         if part.strip()
     )
+
+
+#: A coordinated predicate becomes its own candidate region only when both
+#: sides carry enough language to stand as an obligation. "Save and verify
+#: report.md" stays one region -- its left side is a bare verb -- while
+#: "Research the products ... and give me the top 3" becomes two. This is
+#: VISIBILITY, not atomicity: the scaffold never decides what is one
+#: obligation, only that a phrase may not disappear unexplained.
+_MIN_REGION_WORDS = 2
+
+#: How a Founder source region may be accounted for. Closed, because an
+#: open vocabulary is how "we looked at it" becomes indistinguishable from
+#: "we explained it".
+REPRESENTED_BY_ANCHOR = "represented_by_anchor"
+MODIFIER_OF_ANCHOR = "modifier_of_anchor"
+CONSTRAINT_ON_ANCHOR = "constraint_on_anchor"
+SUCCESS_CONDITION_OF_ANCHOR = "success_condition_of_anchor"
+NON_OBLIGATIONAL_CONTEXT = "non_obligational_context"
+OMITTED_OBLIGATION = "omitted"
+
+REGION_DISPOSITIONS: tuple[str, ...] = (
+    REPRESENTED_BY_ANCHOR, MODIFIER_OF_ANCHOR, CONSTRAINT_ON_ANCHOR,
+    SUCCESS_CONDITION_OF_ANCHOR, NON_OBLIGATIONAL_CONTEXT, OMITTED_OBLIGATION,
+)
+
+#: Dispositions that claim some anchor carries this region's meaning.
+_ANCHOR_BEARING_DISPOSITIONS = frozenset({
+    REPRESENTED_BY_ANCHOR, MODIFIER_OF_ANCHOR, CONSTRAINT_ON_ANCHOR,
+    SUCCESS_CONDITION_OF_ANCHOR,
+})
+
+
+def _coordinated_regions(sentence: str) -> tuple[str, ...]:
+    """Candidate regions inside one sentence."""
+    parts = [
+        part.strip(" ,;")
+        for part in re.split(r",?\s+and then\s+|,?\s+and\s+|;\s*", sentence)
+        if part.strip(" ,;")
+    ]
+    if len(parts) < 2:
+        return (sentence,)
+    if any(len(part.split()) < _MIN_REGION_WORDS for part in parts):
+        # One side is a bare verb or a dangling "why": one cohesive
+        # statement, not two coordinated obligations.
+        return (sentence,)
+    return tuple(parts)
+
+
+def _source_coverage_regions(objective: str) -> tuple[str, ...]:
+    """Deterministic candidate regions of raw Founder language.
+
+    Stage 1B polices a truthful anchor set correctly. It could not see an
+    anchor set that quietly covered two obligations with one anchor,
+    because its only source check was sentence-scale and any anchor inside
+    the sentence satisfied it.
+
+    This is the smallest scaffold that makes such a phrase VISIBLE. It
+    never decides a region is a requirement -- the semantic layer does --
+    but every region it names must afterwards be accounted for explicitly,
+    so meaning cannot vanish in silence.
+    """
+    regions: list[str] = []
+    for sentence in _founder_source_regions(objective):
+        regions.extend(_coordinated_regions(sentence))
+    return tuple(regions)
+
+
+def _obligation_audit_issues(
+    objective: str,
+    regions: Sequence[str],
+    anchors: Sequence[Mapping[str, Any]],
+    audit: Any,
+) -> list[str]:
+    """Whether an independent obligation audit is inspectable at all.
+
+    An unusable audit is refused rather than read generously: the point of
+    this boundary is that silence must not become consent.
+    """
+    if not isinstance(audit, dict):
+        return ["the obligation audit was not a JSON object"]
+
+    issues: list[str] = []
+    for name in ("regions", "anchors", "omissions", "collapses", "invented"):
+        if not isinstance(audit.get(name), list):
+            issues.append(f"the obligation audit field {name!r} is not a list")
+    if issues:
+        return issues
+
+    anchor_ids = {
+        str(anchor.get("anchor_id", "") or "").strip() for anchor in anchors
+    }
+    anchor_ids.discard("")
+    if not anchor_ids:
+        issues.append("no Founder obligation anchor was proposed")
+
+    for anchor in anchors:
+        anchor_id = str(anchor.get("anchor_id", "") or "").strip()
+        quote = str(anchor.get("source_quote", "") or "")
+        if not _grounded_in(objective, quote):
+            issues.append(
+                f"anchor {anchor_id or '?'!r} does not quote Founder language"
+            )
+        if not str(anchor.get("meaning", "") or "").strip():
+            issues.append(f"anchor {anchor_id or '?'!r} states no meaning")
+
+    seen_regions: list[int] = []
+    for position, row in enumerate(audit["regions"], start=1):
+        if not isinstance(row, dict):
+            issues.append(f"region disposition {position} is not an object")
+            continue
+        index = row.get("region_index")
+        if not isinstance(index, int) or not 1 <= index <= len(regions):
+            issues.append(
+                f"region disposition {position} names no valid region_index"
+            )
+            continue
+        seen_regions.append(index)
+        disposition = str(row.get("disposition", "") or "").strip()
+        if disposition not in REGION_DISPOSITIONS:
+            issues.append(
+                f"region {index} has an unusable disposition {disposition!r}"
+            )
+        elif disposition in _ANCHOR_BEARING_DISPOSITIONS:
+            named = str(row.get("anchor_id", "") or "").strip()
+            if named not in anchor_ids:
+                issues.append(f"region {index} claims unknown anchor {named!r}")
+        elif disposition == NON_OBLIGATIONAL_CONTEXT and not str(
+            row.get("reason", "") or ""
+        ).strip():
+            issues.append(
+                f"region {index} was called non-obligational with no reason"
+            )
+
+    duplicated = {i for i in seen_regions if seen_regions.count(i) > 1}
+    if duplicated:
+        issues.append(
+            "more than one disposition for region(s) "
+            + ", ".join(str(index) for index in sorted(duplicated))
+        )
+
+    for position, row in enumerate(audit["anchors"], start=1):
+        if not isinstance(row, dict):
+            issues.append(f"anchor verdict {position} is not an object")
+            continue
+        if str(row.get("anchor_id", "") or "").strip() not in anchor_ids:
+            issues.append(f"anchor verdict {position} names an unknown anchor")
+        if not isinstance(row.get("entailed"), bool):
+            issues.append(f"anchor verdict {position} does not settle entailment")
+    return issues
+
+
+def _obligation_trust_decision(
+    regions: Sequence[str],
+    anchors: Sequence[Mapping[str, Any]],
+    audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Decide deterministically whether the Founder obligation set may be
+    trusted as the root the rest of Stage 1 stands on.
+
+    The auditor's own ``valid`` value is ignored, exactly as
+    ``_coverage_decision`` ignores the reviewer's. A model may report
+    evidence; it may not award itself the verdict.
+
+    What this proves: every deterministic source region carries an explicit
+    disposition, every anchor quotes real Founder language and carries an
+    affirmative entailment verdict, and no reported omission, collapse or
+    invention is outstanding.
+
+    What it does NOT prove, and does not claim: that a region called
+    ``non_obligational_context`` truly is one. That judgement is semantic.
+    This layer forces it to be stated, attributed and recorded rather than
+    made in silence.
+    """
+    dispositions = {
+        row.get("region_index"): row
+        for row in audit.get("regions", ()) or ()
+        if isinstance(row, dict)
+    }
+    entailment = {
+        str(row.get("anchor_id", "") or "").strip(): row
+        for row in audit.get("anchors", ()) or ()
+        if isinstance(row, dict)
+    }
+
+    issues: list[str] = []
+    unexplained: list[dict[str, Any]] = []
+    for index, region in enumerate(regions, start=1):
+        row = dispositions.get(index)
+        if row is None:
+            unexplained.append({"region_index": index, "region": region})
+            issues.append(
+                f"Founder source region {index} was never accounted for: "
+                f"{region!r}"
+            )
+            continue
+        if str(row.get("disposition", "") or "") == OMITTED_OBLIGATION:
+            unexplained.append({
+                "region_index": index,
+                "region": region,
+                "reason": str(row.get("reason", "") or ""),
+            })
+            issues.append(
+                f"Founder source region {index} was reported omitted: {region!r}"
+            )
+
+    unentailed: list[dict[str, Any]] = []
+    for anchor in anchors:
+        anchor_id = str(anchor.get("anchor_id", "") or "").strip()
+        verdict = entailment.get(anchor_id)
+        if verdict is None:
+            unentailed.append({
+                "anchor_id": anchor_id,
+                "source_quote": anchor.get("source_quote", ""),
+                "meaning": anchor.get("meaning", ""),
+                "reason": "no independent entailment verdict was returned",
+            })
+            issues.append(f"anchor {anchor_id!r} carries no entailment verdict")
+        elif verdict.get("entailed") is not True:
+            unentailed.append({
+                "anchor_id": anchor_id,
+                "source_quote": anchor.get("source_quote", ""),
+                "meaning": anchor.get("meaning", ""),
+                "reason": str(verdict.get("reason", "") or ""),
+            })
+            issues.append(
+                f"anchor {anchor_id!r} asserts a meaning its own Founder quote "
+                "does not entail"
+            )
+
+    omissions = [dict(r) for r in audit.get("omissions", ()) or ()
+                 if isinstance(r, dict)]
+    collapses = [dict(r) for r in audit.get("collapses", ()) or ()
+                 if isinstance(r, dict)]
+    invented = [dict(r) for r in audit.get("invented", ()) or ()
+                if isinstance(r, dict)]
+    for row in omissions:
+        issues.append(
+            "the independent audit found Founder meaning with no anchor: "
+            + str(row.get("meaning", "") or row.get("source_quote", ""))
+        )
+    for row in collapses:
+        issues.append(
+            "the independent audit found independently stateful obligations "
+            "collapsed into one anchor: "
+            + str(row.get("reason", "") or row.get("anchor_id", ""))
+        )
+    for row in invented:
+        issues.append(
+            "the independent audit found an anchor the Founder did not ask "
+            "for: " + str(row.get("reason", "") or row.get("anchor_id", ""))
+        )
+
+    return {
+        "trusted": not issues,
+        "issues": issues,
+        "unexplained_regions": unexplained,
+        "unentailed_anchors": unentailed,
+        "omissions": omissions,
+        "collapses": collapses,
+        "invented": invented,
+        "regions": list(regions),
+        "region_dispositions": [
+            dict(r) for r in audit.get("regions", ()) or () if isinstance(r, dict)
+        ],
+        "anchor_entailment": [
+            dict(r) for r in audit.get("anchors", ()) or () if isinstance(r, dict)
+        ],
+    }
 
 
 def _coverage_decision(
@@ -1978,7 +2271,14 @@ class IntentLayer:
     def _reasoned_requirement_admission(
         self, objective: str,
     ) -> RequirementAdmission:
-        """Derive, validate, correct once, and admit canonical semantics."""
+        """Derive, validate, correct once, and admit canonical semantics.
+
+        Stage 1C runs first and separately: the Founder obligation set is
+        established and independently audited BEFORE any decomposition
+        exists, so the anchors that police the decomposition below cannot
+        have been shaped by it. Only a trusted obligation set reaches the
+        Stage 1B machinery, which is otherwise unchanged.
+        """
         if not objective or self._reasoner is None:
             return RequirementAdmission(
                 valid=False,
@@ -1986,6 +2286,24 @@ class IntentLayer:
                 structural_issues=("semantic requirement reasoning is unavailable",),
             )
 
+        trust = self._trusted_founder_obligations(objective)
+        if not trust["trusted"]:
+            return RequirementAdmission(
+                valid=False,
+                semantic_verdict=trust["verdict"],
+                structural_issues=tuple(trust["issues"]),
+                obligation_issues=tuple(trust["issues"]),
+                source_regions=tuple(trust["regions"]),
+                founder_obligation_anchors=tuple(trust["anchors"]),
+                initial_obligation_anchors=tuple(trust["initial_anchors"]),
+                region_dispositions=tuple(trust["region_dispositions"]),
+                anchor_entailment=tuple(trust["anchor_entailment"]),
+                lost_obligations=tuple(trust["omissions"]),
+                merged_obligations=tuple(trust["collapses"]),
+                obligation_correction_attempted=trust["correction_attempted"],
+            )
+
+        trusted_anchors = list(trust["anchors"])
         prompt = self._requirement_decomposition_prompt(objective)
         initial_document = self._reasoned_json(
             prompt, requester="brain_semantic_requirements",
@@ -2025,7 +2343,7 @@ class IntentLayer:
             corrected = True
 
         rows = [dict(row) for row in offered]
-        audit = self._semantic_integrity_review(objective, rows)
+        audit = self._semantic_integrity_review(objective, rows, trusted_anchors)
         audit_issues = _audit_structure_issues(objective, rows, audit)
         if audit_issues:
             return RequirementAdmission(
@@ -2111,7 +2429,7 @@ class IntentLayer:
                     ),
                 )
             rows = [dict(row) for row in corrected_rows]
-            audit = self._semantic_integrity_review(objective, rows)
+            audit = self._semantic_integrity_review(objective, rows, trusted_anchors)
             audit_issues = _audit_structure_issues(objective, rows, audit)
             if audit_issues:
                 return RequirementAdmission(
@@ -2308,12 +2626,241 @@ class IntentLayer:
             return None
         return _parsed_json(getattr(outcome, "text", "") or "")
 
-    def _semantic_integrity_review(
-        self, objective: str, offered: list[dict[str, Any]],
-    ) -> dict[str, Any] | None:
+    # ---- Stage 1C: the Founder obligation set as a root of trust -------
+
+    def _trusted_founder_obligations(self, objective: str) -> dict[str, Any]:
+        """Establish, independently audit and deterministically admit the
+        Founder's obligation set BEFORE any decomposition exists.
+
+        Producer and verifier are separated on purpose. The producer sees
+        only raw Founder language; the auditor sees that language, the
+        deterministic source regions and the proposed anchors -- never the
+        requirements those anchors will later police. Nothing downstream
+        can therefore shape the obligation set that judges it.
+        """
+        regions = _source_coverage_regions(objective)
+        initial_anchors = self._propose_founder_obligations(objective, regions)
+        anchors = initial_anchors
+        correction_attempted = False
+        decision: dict[str, Any] = {}
+        verdict = "obligation_set_untrusted"
+
+        for attempt in (1, 2):
+            audit = self._audit_founder_obligations(objective, regions, anchors)
+            structural = _obligation_audit_issues(
+                objective, regions, anchors, audit,
+            )
+            if structural:
+                decision = {
+                    "trusted": False, "issues": structural,
+                    "unexplained_regions": [], "unentailed_anchors": [],
+                    "omissions": [], "collapses": [], "invented": [],
+                    "regions": list(regions), "region_dispositions": [],
+                    "anchor_entailment": [],
+                }
+                verdict = "obligation_audit_unusable"
+            else:
+                decision = _obligation_trust_decision(regions, anchors, audit)
+                verdict = "obligation_set_untrusted"
+
+            if decision["trusted"]:
+                return {
+                    "trusted": True,
+                    "verdict": "founder_obligations_trusted",
+                    "regions": list(regions),
+                    "anchors": [dict(row) for row in anchors],
+                    "initial_anchors": [dict(row) for row in initial_anchors],
+                    "region_dispositions": decision["region_dispositions"],
+                    "anchor_entailment": decision["anchor_entailment"],
+                    "issues": [], "omissions": [], "collapses": [],
+                    "correction_attempted": correction_attempted,
+                }
+
+            if attempt == 2:
+                break
+            # One bounded correction of the OBLIGATION SET -- a different
+            # boundary from the requirement correction below it. Letting a
+            # requirement correction quietly repair an untrusted anchor set
+            # is exactly the confusion Stage 1C exists to end.
+            correction_attempted = True
+            anchors = self._correct_founder_obligations(
+                objective, regions, anchors, decision["issues"],
+            )
+
+        return {
+            "trusted": False,
+            # After a bounded correction the meaning is not settled, and
+            # saying so is the contract MissionService already refuses on.
+            "verdict": (
+                UNSETTLED_INTERPRETATION if correction_attempted else verdict
+            ),
+            "regions": list(regions),
+            "anchors": [dict(row) for row in anchors],
+            "initial_anchors": [dict(row) for row in initial_anchors],
+            "region_dispositions": decision.get("region_dispositions", []),
+            "anchor_entailment": decision.get("anchor_entailment", []),
+            "issues": decision.get("issues", []),
+            "omissions": decision.get("omissions", []),
+            "collapses": decision.get("collapses", []),
+            "correction_attempted": correction_attempted,
+        }
+
+    def _propose_founder_obligations(
+        self, objective: str, regions: Sequence[str],
+    ) -> tuple[dict[str, Any], ...]:
+        """The blind producer. Raw Founder language in, anchors out."""
         import json
 
-        source_regions = _founder_source_regions(objective)
+        prompt = (
+            "A founder stated an objective. Enumerate the separate "
+            "OBLIGATIONS their words place on an assistant.\n\n"
+            f"FOUNDER INPUT:\n{objective}\n\n"
+            "SOURCE REGIONS (deterministic coverage only; candidate spans, "
+            "NOT pre-decided obligations, and several regions may belong to "
+            "one obligation):\n"
+            + json.dumps(list(regions), indent=2, ensure_ascii=False)
+            + "\n\nAn obligation anchor is a span copied from the Founder "
+            "input plus ONE independently stateful meaning that must survive "
+            "every later transformation. If one state can be SATISFIED while "
+            "another remains UNRESOLVED or BLOCKED, they are separate "
+            "anchors. If one state produces the entity another consumes, name "
+            "that prerequisite in depends_on. Establishing a candidate set is "
+            "independently stateful from evaluating properties of that set.\n\n"
+            "Do not create anchors from sentence count, verbs, commas or the "
+            "word 'and'. An inseparable outcome and its completion condition "
+            "are ONE anchor: saving and verifying one artifact is one "
+            "deliverable, and a decision with its requested rationale is one "
+            "informational outcome.\n\n"
+            "Describe WHAT is obliged, never HOW. Do not add sensible extra "
+            "work the Founder did not ask for.\n\n"
+            "Reply with JSON and nothing else:\n"
+            '{"anchors": [{"anchor_id": "anchor_1", "source_quote": "...", '
+            '"meaning": "...", "depends_on": []}]}'
+        )
+        document = self._reasoned_json(
+            prompt, requester="brain_founder_obligations",
+        )
+        proposed = document.get("anchors") if isinstance(document, dict) else None
+        if not isinstance(proposed, list):
+            return ()
+        return tuple(dict(row) for row in proposed if isinstance(row, dict))
+
+    def _audit_founder_obligations(
+        self,
+        objective: str,
+        regions: Sequence[str],
+        anchors: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any] | None:
+        """The independent auditor. It never sees the decomposition."""
+        import json
+
+        prompt = (
+            "Audit whether a proposed set of Founder obligations preserves "
+            "the Founder's meaning. You did not author this set; do not "
+            "improve the objective and do not plan any execution.\n\n"
+            f"FOUNDER INPUT:\n{objective}\n\n"
+            "DETERMINISTIC SOURCE REGIONS (every one must be accounted for "
+            "explicitly):\n"
+            + json.dumps(
+                [{"region_index": index, "text": text}
+                 for index, text in enumerate(regions, start=1)],
+                indent=2, ensure_ascii=False,
+            )
+            + "\n\nPROPOSED OBLIGATION ANCHORS:\n"
+            + json.dumps(list(anchors), indent=2, ensure_ascii=False)
+            + "\n\nAnswer three questions with evidence, not opinion.\n\n"
+            "1. COVERAGE. Give every region exactly one disposition from: "
+            + ", ".join(REGION_DISPOSITIONS)
+            + ". Name the anchor_id whenever the disposition refers to one. "
+            "Use 'omitted' when a region carries Founder meaning that NO "
+            "anchor represents. Use 'non_obligational_context' only with a "
+            "reason.\n\n"
+            "2. ENTAILMENT. For each anchor say whether its meaning actually "
+            "FOLLOWS from its own source_quote. A quote that genuinely "
+            "appears in the Founder input does not make an unrelated meaning "
+            "true: 'Save a verified brief on my Desktop' does not entail "
+            "'Email the brief to the team'. Answer entailed true or false, "
+            "with a reason when false.\n\n"
+            "3. INTEGRITY. Report Founder-stated obligations no anchor "
+            "carries (omissions), independently stateful obligations "
+            "collapsed into one anchor (collapses), and anchors asserting "
+            "work the Founder never asked for (invented).\n\n"
+            "Return JSON only:\n"
+            '{"regions": [{"region_index": 1, "disposition": "...", '
+            '"anchor_id": "...", "reason": "..."}], '
+            '"anchors": [{"anchor_id": "...", "entailed": true, '
+            '"reason": "..."}], '
+            '"omissions": [{"source_quote": "...", "meaning": "..."}], '
+            '"collapses": [{"anchor_id": "...", "reason": "..."}], '
+            '"invented": [{"anchor_id": "...", "reason": "..."}], '
+            '"valid": true}\n\n'
+            "Return structured evidence only, never a reasoning transcript. "
+            "The caller decides admission deterministically; your global "
+            "valid value is recorded but is not authoritative."
+        )
+        return self._reasoned_json(
+            prompt, requester="brain_founder_obligation_audit",
+        )
+
+    def _correct_founder_obligations(
+        self,
+        objective: str,
+        regions: Sequence[str],
+        rejected: Sequence[Mapping[str, Any]],
+        issues: Sequence[str],
+    ) -> tuple[dict[str, Any], ...]:
+        """One bounded, grounded repair of the obligation set itself."""
+        import json
+
+        try:
+            shown = json.dumps(
+                {"anchors": list(rejected)}, indent=2, ensure_ascii=False,
+            )[:12000]
+        except Exception:  # noqa: BLE001
+            shown = repr(rejected)[:12000]
+        prompt = (
+            "A proposed set of Founder obligations was refused by "
+            "deterministic admission.\n\n"
+            f"FOUNDER INPUT:\n{objective}\n\n"
+            "SOURCE REGIONS:\n"
+            + json.dumps(list(regions), indent=2, ensure_ascii=False)
+            + "\n\nYOUR PREVIOUS OBLIGATION SET:\n" + shown
+            + "\n\nIt was refused for these exact reasons:\n"
+            + "\n".join(f"    - {issue}" for issue in issues)
+            + "\n\nCorrect only those violations. Every anchor's source_quote "
+            "must be copied from the Founder input and its meaning must "
+            "actually follow from that quote. Do not invent work the Founder "
+            "did not state. Do not fragment one inseparable outcome.\n\n"
+            "Reply with JSON and nothing else:\n"
+            '{"anchors": [{"anchor_id": "anchor_1", "source_quote": "...", '
+            '"meaning": "...", "depends_on": []}]}'
+        )
+        document = self._reasoned_json(
+            prompt, requester="brain_founder_obligation_correction",
+        )
+        proposed = document.get("anchors") if isinstance(document, dict) else None
+        if not isinstance(proposed, list):
+            return tuple(dict(row) for row in rejected)
+        return tuple(dict(row) for row in proposed if isinstance(row, dict))
+
+    def _semantic_integrity_review(
+        self,
+        objective: str,
+        offered: list[dict[str, Any]],
+        anchors: Sequence[Mapping[str, Any]] = (),
+    ) -> dict[str, Any] | None:
+        """Map an ALREADY TRUSTED obligation set onto a decomposition.
+
+        Stage 1C establishes the anchors upstream, blind to this
+        decomposition, so this reviewer is no longer asked to invent them.
+        It answers one question: which proposed requirements expose each
+        obligation's state. The trusted anchors are re-attached to the
+        response afterwards, so the Stage 1B deterministic decision reads
+        the Founder's obligation set and not a re-derived one.
+        """
+        import json
+
+        source_regions = _source_coverage_regions(objective)
         prompt = (
             "Act as the semantic admission reviewer inside an Intent Layer. "
             "Project the Founder's obligations onto a proposed canonical "
@@ -2322,9 +2869,13 @@ class IntentLayer:
             "SOURCE REGIONS (coverage only; they are not pre-decided "
             "obligations):\n"
             + json.dumps(source_regions, indent=2, ensure_ascii=False)
+            + "\n\nTRUSTED FOUNDER OBLIGATION ANCHORS (already established "
+            "and independently audited upstream; use them as given, do not "
+            "add, remove or restate them):\n"
+            + json.dumps(list(anchors), indent=2, ensure_ascii=False)
             + "\n\nPROPOSED REQUIREMENTS:\n"
             + json.dumps(offered, indent=2, ensure_ascii=False)
-            + "\n\nFirst enumerate Founder obligation anchors from the raw "
+            + "\n\nUse the anchors exactly as given. For reference, an "
             "Founder input. An anchor is a grounded source span plus one "
             "independently stateful meaning that must survive transformation. "
             "If one state can be SATISFIED while another remains UNRESOLVED or "
@@ -2342,20 +2893,25 @@ class IntentLayer:
             "be false. A proposed requirement grounded in no anchor is invented.\n\n"
             "Return JSON only with this exact shape:\n"
             '{"valid": true, "independently_verifiable": true, '
-            '"anchors": [{"anchor_id": "anchor_1", "source_quote": "...", '
-            '"meaning": "...", "depends_on": []}], '
             '"coverage": [{"anchor_id": "anchor_1", '
             '"requirement_indices": [1], "independently_trackable": true}], '
             '"invented": [{"requirement_index": 1, "reason": "..."}]}\n\n'
-            "Every source region must be accounted for by at least one grounded "
-            "anchor, but a region may contain several anchors. Return structured "
-            "mapping only, never a reasoning transcript. The caller decides "
-            "admission deterministically from anchors and coverage; your global "
-            "valid value is recorded but is not authoritative."
+            "Return structured mapping only, never a reasoning transcript. "
+            "The caller decides admission deterministically from the trusted "
+            "anchors and your coverage; your global valid value is recorded "
+            "but is not authoritative."
         )
-        return self._reasoned_json(
+        document = self._reasoned_json(
             prompt, requester="brain_semantic_requirement_validation",
         )
+        if isinstance(document, dict) and anchors:
+            # The obligation set was settled upstream. Re-attaching it here
+            # means the Stage 1B decision reads the Founder's audited
+            # anchors, never a set this reviewer could have reshaped to fit
+            # the decomposition it is grading.
+            document = dict(document)
+            document["anchors"] = [dict(anchor) for anchor in anchors]
+        return document
 
     def _correct_requirement_decomposition(
         self,

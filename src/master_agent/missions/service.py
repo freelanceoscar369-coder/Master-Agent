@@ -307,6 +307,28 @@ class MissionService:
                 requirement_admission.get("invented_obligations") or ()
             )
         semantic_evidence = {
+            # Stage 1C: what established the Founder obligation set BEFORE
+            # any decomposition existed. Kept beside the Stage 1B evidence
+            # so a reader can see which boundary refused, and the failed
+            # first attempt is preserved rather than tidied away.
+            "source_regions": list(
+                requirement_admission.get("source_regions") or ()
+            ) if admission_known else [],
+            "region_dispositions": list(
+                requirement_admission.get("region_dispositions") or ()
+            ) if admission_known else [],
+            "anchor_entailment": list(
+                requirement_admission.get("anchor_entailment") or ()
+            ) if admission_known else [],
+            "initial_obligation_anchors": list(
+                requirement_admission.get("initial_obligation_anchors") or ()
+            ) if admission_known else [],
+            "obligation_issues": list(
+                requirement_admission.get("obligation_issues") or ()
+            ) if admission_known else [],
+            "obligation_correction_attempted": bool(
+                requirement_admission.get("obligation_correction_attempted")
+            ) if admission_known else False,
             "founder_obligation_anchors": len(
                 requirement_admission.get("founder_obligation_anchors") or ()
             ) if admission_known else 0,
@@ -333,8 +355,9 @@ class MissionService:
             "input": {"founder_input": text},
             "processing_decision": (
                 "derive requirements, validate grounding and structure, then "
-                "apply the Intent owner's deterministic obligation-coverage "
-                "admission"
+                "establish and independently audit the Founder obligation set, "
+                "then apply the Intent owner's deterministic "
+                "obligation-coverage admission"
             ),
             "output": {
                 "objective": intent.goal,

@@ -173,17 +173,193 @@ CAPTURED_LIVE_NINE = [
 ]
 
 
+#: Stage 1C establishes the Founder obligation set upstream, blind to the
+#: decomposition. These cases are about the REQUIREMENT boundary below it,
+#: so they need a trusted obligation set to exist -- exactly as production
+#: does. The anchors are taken from the review document the case already
+#: supplies, so every assertion below still tests the same anchor set it
+#: always did; nothing here weakens what Stage 1B is asked to prove.
+STAGE_1C_REQUESTERS = (
+    "brain_founder_obligations",
+    "brain_founder_obligation_audit",
+    "brain_founder_obligation_correction",
+)
+
+
+def _anchors_from(documents):
+    # The TRUE obligation set: production establishes it once, upstream,
+    # and carries it across a requirement correction. The richest review
+    # document names it, because a merge review must name both obligations
+    # it found collapsed.
+    best = []
+    for document in documents:
+        if isinstance(document, dict) and isinstance(
+            document.get("anchors"), list
+        ):
+            if len(document["anchors"]) > len(best):
+                best = document["anchors"]
+    if best:
+        return best
+    for document in documents:
+        if isinstance(document, dict) and isinstance(
+            document.get("anchors"), list
+        ):
+            return document["anchors"]
+    return []
+
+
+def _regions_in(prompt):
+    import re
+
+    return sorted({int(found) for found in re.findall(
+        r'"region_index":\s*(\d+)', prompt)})
+
+
+def _span(text):
+    return " ".join(str(text or "").casefold().split())
+
+
+def _match(quote, by_quote):
+    """Resolve a source span to a trusted anchor id.
+
+    Exact first, then punctuation-insensitive, then containment either
+    way: two fixtures may quote the same Founder obligation with or
+    without its trailing full stop.
+    """
+    if not quote:
+        return ""
+    if quote in by_quote:
+        return by_quote[quote]
+    trimmed = quote.strip(" .,;:")
+    for candidate, anchor_id in by_quote.items():
+        if candidate.strip(" .,;:") == trimmed:
+            return anchor_id
+    for candidate, anchor_id in by_quote.items():
+        if trimmed and (trimmed in candidate or candidate in trimmed):
+            return anchor_id
+    return ""
+
+
+def _retargeted(document, trusted):
+    """Point a review's coverage at the trusted anchors, by source quote.
+
+    Production settles one obligation set upstream and reuses it across a
+    requirement correction. These fixtures were written when each review
+    round carried its own anchors; retargeting keeps every coverage SHAPE
+    the case asserts while making the ids refer to the one trusted set.
+    """
+    if not isinstance(document, dict) or not isinstance(
+        document.get("coverage"), list
+    ):
+        return document
+    trusted_ids = {
+        str(anchor.get("anchor_id", "") or "")
+        for anchor in trusted if isinstance(anchor, dict)
+    }
+    if trusted_ids and all(
+        str(row.get("anchor_id", "") or "") in trusted_ids
+        for row in document["coverage"] if isinstance(row, dict)
+    ):
+        # Already expressed in the trusted vocabulary; remapping such a
+        # document could only damage it.
+        return {**document, "anchors": list(trusted)}
+    own = {
+        str(anchor.get("anchor_id", "") or ""): _span(anchor.get("source_quote"))
+        for anchor in document.get("anchors", ()) or ()
+        if isinstance(anchor, dict)
+    }
+    by_quote = {}
+    for anchor in trusted:
+        if isinstance(anchor, dict):
+            by_quote.setdefault(
+                _span(anchor.get("source_quote")),
+                str(anchor.get("anchor_id", "") or ""),
+            )
+    merged: dict[str, dict] = {}
+    order: list[str] = []
+    for row in document["coverage"]:
+        if not isinstance(row, dict):
+            continue
+        anchor_id = str(row.get("anchor_id", "") or "")
+        # Always resolve through the source quote. An id that merely
+        # LOOKS familiar can name a different obligation in the trusted
+        # set -- "anchor_3" means different things in the two schemes.
+        if own:
+            anchor_id = _match(own.get(anchor_id, ""), by_quote) or anchor_id
+        existing = merged.get(anchor_id)
+        if existing is None:
+            merged[anchor_id] = {**row, "anchor_id": anchor_id}
+            order.append(anchor_id)
+            continue
+        # One obligation legitimately exposed by several more precise
+        # requirements: union the indices rather than emit a second row.
+        indices = list(existing.get("requirement_indices") or ())
+        for index in row.get("requirement_indices") or ():
+            if index not in indices:
+                indices.append(index)
+        existing["requirement_indices"] = indices
+        existing["independently_trackable"] = bool(
+            existing.get("independently_trackable")
+        ) and bool(row.get("independently_trackable"))
+    return {
+        **document,
+        "anchors": list(trusted),
+        "coverage": [merged[key] for key in order],
+    }
+
+
 class Scripted:
-    def __init__(self, *documents):
+    def __init__(self, *documents, anchors=None):
         self.documents = list(documents)
+        self.trusted = list(anchors) if anchors is not None else None
         self.prompts = []
         self.requesters = []
+        self.stage_1c_prompts = []
+
+    def _obligation_document(self, requester, prompt):
+        anchors = (
+            self.trusted if self.trusted is not None
+            else _anchors_from(self.documents)
+        )
+        if requester in ("brain_founder_obligations",
+                         "brain_founder_obligation_correction"):
+            return {"anchors": anchors}
+        first = ""
+        if anchors and isinstance(anchors[0], dict):
+            first = str(anchors[0].get("anchor_id", "") or "")
+        return {
+            "regions": [
+                {"region_index": index,
+                 "disposition": "represented_by_anchor",
+                 "anchor_id": first}
+                for index in _regions_in(prompt)
+            ],
+            "anchors": [
+                {"anchor_id": str(anchor.get("anchor_id", "") or ""),
+                 "entailed": True}
+                for anchor in anchors if isinstance(anchor, dict)
+            ],
+            "omissions": [], "collapses": [], "invented": [], "valid": True,
+        }
 
     def run(self, prompt, request=None):
+        requester = getattr(request, "requester", "")
+        if requester in STAGE_1C_REQUESTERS:
+            self.stage_1c_prompts.append(prompt)
+            return SimpleNamespace(
+                ok=True,
+                text=json.dumps(self._obligation_document(requester, prompt)),
+            )
         self.prompts.append(prompt)
-        self.requesters.append(getattr(request, "requester", ""))
+        self.requesters.append(requester)
         position = min(len(self.prompts) - 1, len(self.documents) - 1)
-        return SimpleNamespace(ok=True, text=json.dumps(self.documents[position]))
+        document = self.documents[position]
+        if requester == "brain_semantic_requirement_validation":
+            document = _retargeted(document, (
+                self.trusted if self.trusted is not None
+                else _anchors_from(self.documents)
+            ))
+        return SimpleNamespace(ok=True, text=json.dumps(document))
 
 
 def layer(reasoner):
@@ -366,9 +542,20 @@ def test_exact_captured_global_review_cannot_self_certify_without_anchors():
     # Replay the retained legacy decomposition and reviewer response through
     # the production admission path.  The old global self-certification must
     # stop before canonical SemanticRequirements are constructed.
+    # Stage 1C settles the obligation set upstream. This case is about
+    # what happens to a LEGACY review that carries no anchors at all, so
+    # the trusted set is supplied here exactly as production would have
+    # produced it -- otherwise the run refuses before ever reaching the
+    # review boundary this case exists to test.
     reasoner = Scripted(
         {"requirements": CAPTURED_LIVE_NINE},
         captured_review,
+        anchors=[
+            {"anchor_id": f"anchor_{index}",
+             "source_quote": item["source_quote"],
+             "meaning": item["success_meaning"], "depends_on": []}
+            for index, item in enumerate(CAPTURED_LIVE_NINE, start=1)
+        ],
     )
     canonical, requirements = derive(CAPTURED_PRIMARY, reasoner)
     admission = canonical.context["requirement_admission"]
@@ -384,11 +571,29 @@ def test_exact_captured_global_review_cannot_self_certify_without_anchors():
 
 
 def test_captured_live_merge_triggers_one_correction_and_admits_losslessly():
+    # The TRUE obligation set for this objective, settled upstream by
+    # Stage 1C before either decomposition existed. The captured live
+    # decomposition is then measured against it, exactly as production
+    # measures one.
     reasoner = Scripted(
         {"requirements": CAPTURED_LIVE_NINE},
         captured_landscape_selection_false_positive(),
         {"requirements": PRIMARY_ATOMIC},
-        valid_audit(PRIMARY_ATOMIC),
+        {
+            "valid": True,
+            "independently_verifiable": True,
+            "coverage": [
+                {"anchor_id": anchor["anchor_id"],
+                 "requirement_indices": [index],
+                 "independently_trackable": True}
+                for index, anchor in enumerate(
+                    captured_landscape_selection_false_positive()["anchors"],
+                    start=1,
+                )
+            ],
+            "invented": [],
+        },
+        anchors=captured_landscape_selection_false_positive()["anchors"],
     )
 
     canonical, requirements = derive(CAPTURED_PRIMARY, reasoner)

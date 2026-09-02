@@ -23,6 +23,7 @@ judgement about correspondence, never a `Verdict` and never `Evidence`.
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -188,6 +189,37 @@ class TestRequirementsAreExtracted:
 
         class Reasoner:
             def run(self, prompt, _request):
+                # Stage 1C settles the Founder obligation set upstream,
+                # blind to this decomposition. This case is about the
+                # requirement boundary below it, so it supplies a trusted
+                # obligation set exactly as production would.
+                if "Enumerate the separate" in prompt:
+                    return SimpleNamespace(ok=True, text=json.dumps({
+                        "anchors": [
+                            {"anchor_id": f"anchor_{index}",
+                             "source_quote": item["source_quote"],
+                             "meaning": item["success_meaning"],
+                             "depends_on": []}
+                            for index, item in enumerate(offered, start=1)
+                        ],
+                    }))
+                if "Audit whether a proposed set" in prompt:
+                    regions = sorted({int(found) for found in re.findall(
+                        r'"region_index":\s*(\d+)', prompt)})
+                    return SimpleNamespace(ok=True, text=json.dumps({
+                        "regions": [
+                            {"region_index": index,
+                             "disposition": "represented_by_anchor",
+                             "anchor_id": "anchor_1"}
+                            for index in regions
+                        ],
+                        "anchors": [
+                            {"anchor_id": f"anchor_{index}", "entailed": True}
+                            for index, _item in enumerate(offered, start=1)
+                        ],
+                        "omissions": [], "collapses": [], "invented": [],
+                        "valid": True,
+                    }))
                 if "semantic admission reviewer" in prompt:
                     document = {
                         "valid": True,
