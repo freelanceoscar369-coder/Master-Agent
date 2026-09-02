@@ -338,7 +338,15 @@ def build_correction_prompt(
     sections += [
         "",
         "Your previous reply:",
-        (rejected or "").strip()[:4000],
+        # NOT truncated. A correction prompt that says "reply with the
+        # same JSON" while showing the model 4,000 of its own 9,365
+        # characters is asking it to reproduce something it cannot see.
+        # Measured: the first correction of a 14-step plan came back with
+        # 10 steps and, again, no `covers` -- the field the whole
+        # correction existed to add. Silent truncation is prohibited
+        # outright; a prompt too large for a route is a routing fact the
+        # Broker decides on, not a decision this function makes quietly.
+        (rejected or "").strip(),
         "",
         (
             "Do not change the objective, the requirements or the "

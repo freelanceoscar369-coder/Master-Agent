@@ -12,6 +12,8 @@ Nothing here executes a plan.
 """
 from __future__ import annotations
 
+import json
+
 from master_agent.planner.parsing import validate
 from master_agent.planner.plan import Intent, SemanticRequirement, strategy_coverage
 
@@ -479,3 +481,55 @@ def test_p20b_the_microtrace_names_the_planner_as_the_consumer():
     assert "INTENT_TO_BRAIN_NEXT_ACTION" in source
     assert '"next_consumer": "Planner"' in source
     assert 'intent.context["evidence_needed"] = first_need.as_dict()' in source
+
+
+# ---------------------------------------------------------------------
+# The one live defect, and its regression
+# ---------------------------------------------------------------------
+
+
+def test_the_correction_prompt_shows_the_model_its_whole_rejected_plan():
+    """Proven live: a 14-step plan came back missing `covers` on every
+    step. The correction prompt named the exact missing id -- and then
+    showed the model 4,000 characters of its own 9,365-character reply
+    while telling it to "reply with the same JSON". It came back at 10
+    steps, still with no `covers`, and the mission could not be planned
+    at all.
+
+    Removing the truncation admitted the plan on the next live run, with
+    `covers` on every step and nothing claimed outside the Brain's
+    target. Nothing else changed.
+    """
+    from master_agent.planner.prompting import build_correction_prompt
+
+    rejected = json.dumps({"steps": [
+        {"id": f"step_{i}", "capability": "Browser.Search",
+         "payload": {"query": "x" * 120},
+         "success": {"description": "d" * 120}}
+        for i in range(40)
+    ]})
+    assert len(rejected) > 4000, "the fixture must exceed the old cap"
+
+    prompt = build_correction_prompt(
+        mission(targets=(LANDSCAPE,)), options(), rejected,
+        "the plan does not cover every current strategy target",
+        f"missing requirement ids: {LANDSCAPE}", code="bad_payload",
+    )
+
+    assert rejected in prompt, "the rejected plan was truncated"
+    assert "step_39" in prompt, "the last step never reached the model"
+
+
+def test_the_correction_prompt_still_names_the_defect_and_the_target():
+    from master_agent.planner.prompting import build_correction_prompt
+
+    prompt = build_correction_prompt(
+        mission(targets=(LANDSCAPE,)), options(), '{"steps": []}',
+        "the plan does not cover every current strategy target",
+        f"missing requirement ids: {LANDSCAPE}", code="bad_payload",
+    )
+
+    assert "missing requirement ids: req_1" in prompt
+    assert "CURRENT STRATEGY TARGET" in prompt
+    # and it may not reopen the request
+    assert "not yours to revise" in prompt
