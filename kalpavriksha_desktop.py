@@ -18,6 +18,7 @@ import socket
 import sys
 import threading
 import uuid
+from dataclasses import dataclass
 from socketserver import ThreadingMixIn
 from wsgiref.simple_server import WSGIServer, WSGIRequestHandler, make_server
 
@@ -1950,6 +1951,122 @@ def _unvisited_links(mission_control, objective_ids) -> list[dict]:
     ]
 
 
+#: What the Brain's decision means for the rest of the system.
+#:
+#: The Brain names an action; something has to decide which subsystem
+#: that action belongs to. Before this, the continuation loop sent every
+#: need it received to `mission_service.start()`, which plans -- so
+#: `ask_founder`, the one action that exists precisely BECAUSE no amount
+#: of evidence can settle the question, became a research plan. The
+#: mission would have gone looking for facts to answer a question about
+#: the founder's own preference.
+#:
+#: This is a routing table, not a second Brain: it chooses no
+#: requirement, names no capability and reads no mission state. It maps
+#: an action the Brain already chose onto the owner that handles it. The
+#: Planner is deliberately not consulted -- a Planner that decided
+#: whether it should have been called would be the router.
+_PLANS = frozenset({
+    "discover_candidates", "qualify_candidates", "acquire_evidence",
+    "finalize_from_canonical_decision", "recover", "adapt",
+})
+_ASKS_FOUNDER = frozenset({"ask_founder", "founder_decision_required"})
+
+
+@dataclass(frozen=True)
+class BrainRoute:
+    """Which owner takes the Brain's next action, and whether the mission
+    keeps going. `terminal` stops the continuation loop; it does NOT mean
+    the mission succeeded -- an unsupported action and a completed
+    mission both stop, and telling a founder they are the same thing is
+    the stop-state collapse this field exists to prevent."""
+
+    consumer: str
+    calls_planner: bool
+    terminal: bool
+    reason: str = ""
+    action: str = ""
+
+
+def route_brain_action(need: dict | None) -> BrainRoute:
+    """Route one Brain decision to the subsystem that owns it.
+
+    `None` is the Brain saying there is no next evidence need: nothing
+    is left to find, so nothing is planned.
+    """
+    if need is None:
+        return BrainRoute(
+            consumer="mission_complete", calls_planner=False, terminal=True,
+            reason="the Brain has no further evidence need",
+        )
+    action = str((need or {}).get("action") or "").strip()
+    if action in _ASKS_FOUNDER:
+        return BrainRoute(
+            consumer="founder_question", calls_planner=False, terminal=True,
+            action=action,
+            reason=(
+                "only the founder can settle this; no evidence would "
+                "answer it"
+            ),
+        )
+    if action in _PLANS or not action:
+        # An unnamed action is the historical acquisition need, which
+        # predates the vocabulary and is what the loop has always planned.
+        return BrainRoute(
+            consumer="planner", calls_planner=True, terminal=False,
+            action=action or "acquire_evidence",
+            reason="executable work the Planner can translate",
+        )
+    # Fail closed. Guessing the Planner would run work nobody chose, and
+    # completing silently would report success for a decision the system
+    # did not understand.
+    return BrainRoute(
+        consumer="unsupported", calls_planner=False, terminal=True,
+        action=action,
+        reason=f"no owner handles the Brain action {action!r}",
+    )
+
+
+def _stop_for_route(route, status, need, objective: str) -> None:
+    """Record the truthful stop this route represents.
+
+    Three different stops, kept three different things. Collapsing them
+    into "the mission finished" is the failure this exists to prevent:
+    a founder told their competitive brief was done, when what actually
+    happened was that the system did not understand its own next action.
+    """
+    from master_agent.missions.execution_status import (
+        AWAITING_CLARIFICATION, FAILED, PendingClarification,
+    )
+
+    if route.consumer == "founder_question":
+        # A fact only the founder holds -- which is exactly what
+        # `AWAITING_CLARIFICATION` is for, per its own doctrine. The
+        # Brain has already established that every stated criterion is
+        # satisfied by more than one candidate, so no further evidence
+        # would settle it.
+        question = str((need or {}).get("missing_claim") or "").strip()
+        status.pending_clarification = PendingClarification(
+            question=question or "Which of these would you like me to take?",
+            key="founder_decision",
+            objective=objective,
+            options=tuple(str(c) for c in (need or {}).get("candidate_ids", ())),
+        )
+        status.status = AWAITING_CLARIFICATION
+        status.message = question
+        logging.info(
+            "founder judgement required: %s options=%s",
+            question, list((need or {}).get("candidate_ids", ())),
+        )
+        return
+
+    if route.consumer == "unsupported":
+        # Fail closed, and say so. Neither a completion nor a plan.
+        status.status = FAILED
+        status.errors.append(route.reason)
+        logging.warning("continuation stopped: %s", route.reason)
+
+
 def _evidence_question(
     result, progress=None, unvisited: list[dict] | None = None,
 ) -> dict | None:
@@ -2804,6 +2921,19 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             reason = f"recovery ({decision.failure_class})"
         elif needed is not None and attempts < _RESEARCH_BUDGET:
             # Execution succeeded. The objective did not.
+            #
+            # WHICH subsystem takes it from here is the Brain's decision,
+            # and this loop only relays it. Before `route_brain_action`,
+            # every need was sent to `mission_service.start()` -- which
+            # plans -- so `ask_founder` became a research plan: the
+            # mission went looking for evidence to settle a question that
+            # exists precisely BECAUSE no evidence can settle it. The
+            # Planner is not asked whether it should have been called.
+            route = route_brain_action(needed)
+            if not route.calls_planner:
+                _stop_for_route(route, status, needed,
+                                str(getattr(intent_result.intent, "goal", "")))
+                break
             logging.info(
                 "next mission need (%s): targets=%s claim=%s",
                 needed.get("action", "acquire_evidence"),
