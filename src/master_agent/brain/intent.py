@@ -86,6 +86,11 @@ class RequirementAdmission:
     requirements: tuple[SemanticRequirement, ...] = ()
     valid: bool = False
     semantic_verdict: str = "invalid"
+    founder_obligation_anchors: tuple[dict[str, Any], ...] = ()
+    coverage_mapping: tuple[dict[str, Any], ...] = ()
+    unmapped_anchors: tuple[dict[str, Any], ...] = ()
+    improper_merges: tuple[dict[str, Any], ...] = ()
+    invented_requirements: tuple[dict[str, Any], ...] = ()
     founder_obligations_preserved: tuple[dict[str, Any], ...] = ()
     merged_obligations: tuple[dict[str, Any], ...] = ()
     lost_obligations: tuple[dict[str, Any], ...] = ()
@@ -96,6 +101,8 @@ class RequirementAdmission:
     detected_merged_obligations: tuple[dict[str, Any], ...] = ()
     detected_lost_obligations: tuple[dict[str, Any], ...] = ()
     detected_invented_obligations: tuple[dict[str, Any], ...] = ()
+    detected_founder_obligation_anchors: tuple[dict[str, Any], ...] = ()
+    detected_coverage_mapping: tuple[dict[str, Any], ...] = ()
     correction_attempted: bool = False
     corrected: bool = False
     initial_provider_output: tuple[dict[str, Any], ...] = ()
@@ -105,6 +112,15 @@ class RequirementAdmission:
         return {
             "valid": self.valid,
             "semantic_verdict": self.semantic_verdict,
+            "founder_obligation_anchors": [
+                dict(row) for row in self.founder_obligation_anchors
+            ],
+            "coverage_mapping": [dict(row) for row in self.coverage_mapping],
+            "unmapped_anchors": [dict(row) for row in self.unmapped_anchors],
+            "improper_merges": [dict(row) for row in self.improper_merges],
+            "invented_requirements": [
+                dict(row) for row in self.invented_requirements
+            ],
             "founder_obligations_preserved": [
                 dict(row) for row in self.founder_obligations_preserved
             ],
@@ -124,6 +140,12 @@ class RequirementAdmission:
             ],
             "detected_invented_obligations": [
                 dict(row) for row in self.detected_invented_obligations
+            ],
+            "detected_founder_obligation_anchors": [
+                dict(row) for row in self.detected_founder_obligation_anchors
+            ],
+            "detected_coverage_mapping": [
+                dict(row) for row in self.detected_coverage_mapping
             ],
             "correction_attempted": self.correction_attempted,
             "corrected": self.corrected,
@@ -447,7 +469,7 @@ def requirement_structure_issues(objective: str, offered: Any) -> list[str]:
 def _audit_structure_issues(
     objective: str, offered: list[dict[str, Any]], audit: Any,
 ) -> list[str]:
-    """Whether a semantic-integrity verdict is itself admissible."""
+    """Whether an obligation-level semantic projection is inspectable."""
     if not isinstance(audit, dict):
         return ["the semantic-integrity review was not a JSON object"]
     if not isinstance(audit.get("valid"), bool):
@@ -456,89 +478,223 @@ def _audit_structure_issues(
         return ["the semantic-integrity review did not settle verifiability"]
 
     issues: list[str] = []
-    for name in ("preserved", "merged", "lost", "invented"):
+    for name in ("anchors", "coverage", "invented"):
         if not isinstance(audit.get(name), list):
             issues.append(f"the semantic-integrity review field {name!r} is not a list")
     if issues:
         return issues
 
-    limit = len(offered)
-    for name in ("preserved", "merged", "invented"):
-        for position, row in enumerate(audit[name], start=1):
-            if not isinstance(row, dict):
-                issues.append(f"{name} item {position} is not an object")
-                continue
-            index = row.get("requirement_index")
-            if not isinstance(index, int) or not 1 <= index <= limit:
-                issues.append(
-                    f"{name} item {position} has no valid requirement_index"
-                )
-    for name in ("preserved", "lost"):
-        for position, row in enumerate(audit[name], start=1):
-            if isinstance(row, dict) and not _grounded_in(
-                objective, str(row.get("source_quote", "") or "")
-            ):
-                issues.append(
-                    f"{name} item {position} does not cite Founder language"
-                )
-    for position, row in enumerate(audit["merged"], start=1):
-        obligations = row.get("obligations") if isinstance(row, dict) else None
-        if not isinstance(obligations, list) or len(obligations) < 2:
-            issues.append(
-                f"merged item {position} does not name at least two obligations"
-            )
+    anchors = audit["anchors"]
+    anchor_ids: set[str] = set()
+    anchor_semantics: set[tuple[str, str]] = set()
+    for position, anchor in enumerate(anchors, start=1):
+        if not isinstance(anchor, dict):
+            issues.append(f"anchor {position} is not an object")
             continue
-        for obligation in obligations:
-            if not isinstance(obligation, dict) or not _grounded_in(
-                objective, str(obligation.get("source_quote", "") or "")
-            ):
-                issues.append(
-                    f"merged item {position} contains an ungrounded obligation"
-                )
-                break
+        anchor_id = str(anchor.get("anchor_id", "") or "").strip()
+        source_quote = str(anchor.get("source_quote", "") or "").strip()
+        meaning = str(anchor.get("meaning", "") or "").strip()
+        depends_on = anchor.get("depends_on")
+        if not anchor_id:
+            issues.append(f"anchor {position} has no anchor_id")
+        elif anchor_id in anchor_ids:
+            issues.append(f"anchor {position} duplicates anchor_id {anchor_id!r}")
+        else:
+            anchor_ids.add(anchor_id)
+        if not source_quote or not _grounded_in(objective, source_quote):
+            issues.append(f"anchor {anchor_id or position!r} is not Founder-grounded")
+        if not meaning:
+            issues.append(f"anchor {anchor_id or position!r} has no semantic meaning")
+        semantic_key = (_semantic_span(source_quote), _semantic_span(meaning))
+        if all(semantic_key) and semantic_key in anchor_semantics:
+            issues.append(
+                f"anchor {anchor_id or position!r} duplicates an obligation under "
+                "a new id"
+            )
+        anchor_semantics.add(semantic_key)
+        if not isinstance(depends_on, list) or not all(
+            isinstance(item, str) and item.strip() for item in depends_on or ()
+        ):
+            issues.append(
+                f"anchor {anchor_id or position!r} must state depends_on as a list "
+                "of anchor ids"
+            )
 
-    if audit["valid"]:
-        if audit["merged"] or audit["lost"] or audit["invented"]:
-            issues.append("the review says valid while reporting semantic violations")
-        represented = {
-            row.get("requirement_index")
-            for row in audit["preserved"]
-            if isinstance(row, dict)
-        }
-        if represented != set(range(1, limit + 1)):
-            issues.append(
-                "a valid review must account for every proposed requirement exactly "
-                "through the preserved list"
-            )
-        if len(audit["preserved"]) != limit:
-            issues.append(
-                "a valid review must represent each proposed requirement once"
-            )
-        for row in audit["preserved"]:
-            if not isinstance(row, dict) or not isinstance(
-                row.get("requirement_index"), int
-            ):
-                continue
-            proposed = offered[row["requirement_index"] - 1]
-            reviewed_quote = _semantic_span(str(row.get("source_quote", "") or ""))
-            proposed_quote = _semantic_span(
-                str(proposed.get("source_quote", "") or "")
-            )
-            if not (
-                reviewed_quote in proposed_quote or proposed_quote in reviewed_quote
-            ):
+    for anchor in anchors:
+        if not isinstance(anchor, dict):
+            continue
+        anchor_id = str(anchor.get("anchor_id", "") or "").strip()
+        for dependency in anchor.get("depends_on") or ():
+            if dependency == anchor_id:
+                issues.append(f"anchor {anchor_id!r} depends on itself")
+            elif dependency not in anchor_ids:
                 issues.append(
-                    "the semantic review changed the Founder source span for "
-                    f"requirement {row['requirement_index']}"
+                    f"anchor {anchor_id!r} depends on unknown anchor {dependency!r}"
                 )
-        if not audit["independently_verifiable"]:
+
+    limit = len(offered)
+    covered_anchor_ids: list[str] = []
+    for position, row in enumerate(audit["coverage"], start=1):
+        if not isinstance(row, dict):
+            issues.append(f"coverage item {position} is not an object")
+            continue
+        anchor_id = str(row.get("anchor_id", "") or "").strip()
+        indices = row.get("requirement_indices")
+        if anchor_id not in anchor_ids:
             issues.append(
-                "the review says valid while requirements are not independently "
-                "verifiable"
+                f"coverage item {position} names unknown anchor {anchor_id!r}"
             )
-    elif not (audit["merged"] or audit["lost"] or audit["invented"]):
-        issues.append("an invalid review did not identify a semantic violation")
+        else:
+            covered_anchor_ids.append(anchor_id)
+        if not isinstance(indices, list):
+            issues.append(
+                f"coverage item {position} requirement_indices is not a list"
+            )
+        else:
+            for index in indices:
+                if not isinstance(index, int) or not 1 <= index <= limit:
+                    issues.append(
+                        f"coverage item {position} has invalid requirement index "
+                        f"{index!r}"
+                    )
+        if not isinstance(row.get("independently_trackable"), bool):
+            issues.append(
+                f"coverage item {position} must state independently_trackable"
+            )
+
+    if len(covered_anchor_ids) != len(set(covered_anchor_ids)):
+        issues.append("an obligation anchor has more than one coverage row")
+    missing_coverage = sorted(anchor_ids - set(covered_anchor_ids))
+    if missing_coverage:
+        issues.append(
+            "the coverage projection omits obligation anchors: "
+            + ", ".join(missing_coverage)
+        )
+
+    for position, row in enumerate(audit["invented"], start=1):
+        if not isinstance(row, dict):
+            issues.append(f"invented item {position} is not an object")
+            continue
+        index = row.get("requirement_index")
+        if not isinstance(index, int) or not 1 <= index <= limit:
+            issues.append(
+                f"invented item {position} has no valid requirement_index"
+            )
+        if not str(row.get("reason", "") or "").strip():
+            issues.append(f"invented item {position} has no reason")
+
+    # Sentence-scale regions prove that an entire Founder statement was not
+    # omitted. They are source coverage, not obligation boundaries: commas,
+    # verbs and `and` are deliberately untouched.
+    for region in _founder_source_regions(objective):
+        region_span = _semantic_span(region)
+        if not any(
+            _semantic_span(str(anchor.get("source_quote", "") or "")) in region_span
+            or region_span in _semantic_span(
+                str(anchor.get("source_quote", "") or "")
+            )
+            for anchor in anchors if isinstance(anchor, dict)
+        ):
+            issues.append(
+                "no Founder obligation anchor accounts for source region "
+                f"{region!r}"
+            )
     return issues
+
+
+def _founder_source_regions(objective: str) -> tuple[str, ...]:
+    """Sentence-scale source coverage, never an obligation splitter."""
+    import re
+
+    flattened = " ".join((objective or "").split())
+    if not flattened:
+        return ()
+    return tuple(
+        part.strip()
+        for part in re.split(r"(?<=[.!?;])\s+(?=[A-Z])", flattened)
+        if part.strip()
+    )
+
+
+def _coverage_decision(
+    offered: list[dict[str, Any]], audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Deterministically decide whether the obligation mapping is lossless.
+
+    The model's global ``valid`` value is intentionally ignored. One
+    ``SemanticRequirement`` exposes one mission state, so two distinct
+    obligation anchors mapped to it are an improper merge. One anchor may
+    map to several requirements because structure may become more precise.
+    """
+    anchors = [dict(row) for row in audit.get("anchors", ())]
+    coverage = [dict(row) for row in audit.get("coverage", ())]
+    by_id = {
+        str(row.get("anchor_id", "") or "").strip(): row for row in anchors
+    }
+    requirement_to_anchors: dict[int, list[dict[str, Any]]] = {}
+    unmapped: list[dict[str, Any]] = []
+    preserved: list[dict[str, Any]] = []
+
+    for mapping in coverage:
+        anchor_id = str(mapping.get("anchor_id", "") or "").strip()
+        anchor = by_id[anchor_id]
+        indices = list(mapping.get("requirement_indices") or ())
+        if not indices or not mapping.get("independently_trackable", False):
+            unmapped.append({
+                **anchor,
+                "reason": (
+                    "no canonical requirement mapping" if not indices
+                    else "the mapping does not expose an independent state"
+                ),
+            })
+            continue
+        preserved.append({
+            "anchor_id": anchor_id,
+            "source_quote": anchor.get("source_quote", ""),
+            "meaning": anchor.get("meaning", ""),
+            "requirement_indices": indices,
+        })
+        for index in indices:
+            requirement_to_anchors.setdefault(index, []).append(anchor)
+
+    improper_merges: list[dict[str, Any]] = []
+    for index, mapped in sorted(requirement_to_anchors.items()):
+        unique = {
+            str(anchor.get("anchor_id", "") or ""): anchor for anchor in mapped
+        }
+        if len(unique) > 1:
+            improper_merges.append({
+                "requirement_index": index,
+                "obligations": [dict(anchor) for anchor in unique.values()],
+                "reason": (
+                    "one canonical requirement has one mission state but was "
+                    "asked to represent multiple independently stateful Founder "
+                    "obligations"
+                ),
+            })
+
+    invented_by_index: dict[int, dict[str, Any]] = {}
+    for row in audit.get("invented", ()) or ():
+        invented_by_index[int(row["requirement_index"])] = dict(row)
+    for index in range(1, len(offered) + 1):
+        if index not in requirement_to_anchors:
+            invented_by_index.setdefault(index, {
+                "requirement_index": index,
+                "reason": "no Founder obligation anchor maps to this requirement",
+            })
+
+    invented = list(invented_by_index.values())
+    valid = not unmapped and not improper_merges and not invented
+    return {
+        "valid": valid,
+        "independently_verifiable": valid,
+        "anchors": anchors,
+        "coverage": coverage,
+        "preserved": preserved,
+        "merged": improper_merges,
+        "lost": unmapped,
+        "invented": invented,
+    }
 
 
 def _semantic_violation_messages(audit: Mapping[str, Any]) -> list[str]:
@@ -548,7 +704,11 @@ def _semantic_violation_messages(audit: Mapping[str, Any]) -> list[str]:
         if not isinstance(row, Mapping):
             continue
         parts = [
-            str(item.get("source_quote", "") or "")
+            (
+                str(item.get("source_quote", "") or "")
+                + " => "
+                + str(item.get("meaning", "") or "")
+            ).strip(" =>")
             for item in row.get("obligations", ()) or ()
             if isinstance(item, Mapping)
         ]
@@ -1784,7 +1944,19 @@ class IntentLayer:
     def _deterministic_admission(
         requirements: tuple[SemanticRequirement, ...],
     ) -> RequirementAdmission:
+        anchors = tuple({
+            "anchor_id": f"anchor_{index}",
+            "source_quote": requirement.founder_evidence,
+            "meaning": requirement.description,
+            "depends_on": [],
+        } for index, requirement in enumerate(requirements, start=1))
+        coverage = tuple({
+            "anchor_id": f"anchor_{index}",
+            "requirement_indices": [index],
+            "independently_trackable": True,
+        } for index, _requirement in enumerate(requirements, start=1))
         preserved = tuple({
+            "anchor_id": f"anchor_{index}",
             "requirement_index": index,
             "requirement_id": requirement.requirement_id,
             "source_quote": requirement.founder_evidence,
@@ -1793,6 +1965,8 @@ class IntentLayer:
             requirements=requirements,
             valid=True,
             semantic_verdict="valid_deterministic",
+            founder_obligation_anchors=anchors,
+            coverage_mapping=coverage,
             founder_obligations_preserved=preserved,
             independently_verifiable=True,
         )
@@ -1829,6 +2003,8 @@ class IntentLayer:
         detected_merged: tuple[dict[str, Any], ...] = ()
         detected_lost: tuple[dict[str, Any], ...] = ()
         detected_invented: tuple[dict[str, Any], ...] = ()
+        detected_anchors: tuple[dict[str, Any], ...] = ()
+        detected_coverage: tuple[dict[str, Any], ...] = ()
 
         if issues:
             correction_attempted = True
@@ -1863,21 +2039,32 @@ class IntentLayer:
                 final_provider_output=tuple(rows),
             )
 
-        if not audit["valid"]:
+        semantic = _coverage_decision(rows, audit)
+        if not semantic["valid"]:
+            detected_anchors = tuple(
+                dict(row) for row in semantic.get("anchors", ())
+            )
+            detected_coverage = tuple(
+                dict(row) for row in semantic.get("coverage", ())
+            )
             detected_merged = tuple(
-                dict(row) for row in audit.get("merged", ())
+                dict(row) for row in semantic.get("merged", ())
             )
-            detected_lost = tuple(dict(row) for row in audit.get("lost", ()))
+            detected_lost = tuple(
+                dict(row) for row in semantic.get("lost", ())
+            )
             detected_invented = tuple(
-                dict(row) for row in audit.get("invented", ())
+                dict(row) for row in semantic.get("invented", ())
             )
-            semantic_issues = _semantic_violation_messages(audit)
+            semantic_issues = _semantic_violation_messages(semantic)
             if correction_attempted:
                 return self._invalid_semantic_admission(
-                    initial_rows, rows, audit, semantic_issues,
+                    initial_rows, rows, semantic, semantic_issues,
                     detected_merged=detected_merged,
                     detected_lost=detected_lost,
                     detected_invented=detected_invented,
+                    detected_anchors=detected_anchors,
+                    detected_coverage=detected_coverage,
                 )
             correction_attempted = True
             corrected_rows = self._correct_requirement_decomposition(
@@ -1893,17 +2080,34 @@ class IntentLayer:
                     detected_merged_obligations=detected_merged,
                     detected_lost_obligations=detected_lost,
                     detected_invented_obligations=detected_invented,
+                    detected_founder_obligation_anchors=detected_anchors,
+                    detected_coverage_mapping=detected_coverage,
                     correction_attempted=True,
                     initial_provider_output=initial_rows,
                     final_provider_output=self._requirement_rows(corrected_rows),
                     merged_obligations=tuple(
-                        dict(row) for row in audit.get("merged", ())
+                        dict(row) for row in semantic.get("merged", ())
                     ),
                     lost_obligations=tuple(
-                        dict(row) for row in audit.get("lost", ())
+                        dict(row) for row in semantic.get("lost", ())
                     ),
                     invented_obligations=tuple(
-                        dict(row) for row in audit.get("invented", ())
+                        dict(row) for row in semantic.get("invented", ())
+                    ),
+                    founder_obligation_anchors=tuple(
+                        dict(row) for row in semantic.get("anchors", ())
+                    ),
+                    coverage_mapping=tuple(
+                        dict(row) for row in semantic.get("coverage", ())
+                    ),
+                    unmapped_anchors=tuple(
+                        dict(row) for row in semantic.get("lost", ())
+                    ),
+                    improper_merges=tuple(
+                        dict(row) for row in semantic.get("merged", ())
+                    ),
+                    invented_requirements=tuple(
+                        dict(row) for row in semantic.get("invented", ())
                     ),
                 )
             rows = [dict(row) for row in corrected_rows]
@@ -1918,19 +2122,24 @@ class IntentLayer:
                     detected_merged_obligations=detected_merged,
                     detected_lost_obligations=detected_lost,
                     detected_invented_obligations=detected_invented,
+                    detected_founder_obligation_anchors=detected_anchors,
+                    detected_coverage_mapping=detected_coverage,
                     correction_attempted=True,
                     initial_provider_output=initial_rows,
                     final_provider_output=tuple(rows),
                 )
-            if not audit["valid"]:
+            semantic = _coverage_decision(rows, audit)
+            if not semantic["valid"]:
                 return self._invalid_semantic_admission(
                     initial_rows,
                     rows,
-                    audit,
-                    _semantic_violation_messages(audit),
+                    semantic,
+                    _semantic_violation_messages(semantic),
                     detected_merged=detected_merged,
                     detected_lost=detected_lost,
                     detected_invented=detected_invented,
+                    detected_anchors=detected_anchors,
+                    detected_coverage=detected_coverage,
                 )
             corrected = True
 
@@ -1949,14 +2158,22 @@ class IntentLayer:
             requirements=requirements,
             valid=True,
             semantic_verdict="valid_after_correction" if corrected else "valid",
+            founder_obligation_anchors=tuple(
+                dict(row) for row in semantic.get("anchors", ())
+            ),
+            coverage_mapping=tuple(
+                dict(row) for row in semantic.get("coverage", ())
+            ),
             founder_obligations_preserved=tuple(
-                dict(row) for row in audit.get("preserved", ())
+                dict(row) for row in semantic.get("preserved", ())
             ),
             independently_verifiable=True,
             detected_structural_issues=detected_structural_issues,
             detected_merged_obligations=detected_merged,
             detected_lost_obligations=detected_lost,
             detected_invented_obligations=detected_invented,
+            detected_founder_obligation_anchors=detected_anchors,
+            detected_coverage_mapping=detected_coverage,
             correction_attempted=correction_attempted,
             corrected=corrected,
             initial_provider_output=initial_rows,
@@ -1979,10 +2196,27 @@ class IntentLayer:
         detected_merged: tuple[dict[str, Any], ...] = (),
         detected_lost: tuple[dict[str, Any], ...] = (),
         detected_invented: tuple[dict[str, Any], ...] = (),
+        detected_anchors: tuple[dict[str, Any], ...] = (),
+        detected_coverage: tuple[dict[str, Any], ...] = (),
     ) -> RequirementAdmission:
         return RequirementAdmission(
             valid=False,
             semantic_verdict="invalid_semantics_after_correction",
+            founder_obligation_anchors=tuple(
+                dict(row) for row in audit.get("anchors", ())
+            ),
+            coverage_mapping=tuple(
+                dict(row) for row in audit.get("coverage", ())
+            ),
+            unmapped_anchors=tuple(
+                dict(row) for row in audit.get("lost", ())
+            ),
+            improper_merges=tuple(
+                dict(row) for row in audit.get("merged", ())
+            ),
+            invented_requirements=tuple(
+                dict(row) for row in audit.get("invented", ())
+            ),
             founder_obligations_preserved=tuple(
                 dict(row) for row in audit.get("preserved", ())
             ),
@@ -2003,6 +2237,12 @@ class IntentLayer:
             ),
             detected_invented_obligations=detected_invented or tuple(
                 dict(row) for row in audit.get("invented", ())
+            ),
+            detected_founder_obligation_anchors=detected_anchors or tuple(
+                dict(row) for row in audit.get("anchors", ())
+            ),
+            detected_coverage_mapping=detected_coverage or tuple(
+                dict(row) for row in audit.get("coverage", ())
             ),
             correction_attempted=True,
             initial_provider_output=initial,
@@ -2073,31 +2313,45 @@ class IntentLayer:
     ) -> dict[str, Any] | None:
         import json
 
+        source_regions = _founder_source_regions(objective)
         prompt = (
             "Act as the semantic admission reviewer inside an Intent Layer. "
-            "Review a proposed canonical decomposition against only the "
-            "Founder's words. Do not plan execution or improve the objective.\n\n"
-            f"FOUNDER INPUT:\n{objective}\n\nPROPOSED REQUIREMENTS:\n"
+            "Project the Founder's obligations onto a proposed canonical "
+            "decomposition. Do not plan execution or improve the objective.\n\n"
+            f"FOUNDER INPUT:\n{objective}\n\n"
+            "SOURCE REGIONS (coverage only; they are not pre-decided "
+            "obligations):\n"
+            + json.dumps(source_regions, indent=2, ensure_ascii=False)
+            + "\n\nPROPOSED REQUIREMENTS:\n"
             + json.dumps(offered, indent=2, ensure_ascii=False)
-            + "\n\nA requirement is atomic only if its semantic state can be "
-            "tracked and verified independently. If one part can be SATISFIED "
-            "while another is UNRESOLVED/BLOCKED, or one part produces the "
-            "entity/state consumed by another, they must be separate. Do not "
-            "split an inseparable outcome from its completion condition; saving "
-            "and verifying one artifact may be one deliverable. Do not derive "
-            "requirements from implementation steps or the word 'and'.\n\n"
+            + "\n\nFirst enumerate Founder obligation anchors from the raw "
+            "Founder input. An anchor is a grounded source span plus one "
+            "independently stateful meaning that must survive transformation. "
+            "If one state can be SATISFIED while another remains UNRESOLVED or "
+            "BLOCKED, they are separate anchors. If one state produces the "
+            "entity consumed by another, name that prerequisite in depends_on. "
+            "Do not create anchors from implementation steps, sentence count, "
+            "verbs, commas or the word 'and'. An inseparable outcome and its "
+            "completion condition may be one anchor: saving and verifying one "
+            "artifact may remain one deliverable, and a decision with its "
+            "requested rationale may remain one informational outcome.\n\n"
+            "Then map every anchor to the one-or-more proposed requirement "
+            "indices that independently expose its mission state. One anchor "
+            "may map to several more-precise requirements. If two anchors map "
+            "to the same single-state requirement, independently_trackable must "
+            "be false. A proposed requirement grounded in no anchor is invented.\n\n"
             "Return JSON only with this exact shape:\n"
             '{"valid": true, "independently_verifiable": true, '
-            '"preserved": [{"requirement_index": 1, "source_quote": "..."}], '
-            '"merged": [{"requirement_index": 1, "obligations": '
-            '[{"source_quote": "...", "meaning": "..."}], "reason": "..."}], '
-            '"lost": [{"source_quote": "...", "meaning": "..."}], '
+            '"anchors": [{"anchor_id": "anchor_1", "source_quote": "...", '
+            '"meaning": "...", "depends_on": []}], '
+            '"coverage": [{"anchor_id": "anchor_1", '
+            '"requirement_indices": [1], "independently_trackable": true}], '
             '"invented": [{"requirement_index": 1, "reason": "..."}]}\n\n'
-            "valid may be true only when merged, lost and invented are empty, "
-            "every requirement index appears in preserved, every Founder "
-            "obligation is represented, and every requirement has an "
-            "independently checkable success state. Return structured verdicts "
-            "only, never a reasoning transcript."
+            "Every source region must be accounted for by at least one grounded "
+            "anchor, but a region may contain several anchors. Return structured "
+            "mapping only, never a reasoning transcript. The caller decides "
+            "admission deterministically from anchors and coverage; your global "
+            "valid value is recorded but is not authoritative."
         )
         return self._reasoned_json(
             prompt, requester="brain_semantic_requirement_validation",

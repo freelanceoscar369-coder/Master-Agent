@@ -306,12 +306,35 @@ class MissionService:
             invented.extend(
                 requirement_admission.get("invented_obligations") or ()
             )
+        semantic_evidence = {
+            "founder_obligation_anchors": len(
+                requirement_admission.get("founder_obligation_anchors") or ()
+            ) if admission_known else 0,
+            "canonical_requirements": len(requirement_documents),
+            "unmapped_anchors": list(
+                requirement_admission.get("unmapped_anchors") or ()
+            ) if admission_known else [],
+            "improper_merges": list(
+                requirement_admission.get("improper_merges") or ()
+            ) if admission_known else [],
+            "invented_requirements": list(
+                requirement_admission.get("invented_requirements") or ()
+            ) if admission_known else [],
+            "correction_attempted": bool(
+                requirement_admission.get("correction_attempted")
+            ) if admission_known else False,
+            "final_admission": (
+                requirement_admission.get("semantic_verdict")
+                if admission_known else "preexisting_canonical_contract"
+            ),
+        }
         micro_trace.append({
             "stage": "FOUNDER_INPUT_TO_INTENT",
             "input": {"founder_input": text},
             "processing_decision": (
                 "derive requirements, validate grounding and structure, then "
-                "apply the Intent owner's semantic-integrity verdict"
+                "apply the Intent owner's deterministic obligation-coverage "
+                "admission"
             ),
             "output": {
                 "objective": intent.goal,
@@ -322,6 +345,7 @@ class MissionService:
                         "semantic_verdict": "preexisting_canonical_contract",
                     }
                 ),
+                "semantic_admission_evidence": semantic_evidence,
                 "constraints": list(getattr(intent, "constraints", ()) or ()),
                 "success_criteria": list(
                     getattr(intent, "success_criteria", ()) or ()

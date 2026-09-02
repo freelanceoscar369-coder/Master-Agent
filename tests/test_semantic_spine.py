@@ -192,12 +192,24 @@ class TestRequirementsAreExtracted:
                     document = {
                         "valid": True,
                         "independently_verifiable": True,
-                        "preserved": [
-                            {"requirement_index": index,
-                             "source_quote": item["source_quote"]}
+                        "anchors": [
+                            {
+                                "anchor_id": f"anchor_{index}",
+                                "source_quote": item["source_quote"],
+                                "meaning": item["success_meaning"],
+                                "depends_on": [],
+                            }
                             for index, item in enumerate(offered, start=1)
                         ],
-                        "merged": [], "lost": [], "invented": [],
+                        "coverage": [
+                            {
+                                "anchor_id": f"anchor_{index}",
+                                "requirement_indices": [index],
+                                "independently_trackable": True,
+                            }
+                            for index, _item in enumerate(offered, start=1)
+                        ],
+                        "invented": [],
                     }
                 else:
                     document = {"requirements": offered}

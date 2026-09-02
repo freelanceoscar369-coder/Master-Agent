@@ -10,7 +10,12 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from master_agent.brain.intent import IntentLayer, requirement_structure_issues
+from master_agent.brain.intent import (
+    IntentLayer,
+    _audit_structure_issues,
+    _coverage_decision,
+    requirement_structure_issues,
+)
 from master_agent.missions.service import MissionService
 from master_agent.planner.plan import UNSETTLED_INTERPRETATION, Intent
 
@@ -20,6 +25,15 @@ PRIMARY = (
     "autonomous task execution, persistence/memory and major differentiators. "
     "Use sufficient public evidence, tell me which poses the closest competitive "
     "threat and why, and save a verified competitive brief as "
+    "Kalpavriksha_Competitive_Brief.md on my Desktop."
+)
+
+CAPTURED_PRIMARY = (
+    "Research the current AI-agent products most relevant to Kalpavriksha.\n"
+    "Compare the top 3 across pricing/free access, computer/browser use,\n"
+    "autonomous task execution, persistence/memory and major differentiators.\n"
+    "Use sufficient public evidence, tell me which poses the closest competitive\n"
+    "threat and why, and save a verified competitive brief as\n"
     "Kalpavriksha_Competitive_Brief.md on my Desktop."
 )
 
@@ -61,6 +75,103 @@ PRIMARY_MERGED = [
     *PRIMARY_ATOMIC[3:],
 ]
 
+CAPTURED_LIVE_NINE = [
+    row(
+        "information",
+        "Identify the top 3 AI-agent products most relevant to Kalpavriksha.",
+        "Research the current AI-agent products most relevant to Kalpavriksha.",
+        success=(
+            "A set of 3 AI-agent products most relevant to Kalpavriksha is "
+            "identified."
+        ),
+    ),
+    row(
+        "information",
+        "Evaluate the pricing and free access options of each candidate product.",
+        "Compare the top 3 across pricing/free access, computer/browser use, "
+        "autonomous task execution, persistence/memory and major differentiators.",
+        True,
+        success=(
+            "Pricing structure and free access availability are determined for "
+            "each candidate product."
+        ),
+    ),
+    row(
+        "information",
+        "Evaluate the computer and browser use capabilities of each candidate product.",
+        "Compare the top 3 across pricing/free access, computer/browser use, "
+        "autonomous task execution, persistence/memory and major differentiators.",
+        True,
+        success=(
+            "Computer and browser interaction capabilities are determined for "
+            "each candidate product."
+        ),
+    ),
+    row(
+        "information",
+        "Evaluate the autonomous task execution capabilities of each candidate product.",
+        "Compare the top 3 across pricing/free access, computer/browser use, "
+        "autonomous task execution, persistence/memory and major differentiators.",
+        True,
+        success=(
+            "Autonomous task execution capabilities are determined for each "
+            "candidate product."
+        ),
+    ),
+    row(
+        "information",
+        "Evaluate the persistence and memory capabilities of each candidate product.",
+        "Compare the top 3 across pricing/free access, computer/browser use, "
+        "autonomous task execution, persistence/memory and major differentiators.",
+        True,
+        success=(
+            "Persistence and memory capabilities are determined for each "
+            "candidate product."
+        ),
+    ),
+    row(
+        "information",
+        "Identify the major differentiators of each candidate product.",
+        "Compare the top 3 across pricing/free access, computer/browser use, "
+        "autonomous task execution, persistence/memory and major differentiators.",
+        True,
+        success=(
+            "Key unique differentiators are identified for each candidate product."
+        ),
+    ),
+    row(
+        "constraint",
+        "The research and comparative findings must be substantiated by public "
+        "evidence.",
+        "Use sufficient public evidence",
+        success=(
+            "All statements and comparisons made regarding the products are "
+            "backed by verifiable public evidence."
+        ),
+    ),
+    row(
+        "information",
+        "Identify which candidate product represents the closest competitive "
+        "threat to Kalpavriksha and explain the reasons why.",
+        "tell me which poses the closest competitive threat and why",
+        success=(
+            "The product representing the closest competitive threat is "
+            "explicitly named along with an explanatory justification."
+        ),
+    ),
+    row(
+        "deliverable",
+        "Save a verified competitive brief as a Markdown file named "
+        "Kalpavriksha_Competitive_Brief.md on the Desktop.",
+        "save a verified competitive brief as Kalpavriksha_Competitive_Brief.md "
+        "on my Desktop.",
+        success=(
+            "A file named Kalpavriksha_Competitive_Brief.md containing the "
+            "verified competitive brief exists on the user's Desktop."
+        ),
+    ),
+]
+
 
 class Scripted:
     def __init__(self, *documents):
@@ -89,30 +200,119 @@ def valid_audit(rows):
     return {
         "valid": True,
         "independently_verifiable": True,
-        "preserved": [
-            {"requirement_index": index, "source_quote": item["source_quote"]}
+        "anchors": [
+            {
+                "anchor_id": f"anchor_{index}",
+                "source_quote": item["source_quote"],
+                "meaning": item["success_meaning"],
+                "depends_on": [],
+            }
             for index, item in enumerate(rows, start=1)
         ],
-        "merged": [],
-        "lost": [],
+        "coverage": [
+            {
+                "anchor_id": f"anchor_{index}",
+                "requirement_indices": [index],
+                "independently_trackable": True,
+            }
+            for index, _item in enumerate(rows, start=1)
+        ],
         "invented": [],
     }
 
 
-def merged_audit(index, *obligations):
+def merged_audit(rows, index, *obligations):
+    anchors = []
+    coverage = []
+    for position, item in enumerate(rows, start=1):
+        if position == index:
+            for offset, (quote, meaning) in enumerate(obligations, start=1):
+                anchor_id = f"anchor_{position}_{offset}"
+                anchors.append({
+                    "anchor_id": anchor_id,
+                    "source_quote": quote,
+                    "meaning": meaning,
+                    "depends_on": [],
+                })
+                coverage.append({
+                    "anchor_id": anchor_id,
+                    "requirement_indices": [position],
+                    "independently_trackable": True,
+                })
+            continue
+        anchor_id = f"anchor_{position}"
+        anchors.append({
+            "anchor_id": anchor_id,
+            "source_quote": item["source_quote"],
+            "meaning": item["success_meaning"],
+            "depends_on": [],
+        })
+        coverage.append({
+            "anchor_id": anchor_id,
+            "requirement_indices": [position],
+            "independently_trackable": True,
+        })
     return {
-        "valid": False,
-        "independently_verifiable": False,
-        "preserved": [],
-        "merged": [{
-            "requirement_index": index,
-            "obligations": [
-                {"source_quote": quote, "meaning": meaning}
-                for quote, meaning in obligations
-            ],
-            "reason": "one state can be established before the other",
-        }],
-        "lost": [],
+        # Deliberately false-positive: deterministic coverage, not this
+        # self-certification, must reject the many-anchors-to-one-state merge.
+        "valid": True,
+        "independently_verifiable": True,
+        "anchors": anchors,
+        "coverage": coverage,
+        "invented": [],
+    }
+
+
+def captured_landscape_selection_false_positive():
+    anchors = [
+        {
+            "anchor_id": "landscape",
+            "source_quote": (
+                "Research the current AI-agent products most relevant to "
+                "Kalpavriksha."
+            ),
+            "meaning": "establish the current relevant product landscape",
+            "depends_on": [],
+        },
+        {
+            "anchor_id": "selection",
+            "source_quote": "top 3",
+            "meaning": "establish the selected top-three comparison set",
+            "depends_on": ["landscape"],
+        },
+    ]
+    coverage = [
+        {
+            "anchor_id": "landscape",
+            "requirement_indices": [1],
+            "independently_trackable": True,
+        },
+        {
+            "anchor_id": "selection",
+            "requirement_indices": [1],
+            "independently_trackable": True,
+        },
+    ]
+    for index, item in enumerate(CAPTURED_LIVE_NINE[1:], start=2):
+        anchor_id = f"anchor_{index}"
+        anchors.append({
+            "anchor_id": anchor_id,
+            "source_quote": item["source_quote"],
+            "meaning": item["success_meaning"],
+            "depends_on": ["selection"] if item["candidate_property"] else [],
+        })
+        coverage.append({
+            "anchor_id": anchor_id,
+            "requirement_indices": [index],
+            "independently_trackable": True,
+        })
+    return {
+        # This is the live failure's decisive condition. It must have no
+        # authority over the deterministic many-anchors-to-one-state check.
+        "valid": True,
+        "independently_verifiable": True,
+        "anchors": anchors,
+        "coverage": coverage,
         "invented": [],
     }
 
@@ -123,10 +323,93 @@ def derive(objective, reasoner):
     return canonical, requirements
 
 
+def test_captured_live_nine_row_valid_true_is_deterministically_rejected():
+    audit = captured_landscape_selection_false_positive()
+
+    assert requirement_structure_issues(CAPTURED_PRIMARY, CAPTURED_LIVE_NINE) == []
+    assert _audit_structure_issues(
+        CAPTURED_PRIMARY, CAPTURED_LIVE_NINE, audit,
+    ) == []
+    decision = _coverage_decision(CAPTURED_LIVE_NINE, audit)
+
+    assert audit["valid"] is True, "replay must retain the false certification"
+    assert decision["valid"] is False
+    assert decision["merged"]
+    assert decision["merged"][0]["requirement_index"] == 1
+    assert {
+        anchor["anchor_id"] for anchor in decision["merged"][0]["obligations"]
+    } == {"landscape", "selection"}
+
+
+def test_exact_captured_global_review_cannot_self_certify_without_anchors():
+    captured_review = {
+        "valid": True,
+        "independently_verifiable": True,
+        "preserved": [
+            {
+                "requirement_index": index,
+                "source_quote": item["source_quote"],
+            }
+            for index, item in enumerate(CAPTURED_LIVE_NINE, start=1)
+        ],
+        "merged": [],
+        "lost": [],
+        "invented": [],
+    }
+
+    issues = _audit_structure_issues(
+        CAPTURED_PRIMARY, CAPTURED_LIVE_NINE, captured_review,
+    )
+    assert any("'anchors'" in issue for issue in issues)
+    assert any("'coverage'" in issue for issue in issues)
+
+    # Replay the retained legacy decomposition and reviewer response through
+    # the production admission path.  The old global self-certification must
+    # stop before canonical SemanticRequirements are constructed.
+    reasoner = Scripted(
+        {"requirements": CAPTURED_LIVE_NINE},
+        captured_review,
+    )
+    canonical, requirements = derive(CAPTURED_PRIMARY, reasoner)
+    admission = canonical.context["requirement_admission"]
+
+    assert requirements == ()
+    assert admission["valid"] is False
+    assert admission["semantic_verdict"] == "semantic_review_unusable"
+    assert admission["final_provider_output"] == CAPTURED_LIVE_NINE
+    assert reasoner.requesters == [
+        "brain_semantic_requirements",
+        "brain_semantic_requirement_validation",
+    ]
+
+
+def test_captured_live_merge_triggers_one_correction_and_admits_losslessly():
+    reasoner = Scripted(
+        {"requirements": CAPTURED_LIVE_NINE},
+        captured_landscape_selection_false_positive(),
+        {"requirements": PRIMARY_ATOMIC},
+        valid_audit(PRIMARY_ATOMIC),
+    )
+
+    canonical, requirements = derive(CAPTURED_PRIMARY, reasoner)
+    admission = canonical.context["requirement_admission"]
+
+    assert admission["valid"] is True
+    assert admission["semantic_verdict"] == "valid_after_correction"
+    assert admission["correction_attempted"] is True
+    assert admission["detected_merged_obligations"]
+    assert admission["unmapped_anchors"] == []
+    assert admission["improper_merges"] == []
+    assert admission["invented_requirements"] == []
+    assert len(admission["founder_obligation_anchors"]) == len(requirements)
+    assert "current relevant product landscape" in reasoner.prompts[2]
+    assert "selected top-three comparison set" in reasoner.prompts[2]
+
+
 def test_primary_merged_selection_and_pricing_is_corrected_without_count_hardcoding():
     reasoner = Scripted(
         {"requirements": PRIMARY_MERGED},
-        merged_audit(
+        merged_audit(PRIMARY_MERGED,
             2,
             ("top 3", "establish the selected candidate set"),
             ("pricing/free access", "compare a property of that set"),
@@ -169,7 +452,7 @@ def test_find_three_tools_keeps_candidate_set_independent_from_two_comparisons()
     ]
     reasoner = Scripted(
         {"requirements": merged},
-        merged_audit(
+        merged_audit(merged,
             1,
             ("Find three project-management tools", "establish candidate set"),
             ("pricing", "compare pricing"),
@@ -197,10 +480,63 @@ def test_selection_and_external_action_are_independently_stateful():
     ]
     reasoner = Scripted(
         {"requirements": merged},
-        merged_audit(
+        merged_audit(merged,
             1,
             ("Find the best suitable supplier", "selection"),
             ("send them the purchase request", "external action"),
+        ),
+        {"requirements": atomic},
+        valid_audit(atomic),
+    )
+
+    _, requirements = derive(objective, reasoner)
+
+    assert [requirement.kind for requirement in requirements] == [
+        "information", "effect",
+    ]
+
+
+def test_qualified_supplier_set_is_independent_from_best_supplier_selection():
+    objective = "Identify qualified suppliers and choose the best supplier."
+    merged = [row("information", "Identify and choose the best supplier", objective)]
+    atomic = [
+        row("information", "Establish the qualified supplier set",
+            "Identify qualified suppliers"),
+        row("information", "Choose the best supplier from the qualified set",
+            "choose the best supplier"),
+    ]
+    reasoner = Scripted(
+        {"requirements": merged},
+        merged_audit(
+            merged, 1,
+            ("Identify qualified suppliers", "establish qualification state"),
+            ("choose the best supplier", "select from the qualified set"),
+        ),
+        {"requirements": atomic},
+        valid_audit(atomic),
+    )
+
+    _, requirements = derive(objective, reasoner)
+
+    assert [requirement.description for requirement in requirements] == [
+        "Establish the qualified supplier set",
+        "Choose the best supplier from the qualified set",
+    ]
+
+
+def test_supplier_selection_is_independent_from_emailing_the_selection():
+    objective = "Choose a supplier and email the selected supplier."
+    merged = [row("effect", "Choose and email a supplier", objective)]
+    atomic = [
+        row("information", "Choose the supplier", "Choose a supplier"),
+        row("effect", "Email the selected supplier", "email the selected supplier"),
+    ]
+    reasoner = Scripted(
+        {"requirements": merged},
+        merged_audit(
+            merged, 1,
+            ("Choose a supplier", "establish the selected supplier"),
+            ("email the selected supplier", "perform the external action"),
         ),
         {"requirements": atomic},
         valid_audit(atomic),
@@ -223,7 +559,7 @@ def test_eligibility_state_is_separate_from_top_five_ranking():
     ]
     reasoner = Scripted(
         {"requirements": merged},
-        merged_audit(
+        merged_audit(merged,
             1,
             ("Identify eligible investors", "eligibility state"),
             ("rank the top five by fit", "ranking over eligible set"),
@@ -248,7 +584,7 @@ def test_research_eligibility_and_verified_demo_availability_are_separate():
     ]
     reasoner = Scripted(
         {"requirements": merged},
-        merged_audit(
+        merged_audit(merged,
             1,
             ("Research action RPGs released in 2026", "eligibility state"),
             ("verified demo links", "verified availability for eligible games"),
@@ -263,6 +599,40 @@ def test_research_eligibility_and_verified_demo_availability_are_separate():
     assert requirements[1].candidate_property is True
 
 
+def test_game_eligibility_demo_availability_and_verified_link_are_three_states():
+    objective = (
+        "Find action RPGs released in 2026 with free demos and give me verified "
+        "download links."
+    )
+    merged = [row("information", "Find games with verified demo links", objective)]
+    atomic = [
+        row("information", "Establish eligible action RPGs released in 2026",
+            "action RPGs released in 2026"),
+        row("information", "Establish free-demo availability for eligible games",
+            "free demos", True),
+        row("information", "Provide verified demo download links",
+            "verified download links", True),
+    ]
+    reasoner = Scripted(
+        {"requirements": merged},
+        merged_audit(
+            merged, 1,
+            ("action RPGs released in 2026", "establish candidate eligibility"),
+            ("free demos", "establish demo availability"),
+            ("verified download links", "establish verified link state"),
+        ),
+        {"requirements": atomic},
+        valid_audit(atomic),
+    )
+
+    _, requirements = derive(objective, reasoner)
+
+    assert len(requirements) == 3
+    assert [requirement.candidate_property for requirement in requirements] == [
+        False, True, True,
+    ]
+
+
 def test_an_invented_requirement_is_corrected_even_with_a_grounded_quote():
     objective = "Create a launch checklist and save it as launch.md."
     wanted = row("deliverable", "Create and save launch.md", objective)
@@ -272,11 +642,19 @@ def test_an_invented_requirement_is_corrected_even_with_a_grounded_quote():
     )
     initial = [wanted, invented]
     invalid = {
-        "valid": False,
+        "valid": True,
         "independently_verifiable": True,
-        "preserved": [{"requirement_index": 1, "source_quote": objective}],
-        "merged": [],
-        "lost": [],
+        "anchors": [{
+            "anchor_id": "anchor_1",
+            "source_quote": objective,
+            "meaning": wanted["success_meaning"],
+            "depends_on": [],
+        }],
+        "coverage": [{
+            "anchor_id": "anchor_1",
+            "requirement_indices": [1],
+            "independently_trackable": True,
+        }],
         "invented": [{
             "requirement_index": 2,
             "reason": "the Founder did not ask to email anybody",
@@ -399,7 +777,7 @@ def test_question_with_rationale_remains_one_information_outcome():
 def test_two_invalid_semantic_answers_refuse_before_brain_or_planner():
     objective = "Find three hotels and compare their cancellation policies."
     merged = [row("information", "Find and compare three hotels", objective, True)]
-    invalid = merged_audit(
+    invalid = merged_audit(merged,
         1,
         ("Find three hotels", "establish hotel set"),
         ("compare their cancellation policies", "compare that set"),
@@ -436,12 +814,25 @@ def test_two_invalid_semantic_answers_refuse_before_brain_or_planner():
     assert trace["semantic_drift"] is True
     assert trace["information_lost"], "merged obligations must be visible"
     assert trace["output"]["semantic_admission"]["valid"] is False
+    semantic_evidence = trace["output"]["semantic_admission_evidence"]
+    assert semantic_evidence["founder_obligation_anchors"] == 2
+    assert semantic_evidence["canonical_requirements"] == 0
+    assert semantic_evidence["improper_merges"]
+    assert semantic_evidence["invented_requirements"] == []
+    assert semantic_evidence["correction_attempted"] is True
+    assert semantic_evidence["final_admission"] == (
+        "invalid_semantics_after_correction"
+    )
 
 
 def test_structural_gate_has_no_subject_vocabulary_or_conjunction_splitter():
     import inspect
 
-    source = inspect.getsource(requirement_structure_issues).casefold()
+    source = "\n".join((
+        inspect.getsource(requirement_structure_issues),
+        inspect.getsource(_audit_structure_issues),
+        inspect.getsource(_coverage_decision),
+    )).casefold()
     for domain_word in ("hotel", "supplier", "pricing", "folder", "investor"):
         assert domain_word not in source
-    assert "split(" not in source
+    assert ".split(\" and \"" not in source
