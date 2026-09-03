@@ -168,6 +168,7 @@ class PromptExecutor:
         clock: Any = None,
         store_unverified: bool = False,
         memory_sink: Any = None,
+        experience_sink: Any = None,
         occupancy: Any = None,
         monotonic: Any = None,
     ) -> None:
@@ -178,6 +179,10 @@ class PromptExecutor:
         self._clock = clock or (lambda: datetime.now(UTC))
         # MB035's outbound port -- see `_remember`.
         self._memory_sink = memory_sink
+        #: Called with `(request, outcome)` after EVERY attempt, success
+        #: or failure. The Free Intelligence Stack subscribes here so
+        #: real use keeps the record current between benchmark campaigns.
+        self._experience_sink = experience_sink
         self.memory_failures: list[str] = []
         # Rule 2: the cache reuses *verified* work. Nothing verifies prose
         # yet, so the default stores nothing and the hit rate is honestly
@@ -197,6 +202,42 @@ class PromptExecutor:
     # ---- running --------------------------------------------------------
 
     def run(
+        self,
+        prompt: str,
+        request: Any,
+        context: dict[str, Any] | None = None,
+        verified: bool = False,
+        use_cache: bool = True,
+        expected: Any = None,
+        cancellation: Any = None,
+    ) -> PromptOutcome:
+        """Decide, carry it out, check the answer -- and record what the
+        attempt taught us about the intelligence that served it.
+
+        The recording is a wrapper rather than a line at each of the four
+        exits because the failures are the point: `_remember()` fires
+        only for a *checked* answer, so a 429, a refused Broker decision
+        and an unreachable browser -- exactly the events that tell the
+        stack a resource is rate-limited, quota-exhausted or transport-
+        broken -- would never reach it. It never gates the call, the same
+        discipline `_remember()` already keeps.
+        """
+        outcome = self._run(
+            prompt, request, context=context, verified=verified,
+            use_cache=use_cache, expected=expected, cancellation=cancellation,
+        )
+        self._record_experience(request, outcome)
+        return outcome
+
+    def _record_experience(self, request: Any, outcome: Any) -> None:
+        if self._experience_sink is None:
+            return
+        try:
+            self._experience_sink(request, outcome)
+        except Exception as exc:  # noqa: BLE001 - learning never gates work
+            self.memory_failures.append(str(exc))
+
+    def _run(
         self,
         prompt: str,
         request: Any,

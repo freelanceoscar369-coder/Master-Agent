@@ -1350,6 +1350,24 @@ class UiaAutomationBridge:
                 time.sleep(delay_seconds)
         return False
 
+    def same_element(self, first, second) -> bool:
+        """Are these two references the same live UIA element?
+
+        `CompareElements` is the generic identity test -- two references
+        obtained by different routes (a focus query and a heuristic
+        search, say) are not comparable with `==`. Inconclusive is
+        reported as `False`: a caller asking "is this the thing I must
+        not type into" needs a positive identification to proceed, and
+        this method never manufactures one.
+        """
+        if first is None or second is None:
+            return False
+        try:
+            automation = self._instance()
+            return bool(automation.CompareElements(first, second))
+        except Exception:  # noqa: BLE001 - an unavailable comparison is not an identity
+            return False
+
     def get_focused_element_in_window(self, window_handle: int):
         """The element with real UIA-level keyboard focus right now —
         but only if it actually belongs to `window_handle`. Confirmed by

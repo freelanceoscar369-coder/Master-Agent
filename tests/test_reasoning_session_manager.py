@@ -146,6 +146,15 @@ class FakeUiaBridge:
     def find_composer(self, handle, retries=2, retry_delay_seconds=0.6):
         return self.composer_element
 
+    def same_element(self, first, second):
+        """The real UIA surface compares by `CompareElements`; two
+        references are not comparable with `==`. Modelled here because
+        `_rename()` now asks whether the focused element IS the composer
+        before it types -- the founder found `Kalpavriksha Reasoning`
+        sent as a Perplexity prompt because nothing asked.
+        """
+        return first is second
+
     def read_text(self, element):
         if element is self.composer_element:
             return self.composer_text

@@ -675,6 +675,28 @@ class ReasoningSessionManager:
             logging.debug("rename was not possible", exc_info=True)
             return False
 
+    def _focus_is_safe_to_name(self, handle: int, focused: Any) -> bool:
+        """Is the focused element something other than the prompt box?
+
+        `False` whenever the composer cannot be located or the comparison
+        cannot be made: this is asked in order to decide whether typing
+        is safe, and an unanswered question is not a yes.
+        """
+        find_composer = getattr(self._uia, "find_composer", None)
+        same_element = getattr(self._uia, "same_element", None)
+        if not callable(find_composer) or not callable(same_element):
+            return False
+        try:
+            composer = find_composer(handle)
+        except (UiaUnavailable, UiaTargetNotFound):
+            # No composer found at all. That is not proof the focused
+            # element is a name field, and this is the one place where
+            # guessing sends a message to a model.
+            return False
+        except Exception:  # noqa: BLE001 - an unreadable window is not a permission
+            return False
+        return not same_element(focused, composer)
+
     def _rename(self, handle: int, keyboard: Any, new_name: str) -> bool:
         action = self._find_by_vocabulary(handle, RENAME_ACTION_VOCABULARY)
         if action is None:
@@ -701,6 +723,28 @@ class ReasoningSessionManager:
         try:
             focused = self._uia.get_focused_element_in_window(handle)
         except (UiaUnavailable, UiaTargetNotFound):
+            return False
+
+        # THE CONVERSATION'S NAME IS NOT A THING TO SAY TO THE MODEL.
+        #
+        # This typed into whatever held focus and pressed enter. When the
+        # rename affordance did not actually open -- the vocabulary
+        # matched some other control, or the application has no rename
+        # menu at all -- the focused element was the message composer,
+        # so `Kalpavriksha Reasoning - ...` was typed into the chat box
+        # and SENT. The founder saw exactly that in Perplexity: the
+        # first user turn of the conversation was the title.
+        #
+        # A name is transport metadata; a prompt is the payload. So this
+        # refuses unless the focused element is positively NOT the
+        # composer. Inconclusive counts as unsafe, because the cost of
+        # being wrong is asymmetric: failing to rename costs reuse on the
+        # next call, and this module already holds that "unnamed is not
+        # unidentified" -- the marker in the first message still says
+        # whose conversation it is. Typing into the composer costs the
+        # model's first turn, which is the one thing that must be the
+        # founder's actual request.
+        if not self._focus_is_safe_to_name(handle, focused):
             return False
 
         try:
