@@ -90,6 +90,18 @@ class FakeBrowser:
             return BrowserResolution(ordered[0], "reusing running", ordered=ordered)
         return BrowserResolution(None, "nothing running", (), ())
 
+    def alternatives(self, exclude=()):
+        """Configured environments that have not just been proven
+        unreadable. The port gained this so a provider that found every
+        RUNNING browser undrivable can open a fresh one instead of
+        insisting on the broken one."""
+        skip = {str(name).casefold() for name in exclude}
+        return tuple(
+            BrowserCandidate(application=c.application, has_target_page=False)
+            for c in self._candidates
+            if c.application.casefold() not in skip
+        )
+
     def use(self, candidate):
         self.application = candidate.application
         self.used.append(candidate.application)
@@ -687,3 +699,28 @@ def test_no_browser_is_opened_before_one_has_been_resolved():
     assert browser.ensure_available().ok is False, (
         "an unresolved browser must not be launched on a hidden default"
     )
+
+
+def test_an_unreadable_browser_is_not_the_one_we_then_drive():
+    """Measured live. A browser held the target page and threw on every
+    accessibility read, so it was recognised and could not be driven. The
+    provider proved that, and then pinned it anyway -- `candidates[0]` --
+    and the attempt died on "no new-tab control was offered".
+
+    An environment that cannot be perceived is not a usable environment.
+    Nothing here prefers one browser over another: the excluded one is an
+    observation made a moment earlier.
+    """
+    browser = FakeBrowser(
+        candidates=(comet("Google Gemini", target=True),
+                    chrome("New Tab", target=False)),
+        # The one showing the page reads as nothing at all.
+        pages_by_app={"comet": [Page("Google Gemini", controls=[])],
+                      "chrome": [Page("Google Gemini", controls=[COMPOSER])]},
+    )
+
+    provider(browser).complete("plan something")
+
+    assert browser.used, "no environment was selected at all"
+    assert browser.used[-1] != "comet", (
+        "the provider drove the environment it had just proven unreadable")

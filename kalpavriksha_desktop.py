@@ -20,6 +20,8 @@ import threading
 import uuid
 from dataclasses import dataclass
 from socketserver import ThreadingMixIn
+
+from master_agent.founder_identity.web_identity import FounderWebIdentity
 from wsgiref.simple_server import WSGIServer, WSGIRequestHandler, make_server
 
 import bottle
@@ -1232,6 +1234,7 @@ def _build_mission_pipeline():
             browser=DesktopTrustedBrowser(desktop_plugin._context),
             site=GEMINI_WEB,
             interaction=founder_interaction(),
+            founder_identity=FOUNDER_WEB_IDENTITY,
         ),
     )
     # KNOWN but deliberately NOT CONFIGURED for Founder Edition.
@@ -3852,6 +3855,30 @@ def _restore_canonical_providers(registry, state_dir) -> tuple[str, ...]:
 #: Choosing among models belongs to a later tranche. Until then the choice
 #: is written down here where a founder can see and change it, rather than
 #: ranked inside a provider adapter.
+#: The founder's standing identity for external free services.
+#:
+#: A founder ruling, recorded where the composition can read it rather
+#: than asked again every time a service offers a choice. It is a
+#: CRITERION for recognising their own account -- never a credential.
+#: No password, session cookie, token or OTP belongs here or anywhere
+#: else this system writes.
+#:
+#: `may_create_free_account` is the founder's authorisation, and it is
+#: separate from whether any given operator may perform a signup: an
+#: automated operator that cannot lawfully accept terms on someone's
+#: behalf still must not, however authorised the identity is.
+#:
+#: `paid_usage_authorized=False` is explicit so that a component asking
+#: "may I?" receives an answer instead of finding none.
+FOUNDER_WEB_IDENTITY = FounderWebIdentity(
+    founder_name="Onkar",
+    email="freelance.oscar369@gmail.com",
+    may_select_matching_account=True,
+    may_select_matching_profile=True,
+    may_create_free_account=True,
+    paid_usage_authorized=False,
+)
+
 OPENROUTER_CONFIGURED_MODEL = "minimax/minimax-m3:free"
 
 

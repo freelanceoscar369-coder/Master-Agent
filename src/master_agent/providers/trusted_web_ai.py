@@ -243,8 +243,15 @@ class TrustedWebAiProvider:
         auth_timeout_seconds: float = 300.0,
         response_timeout_seconds: float = 90.0,
         poll_seconds: float = 3.0,
+        founder_identity: Any = None,
     ) -> None:
         self._browser = browser
+        #: The founder's standing identity for external services, when
+        #: one has been set. Read ONLY to recognise their own account
+        #: among several offered -- never to sign in, never stored, and
+        #: never carrying a secret. `None` keeps the original behaviour:
+        #: with nobody named, an account choice remains the founder's.
+        self._founder_identity = founder_identity
         self._site = site
         self._provider_id = provider_id
         self._interaction = interaction
@@ -409,11 +416,35 @@ class TrustedWebAiProvider:
         # every accessibility read, so it could be recognised and not
         # driven. Each candidate is therefore proven by observation before
         # anything is typed into it.
+        undrivable: list[str] = []
         for candidate in candidates:
             self._browser.use(candidate)
-            if candidate.has_target_page and self._browser.observe().elements:
+            readable = bool(self._browser.observe().elements)
+            if candidate.has_target_page and readable:
                 return None
-        if candidates:
+            # Undrivable means OBSERVED AND UNREADABLE. A browser that
+            # simply is not showing the target page has told us nothing
+            # about whether it can be driven, and excluding it for that
+            # would throw away a perfectly good environment.
+            if not readable and candidate.application:
+                undrivable.append(candidate.application)
+
+        # Nothing running could be driven. Pinning `candidates[0]` here --
+        # which this did -- selects the environment just PROVEN unreadable
+        # and then tries to open a tab in it. Measured live: a browser
+        # held the target page, threw on every accessibility read, and the
+        # attempt died on "no new-tab control was offered".
+        #
+        # An environment that cannot be perceived is not a usable
+        # environment. So prefer a configured one that has not failed;
+        # `ensure_available()` opens it the ordinary way. This names no
+        # browser and encodes no preference between them -- `undrivable`
+        # is an observation made a moment ago, not a policy.
+        offer = getattr(self._browser, "alternatives", None)
+        fresh = offer(tuple(undrivable)) if callable(offer) else ()
+        if fresh:
+            self._browser.use(fresh[0])
+        elif candidates:
             self._browser.use(candidates[0])
 
         try:
@@ -425,8 +456,37 @@ class TrustedWebAiProvider:
 
         opened = self._browser.open_task_tab(self._site.url)
         if not opened.ok:
+            # An environment can present an identity choice BEFORE it will
+            # show any page at all. Chrome's profile chooser is the case
+            # measured here: no tab strip, no address bar, so there is
+            # nothing to open a tab with until a profile is chosen, and
+            # the attempt failed on "no new-tab control was offered".
+            #
+            # Account resolution already exists -- it simply ran later,
+            # after a page was reached, which is too late when the choice
+            # is what stands between us and the page. Nothing here knows
+            # what a profile is: it asks the same `_account_options`
+            # question and lets the founder's standing identity, or the
+            # founder, answer it. Bounded at one retry.
+            if self._resolve_blocking_identity_choice():
+                opened = self._browser.open_task_tab(self._site.url)
+        if not opened.ok:
             return self._fail(UNAVAILABLE, f"{NOT_REACHED}: {opened.detail}", started)
         return None
+
+    def _resolve_blocking_identity_choice(self) -> bool:
+        """Answer an account/profile choice that is blocking the page.
+
+        `True` when something was chosen and the caller should try again.
+        Never guesses: it delegates to `_resolve_account`, which selects
+        only a sole match against a standing founder identity and
+        otherwise asks.
+        """
+        observation = self._browser.observe()
+        if not self._account_options(observation):
+            return False
+        outcome = self._resolve_account(observation)
+        return outcome != FOUNDER_ACTION_REQUIRED
 
     def _is_usable(self, candidate: Any) -> bool:
         """Can this browser actually be read? A title is not an answer."""
@@ -657,6 +717,22 @@ class TrustedWebAiProvider:
         if len(options) == 1:
             self._browser.click(options[0])
             return UNKNOWN  # observe again; the click proves nothing by itself
+
+        # Several are offered, and the founder has already said which one
+        # is theirs. Selecting it is carrying out a decision, not making
+        # one: "never choose between accounts" answers "who is the
+        # founder, if nobody has said", and somebody has said.
+        #
+        # `sole_match` returns nothing when SEVERAL options match, which
+        # is the case the original rule was measured on -- this machine
+        # offered three profiles, two bearing the same person's name. A
+        # standing identity does not tell those apart, so that still asks.
+        identity = self._founder_identity
+        if identity is not None and getattr(identity, "may_select_matching_account", False):
+            index = identity.sole_match(tuple(o.name or "" for o in options))
+            if index is not None:
+                self._browser.click(options[index])
+                return UNKNOWN
 
         if not self._can_ask():
             self._notify(FOUNDER_ACTION_MESSAGE)

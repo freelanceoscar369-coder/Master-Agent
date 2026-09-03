@@ -215,6 +215,27 @@ class DesktopTrustedBrowser:
             to_open, to_open,
         )
 
+    def alternatives(self, exclude: tuple[str, ...] = ()) -> tuple[BrowserCandidate, ...]:
+        """Configured environments that are not in `exclude`.
+
+        An environment that has just been proven unreadable is not a
+        place to keep trying. This offers the ones that have not failed,
+        in configured order, so a caller that found every RUNNING
+        candidate undrivable can open a fresh one instead of insisting on
+        the broken one.
+
+        It names no application and expresses no preference: `exclude` is
+        the caller's observation, and the order is the deployment's own
+        configured order, which `resolve()` already refuses to treat as a
+        preference among *running* browsers.
+        """
+        skip = {str(name).casefold() for name in exclude}
+        return tuple(
+            BrowserCandidate(application=name, has_target_page=False)
+            for name in self._candidates
+            if name.casefold() not in skip
+        )
+
     def use(self, candidate: BrowserCandidate) -> TrustedBrowserResult:
         if not candidate.application:
             return TrustedBrowserResult(False, "the candidate names no application")
@@ -401,17 +422,32 @@ class DesktopTrustedBrowser:
         return TrustedBrowserResult(False, "; ".join(pressed.errors) or f"could not press {key}")
 
     def click(self, element: PageElement) -> TrustedBrowserResult:
-        if element.x is None or element.y is None:
+        target = element
+        if target.x is None or target.y is None:
+            # An OBSERVED element carries a name and a role; it does not
+            # carry geometry. Measured on this machine: every actionable
+            # element in a Chrome window observation had `x=None`, so a
+            # caller holding one could never click anything -- the account
+            # chooser included, which is why that path had never worked.
+            #
+            # Resolving the same element by name through `find_target`
+            # is what this method's own comment below already describes,
+            # and it returns UIA's real bounding rectangle. Nothing is
+            # guessed: an unresolvable name still refuses.
+            resolved = self.find(target.name) if target.name else None
+            if resolved is not None and resolved.x is not None:
+                target = resolved
+        if target.x is None or target.y is None:
             return TrustedBrowserResult(False, "the element carries no click point")
         # The point comes from UIA's own bounding rectangle via
         # `find_target`, never from a caller's guess -- which is the
         # difference `ClickControlAction`'s own docstring draws between a
         # resolved point and blind desktop clicking.
         clicked = self._run(
-            "click", application=self._application, x=element.x, y=element.y
+            "click", application=self._application, x=target.x, y=target.y
         )
         if clicked.success:
-            return TrustedBrowserResult(True, f"clicked {element.name!r}")
+            return TrustedBrowserResult(True, f"clicked {target.name!r}")
         return TrustedBrowserResult(False, "; ".join(clicked.errors) or "the click was refused")
 
     def close_task_tab(self) -> TrustedBrowserResult:
