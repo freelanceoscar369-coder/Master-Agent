@@ -295,3 +295,122 @@ def test_a_trusted_web_resource_is_represented_beside_an_api_one():
     lanes = stack.snapshot()["by_lane"]
     assert set(lanes) == {API, TRUSTED_WEB}
     assert lanes[TRUSTED_WEB] == ["gemini/web"]
+
+
+# ---------------------------------------------------------------------
+# One intelligence, several governed routes
+#
+# Gemini forced this: `gemini.api` and `trusted-founder-web` reach the
+# same model by completely independent transports. The API was quota
+# exhausted while the web route stayed reachable, so a record that
+# collapsed them would have reported "Gemini unavailable" while a
+# governed way to reach Gemini was sitting open.
+# ---------------------------------------------------------------------
+
+from master_agent.ai_infrastructure.intelligence_stack import (  # noqa: E402
+    AUTH_FAILURE, LOGIN_REQUIRED, TRANSPORT_ERROR,
+)
+
+
+def gemini_api():
+    return Intelligence(
+        tool_id="gemini/3.6-flash", provider_id="gemini.api",
+        intelligence="Gemini", model_id="gemini-3.6-flash", access_lane=API,
+        free_status=FREE_QUOTA, free_limit="20 free-tier requests")
+
+
+def gemini_web():
+    return Intelligence(
+        tool_id="gemini/web", provider_id="trusted-founder-web",
+        intelligence="Gemini", model_id="gemini-web", access_lane=TRUSTED_WEB,
+        free_status="web_free", auth_state="authenticated")
+
+
+def test_two_routes_to_one_intelligence_are_both_recorded():
+    stack = stack_with(gemini_api(), gemini_web())
+
+    routes = {r.tool_id for r in stack.routes_to("Gemini")}
+
+    assert routes == {"gemini/3.6-flash", "gemini/web"}
+    assert stack.multi_route_intelligences() == {
+        "Gemini": ("gemini/3.6-flash", "gemini/web")}
+
+
+def test_one_route_being_quota_exhausted_does_not_condemn_the_other():
+    """The exact live situation: the API returned HTTP 429 while the
+    trusted browser lane remained reachable."""
+    stack = stack_with(gemini_api(), gemini_web())
+
+    stack.observe(Observation(
+        tool_id="gemini/3.6-flash", task=PLANNER, failure_class=QUOTA_FAILURE,
+        availability=QUOTA_EXHAUSTED, failure_detail="HTTP 429 limit: 20"))
+
+    assert stack.get("gemini/3.6-flash").availability == QUOTA_EXHAUSTED
+    assert stack.get("gemini/web").availability != QUOTA_EXHAUSTED
+    assert len(stack.routes_to("Gemini")) == 2
+
+
+def test_the_three_failure_classes_stay_distinct_per_route():
+    """§11. `Gemini failed` is never the record.
+
+    - API 429               -> quota, on the API route
+    - Web unreadable        -> transport, on the web route
+    - Web returns bad JSON  -> model compliance, on the web route
+    """
+    stack = stack_with(gemini_api(), gemini_web())
+
+    stack.observe(Observation(
+        tool_id="gemini/3.6-flash", task=PLANNER, failure_class=QUOTA_FAILURE,
+        availability=QUOTA_EXHAUSTED, failure_detail="HTTP 429"))
+    stack.observe(Observation(
+        tool_id="gemini/web", task=PLANNER, failure_class=TRANSPORT_FAILURE,
+        availability=TRANSPORT_ERROR,
+        failure_detail="the AI service page was not reached"))
+    stack.observe(Observation(
+        tool_id="gemini/web", task=PLANNER, accepted=False,
+        failure_detail="the plan claims an untargeted requirement"))
+
+    api = stack.get("gemini/3.6-flash")
+    web = stack.get("gemini/web")
+
+    assert api.last_failure_class == QUOTA_FAILURE
+    assert api.for_task(PLANNER).attempts == 0, "a quota failure scored the model"
+    assert web.for_task(PLANNER).transport_lost == 1
+    assert web.for_task(PLANNER).attempts == 1, "transport counted as an attempt"
+    assert web.for_task(PLANNER).rate == 0.0
+    assert "untargeted" in "".join(web.for_task(PLANNER).failure_distribution)
+
+
+def test_a_login_requirement_is_not_a_model_verdict():
+    stack = stack_with(gemini_web())
+
+    stack.observe(Observation(
+        tool_id="gemini/web", task=PLANNER, failure_class=AUTH_FAILURE,
+        availability=LOGIN_REQUIRED, failure_detail="sign-in required"))
+
+    item = stack.get("gemini/web")
+    assert item.availability == LOGIN_REQUIRED
+    assert item.for_task(PLANNER).attempts == 0
+    assert item.for_task(PLANNER).rate is None
+
+
+def test_routes_are_returned_unordered_because_choosing_is_the_brokers_job():
+    """ADR-0018: a ranking function outside the Broker is the failure
+    mode that invalidates the design. The stack describes routes; it
+    never says which to try next."""
+    import inspect
+
+    from master_agent.ai_infrastructure import intelligence_stack
+
+    source = inspect.getsource(intelligence_stack.FreeIntelligenceStack.routes_to)
+
+    assert "sorted(" not in source
+    assert "rank" not in source.lower() or "ranking" in source.lower()
+
+
+def test_a_single_route_resource_is_not_grouped():
+    stack = stack_with(minimax(), gemini_api(), gemini_web())
+
+    assert "Gemini" in stack.multi_route_intelligences()
+    assert all("minimax" not in ids
+               for ids in stack.multi_route_intelligences().values())

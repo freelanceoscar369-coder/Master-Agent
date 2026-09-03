@@ -242,6 +242,19 @@ class Intelligence:
 
     tool_id: str
     provider_id: str
+    #: The intelligence this route REACHES, when more than one route
+    #: reaches the same one. Gemini is the case that forced it:
+    #: `gemini.api` and `trusted-founder-web` are two governed routes to
+    #: one model, and their availability is completely independent -- the
+    #: API can be quota-exhausted while the web route answers. Recording
+    #: them as one resource would lose that; recording them as unrelated
+    #: resources would lose the fact that a mission blocked on one may
+    #: legitimately continue on the other.
+    #:
+    #: Empty when a resource has only the one route, which is most of
+    #: them. This is a label for grouping, never a selection input --
+    #: choosing between routes is the Broker's, on a new decision.
+    intelligence: str = ""
     model_id: str = ""
     model_family: str = ""
     access_lane: str = API
@@ -286,6 +299,7 @@ class Intelligence:
     def as_dict(self) -> dict[str, Any]:
         return {
             "tool_id": self.tool_id, "provider_id": self.provider_id,
+            "intelligence": self.intelligence,
             "model_id": self.model_id, "model_family": self.model_family,
             "access_lane": self.access_lane,
             "endpoint_or_surface": self.endpoint_or_surface,
@@ -502,6 +516,26 @@ class FreeIntelligenceStack:
             return (suit.rate, 0.0)
         confidence = min(1.0, suit.attempts / _MODERATE_SAMPLE)
         return (suit.rate, round(confidence, 3))
+
+    def routes_to(self, intelligence: str) -> tuple[Intelligence, ...]:
+        """Every governed way to reach one intelligence, in no order.
+
+        Deliberately unordered. Which route a blocked mission should try
+        next is a Broker decision on fresh facts, and ordering them here
+        would be the ranking ADR-0018 forbids outside the Broker.
+        """
+        wanted = intelligence.casefold()
+        return tuple(
+            item for item in self._resources.values()
+            if item.intelligence.casefold() == wanted
+        )
+
+    def multi_route_intelligences(self) -> dict[str, tuple[str, ...]]:
+        grouped: dict[str, list[str]] = {}
+        for item in self._resources.values():
+            if item.intelligence:
+                grouped.setdefault(item.intelligence, []).append(item.tool_id)
+        return {k: tuple(sorted(v)) for k, v in grouped.items() if len(v) > 1}
 
     def snapshot(self) -> dict[str, Any]:
         by_availability: dict[str, list[str]] = {}
