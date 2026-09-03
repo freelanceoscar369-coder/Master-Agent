@@ -529,13 +529,15 @@ def test_a_descriptor_with_no_description_or_risk_renders_as_just_its_name():
     # MB039: the signature is rendered even when nothing is published --
     # `(...)` says "arguments exist and were not declared", which is a
     # different claim from "takes none".
-    assert render(catalogue_from(registry)) == "- Alpha.Act | args: none declared"
+    assert render(catalogue_from(registry)) == (
+        "- Alpha.Act | args: none declared | outputs: none declared")
 
 
 def test_a_description_is_trimmed_so_the_prompt_does_not_inherit_stray_whitespace():
     registry = FakeRegistry(FakeDescriptor("Alpha.Act", description="  Does a thing.  "))
 
-    assert render(catalogue_from(registry)) == "- Alpha.Act | args: none declared | Does a thing."
+    assert render(catalogue_from(registry)) == (
+        "- Alpha.Act | args: none declared | outputs: none declared | Does a thing.")
 
 
 def test_an_irreversible_capability_is_visibly_the_more_expensive_choice():
@@ -543,6 +545,7 @@ def test_an_irreversible_capability_is_visibly_the_more_expensive_choice():
 
     assert rendered == (
         "- Filesystem.DeleteFolder | args: none declared | "
+        "outputs: none declared | "
         "Delete a folder and its contents. [risk: irreversible]"
     )
 

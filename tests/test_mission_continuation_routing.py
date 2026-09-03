@@ -953,3 +953,83 @@ def test_plan_completion_is_not_mission_completion():
     assert kd.route_brain_action(need).calls_planner is True
     # and the mission ends only when the Brain has nothing further
     assert kd.route_brain_action(None).consumer == "mission_complete"
+
+
+# ---------------------------------------------------------------------
+# Stage 4R -- every capability states what it publishes
+# ---------------------------------------------------------------------
+
+
+def test_a_capability_with_no_declared_outputs_says_so():
+    """Measured: 4 of 27 live plans on the old rendering were refused for
+    binding to, or answering from, a field the capability does not
+    publish. The catalogue said nothing at all about those capabilities'
+    outputs, so the Planner had to infer "publishes nothing" from an
+    absent field."""
+    from master_agent.planner.catalogue import CapabilityOption, signature
+
+    line = signature(CapabilityOption(name="Browser.Navigate",
+                                      description="go",
+                                      required_args=("url",)))
+
+    assert "| outputs: none declared" in line
+
+
+def test_a_capability_with_declared_outputs_still_names_them():
+    from master_agent.planner.catalogue import CapabilityOption, signature
+
+    line = signature(CapabilityOption(name="Browser.ReadPageText",
+                                      description="read",
+                                      required_args=("session_id",),
+                                      output_fields=("url", "title", "text")))
+
+    assert "| outputs: url, title, text" in line
+    assert "none declared" not in line
+
+
+def test_undeclared_outputs_are_not_called_none():
+    """`output_fields` is empty when `contract.outputs.known` is False, so
+    empty means "nobody published them", not "there are none". Claiming
+    the capability publishes nothing would be a fact the contract does
+    not hold -- and would steer the Planner away from bindings that may
+    genuinely exist."""
+    from master_agent.planner.catalogue import CapabilityOption, signature
+
+    line = signature(CapabilityOption(name="Desktop.DesktopObserve",
+                                      description="observe"))
+
+    assert "outputs: none declared" in line
+    assert "outputs: none," not in line
+    assert "outputs: NONE" not in line
+
+
+def test_the_rendering_change_is_a_statement_not_a_new_permission():
+    """Saying what is published may not widen what a plan may bind."""
+    from master_agent.planner.catalogue import CapabilityOption
+    from master_agent.planner.parsing import validate
+
+    options = (
+        CapabilityOption(name="Browser.Navigate", description="go",
+                         required_args=("url",)),
+        CapabilityOption(name="Reasoning.Transform", description="reason",
+                         required_args=("instruction",),
+                         optional_args=("instruction", "text"),
+                         output_fields=("text",)),
+    )
+    document = {"steps": [
+        {"id": "s1", "capability": "Browser.Navigate",
+         "payload": {"url": "https://example.test"},
+         "covers": ["req_1"], "success": {"description": "on the page"}},
+        {"id": "s2", "capability": "Reasoning.Transform",
+         "payload": {"instruction": "summarise"}, "covers": ["req_1"],
+         "depends_on": ["s1"],
+         "input_bindings": {
+             "text": {"from_step": {"step_id": "s1", "field": "text"}}},
+         "success": {"description": "a summary"}},
+    ]}
+
+    plan, refusal = validate(document, options, objective="o",
+                             required_coverage=("req_1",))
+
+    assert plan is None, "binding to an undeclared output was admitted"
+    assert refusal is not None

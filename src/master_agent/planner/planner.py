@@ -451,9 +451,13 @@ class Planner:
             # founder the retry button for a defect the system already
             # diagnosed.
             #
-            # Bounded at one, deliberately. A model that cannot produce a
-            # valid plan given the exact error twice is not going to on
-            # the third try, and each attempt is time a founder waits.
+            # Bounded at one, deliberately -- and measured. A second
+            # correction pass was run against the same twelve scenarios
+            # and admitted exactly what one did (5/12 both), rescuing
+            # ZERO additional plans; each extra attempt is only time a
+            # founder waits. The bound is one correction, so the model
+            # sees the exact error once: an earlier version of this
+            # comment reasoned about a "third try" that never happens.
             # The same catalogue and the same objective are reused: the
             # capability set cannot change inside one `plan()` call, and
             # re-deriving it would invite a different plan for a

@@ -391,15 +391,23 @@ def test_the_prompt_shows_the_signature_not_only_the_description():
 def test_a_signature_distinguishes_undeclared_from_empty():
     from master_agent.planner.catalogue import CapabilityOption
 
-    assert signature(CapabilityOption("A.B")) == "args: none declared"
-    assert signature(CapabilityOption("A.B", args_complete=True)) == "args: none"
+    # The subject here is the ARGS distinction. Outputs are now stated on
+    # every line for the same reason -- an absent field is not a fact --
+    # so each expectation carries the outputs clause these options also
+    # do not declare.
+    outputs = " | outputs: none declared"
+    assert signature(CapabilityOption("A.B")) == "args: none declared" + outputs
+    assert (
+        signature(CapabilityOption("A.B", args_complete=True))
+        == "args: none" + outputs
+    )
     assert (
         signature(CapabilityOption("A.B", required_args=("x",)))
-        == "args: x (others may exist)"
+        == "args: x (others may exist)" + outputs
     )
     assert (
         signature(CapabilityOption("A.B", required_args=("x",), args_complete=True))
-        == "args: x"
+        == "args: x" + outputs
     )
 
 

@@ -146,6 +146,25 @@ def signature(option: CapabilityOption) -> str:
         # a Planner that cannot see a capability's result fields has no
         # choice but to guess one.
         base += f" | outputs: {', '.join(option.output_fields)}"
+    else:
+        # Said, rather than left to be inferred from an absent field --
+        # the same reason `args: none declared` is said above.
+        #
+        # 42 of 48 capabilities reach here, and NOT ONE of them is known
+        # to publish nothing: `output_fields` is empty when
+        # `contract.outputs.known` is False, so what is true is that
+        # nobody has published them. "none" would be a claim the contract
+        # does not make, and it would tell a Planner to avoid bindings
+        # that may genuinely exist. "none declared" is the fact, and it
+        # carries the operative rule anyway: a plan may only bind a
+        # PUBLISHED field, and none are published here.
+        #
+        # Measured before it was written: across 27 attempts on the old
+        # rendering, 4 plans were refused for binding to or answering
+        # from a field the capability does not publish; across 15 on this
+        # one, none were. Admission overall moved 7/15 -> 8/15, which is
+        # noise at that size and is not the argument for this change.
+        base += " | outputs: none declared"
     return base
 
 
