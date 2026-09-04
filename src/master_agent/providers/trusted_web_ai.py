@@ -814,7 +814,7 @@ class TrustedWebAiProvider:
             ]
             if not any(anchor in text for text in self._conversation_texts(observation)):
                 continue  # our own prompt is not on the page yet
-            answers = [text for text in texts if self._is_answer(text, anchor, submitted)]
+            answers = self._answers_in(texts, anchor, submitted)
             if answers:
                 return "\n".join(answers).strip()
         return None
@@ -826,9 +826,6 @@ class TrustedWebAiProvider:
             if (element.name or "").strip()
         ]
 
-    #: Below this length, a fragment appearing inside the prompt says
-    #: nothing about who wrote it -- "Yes" is inside almost any long
-    #: prompt, and suppressing it would lose real answers.
     _MIN_ECHO_CHARS = 16
 
     @staticmethod
@@ -836,32 +833,54 @@ class TrustedWebAiProvider:
         """Whitespace-insensitive form; a page re-wraps what it re-displays."""
         return " ".join(text.split())
 
-    def _is_answer(self, text: str, anchor: str, submitted: str = "") -> bool:
-        if anchor and anchor in text:
-            return False  # the prompt echo is not the answer
-        if submitted and self._is_our_own_words(text, submitted):
-            return False
+    def _is_noise(self, text: str) -> bool:
+        """The service's own furniture, which nobody said."""
         lowered = text.strip().lower()
-        return not any(lowered.startswith(noise) for noise in self._site.response_noise)
+        return any(lowered.startswith(noise) for noise in self._site.response_noise)
 
-    def _is_our_own_words(self, text: str, submitted: str) -> bool:
-        """True when the page is showing us back something we submitted.
+    def _answers_in(self, texts: list[str], anchor: str, submitted: str) -> list[str]:
+        """Split this turn's reply from the echo of the prompt above it.
 
         The anchor can only ever identify the FIRST fragment of a turn.
         A page splits a long turn across many elements, and every later
         fragment carries no anchor -- which is how a ~26K Stage 1 prompt
-        was returned as though Gemini had written it. Size then decided
+        was returned as though Gemini had written it. Size decided
         ownership, which is precisely what must not happen.
 
-        We know exactly what we submitted, so any fragment of it is ours
-        however the page chose to chunk it and however large it was. This
-        asks nothing about Gemini: it compares the page against our own
-        outgoing text, so it holds for any site behind `WebAiSite`.
+        Containment against our own outgoing text fixes that, and alone it
+        overshoots. Measured live: asked to reply with a token quoted in
+        the prompt, Gemini replied with exactly that token -- and
+        containment disowned the correct answer, so a perfect reply timed
+        out. Suppressing the founder's answer is the same falsehood as
+        returning their prompt, pointing the other way.
+
+        What separates them is not the words, which are identical; it is
+        the order. We submitted the prompt ONCE, so the page can echo it
+        once. Reading in page order and spending the prompt as it is
+        matched, a fragment matching the unspent remainder is the echo;
+        the same words arriving after the echo is spent are the reply.
+
+        This asks nothing about Gemini -- it compares the page against our
+        own outgoing text, so it holds for any site behind `WebAiSite`.
         """
-        candidate = self._normalised(text)
-        if len(candidate) < self._MIN_ECHO_CHARS:
-            return False
-        return candidate in submitted
+        answers: list[str] = []
+        spent = 0
+        for text in texts:
+            if anchor and anchor in text:
+                continue  # the first fragment of our own turn
+            candidate = self._normalised(text)
+            #: Below this length, a fragment appearing inside the prompt
+            #: says nothing about who wrote it -- "Yes" is inside almost
+            #: any long prompt, and disowning it would lose real answers.
+            if len(candidate) >= self._MIN_ECHO_CHARS:
+                echoed = submitted.find(candidate, spent)
+                if echoed >= 0:
+                    spent = echoed + len(candidate)
+                    continue  # still inside the echo of our own turn
+            if self._is_noise(text):
+                continue
+            answers.append(text)
+        return answers
 
     # ---- small helpers ---------------------------------------------------
 

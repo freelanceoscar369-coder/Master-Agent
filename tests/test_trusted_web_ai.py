@@ -628,6 +628,77 @@ def test_a_short_answer_that_appears_inside_the_prompt_is_still_the_answer():
     assert result.ok is True
     assert result.text == short_answer
 
+#: Measured live on 2026-09-04, from the real UIA tree. The founder's own
+#: closing line and Gemini's reply were byte-identical and adjacent:
+#:
+#:   <190> KALPAVRIKSHA_TURN_ONE_OK_75F6F7FD   <- our echo
+#:   <191> KALPAVRIKSHA_TURN_ONE_OK_75F6F7FD   <- Gemini's answer
+#:
+#: No text tells them apart, because there is no difference in the text.
+TOKEN = "KALPAVRIKSHA_TURN_ONE_OK_75F6F7FD"
+
+
+def _quoting_prompt() -> str:
+    """A prompt that names, verbatim, the answer it wants back."""
+    body = "\n".join(f"constraint {i}: respect obligation {i}." for i in range(400))
+    return (
+        "You are being used as a reasoning provider.\n"
+        f"{body}\n"
+        f"Reply with exactly one line containing only this token:\n{TOKEN}\n"
+    )
+
+
+def test_an_answer_the_prompt_asked_for_verbatim_is_still_the_answer():
+    """The live regression, pinned.
+
+    Containment against our own outgoing text closes the echo defect and,
+    alone, overshoots: we PUT the token in the prompt, so the correct
+    reply is a substring of what we sent. Gemini answered perfectly and
+    the provider disowned it and timed out, with the answer on screen.
+
+    Suppressing the founder's answer is the same falsehood as returning
+    their prompt, pointing the other way. Order is what separates them --
+    we sent the prompt once, so it echoes once.
+    """
+    prompt = _quoting_prompt()
+    echo = [line for line in prompt.splitlines() if line.strip()]
+    browser = FakeBrowser(
+        [chrome("Google Gemini", target=True)],
+        pages=[
+            Page("Google Gemini", controls=[COMPOSER]),
+            # ...our whole turn, then Gemini's reply: the same characters.
+            Page("Google Gemini", texts=[*echo, TOKEN], controls=[COMPOSER]),
+        ],
+    )
+    result = provider(browser).complete(prompt)
+
+    assert result.ok is True, "a perfect reply was disowned as our own words"
+    assert result.text == TOKEN
+
+
+def test_the_echo_is_spent_once_and_not_twice():
+    """No reply must stay no reply, even now that duplicates are allowed.
+
+    Loosening ownership is how a lane starts inventing answers, so the
+    other direction is pinned in the same shape: with the trailing line
+    present exactly once -- as our echo -- nothing may come back.
+
+    This does NOT discriminate order from plain containment; both pass it,
+    and `..._asked_for_verbatim_...` above is the one that does. It is
+    here as the U1 guard for this lane: a truthful timeout beats a
+    confident echo.
+    """
+    prompt = _quoting_prompt()
+    echo = [line for line in prompt.splitlines() if line.strip()]
+    browser = FakeBrowser(
+        [chrome("Google Gemini", target=True)],
+        pages=[Page("Google Gemini", texts=echo, controls=[COMPOSER])],
+    )
+    result = provider(browser, response_timeout_seconds=2.0).complete(prompt)
+
+    assert result.ok is False, "our own closing line came back as the answer"
+    assert result.outcome == "timed_out"
+
 def test_no_new_response_within_the_wait_is_a_truthful_timeout():
     browser = FakeBrowser(
         [chrome("Google Gemini", target=True)],
