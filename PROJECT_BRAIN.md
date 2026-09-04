@@ -17,7 +17,134 @@ long-term goals stated formally, `WHY.md` for the origin-story version,
 how we build, how it should feel, and why it's shaped the way it is,
 respectively.
 
-## Where things stand right now (2026-07-31)
+## Where things stand right now (2026-09-04)
+
+Read this section for current truth. Everything below it is the record of
+how the system got here, and is kept unedited on purpose.
+
+Each claim below carries the kind of proof it actually has. A source-level
+test is not a live proof, and a live proof is not a packaged proof. Where
+those differ, the weaker one is the truth.
+
+### Architecture truth
+
+The Constitution is frozen (`docs/architecture/FOUNDER_CONSTITUTION_FREEZE.md`)
+and ADRs are ratified through **ADR-0027**. The three that govern current
+work:
+
+- **ADR-0024** — intent resolution, clarification and Planner admission.
+  Understanding and capability are separate axes.
+- **ADR-0026** — founder semantic meaning stays traceable to a verified
+  outcome.
+- **ADR-0027** — Brain Deliberative Intelligence and Decision Utility.
+  This lives *inside* the existing System Brain; it is not another layer
+  and not another agent. Its invariant: every material Brain decision must
+  be useful for satisfying Founder intent, or for truthfully determining
+  that it cannot yet be satisfied. It separates **source failure**,
+  **method failure** and **objective failure** — a method failure must not
+  become an objective failure by default.
+
+No second Brain, Planner, Broker, Browser Executive, computer-use engine,
+verification subsystem, persistence layer, capability registry or provider
+registry is to be built. The ones that exist are the ones.
+
+### The founder-intent pipeline, by stage
+
+| Stage | What it covers | Status | Evidence |
+|---|---|---|---|
+| **1** | Founder → Intent | **FROZEN** | live-proven at `0e4eb95` |
+| **2** | Intent → Brain's next decision | **FROZEN** | live-proven at `73584a3` |
+| **3** | Brain decision → Planner fidelity | **FROZEN** | closed at `1748c5e`; the contract was already right — the correction prompt was truncating the plan it asked the model to fix |
+| **4** | Persistent continuation / Planner reliability | **OPEN** | see below |
+
+Stages 1–3 are not reopened because an older document describes them
+differently. Reopening one needs evidence tracing a live failure back to it.
+
+### Stage 4 — the open frontier
+
+Measured on free providers: **~51–53% Planner admission at 100% target
+fidelity**. The objective is **≥90% admission without weakening target
+fidelity or the validators**. Buying the number by loosening a validator is
+not progress; it is a louder way of being wrong.
+
+### Implementation and wiring truth
+
+- The Brain→action loop lives in the repository-root composition root, not
+  under `src/` — grep the repository, not the package.
+- A capability now publishes what it produces rather than leaving the
+  Planner to infer it (`bcd5913f`).
+- A founder judgement **pauses** a mission rather than ending it
+  (`ad169fe0`), and the Brain's action decides who acts next rather than
+  the loop deciding (`5873d9d8`).
+
+### Live-proven truth
+
+- **Trusted-web route reached.** The Gemini web surface was driven, and the
+  **Onkar** profile was selected autonomously without asking the Founder.
+- **GLM-5.3-Flash via the Cline native TUI** (Cline Usage-Billing provider)
+  answered live at an observed **$0.00**. Classified
+  **FREE_PROMOTIONAL / FREE_LIMITED** — never `FREE_FOREVER`, because the
+  client itself carries daily-limit and promotion-ended states. Route
+  detail: `Engineering/INTELLIGENCE_ROUTE_RECORD_GLM53.md`.
+- Two sibling routes are **not** available: GLM-5.3-Flash via Ollama Cloud
+  is `PAID_NOT_ENTITLED`, and the Cline **headless** free route 404s. Both
+  are recorded so they are not retested by accident.
+
+### Source-proven but not yet live-proven
+
+**Trusted-web current-turn response ownership** is repaired and tested, but
+has not yet been re-proven against the live surface.
+
+The defect: a 40-character anchor can only identify the *first* fragment of
+a turn, so every later fragment of a long prompt carried no anchor and was
+read as substantive new text. A ~26K Stage 1 prompt came back as though
+Gemini had written it — size was deciding ownership. The repair compares
+the page against our own outgoing text, so ownership holds however the page
+chunks it, and it asks nothing about Gemini specifically.
+
+The consequence for sequencing still stands: **any Gemini web planner
+benchmark run before this is live-proven is void by construction.**
+`GEMINI PLANNER SUITABILITY = UNMEASURED` — not "poor", not
+"provider-sensitive". Unmeasured.
+
+### Packaged-proven truth
+
+The Founder Edition desktop app has been built and demonstrated, but one
+**heap-corruption crash after a spoken reply remains unreproduced and its
+root cause OPEN**. Packaging a rebuild requires the app to be closed; a
+locked-file build failure leaves the *old* executable in place, so verify
+the artefact rather than the exit code.
+
+### Open / unproven
+
+- Stage 4 reliability (the ≥90% objective above).
+- Live re-proof of trusted-web current-turn ownership.
+- The Founder Edition crash root cause.
+- The backend suite carries a known baseline of failures that are
+  **environment-dependent**, not regressions — e.g. `test_fmea_web_scope.py`
+  fails wherever no Gemini API key is configured, because the tier is then
+  legitimately empty. Compare failure IDs against that baseline before
+  calling anything a regression.
+
+### Who owns what
+
+**Hyper Agent owns UI and UX** — visual design, UX redesign, page
+composition, the visual system, interaction design, and its own design
+documents. Core engineering owns backend correctness, architecture,
+contracts, state models, the interfaces UI consumes, evidence, tests and
+packaging, and fixes UI-blocking backend defects when the cause is proven.
+A UI requirement discovered here becomes a written interface/state handoff
+to Hyper Agent, never a silent redesign.
+
+### Standing safety rule
+
+No paid inference is authorised. Before any Cline inference: verify the
+provider, verify the model, verify its free/cost status, and leave
+auto-approve **off** unless tools are genuinely required. A previous
+accidental paid call happened because a default paid model and auto-approve
+were both live.
+
+## How it got here (state as of 2026-07-31)
 
 **The loop is closed.** As of Mission Brief 037 a founder types a
 sentence into `kalpavriksha` and it becomes a plan, runs, is verified
