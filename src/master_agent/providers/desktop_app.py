@@ -600,7 +600,9 @@ class DesktopAppReasoningProvider(ModelProvider):
 
         # 5. Bounded observation + verification — never treated as done
         # merely because Enter was pressed.
-        response_text = self._await_response(window, marked_prompt, response_baseline)
+        response_text = self._await_response(
+            window, marked_prompt, response_baseline, budget,
+        )
         if response_text is None:
             return failure(self._spec.provider_id, TIMED_OUT, RESPONSE_TIMEOUT,
                             latency_ms=self._elapsed_ms(started), **session_detail)
@@ -898,7 +900,37 @@ class DesktopAppReasoningProvider(ModelProvider):
                 continue
         return None
 
-    def _await_response(self, window: dict, prompt: str, baseline: dict) -> str | None:
+    @staticmethod
+    def _reply_window_seconds(budget: Any) -> float:
+        """How long this call may wait, from the budget it was given.
+
+        MB038 derives a deadline per request and `complete()` has taken a
+        `budget` since Step 14 -- but nothing here ever read it, so every
+        prompt got the same 45 seconds. That constant was tuned against
+        the founder's three-name acceptance prompt, and a Stage 1
+        obligation audit is a different size of question entirely.
+
+        Measured live on 4 Sep: ChatGPT Desktop answered that audit in
+        95.1s standalone and was cut off at 45s inside the mission, so the
+        Brain was told the lane had timed out. Every reasoning lane failed
+        in turn, the ladder exhausted, and the founder was told "I
+        couldn't plan that just now" about a request to make a folder.
+        A working provider reported as broken is the expensive kind of
+        wrong: it looks like an unreachable provider, not like a clock.
+
+        The budget is authoritative when present -- it is derived from the
+        workload class and the prompt, which is exactly the thing the
+        constant could not know. The constant stays as the floor for
+        callers that pass no budget at all.
+        """
+        total_ms = getattr(budget, "total_ms", None)
+        if not isinstance(total_ms, (int, float)) or total_ms <= 0:
+            return _RESPONSE_POLL_TIMEOUT_SECONDS
+        return max(_RESPONSE_POLL_TIMEOUT_SECONDS, float(total_ms) / 1000.0)
+
+    def _await_response(
+        self, window: dict, prompt: str, baseline: dict, budget: Any = None,
+    ) -> str | None:
         """Poll for a genuinely new, settled response — not merely
         `find_main_content()`'s "biggest text region," which was
         confirmed live, against both ChatGPT Desktop and Kimi Desktop, to
@@ -924,7 +956,7 @@ class DesktopAppReasoningProvider(ModelProvider):
         stopped moving.
         """
         handle = window["handle"]
-        deadline = time.monotonic() + _RESPONSE_POLL_TIMEOUT_SECONDS
+        deadline = time.monotonic() + self._reply_window_seconds(budget)
         prompt_norm = _normalize_whitespace(prompt)
         # One turn, owned by this wait and discarded with it. Once this
         # call has positively located its own prompt, that fact survives

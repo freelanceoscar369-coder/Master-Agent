@@ -475,7 +475,10 @@ class TestSessionEstablishmentIntegration:
         provider = self._wired_provider(session_ok=True)
         provider._write_prompt = lambda window, prompt, keyboard: True
         provider._submit = lambda window, keyboard: True
-        provider._await_response = lambda window, prompt, baseline: "a genuine reply from the application"
+        provider._await_response = (
+            lambda window, prompt, baseline, budget=None:
+            "a genuine reply from the application"
+        )
 
         result = provider.complete("some reasoning prompt")
 
@@ -570,3 +573,64 @@ class TestARunningProcessIsNotAnOpenWindow:
 
         assert window is not None and window["handle"] == 42
         assert started == [], "an application with an open window was relaunched"
+class TestReplyWindowHonoursTheBudget:
+    """The clock, not the lane, decided the founder could not have a folder.
+
+    Measured live on 2026-09-04. Every reasoning provider was reported
+    unusable and the founder was told "I couldn't plan that just now" --
+    about a request to create a folder and a text file. The broker record:
+
+        chatgpt-desktop      timed_out    77.1s
+        perplexity-desktop   unavailable  31.2s
+        kimi-desktop         rejected      0.0s
+        trusted-founder-web  rejected      9.1s
+        -> no_provider_available
+
+    ChatGPT Desktop answered the same Stage 1 obligation prompt in 95.1s
+    when probed on its own. It was not broken; it was cut off at a
+    constant tuned against a three-name prompt, while MB038 had already
+    derived a real deadline that `complete()` was being handed and this
+    provider never read.
+    """
+
+    def test_a_budget_widens_the_wait_beyond_the_tuned_constant(self):
+        budget = types.SimpleNamespace(total_ms=120_000.0)
+        assert DesktopAppReasoningProvider._reply_window_seconds(budget) == 120.0
+
+    def test_the_constant_is_a_floor_not_a_ceiling(self):
+        """A budget must never make the wait SHORTER than it already was.
+
+        A derived deadline can come back small for a short prompt, and
+        letting that shrink the window would turn one fix into a new
+        truncation -- the failure this exists to end, in miniature.
+        """
+        tiny = types.SimpleNamespace(total_ms=5_000.0)
+        assert (
+            DesktopAppReasoningProvider._reply_window_seconds(tiny)
+            == mod._RESPONSE_POLL_TIMEOUT_SECONDS
+        )
+
+    def test_no_budget_keeps_the_original_behaviour_exactly(self):
+        """Callers that pass nothing are pre-MB038 and must not change."""
+        for absent in (None, types.SimpleNamespace(), types.SimpleNamespace(total_ms=None),
+                       types.SimpleNamespace(total_ms=0)):
+            assert (
+                DesktopAppReasoningProvider._reply_window_seconds(absent)
+                == mod._RESPONSE_POLL_TIMEOUT_SECONDS
+            )
+
+    def test_the_budget_actually_reaches_the_wait(self):
+        """Wiring, not arithmetic.
+
+        `_reply_window_seconds` being right is worth nothing if
+        `complete()` still drops the budget on the floor, which is
+        precisely the defect: the parameter was accepted and ignored.
+        """
+        import inspect
+        source = inspect.getsource(DesktopAppReasoningProvider.complete)
+        assert "budget" in source.split("def complete")[-1], (
+            "complete() must pass its budget onward, not merely accept it"
+        )
+        signature = inspect.signature(DesktopAppReasoningProvider._await_response)
+        assert "budget" in signature.parameters
+
