@@ -90,22 +90,51 @@ not progress; it is a louder way of being wrong.
   is `PAID_NOT_ENTITLED`, and the Cline **headless** free route 404s. Both
   are recorded so they are not retested by accident.
 
-### Source-proven but not yet live-proven
+### Trusted-web current-turn ownership — LIVE-PROVEN (4 Sep 2026)
 
-**Trusted-web current-turn response ownership** is repaired and tested, but
-has not yet been re-proven against the live surface.
+Both invariants were proven against the real page, in the hardest shape
+available: a 26,438-character prompt submitted into a conversation already
+carrying an entire previous run, with the reply being a token quoted
+verbatim in the prompt. The extractor returned that 33-character token and
+nothing else — no decoy line, no run of the prompt, no sentinel from the
+earlier turn.
 
-The defect: a 40-character anchor can only identify the *first* fragment of
-a turn, so every later fragment of a long prompt carried no anchor and was
-read as substantive new text. A ~26K Stage 1 prompt came back as though
-Gemini had written it — size was deciding ownership. The repair compares
-the page against our own outgoing text, so ownership holds however the page
-chunks it, and it asks nothing about Gemini specifically.
+  submitted prompt ≠ current provider reply          ✓
+  the extractor owns only the current provider turn  ✓
 
-The consequence for sequencing still stands: **any Gemini web planner
-benchmark run before this is live-proven is void by construction.**
-`GEMINI PLANNER SUITABILITY = UNMEASURED` — not "poor", not
-"provider-sensitive". Unmeasured.
+Two defects had to be closed to get there, and the second was found only
+because the first live run was actually run:
+
+1. **Echo.** A 40-character anchor identifies only the *first* fragment of
+   a turn, so later fragments of a long prompt carried no anchor and read
+   as new text. A ~26K prompt came back as though Gemini had written it —
+   size was deciding ownership.
+2. **Over-correction.** Containment against our own outgoing text fixes (1)
+   and alone overshoots: asked for a token quoted in the prompt, Gemini
+   answered perfectly and containment disowned it, so the provider timed
+   out with the answer on screen. Order settles what content cannot — we
+   send the prompt once, so the page echoes it once.
+
+`GEMINI PLANNER SUITABILITY` is still **UNMEASURED**. Ownership no longer
+voids a benchmark, but none has been run yet.
+
+### Open: the trusted-web lane reaches the page unreliably
+
+Newly measured, and separate from ownership. Across three live runs (six
+submission attempts), **three attempts never submitted at all**:
+
+- `could not confirm window … reached the foreground after 3 attempts` —
+  the provider correctly refuses to type into a window it cannot confirm is
+  in front, rather than typing blind. It then has no second route.
+- `sign-in did not complete in time` — the page-state classifier never read
+  READY and waited out 300 seconds on an authenticated page.
+
+These cost 28s–317s and return nothing, which under Rule U2 is
+founder-rescue-shaped. The causal owner is the desktop foreground/page-state
+layer, **not** the extractor. One caveat held open honestly: these runs were
+driven from a background process on a busy desktop, so how much of the
+foreground contention is the product and how much is the harness is not yet
+separated.
 
 ### Packaged-proven truth
 
@@ -118,7 +147,7 @@ the artefact rather than the exit code.
 ### Open / unproven
 
 - Stage 4 reliability (the ≥90% objective above).
-- Live re-proof of trusted-web current-turn ownership.
+- Trusted-web page reach: the foreground and sign-in-state failures above.
 - The Founder Edition crash root cause.
 - The backend suite carries a known baseline of failures that are
   **environment-dependent**, not regressions — e.g. `test_fmea_web_scope.py`
