@@ -802,6 +802,7 @@ class TrustedWebAiProvider:
         """
         seen = set(before.texts())
         anchor = prompt.strip()[:40]
+        submitted = self._normalised(prompt)
         deadline = self._now() + self._response_timeout_seconds
 
         while self._now() < deadline:
@@ -813,7 +814,7 @@ class TrustedWebAiProvider:
             ]
             if not any(anchor in text for text in self._conversation_texts(observation)):
                 continue  # our own prompt is not on the page yet
-            answers = [text for text in texts if self._is_answer(text, anchor)]
+            answers = [text for text in texts if self._is_answer(text, anchor, submitted)]
             if answers:
                 return "\n".join(answers).strip()
         return None
@@ -825,11 +826,42 @@ class TrustedWebAiProvider:
             if (element.name or "").strip()
         ]
 
-    def _is_answer(self, text: str, anchor: str) -> bool:
+    #: Below this length, a fragment appearing inside the prompt says
+    #: nothing about who wrote it -- "Yes" is inside almost any long
+    #: prompt, and suppressing it would lose real answers.
+    _MIN_ECHO_CHARS = 16
+
+    @staticmethod
+    def _normalised(text: str) -> str:
+        """Whitespace-insensitive form; a page re-wraps what it re-displays."""
+        return " ".join(text.split())
+
+    def _is_answer(self, text: str, anchor: str, submitted: str = "") -> bool:
         if anchor and anchor in text:
             return False  # the prompt echo is not the answer
+        if submitted and self._is_our_own_words(text, submitted):
+            return False
         lowered = text.strip().lower()
         return not any(lowered.startswith(noise) for noise in self._site.response_noise)
+
+    def _is_our_own_words(self, text: str, submitted: str) -> bool:
+        """True when the page is showing us back something we submitted.
+
+        The anchor can only ever identify the FIRST fragment of a turn.
+        A page splits a long turn across many elements, and every later
+        fragment carries no anchor -- which is how a ~26K Stage 1 prompt
+        was returned as though Gemini had written it. Size then decided
+        ownership, which is precisely what must not happen.
+
+        We know exactly what we submitted, so any fragment of it is ours
+        however the page chose to chunk it and however large it was. This
+        asks nothing about Gemini: it compares the page against our own
+        outgoing text, so it holds for any site behind `WebAiSite`.
+        """
+        candidate = self._normalised(text)
+        if len(candidate) < self._MIN_ECHO_CHARS:
+            return False
+        return candidate in submitted
 
     # ---- small helpers ---------------------------------------------------
 

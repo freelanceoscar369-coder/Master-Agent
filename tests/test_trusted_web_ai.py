@@ -496,6 +496,138 @@ def test_a_second_turn_excludes_the_first_turns_answer():
     assert ANSWER not in result.text, "the previous turn is not this turn's answer"
 
 
+#: A planning prompt is enormous-in, moderate-out. The live Stage 1 run
+#: submitted ~26K and got the prompt back, so the size IS the
+#: reproduction, not decoration.
+HUGE_PROMPT = (
+    "Plan the next move for the mission.\n"
+    + "\n".join(f"constraint {i}: the plan must respect obligation {i}." for i in range(700))
+)
+HUGE_ANSWER = '{"steps": [{"capability": "search.web", "covers": ["o1"]}]}'
+
+
+def _chunked(text: str, size: int = 900) -> list[str]:
+    """The page's own chunking of one long turn.
+
+    A UIA tree does not hand back a 26K string as a single element: the
+    founder's turn arrives split. Only the FIRST chunk can contain the
+    first 40 characters, which is exactly why a 40-character anchor
+    cannot decide ownership of the rest.
+    """
+    return [text[i:i + size] for i in range(0, len(text), size)]
+
+
+def test_a_huge_prompt_echo_is_never_returned_as_the_answer():
+    """The live Stage 1 defect, pinned.
+
+    Every chunk after the first is prompt text that does NOT contain the
+    anchor, so an anchor-only rule calls it new, substantive and
+    therefore an answer -- and the planner parses the founder's own
+    prompt as if Gemini had written it.
+    """
+    echo = _chunked(HUGE_PROMPT)
+    browser = FakeBrowser(
+        [chrome("Google Gemini", target=True)],
+        pages=[
+            Page("Google Gemini", controls=[COMPOSER]),
+            Page("Google Gemini", texts=[*echo, HUGE_ANSWER], controls=[COMPOSER]),
+        ],
+    )
+    result = provider(browser).complete(HUGE_PROMPT)
+
+    assert result.ok is True
+    assert result.text == HUGE_ANSWER
+    for chunk in echo:
+        assert chunk not in result.text, "a chunk of the submitted prompt came back as the answer"
+
+
+def test_prompt_size_does_not_change_who_owns_the_turn():
+    """The same page shape at two sizes must answer the same way."""
+    outcomes = []
+    for prompt, answer in ((PROMPT, ANSWER), (HUGE_PROMPT, HUGE_ANSWER)):
+        browser = FakeBrowser(
+            [chrome("Google Gemini", target=True)],
+            pages=[
+                Page("Google Gemini", controls=[COMPOSER]),
+                Page("Google Gemini", texts=[*_chunked(prompt), answer], controls=[COMPOSER]),
+            ],
+        )
+        outcomes.append(provider(browser).complete(prompt).text)
+
+    assert outcomes == [ANSWER, HUGE_ANSWER], "ownership changed with prompt size"
+
+
+def test_a_huge_prompt_with_no_answer_times_out_rather_than_echoing():
+    """No answer must stay no answer.
+
+    The failure being closed is not only "wrong text" -- it is a provider
+    reporting SUCCESS while handing back the founder's own words.
+    """
+    browser = FakeBrowser(
+        [chrome("Google Gemini", target=True)],
+        pages=[Page("Google Gemini", texts=_chunked(HUGE_PROMPT), controls=[COMPOSER])],
+    )
+    result = provider(browser, response_timeout_seconds=2.0).complete(HUGE_PROMPT)
+
+    assert result.ok is False, "the prompt echo was returned as a successful answer"
+    assert result.outcome == "timed_out"
+
+
+def test_an_answer_that_quotes_the_prompt_is_still_the_answer():
+    """The adversarial direction: overlap must not become ownership.
+
+    Containment suppresses a fragment that is ENTIRELY our own words. A
+    real answer routinely restates the obligation it is answering, so it
+    overlaps the prompt heavily while still being the model's own turn.
+    If quoting were enough to be disowned, the repair would have traded
+    one silent falsehood for another.
+    """
+    quoting_answer = (
+        "constraint 5: the plan must respect obligation 5. "
+        "This is satisfied by search.web, so the plan admits one step."
+    )
+    echo = _chunked(HUGE_PROMPT)
+    browser = FakeBrowser(
+        [chrome("Google Gemini", target=True)],
+        pages=[
+            Page("Google Gemini", controls=[COMPOSER]),
+            Page("Google Gemini", texts=[*echo, quoting_answer], controls=[COMPOSER]),
+        ],
+    )
+    result = provider(browser).complete(HUGE_PROMPT)
+
+    assert result.ok is True
+    assert result.text == quoting_answer
+
+
+def test_a_short_answer_that_appears_inside_the_prompt_is_still_the_answer():
+    """Why `_MIN_ECHO_CHARS` exists, pinned as behaviour.
+
+    A brief reply -- "obligation 3." -- is inside almost any long prompt
+    by coincidence. Disowning it on containment alone would lose real
+    answers, so below the threshold containment says nothing.
+    """
+    short_answer = "obligation 3."
+    assert TrustedWebAiProvider._normalised(short_answer) in TrustedWebAiProvider._normalised(
+        HUGE_PROMPT
+    ), "the fixture must actually overlap, or it proves nothing"
+
+    browser = FakeBrowser(
+        [chrome("Google Gemini", target=True)],
+        pages=[
+            Page("Google Gemini", controls=[COMPOSER]),
+            Page(
+                "Google Gemini",
+                texts=[*_chunked(HUGE_PROMPT), short_answer],
+                controls=[COMPOSER],
+            ),
+        ],
+    )
+    result = provider(browser).complete(HUGE_PROMPT)
+
+    assert result.ok is True
+    assert result.text == short_answer
+
 def test_no_new_response_within_the_wait_is_a_truthful_timeout():
     browser = FakeBrowser(
         [chrome("Google Gemini", target=True)],
