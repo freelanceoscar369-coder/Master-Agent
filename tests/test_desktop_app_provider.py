@@ -867,19 +867,17 @@ class TestAStaleTranscriptCannotAnswerThisTurn:
         provider = self._provider(_Broken(), _FakeClipboard())
         assert provider._copy_control_count({"handle": 1}) == -1
 
-class TestOnlyARunningApplicationIsAvailable:
-    """One question must not open three applications.
+class TestRunningIsReportedNeverGated:
+    """Four different facts, and only one of them is `reachable`.
 
-    Measured live 2026-09-05: a single reasoning call was ranked across
-    four installed desktop AI applications and the executor walked the
-    ranking, launching ChatGPT, then Perplexity, then Kimi. The founder
-    asked one question and got three windows.
+    A first version refused a closed application as unavailable, to stop
+    one question opening three windows. That conflated installed,
+    launchable, running and reachable, and would have made a perfectly
+    good provider permanently unusable for the crime of being closed.
 
-    An application already running carries the founder's own
-    authenticated session, which is the thing worth reusing. A closed one
-    offers nothing a fresh launch would not have to build anyway, and
-    opening it is a side effect on their desktop that no objective asked
-    for.
+    It also could not have fixed the spray: the selection path computes
+    availability itself and never calls this method, so the gate was
+    wrong AND inert. Reporting the fact is useful; gating on it was not.
     """
 
     def _provider_with(self, processes):
@@ -894,23 +892,25 @@ class TestOnlyARunningApplicationIsAvailable:
         )
         return provider
 
-    def test_a_running_application_is_available(self):
+    def test_a_running_application_is_reachable(self):
         running = [types.SimpleNamespace(owner="chatgpt", pid=1)]
         assert self._provider_with(running).availability().reachable is True
 
-    def test_an_installed_but_closed_application_is_not_available(self):
-        assert self._provider_with([]).availability().reachable is False
+    def test_a_closed_application_is_still_reachable(self):
+        """Closed is a cost, not a disqualification. Whether that cost is
+        worth paying belongs to the Broker."""
+        assert self._provider_with([]).availability().reachable is True
 
-    def test_another_application_running_does_not_make_this_one_available(self):
-        """Ownership, not merely 'some AI app is open'."""
-        other = [types.SimpleNamespace(owner="perplexity", pid=2)]
-        assert self._provider_with(other).availability().reachable is False
+    def test_running_is_reported_in_the_detail(self):
+        running = [types.SimpleNamespace(owner="chatgpt", pid=1)]
+        assert "running" in self._provider_with(running).availability().detail
 
-    def test_not_running_is_said_differently_from_not_installed(self):
-        """A founder reading 'not running' knows what to do about it,
-        which is not true of a flat 'unavailable'."""
+    def test_a_closed_application_says_so(self):
+        """So a ranker can prefer the open one and a founder can see why."""
         detail = self._provider_with([]).availability().detail
-        assert detail == mod.NOT_RUNNING
+        assert mod.NOT_RUNNING in detail
         assert detail != mod.NOT_INSTALLED
-        assert "not running" in detail
 
+    def test_another_application_running_does_not_count_as_this_one(self):
+        other = [types.SimpleNamespace(owner="perplexity", pid=2)]
+        assert mod.NOT_RUNNING in self._provider_with(other).availability().detail

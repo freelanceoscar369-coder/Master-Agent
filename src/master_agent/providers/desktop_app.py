@@ -95,10 +95,7 @@ COPY_RETRIEVAL_ENABLED = False
 PROVIDER_VERSION = "1.0.0"
 
 NOT_INSTALLED = "not installed on this machine"
-NOT_RUNNING = (
-    "installed but not running; Kalpavriksha reuses a session the founder "
-    "already has open rather than opening applications they did not ask for"
-)
+NOT_RUNNING = "not running; a launch would be needed to use it"
 NO_LAUNCH_TARGET = "installed but no usable launch target was discovered"
 LAUNCH_FAILED = "the application did not report a real, visible window"
 COMPOSER_NOT_FOUND = "no semantic composer target was found (classic control or UIA element)"
@@ -442,11 +439,31 @@ class DesktopAppReasoningProvider(ModelProvider):
         # Not installed and not running are DIFFERENT answers, and both
         # are said plainly: a founder reading 'not running' knows what
         # to do about it, which is not true of 'unavailable'.
-        if not self._is_running(inventory, app):
-            return Availability(
-                self._spec.provider_id, False, detail=NOT_RUNNING,
-            )
-        return Availability(self._spec.provider_id, True, detail=app.install_source)
+        # Running is REPORTED, never a gate.
+        #
+        # A first version of this refused a closed application as
+        # unavailable, to stop one question opening three windows.
+        # That conflated four different facts -- installed,
+        # launchable, running, reachable -- and would have made a
+        # perfectly good provider permanently unusable for the crime
+        # of being closed. It also could not have fixed the spray: the
+        # selection path does not consult this method at all (see
+        # above), so the gate was wrong AND inert.
+        #
+        # Reachable means the transport could serve a request. A
+        # closed-but-installed application can, at the cost of a
+        # launch. Whether that cost is worth paying is the Broker's
+        # judgement and this package does not rank (MB033 Rule 4) --
+        # so the fact is carried in `detail`, where a ranker can read
+        # it and a founder can understand it.
+        running = self._is_running(inventory, app)
+        return Availability(
+            self._spec.provider_id, True,
+            detail=(
+                f"{app.install_source}; running" if running
+                else f"{app.install_source}; {NOT_RUNNING}"
+            ),
+        )
 
     def _is_running(self, inventory, app) -> bool:
         """Does this application have a live process right now?
