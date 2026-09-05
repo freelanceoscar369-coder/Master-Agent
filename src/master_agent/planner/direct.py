@@ -724,6 +724,45 @@ def _literal_content(goal: str) -> str | None:
     return None
 
 
+#: "...containing the heading H followed by the sentence S".
+#:
+#: Two founder-stated parts and, in a Markdown file, a determined way to
+#: join them: a heading occupies its own line -- that is what MAKES it a
+#: heading. The separator is therefore the format the founder named, not
+#: a guess about their intent.
+#:
+#: In a plain text file the same sentence really is underspecified,
+#: because nothing there defines what a heading is, so this is applied
+#: only to Markdown targets and the objective otherwise falls through to
+#: the ladder unchanged.
+_CONTENT_HEADING_SENTENCE = re.compile(
+    r"\bcontaining\s+the\s+heading\s+(.+?)\s+followed\s+by\s+the\s+sentence\s+"
+    # A sentence keeps its full stop: the founder said "the sentence",
+    # and dropping it would write something they did not say.
+    r"(.+?\.)(?=\s+[A-Z]|\s*$)",
+    re.I | re.S,
+)
+
+#: Formats in which a heading has defined line semantics.
+_MARKDOWN_SUFFIXES = (".md", ".markdown")
+
+
+def _composed_markdown_content(goal: str, filename: str) -> str | None:
+    """A heading and a sentence, joined the way Markdown joins them."""
+    if not filename.lower().endswith(_MARKDOWN_SUFFIXES):
+        return None
+    match = _CONTENT_HEADING_SENTENCE.search(goal)
+    if match is None:
+        return None
+    heading = match.group(1).strip().strip("`'\"")
+    sentence = match.group(2).strip().strip("`'\"")
+    if not heading or not sentence:
+        return None
+    if _REFERENCE.search(heading) or _REFERENCE.search(sentence):
+        return None
+    return heading + chr(10) + sentence
+
+
 def _read_explicit_workflow(goal: str) -> list[_Operation] | None:
     """The dictated operations, in order, or `None` if anything is unclear.
 
@@ -778,7 +817,9 @@ def _read_explicit_workflow(goal: str) -> list[_Operation] | None:
         # there is no second operation to compile here.
         return None
 
-    content = _literal_content(text)
+    content = _literal_content(text) or _composed_markdown_content(
+        text, filename.group(1),
+    )
     if content is None:
         # A file was named but not its contents, or the sentence pointed at
         # a value something else produces. Either way the dictation is

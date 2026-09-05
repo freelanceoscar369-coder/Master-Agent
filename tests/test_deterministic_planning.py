@@ -731,3 +731,61 @@ class TestStateStatedInstructionsAreStillDictated:
             "market and ensure summary.txt contains exactly: done."
         ) is None
 
+class TestAHeadingAndASentenceInAMarkdownFile:
+    """The format the founder named decides how the parts join.
+
+    "containing the heading H followed by the sentence S" states two
+    parts and, in Markdown, a determined way to join them: a heading
+    occupies its own line -- that is what MAKES it a heading. The
+    separator comes from the format the founder chose, not from a guess
+    about what they meant.
+
+    In a plain text file nothing defines a heading, so the same sentence
+    genuinely is underspecified and this must refuse rather than invent a
+    layout.
+    """
+
+    GOAL = (
+        "Create a folder named Reports on my Desktop. Put a Markdown file "
+        "named status.md inside it containing the heading # Quarter Close "
+        "followed by the sentence The books are closed. Verify the saved "
+        "file before reporting completion."
+    )
+
+    def _plan(self, goal):
+        from master_agent.planner.direct import _read_explicit_workflow
+        return _read_explicit_workflow(goal)
+
+    def test_a_markdown_target_composes_heading_then_sentence(self):
+        ops = self._plan(self.GOAL)
+        assert ops is not None
+        assert ops[1].payload["content"] == "# Quarter Close\nThe books are closed."
+
+    def test_the_sentence_keeps_its_full_stop(self):
+        """The founder said "the sentence". A sentence ends with one, and
+        writing it without would put something on disk they did not say."""
+        ops = self._plan(self.GOAL)
+        assert ops[1].payload["content"].endswith("closed.")
+
+    def test_the_trailing_instruction_is_not_written_into_the_file(self):
+        ops = self._plan(self.GOAL)
+        assert "Verify" not in ops[1].payload["content"]
+
+    def test_a_plain_text_target_is_refused(self):
+        """Nothing in a .txt file defines what a heading is, so how the two
+        parts join is genuinely unstated. Refusing sends it to the ladder;
+        guessing would put an invented layout on the founder's disk."""
+        assert self._plan(
+            self.GOAL.replace("Markdown file named status.md",
+                              "text file named status.txt")
+        ) is None
+
+    def test_a_reference_to_something_not_yet_known_is_refused(self):
+        """"the title you observed" is not dictation -- it is a value a
+        later step is supposed to produce."""
+        assert self._plan(
+            "Create a folder named Reports on my Desktop. Put a Markdown "
+            "file named status.md inside it containing the heading # Report "
+            "followed by the sentence the title you observed. Verify it."
+        ) is None
+
