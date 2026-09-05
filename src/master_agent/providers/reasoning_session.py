@@ -101,6 +101,75 @@ NEW_SESSION_VOCABULARY = (
 #: Generic vocabulary for a control that directly renames a conversation
 #: (an inline pencil/edit icon, most commonly) — tried first, since it is
 #: the more targeted, lower-risk match.
+
+#: How an application DECLARES which mode it is currently in.
+#:
+#: Measured live 2026-09-05 against ChatGPT Desktop, whose own control is
+#: named `"Switch mode, current mode: ChatGPT"` -- the accessible name
+#: carries the answer, so no screenshot and no guessing is needed.
+#:
+#: `_navigate_to_chat_section()` above handles applications that expose
+#: modes as a visible "Chat" TAB. This handles the ones that expose them
+#: as a selector, where clicking a tab that does not exist is a no-op and
+#: the window quietly stays wherever the founder last left it.
+MODE_DECLARATION_MARKER = "current mode:"
+
+#: Modes that are execution surfaces rather than conversation.
+#:
+#: Reasoning is a question put to an intelligence. A coding agent, a
+#: cowork workspace, a computer-use surface or an autonomous task runner
+#: are capabilities that ACT -- sending Brain reasoning into one asks a
+#: tool to start doing things on the founder's machine, which is not what
+#: was decided and not what the Broker selected.
+#:
+#: Matched on the declared mode only, never on the whole window, so a
+#: conversation that merely mentions the word "code" is untouched.
+NON_CHAT_MODES = (
+    "code",
+    "coding",
+    "cowork",
+    "co-work",
+    "computer",
+    "agent",
+    "task",
+    "build",
+    "developer",
+    "canvas",
+)
+
+#: Refusal reason when the surface is an execution mode.
+NON_CHAT_MODE = "the application is not in an ordinary chat mode"
+
+
+def declared_mode(element_names) -> str:
+    """The mode an application says it is in, or `""` if it does not say.
+
+    Silence is the common case and is NOT a problem: most applications
+    have one surface and nothing to declare.
+    """
+    for name in element_names:
+        text = (name or "").strip()
+        lowered = text.casefold()
+        marker = MODE_DECLARATION_MARKER.casefold()
+        if marker in lowered:
+            return text[lowered.index(marker) + len(marker):].strip()
+    return ""
+
+
+def is_non_chat_mode(mode: str) -> bool:
+    """Is this declared mode an execution surface rather than a chat?
+
+    Whole-word matching: a mode called `"Codex"` or `"Agentic Research"`
+    must not be waved through, but neither may a chat mode be refused for
+    containing one of these as a fragment of a longer word.
+    """
+    words = {
+        part.strip(".,:;()[]").casefold()
+        for part in (mode or "").replace("-", " ").split()
+    }
+    return any(candidate in words for candidate in NON_CHAT_MODES)
+
+
 RENAME_ACTION_VOCABULARY = (
     "rename",
     "rename chat",
@@ -362,6 +431,29 @@ class ReasoningSessionManager:
         # only one, and this call is then a no-op.
         self._navigate_to_chat_section(handle)
 
+        # Then PROVE it, because the line above cannot.
+        #
+        # `_navigate_to_chat_section` clicks a visible "Chat" TAB if
+        # one exists. An application that exposes modes as a SELECTOR
+        # has no such tab, so that call is a silent no-op and the
+        # window stays wherever the founder last left it -- which may
+        # be Cowork, Code, Computer or an agent surface.
+        #
+        # Reasoning is a question put to an intelligence. Those others
+        # are capabilities that ACT: sending Brain reasoning into one
+        # asks a tool to start doing things on the founder's machine,
+        # which is not what the Brain decided and not what the Broker
+        # selected. So an execution surface is refused rather than
+        # typed into, and the refusal names the mode it saw.
+        #
+        # Silence is the common case and is not a failure: most
+        # applications have one surface and declare nothing.
+        mode = self._declared_mode(handle)
+        if mode and is_non_chat_mode(mode):
+            return SessionEstablishment(
+                False, f"{NON_CHAT_MODE}: {mode!r}",
+            )
+
         opened = self._open_or_create(handle, provider_label, keyboard, marker)
         if not opened.ok:
             return opened
@@ -612,6 +704,24 @@ class ReasoningSessionManager:
             if rename else False
         )
         return SessionEstablishment(True, "", marker, reused=False, renamed=renamed)
+
+    def _declared_mode(self, handle: int) -> str:
+        """What the application says its current mode is, or `""`.
+
+        Read from accessible names only -- no screenshot, no guess. An
+        unreadable window declares nothing, which is the same answer as an
+        application that has only one surface, and both proceed.
+        """
+        try:
+            names = [
+                (getattr(snapshot, "name", "") or "")
+                for snapshot in self._uia.snapshot_elements(handle)
+            ]
+        except (UiaUnavailable, UiaTargetNotFound):
+            return ""
+        except Exception:  # noqa: BLE001 -- an unreadable window declares nothing
+            return ""
+        return declared_mode(names)
 
     def _navigate_to_chat_section(self, handle: int) -> bool:
         """Best-effort: click an exact-match `"Chat"` section tab if one

@@ -323,9 +323,12 @@ class TieredPromptRunner:
         not here. This module still decides nothing about which provider
         wins; it stops pre-deciding by locality and lets the owner choose.
 
-        `_attempt_tier()` already falls through candidate by candidate
-        within one attempt, so a selected provider that fails still yields
-        to the next eligible one, bounded by the candidate count.
+        `_attempt_tier()` walks candidates within one attempt, but only
+        past a provider that was never REACHED. One that was asked and
+        failed ends the attempt and returns its evidence, because a
+        method failure is the Brain's to adjudicate and not a loop's --
+        see `_never_invoked()`. That is what stops one question being
+        put to every application the founder has open.
 
         Every other class keeps the ladder exactly as it was.
         """
