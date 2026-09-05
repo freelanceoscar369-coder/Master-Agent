@@ -60,10 +60,26 @@ def main() -> int:
     def traced(kept):
         rows = list(kept)
         print(f"\n---- _in_reading_order got {len(rows)} row(s) ----", flush=True)
-        for top, left, text in sorted(rows, key=lambda r: (r[0], r[1])):
+        # DOCUMENT order -- the order the tree walk produced. Printing this
+        # sorted (as a first version did) hides the very thing in question:
+        # whether the geometric sort is improving that order or destroying
+        # it.
+        print("  [as given: document order]", flush=True)
+        for top, left, text in rows:
             flat = ascii_of(" ".join(text.split()))
             print(f"  top={top:>6} left={left:>6} len={len(text):>5} | {flat[:110]}",
                   flush=True)
+        # What sorting by `top` alone, stably, would produce -- geometry
+        # for the row, the document for the sequence within it.
+        by_top = sorted(rows, key=lambda r: r[0])
+        candidate = "\n".join(t for _a, _b, t in by_top)
+        import json as _json
+        try:
+            _json.loads(candidate.strip())
+            verdict = "VALID JSON"
+        except Exception as exc:  # noqa: BLE001
+            verdict = f"invalid -- {exc}"
+        print(f"  [stable sort by top only] -> {verdict}", flush=True)
         return original(rows)
 
     UiaAutomationBridge._in_reading_order = staticmethod(traced)

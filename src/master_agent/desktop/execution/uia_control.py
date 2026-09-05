@@ -1157,10 +1157,41 @@ class UiaAutomationBridge:
 
     @staticmethod
     def _in_reading_order(kept: list[tuple[int, int, str]]) -> list[str]:
-        """Top to bottom, then left to right for anything sharing a row.
+        """Top to bottom, and within a row the order the tree gave them.
         Consecutive duplicates collapse: a line rendered by both a wrapper
-        and its own leaf must not appear twice."""
-        kept.sort(key=lambda row: (row[0], row[1]))
+        and its own leaf must not appear twice.
+
+        This used to break the tie by `left`, and that reordered text.
+        Measured live against ChatGPT Desktop, the seven runs of one JSON
+        reply carried these origins in document order:
+
+            top=174 left=538  {"anchors"
+            top=174 left=602  :[{"anchor_id":"anchor_1",...
+            top=174 left=538  },{"anchor_id":"anchor_2",..."depends_on"
+            top=197 left=930  :["anchor_1"]
+            top=197 left=538  },{"anchor_id":"anchor_3",..."depends_on"
+            top=219 left=662  :["anchor_1","anchor_2"]
+            top=219 left=810  }]}
+
+        The lefts are not monotonic within a row: an inline run that wraps
+        reports the origin of where it STARTS drawing, which for a
+        continuation is back at the left margin, before the run that
+        precedes it in the text. Sorting on that moved two `depends_on`
+        values after the objects that should contain them, and the reply
+        parsed as prose and not as JSON -- so the Brain was told the
+        obligation audit "was not a JSON object" about an answer the model
+        had got right.
+
+        Prose survives that shuffle, which is why it went unseen: the
+        three-name acceptance reply reads the same in any order. Structure
+        does not.
+
+        The accessibility tree already enumerates leaves in document
+        order, which for text IS reading order. Geometry is therefore
+        asked only which row a run belongs to; the document decides the
+        sequence within it, and Python's stable sort preserves that.
+        """
+        kept.sort(key=lambda row: row[0])
         lines: list[str] = []
         for _top, _left, text in kept:
             if lines and _normalize_whitespace(lines[-1]) == _normalize_whitespace(text):

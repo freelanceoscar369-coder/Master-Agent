@@ -1876,3 +1876,70 @@ def test_case_E_a_turn_never_anchored_stays_conservative():
 
     assert turn.anchored is False
     assert result != "Copy\nShare\nUpdate\nYour chats will appear here"
+
+#: Measured live against ChatGPT Desktop on 2026-09-05: the seven runs of
+#: one JSON reply, in the order the accessibility tree enumerated them,
+#: with the rectangle origin each one reported. The lefts are NOT
+#: monotonic within a row -- an inline run that wraps reports where it
+#: starts drawing, back at the left margin, before the run that precedes
+#: it in the text.
+_LIVE_JSON_RUNS = [
+    (174, 538, '{"anchors"'),
+    (174, 602, ':[{"anchor_id":"anchor_1","meaning":"create the folder","depends_on":[]'),
+    (174, 538, '},{"anchor_id":"anchor_2","meaning":"write the file","depends_on"'),
+    (197, 930, ':["anchor_1"]'),
+    (197, 538, '},{"anchor_id":"anchor_3","meaning":"verify both","depends_on"'),
+    (219, 662, ':["anchor_1","anchor_2"]'),
+    (219, 810, '}]}'),
+]
+
+
+def test_a_wrapped_json_reply_is_reconstructed_as_valid_json():
+    """The live defect, pinned with the real geometry.
+
+    Breaking the tie by `left` moved two `depends_on` values after the
+    objects that should contain them. The Brain was then told the
+    obligation audit "was not a JSON object" -- about an answer ChatGPT
+    had got exactly right -- and a founder asking for a folder was told
+    the request could not be planned.
+    """
+    import json
+
+    rebuilt = "\n".join(
+        UiaAutomationBridge._in_reading_order(list(_LIVE_JSON_RUNS))
+    )
+    document = json.loads(rebuilt)
+
+    assert [a["anchor_id"] for a in document["anchors"]] == [
+        "anchor_1", "anchor_2", "anchor_3",
+    ]
+    # The values that were being moved to the end.
+    assert document["anchors"][1]["depends_on"] == ["anchor_1"]
+    assert document["anchors"][2]["depends_on"] == ["anchor_1", "anchor_2"]
+
+
+def test_rows_are_still_ordered_top_to_bottom():
+    """Geometry still decides the ROW. Only the sequence within a row is
+    the document's to decide, so a tree that enumerates rows out of
+    visual order must still be put back in order."""
+    out_of_order = [
+        (300, 0, "third"),
+        (100, 0, "first"),
+        (200, 0, "second"),
+    ]
+    assert UiaAutomationBridge._in_reading_order(out_of_order) == [
+        "first", "second", "third",
+    ]
+
+
+def test_document_order_survives_within_one_row():
+    """The specific thing `left` was destroying."""
+    same_row = [
+        (100, 900, "first"),
+        (100, 100, "second"),
+        (100, 500, "third"),
+    ]
+    assert UiaAutomationBridge._in_reading_order(same_row) == [
+        "first", "second", "third",
+    ]
+
