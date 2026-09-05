@@ -1943,3 +1943,105 @@ def test_document_order_survives_within_one_row():
         "first", "second", "third",
     ]
 
+#: The founder objective that exposed this, verbatim.
+_FOUNDER_OBJECTIVE = (
+    "Ensure a folder Kalpavriksha_Usability_Simple exists on my Desktop. "
+    "Inside it ensure result.txt contains exactly: Kalpavriksha simple "
+    "usability test passed. Verify folder/file/content, then report."
+)
+
+
+def test_a_reply_that_quotes_the_prompt_is_not_deleted_as_the_prompt():
+    """The live defect, pinned.
+
+    Stage 1 asks the model for `source_quote`, so every anchor it returns
+    contains the founder's sentence verbatim. Matching the prompt by
+    containment alone classified the REPLY as the prompt echo and dragged
+    `prompt_floor` down past it -- and everything above the floor is
+    dropped as the previous exchange. The reply deleted itself, and the
+    founder was told the request could not be planned.
+    """
+    #: The reply arrives as several runs, exactly as ChatGPT Desktop
+    #: renders it -- and ONE of them is the founder's sentence on its own,
+    #: because that is what `source_quote` holds. That run, not the JSON
+    #: around it, is what containment mistakes for the echo.
+    reply_runs = [
+        '{"anchors":[{"anchor_id":"anchor_1","source_quote":"',
+        _FOUNDER_OBJECTIVE,
+        '","meaning":"create the folder","depends_on":[]}]}',
+    ]
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    answers = [
+        FakeUiaElement(name=f"a{i}", has_text=True,
+                       rect=(0, 300 + i * 30, 400, 328 + i * 30), text="")
+        for i in range(len(reply_runs))
+    ]
+    bridge = _reply_bridge([echo] + answers)
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+
+    echo.set_text(_FOUNDER_OBJECTIVE)
+    for element, run in zip(answers, reply_runs):
+        element.set_text(run)
+
+    rebuilt = bridge.find_new_response(
+        1, baseline, exclude_text=_FOUNDER_OBJECTIVE, min_height=8
+    )
+
+    import json
+    document = json.loads("".join(rebuilt.split("\n")))
+    assert document["anchors"][0]["source_quote"] == _FOUNDER_OBJECTIVE
+
+
+def test_the_prompt_echo_itself_is_still_excluded():
+    """The exclusion this must not lose.
+
+    Spending the prompt in order still has to spend it: the page's own
+    echo of the question is not the answer, and returning it is the
+    original failure this whole path exists to prevent.
+    """
+    echo = FakeUiaElement(name="p", has_text=True, rect=(0, 250, 400, 290), text="")
+    answer = FakeUiaElement(name="a", has_text=True, rect=(0, 300, 400, 340), text="")
+    bridge = _reply_bridge([echo, answer])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+
+    echo.set_text(_FOUNDER_OBJECTIVE)
+    answer.set_text("Done. The folder and the file both exist.")
+
+    result = bridge.find_new_response(
+        1, baseline, exclude_text=_FOUNDER_OBJECTIVE, min_height=8
+    )
+    assert result == "Done. The folder and the file both exist."
+    assert _FOUNDER_OBJECTIVE not in result
+
+
+def test_a_prompt_echoed_in_fragments_is_still_spent_in_order():
+    """A long prompt is rendered as several leaves, not one.
+
+    Each fragment must spend its own part of the prompt, so the whole
+    echo is excluded and a later quotation of the FIRST fragment still
+    reads as the reply.
+    """
+    parts = [
+        "Ensure a folder Kalpavriksha_Usability_Simple exists on my Desktop.",
+        "Inside it ensure result.txt contains exactly: Kalpavriksha simple usability test passed.",
+        "Verify folder/file/content, then report.",
+    ]
+    elements = [
+        FakeUiaElement(name=f"p{i}", has_text=True,
+                       rect=(0, 200 + i * 30, 400, 228 + i * 30), text="")
+        for i in range(len(parts))
+    ]
+    answer = FakeUiaElement(name="a", has_text=True, rect=(0, 400, 400, 440), text="")
+    bridge = _reply_bridge(elements + [answer])
+    baseline = bridge.snapshot_text_regions(1, min_height=8)
+
+    for element, part in zip(elements, parts):
+        element.set_text(part)
+    quoting = 'covered: "' + parts[0] + '"'
+    answer.set_text(quoting)
+
+    result = bridge.find_new_response(
+        1, baseline, exclude_text=" ".join(parts), min_height=8
+    )
+    assert result == quoting
+

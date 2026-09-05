@@ -1034,15 +1034,50 @@ class UiaAutomationBridge:
         prompt_floor = win_rect.top
         prompt_echo: set[str] = set()
         if exclude_norm:
+            # **A reply that quotes the prompt is not the prompt.**
+            #
+            # Containment alone cannot tell the page showing our question
+            # back to us from the model quoting that question inside its
+            # answer -- the characters are identical. Treating the second
+            # as the first is not merely a missed exclusion: it drags
+            # `prompt_floor` down past the reply's own fragment, and
+            # everything above the floor is then discarded as "the
+            # previous exchange".
+            #
+            # Measured live on 2026-09-05. The Stage 1 obligation prompt
+            # asks for `source_quote`, so every anchor the model returns
+            # necessarily contains the founder's sentence verbatim. The
+            # reply deleted itself: reconstructions came back as 0 rows,
+            # as a single fragment with an opening brace and no closing
+            # one, and as 3 characters -- each reported as a successful
+            # answer, each unparseable, and the founder was told their
+            # request could not be planned.
+            #
+            # We submitted the prompt ONCE, so the page echoes it once.
+            # Reading in document order and spending the prompt as it is
+            # matched, a fragment matching the unspent remainder is the
+            # echo; the same words arriving after it is spent are the
+            # reply quoting us. This is the rule `TrustedWebAiProvider`
+            # already uses for the same reason, applied where the floor
+            # is decided.
+            spent = 0
             for key, (_element, text) in all_regions.items():
                 if not text or not text.strip():
                     continue
                 norm = _normalize_whitespace(text)
-                if norm == exclude_norm or (
-                    len(norm) >= _PROMPT_FRAGMENT_MIN_CHARS and norm in exclude_norm
-                ):
-                    prompt_floor = max(prompt_floor, key[3])
-                    prompt_echo.add(norm)
+                echoed = exclude_norm.find(norm, spent)
+                if echoed < 0:
+                    continue  # already past it: this is the reply, quoting us
+                # A whole-prompt element is the echo at any length; a
+                # partial one has to be long enough to mean anything,
+                # which is what `_PROMPT_FRAGMENT_MIN_CHARS` has always
+                # said. Both are subject to `spent`: the prompt was sent
+                # once, so it can be echoed once.
+                if norm != exclude_norm and len(norm) < _PROMPT_FRAGMENT_MIN_CHARS:
+                    continue
+                prompt_floor = max(prompt_floor, key[3])
+                prompt_echo.add(norm)
+                spent = echoed + len(norm)
 
         composer_rect = None
         try:
@@ -1145,7 +1180,17 @@ class UiaAutomationBridge:
             if not text or not text.strip():
                 continue
             norm = _normalize_whitespace(text)
-            if norm == exclude_norm or norm in prompt_echo:
+            # Excluding the echo BY TEXT is order-blind, and this turn's
+            # reply may legitimately contain our own words -- Stage 1 asks
+            # the model for `source_quote`, so it always does. Once a
+            # floor exists the echo is already gone: it ended at the
+            # floor, and everything here is below it. Applying the text
+            # rule as well deleted the reply's own quotation, which is how
+            # a correct answer arrived as three characters.
+            #
+            # With no floor located, position proves nothing and the text
+            # rule is still the conservative answer.
+            if not floor_established and (norm == exclude_norm or norm in prompt_echo):
                 continue
             if not floor_established and norm in baseline_texts:
                 continue
