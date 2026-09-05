@@ -170,6 +170,14 @@ _MAX_CLEARED_CHARS = 80
 #: into. Sits just above the two real placeholder lengths recorded above
 #: (17 and 20 characters), so composer chrome cannot reach it either.
 _PROMPT_FRAGMENT_MIN_CHARS = 24
+
+#: How much of a region its own children must account for before it is
+#: treated as a container whose text already IS the whole reply, rather
+#: than one fragment of a reply that happens to contain some short
+#: neighbours. Three short names inside their own block reach 93%; the
+#: `:[]` and `}` runs of a JSON reply reach 0.3% of the 1,279-character
+#: object they sit inside.
+_CONTAINER_SHARE = 0.6
 #: A generation-in-progress notice is new content below this turn's own
 #: prompt, so nothing structural distinguishes it from the reply -- and
 #: once the reply is reconstructed from ALL such regions rather than one,
@@ -1078,11 +1086,24 @@ class UiaAutomationBridge:
         # itself, and returning it alongside its children would repeat
         # every line twice. Containment decides, exactly as
         # `find_new_content()` decides it: two or more held fragments.
+        #
+        # A container is made OF its children, so they account for
+        # essentially all of it. Counting containment alone does not say
+        # that. A reply arriving as a sequence of inline runs --
+        # `{"regions"`, `:[...]`, `,"anchors"`, `:[]`, `}` -- has one-
+        # and three-character pieces that occur inside every large piece,
+        # so the count reaches two immediately and a single middle
+        # fragment is returned as though it were the whole answer. Asking
+        # what SHARE of the candidate its children make up separates the
+        # two cleanly: three short names inside their own block cover
+        # nearly all of it; two punctuation runs inside a 1,279-character
+        # object cover a third of one percent.
         normalised = [_normalize_whitespace(line) for line in lines]
         for index, candidate in enumerate(normalised):
             held = [other for j, other in enumerate(normalised)
                     if j != index and other and other in candidate]
-            if len(held) >= 2:
+            if (len(held) >= 2 and candidate
+                    and sum(len(h) for h in held) >= _CONTAINER_SHARE * len(candidate)):
                 return lines[index]
 
         return "\n".join(lines)
@@ -1109,6 +1130,79 @@ class UiaAutomationBridge:
         if found < 0:
             return None
         return dict(items[found:])
+
+    def _composer_test(self, window_handle: int):
+        """A predicate answering "is this rectangle the input box?".
+
+        The composer holds our own prompt while it is being written and
+        its placeholder afterwards, so it is never part of a reply. Its
+        rectangle is read once per reconstruction, not once per region.
+        """
+        composer_rect = None
+        try:
+            composer = self.find_composer(window_handle, retries=0)
+            if composer is not None:
+                box = composer.CurrentBoundingRectangle
+                composer_rect = (box.left, box.top, box.right, box.bottom)
+        except Exception:  # noqa: BLE001
+            composer_rect = None
+
+        def _on_the_composer(key: tuple[int, int, int, int]) -> bool:
+            if composer_rect is None:
+                return False
+            left, top, right, bottom = key
+            return (
+                left >= composer_rect[0] - 2 and top >= composer_rect[1] - 2
+                and right <= composer_rect[2] + 2 and bottom <= composer_rect[3] + 2
+            )
+
+        return _on_the_composer
+
+    @staticmethod
+    def _lines_after_the_prompt(regions: dict, exclude_norm: str,
+                                on_the_composer) -> list[str]:
+        """This turn's reply, decided by document order alone.
+
+        The turn has already been narrowed to its own marker, so what
+        remains is one question: where does our echoed prompt stop and
+        the answer start? Rectangles cannot say -- they were recorded at
+        different moments of one traversal and describe different scroll
+        positions (see the caller's own live measurement).
+
+        The prompt was submitted once, so the page echoes it once. Walked
+        in document order and spent as it is matched, a fragment found in
+        the UNSPENT remainder is still the echo; the same words arriving
+        after that remainder is gone are the reply quoting us. That is
+        the rule `TrustedWebAiProvider` and the prompt floor already use,
+        with an index standing in for a coordinate.
+
+        No length threshold here, unlike the floor. A long prompt renders
+        as hundreds of tiny runs -- `"region`, `_`, `index": 1,` -- and
+        skipping the short ones leaves the boundary stranded in the
+        middle of our own question, with the rest of it handed to the
+        Brain as the answer.
+        """
+        items = [(key, text) for key, (_element, text) in regions.items()
+                 if text and text.strip()]
+        boundary = 0
+        if exclude_norm:
+            spent = 0
+            for index, (_key, text) in enumerate(items):
+                echoed = exclude_norm.find(_normalize_whitespace(text), spent)
+                if echoed < 0:
+                    continue
+                spent = echoed + len(_normalize_whitespace(text))
+                boundary = index + 1
+
+        lines: list[str] = []
+        for key, text in items[boundary:]:
+            norm = _normalize_whitespace(text)
+            if on_the_composer(key) or _is_transient_status(norm):
+                continue
+            if lines and _normalize_whitespace(lines[-1]) == norm:
+                continue
+            lines.append(text.strip())
+        return lines
 
     def _reply_lines(
         self,
@@ -1152,8 +1246,37 @@ class UiaAutomationBridge:
                     root, win_rect, min_height, include_offscreen=True),
                 _normalize_whitespace(turn_marker),
             )
+        turn_scoped = all_regions is not None
         if all_regions is None:
             all_regions = self._text_region_candidates(root, win_rect, min_height)
+
+        if turn_scoped:
+            # **Coordinates are not comparable across one walk.**
+            #
+            # Measured live on 2026-09-05, on a settled obligation audit
+            # in ChatGPT Desktop: inside a single traversal the echoed
+            # prompt's own fragments climbed from top=-946 to top=1691,
+            # and the reply -- enumerated immediately after them, and
+            # drawn below them -- reported top=-442. The layout moves
+            # while the tree is being read, so a rectangle recorded early
+            # and one recorded late describe different scroll positions.
+            #
+            # A floor built from those numbers put the whole reply above
+            # itself and discarded it, which is the "audit was not a JSON
+            # object" the founder kept being told.
+            #
+            # `_in_reading_order()` already reached the same conclusion
+            # for sequence within a row: the tree enumerates leaves in
+            # document order, and for text that IS reading order. With
+            # the turn located, that order answers the boundary question
+            # too, and it answers it with something that cannot shift
+            # underneath the reader.
+            if turn is not None:
+                turn.anchored = True
+            return self._lines_after_the_prompt(
+                all_regions, exclude_norm,
+                self._composer_test(window_handle),
+            )
 
         # `None` until this turn's own prompt is located. It used to start
         # at the window's top edge, which doubled as "no floor yet" -- a
@@ -1209,23 +1332,7 @@ class UiaAutomationBridge:
                 prompt_echo.add(norm)
                 spent = echoed + len(norm)
 
-        composer_rect = None
-        try:
-            composer = self.find_composer(window_handle, retries=0)
-            if composer is not None:
-                box = composer.CurrentBoundingRectangle
-                composer_rect = (box.left, box.top, box.right, box.bottom)
-        except Exception:  # noqa: BLE001
-            composer_rect = None
-
-        def _on_the_composer(key: tuple[int, int, int, int]) -> bool:
-            if composer_rect is None:
-                return False
-            left, top, right, bottom = key
-            return (
-                left >= composer_rect[0] - 2 and top >= composer_rect[1] - 2
-                and right <= composer_rect[2] + 2 and bottom <= composer_rect[3] + 2
-            )
+        _on_the_composer = self._composer_test(window_handle)
 
         # **Below this turn's prompt, "seen before" means nothing.**
         #

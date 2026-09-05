@@ -115,3 +115,113 @@ class TestTheTurnIsBounded:
         result = _reconstruct(marker="") or ""
         assert "PREVIOUS_TURN" not in result
         assert HEAD not in result
+
+
+# ──────────────────────────────────────────────────────────────────────
+# The live shape, measured on a settled obligation audit in ChatGPT
+# Desktop on 2026-09-05: inside ONE traversal the echoed prompt's own
+# fragments climbed from top=-946 to top=1691, and the reply -- walked
+# straight after them, and drawn below them -- reported top=-442. The
+# layout moves while the tree is read, so rectangles taken early and
+# late in a walk describe different scroll positions and cannot be
+# compared. Document order can.
+# ──────────────────────────────────────────────────────────────────────
+
+AUDIT_MARKER = "[Kalpavriksha Reasoning - ChatGPT Desktop - 2026-09-05 15:20:09 - 87a6021d]"
+AUDIT_BODY = (
+    'Audit the obligations. DETERMINISTIC SOURCE REGIONS: '
+    '[{"region_index": 1, "text": "do the thing"}] '
+    'Return JSON only: {"regions": [{"region_index": 1, '
+    '"disposition": "..."}], "valid": true}'
+)
+AUDIT_PROMPT = AUDIT_MARKER + "\n\n" + AUDIT_BODY
+
+#: How the prompt actually renders: a few long runs and a scattering of
+#: one-character ones, because an underscore breaks a run in two.
+ECHO = [
+    (-946, AUDIT_MARKER),
+    (200, "Audit the obligations. DETERMINISTIC SOURCE REGIONS:"),
+    (700, '[{"region'),
+    (700, "_"),
+    (900, 'index": 1, "text": "do the thing"}]'),
+    (1200, "Return JSON only:"),
+    (1450, '{"regions": [{"region'),
+    (1450, "_"),
+    (1691, 'index": 1, "disposition": "..."}], "valid": true}'),
+]
+
+#: The answer, as inline runs, at tops that sit ABOVE the tail of the
+#: prompt they follow.
+ANSWER = [
+    (-442, '{"regions"'),
+    (-442, ':[{"region_index":1,"disposition":"omitted","anchor_id":"","notes":[]}]'),
+    (12, ',"anchors"'),
+    (12, ":[]"),
+    (12, ',"valid"'),
+    (12, ":false"),
+    (12, "}"),
+]
+ANSWER_TEXT = "\n".join(text for _top, text in ANSWER)
+
+
+def _audit_transcript():
+    #: `left` varies per run because inline runs sharing a line start at
+    #: different x, and regions are keyed by their whole rectangle --
+    #: identical lefts would collapse two runs into one entry and test
+    #: something the window never does.
+    return [
+        FakeUiaElement(name=f"e{i}", has_text=True,
+                       rect=(i * 7, top, 400, top + 30), text=text,
+                       is_offscreen=True)
+        for i, (top, text) in enumerate(ECHO + ANSWER)
+    ]
+
+
+def _audit_reconstruct():
+    bridge = _bridge_with_elements(_audit_transcript(),
+                                   window_rect=(0, 0, 400, 823))
+    return bridge.find_new_response(
+        1, {}, exclude_text=AUDIT_PROMPT, min_height=8,
+        turn_marker=AUDIT_MARKER,
+    )
+
+
+class TestCoordinatesThatShiftMidWalk:
+
+    def test_the_answer_is_not_lost_below_a_floor_built_from_moving_rows(self):
+        """The live failure. Every answer run sits at a smaller `top`
+        than the prompt's last run, so a geometric floor discards all of
+        it and the Brain is told the audit was not a JSON object."""
+        assert _audit_reconstruct() == ANSWER_TEXT
+
+    def test_it_parses(self):
+        import json
+        parsed = json.loads(_audit_reconstruct())
+        assert parsed["valid"] is False
+        assert parsed["anchors"] == []
+
+    def test_the_echoed_prompt_is_spent_to_its_very_end(self):
+        """Down to the one-character runs. Skipping short fragments
+        strands the boundary inside our own question and hands its tail
+        to the Brain as the answer."""
+        result = _audit_reconstruct()
+        assert "Return JSON only" not in result
+        assert '"disposition": "..."' not in result
+
+    def test_a_reply_opening_with_words_the_prompt_also_used_is_kept(self):
+        """The prompt shows the schema, so it contains `{"regions"` too.
+        Once the prompt is spent, the same characters arriving again are
+        the answer."""
+        assert _audit_reconstruct().startswith('{"regions"')
+
+
+class TestARunIsNotMistakenForTheWholeAnswer:
+
+    def test_inline_runs_are_not_collapsed_into_one_of_themselves(self):
+        """`:[]` and `}` occur inside the big object run, so a plain
+        containment count reaches two at once and returns that run alone
+        -- a fragment of the answer, well-formed enough to look like all
+        of it."""
+        result = _audit_reconstruct()
+        assert result != ANSWER[1][1]
+        assert ',"valid"' in result
