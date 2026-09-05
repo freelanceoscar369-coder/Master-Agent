@@ -658,3 +658,76 @@ class TestNoStepIdIsEverReusedAcrossMissions:
         assert consumer.input_bindings["content"]["from_step"]["step_id"] == (
             produced.step_id
         )
+class TestStateStatedInstructionsAreStillDictated:
+    """A founder who says what must be TRUE has still dictated the work.
+
+    Measured live 2026-09-05: an objective in this form compiled to None
+    here, so it was escalated to model-backed requirement admission, which
+    spent eight external calls failing to establish requirements for a
+    folder and a text file. ADR-0027 names that exact case -- "creating a
+    folder must not deliberate."
+
+    "Ensure X exists" is the same instruction as "create X"; "ensure F
+    contains exactly T" is the same instruction as "write T into F". The
+    operations, arguments and ordering are all supplied either way.
+    """
+
+    def _plan(self, goal):
+        from master_agent.planner.direct import _read_explicit_workflow
+        return _read_explicit_workflow(goal)
+
+    def test_ensure_exists_and_contains_compiles(self):
+        ops = self._plan(
+            "Ensure a folder Reports exists on my Desktop. Inside it ensure "
+            "summary.txt contains exactly: quarter closed. Verify it, then report."
+        )
+        assert ops is not None
+        assert [o.kind for o in ops] == ["create_folder", "write_file"]
+        assert ops[0].payload == {"name": "Reports", "location": "desktop"}
+        assert ops[1].payload["path"] == "Reports/summary.txt"
+        assert ops[1].payload["content"] == "quarter closed"
+
+    def test_a_trailing_instruction_is_not_swallowed_into_the_content(self):
+        """The content stops at the sentence boundary. Writing "Verify it,
+        then report." into the founder's file would be a wrong artifact
+        that passes every existence check."""
+        ops = self._plan(
+            "Ensure a folder Notes exists in Documents. Inside it ensure "
+            "log.md contains exactly: all clear. Then tell me it worked."
+        )
+        assert ops is not None
+        assert ops[1].payload["content"] == "all clear"
+
+    def test_the_older_imperative_phrasing_still_compiles(self):
+        """The existing vocabulary must not regress."""
+        ops = self._plan(
+            "Create a folder called KV_Old on the Desktop. Then write hello "
+            "into notes.txt inside that folder."
+        )
+        assert ops is not None
+        assert [o.kind for o in ops] == ["create_folder", "write_file"]
+
+    def test_a_filename_not_owning_a_contains_clause_is_not_a_destination(self):
+        """`contains` is what makes the filename a destination. Without it
+        a dotted token is just a token -- a version, a domain, a citation --
+        and reading it as a file would invent a write nobody asked for."""
+        assert self._plan(
+            "Ensure a folder Reports exists on my Desktop. Mention v1.2 in "
+            "the summary."
+        ) is None
+
+    def test_contains_without_a_stated_value_is_refused(self):
+        """"Contains what the previous step produced" is not dictated."""
+        assert self._plan(
+            "Ensure a folder Reports exists on my Desktop. Inside it ensure "
+            "summary.txt contains exactly: the title you found."
+        ) is None
+
+    def test_an_objective_naming_foreign_work_is_still_refused(self):
+        """Compiling the recognised half would drop the rest, and a partial
+        plan is worse than none because it runs."""
+        assert self._plan(
+            "Ensure a folder Reports exists on my Desktop. Research the "
+            "market and ensure summary.txt contains exactly: done."
+        ) is None
+

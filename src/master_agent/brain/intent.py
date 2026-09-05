@@ -16,6 +16,7 @@ from typing import Any
 
 from master_agent.brain.agency import roles
 from master_agent.brain.utterance import UtteranceRole, structural_role
+from master_agent.planner.direct import dictated_effects
 from master_agent.planner.plan import (
     CONSTRAINT,
     EFFECT,
@@ -2536,6 +2537,40 @@ class IntentLayer:
                     founder_evidence=_said_for(recorded, name, value) or evidence,
                 ))
             requirements = tuple(found)
+            self._record_requirement_admission(
+                intent, self._deterministic_admission(requirements),
+            )
+            return requirements
+
+        # **Compound is not the same as ambiguous.**
+        #
+        # A three-sentence objective naming a folder, a file and its
+        # exact text has enumerated several requirements and left
+        # nothing to interpret. `enumerates_multiple_requirements` is
+        # right to keep it away from the single-command parsers -- that
+        # guard exists because a compound sentence once lost four
+        # requirements to one -- but being unfit for a COMMAND
+        # recogniser is not the same as needing a model.
+        #
+        # Measured live 2026-09-05: exactly such an objective spent
+        # eight external calls here and still refused, for a folder and
+        # a text file. ADR-0027 names that case in as many words --
+        # "creating a folder must not deliberate".
+        #
+        # So ask the deterministic recogniser first. It answers `()` on
+        # any doubt, and on doubt nothing below changes.
+        dictated = dictated_effects(evidence)
+        if dictated:
+            requirements = tuple(
+                SemanticRequirement(
+                    requirement_id=f"req_{index}",
+                    kind=EFFECT,
+                    description=description,
+                    provenance=evidence,
+                    founder_evidence=evidence,
+                )
+                for index, description in enumerate(dictated, start=1)
+            )
             self._record_requirement_admission(
                 intent, self._deterministic_admission(requirements),
             )

@@ -587,6 +587,34 @@ _CONTENT_INLINE = re.compile(
     re.I,
 )
 
+#: The state-stated form of the same instruction. A founder who says what
+#: must be TRUE rather than what to DO has still dictated the operation:
+#: "ensure result.txt contains exactly: ..." names the file, the content
+#: and the fact that it is to be written, as completely as "write ... into
+#: result.txt" does.
+#:
+#: Measured live 2026-09-05: an objective in this form compiled to `None`
+#: here and was therefore escalated to the reasoning ladder, which spent
+#: eight external calls failing to establish requirements for a folder and
+#: a text file. ADR-0027 names that exact case -- "creating a folder must
+#: not deliberate."
+#:
+#: The filename must be the subject of the contains-clause. That is what
+#: keeps this from being a bare "any token with a dot" rule, which would
+#: read a version number or a domain as a destination.
+_FILE_CONTAINS = re.compile(
+    r"\b([^\s`'\"]+\.[A-Za-z0-9]+)\s+(?:should\s+)?contains?\b",
+    re.I,
+)
+
+#: "...contains exactly: <text>" / "...contains: <text>". Stops at a
+#: sentence boundary so a following instruction ("Verify ...", "Then
+#: report.") is never swallowed into the founder's literal text.
+_CONTENT_CONTAINS = re.compile(
+    r"\bcontains?\s+(?:exactly\s*)?:\s*(.+?)(?=\s*\.(?:\s+[A-Z]|\s*$))",
+    re.I | re.S,
+)
+
 #: The destination file when the founder names it plainly -- "write it
 #: into notes.txt", "save that to report.md" -- rather than in the
 #: "file called X" shape `_FILE` above already covers. An extension is
@@ -687,6 +715,12 @@ def _literal_content(goal: str) -> str | None:
         if text.lower() in _PRONOUNS or _REFERENCE.search(text):
             return None
         return text or None
+    contains = _CONTENT_CONTAINS.search(goal)
+    if contains:
+        text = contains.group(1).strip().strip("`'\"")
+        if not text or text.lower() in _PRONOUNS or _REFERENCE.search(text):
+            return None
+        return text
     return None
 
 
@@ -714,7 +748,10 @@ def _read_explicit_workflow(goal: str) -> list[_Operation] | None:
         bare = _FOLDER_BARE.search(text)
         if bare is not None and bare.group(1).lower() not in _NOT_A_NAME:
             folder = bare
-    filename = _FILE.search(text) or _FILE_BARE.search(text) or _FILE_TARGET.search(text)
+    filename = (
+        _FILE.search(text) or _FILE_BARE.search(text)
+        or _FILE_TARGET.search(text) or _FILE_CONTAINS.search(text)
+    )
     place = _PLACE.search(text)
 
     # A dictated deletion: the founder named the operation, the file, the
@@ -763,6 +800,46 @@ def _read_explicit_workflow(goal: str) -> list[_Operation] | None:
                    payload={"path": target, "location": location, "content": content},
                    checkpoint=checkpoint),
     ]
+
+
+
+#: What a dictated operation asserts once it has run, in the founder's
+#: own terms. Shared so recognition and planning cannot drift apart.
+_EFFECT_DESCRIPTIONS = {
+    _CREATE_FOLDER: lambda p: f"The folder {p['name']} exists in {p['location']}.",
+    _WRITE_FILE: lambda p: (
+        f"{p['path']} exists in {p['location']} and contains "
+        f"the text the founder supplied."
+    ),
+    _DELETE_FILE: lambda p: f"{p['path']} no longer exists in {p['location']}.",
+}
+
+
+def dictated_effects(goal: str) -> tuple[str, ...]:
+    """The effects a FULLY dictated objective states, or `()`.
+
+    Recognition only. No catalogue is consulted, no capability is
+    resolved, no plan is built and nothing is executed -- this answers
+    one question, "has the founder already supplied every operation,
+    argument and ordering", and it answers `()` on any doubt because
+    `_read_explicit_workflow` does.
+
+    It exists so the Intent Layer can establish requirements for such an
+    objective WITHOUT a model. Compound is not the same as ambiguous: a
+    three-sentence objective naming a folder, a file and its exact text
+    has nothing left to interpret, and ADR-0027 is explicit that "creating
+    a folder must not deliberate". Measured live 2026-09-05, that exact
+    objective cost eight external calls and still failed.
+
+    The Planner remains the only thing that turns this into steps. This
+    is the Brain asking what the founder said, not the Brain planning.
+    """
+    operations = _read_explicit_workflow(goal)
+    if not operations:
+        return ()
+    return tuple(
+        _EFFECT_DESCRIPTIONS[op.kind](op.payload) for op in operations
+    )
 
 
 def _explicit_workflow(intent: Intent, options) -> MissionPlan | None:
