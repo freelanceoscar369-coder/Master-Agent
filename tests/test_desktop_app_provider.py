@@ -744,3 +744,48 @@ class TestTheApplicationHandsOverItsOwnReply:
         assert clipboard.writes, "the sentinel must actually have been written"
         assert not (result or "").startswith("__kalpavriksha_copy_")
 
+class TestACopiedReplyMustBeThisTurns:
+    """A stale copy is worse than no copy: it parses.
+
+    Measured live on 2026-09-05, after copying was introduced: two
+    different prompts returned byte-identical 3,251-character replies, and
+    the obligation AUDIT came back in the PROPOSAL shape --
+    `source_quote`/`meaning` where `regions`/`omissions`/`collapses` were
+    required. `find_last` had taken the previous message's `Copy` button,
+    because this turn's had not rendered yet.
+
+    The sentinel proves the clipboard changed. It cannot prove what it
+    changed to.
+    """
+
+    SETTLED = (
+        "partial reconstruction\n"
+        '"entailed":true,"contains_multiple_states":false,"reason":"the audit ran"\n'
+        "tail"
+    )
+
+    def test_a_previous_message_is_rejected(self):
+        stale = '{"anchors":[{"source_quote":"the question before last","meaning":"x"}]}'
+        assert DesktopAppReasoningProvider._copy_is_this_turn(stale, self.SETTLED) is False
+
+    def test_this_turns_fuller_text_is_accepted(self):
+        fresh = (
+            '{"regions":[],"anchors":[{"anchor_id":"anchor_1",'
+            '"entailed":true,"contains_multiple_states":false,'
+            '"reason":"the audit ran"}],"omissions":[],"valid":true}'
+        )
+        assert DesktopAppReasoningProvider._copy_is_this_turn(fresh, self.SETTLED) is True
+
+    def test_whitespace_reflow_does_not_make_it_stale(self):
+        """A copied reply is re-wrapped; that is not a different message."""
+        fresh = (
+            'noise   "entailed":true,"contains_multiple_states":false,\n'
+            '"reason":"the audit ran"   more'
+        )
+        assert DesktopAppReasoningProvider._copy_is_this_turn(fresh, self.SETTLED) is True
+
+    def test_nothing_distinctive_to_check_against_is_not_a_veto(self):
+        """With no run long enough to identify the turn, this guard must
+        stand aside rather than block every copy."""
+        assert DesktopAppReasoningProvider._copy_is_this_turn("anything", "short") is True
+

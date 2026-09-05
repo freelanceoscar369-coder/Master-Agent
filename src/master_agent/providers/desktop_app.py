@@ -53,6 +53,7 @@ from master_agent.desktop.execution.uia_control import (
     UiaAutomationBridge,
     UiaTargetNotFound,
     UiaUnavailable,
+    _PROMPT_FRAGMENT_MIN_CHARS,
     _normalize_whitespace,
 )
 from master_agent.desktop.execution.win32_backends import Win32WindowBackend
@@ -630,7 +631,11 @@ class DesktopAppReasoningProvider(ModelProvider):
         # Strictly an improvement or nothing -- the settled reconstruction
         # stands unless copying produced something real.
         copied = self._reply_via_copy(window)
-        if copied and len(copied.strip()) >= len(response_text.strip()):
+        if (
+            copied
+            and self._copy_is_this_turn(copied, response_text)
+            and len(copied.strip()) >= len(response_text.strip())
+        ):
             response_text = copied
         # Whitespace-normalized comparison, not raw `.strip()`: a rich-text
         # composer reflows pasted whitespace (blank lines collapsed,
@@ -931,6 +936,48 @@ class DesktopAppReasoningProvider(ModelProvider):
     #: always synchronous, and reading too eagerly returns the sentinel.
     _COPY_SETTLE_SECONDS = 2.5
     _COPY_POLL_SECONDS = 0.15
+
+    @staticmethod
+    def _copy_is_this_turn(copied: str, settled: str) -> bool:
+        """Is the copied text THIS turn's reply, or an older message?
+
+        The sentinel proves the clipboard changed. It cannot prove what it
+        changed TO. `find_last` takes the last `Copy` in the transcript,
+        and if this turn's affordance has not rendered yet that is the
+        PREVIOUS message's button -- so a stale reply arrives complete,
+        well-formed, and answering the question before last.
+
+        Measured live on 2026-09-05: two different prompts came back with
+        byte-identical 3,251-character replies, and the obligation AUDIT
+        returned the proposal shape -- `source_quote`/`meaning` where
+        `regions`/`omissions`/`collapses` were required. Parsed cleanly,
+        and wrong, which is worse than unparseable.
+
+        The reconstruction is this turn's by construction: it is anchored
+        below this turn's own prompt floor. It may be partial, but every
+        run in it came from this reply, so the longest of them must appear
+        in any text claiming to BE this reply.
+        """
+        runs = [
+            run.strip() for run in (settled or "").split("\n")
+            if len(run.strip()) >= _PROMPT_FRAGMENT_MIN_CHARS
+        ]
+        if not runs:
+            # Nothing distinctive to check against. The size comparison in
+            # the caller is then the only guard, which is where it was
+            # before copying existed.
+            return True
+        # Whitespace is dropped entirely rather than normalised. The two
+        # texts came from different places -- one rebuilt from rendered
+        # runs, one copied as the application stores it -- and they wrap
+        # differently, so a newline in one is a space, or nothing, in the
+        # other. Normalising still leaves those apart; ignoring the
+        # whitespace compares what was actually said.
+        def _bare(text: str) -> str:
+            return "".join((text or "").split())
+
+        return _bare(max(runs, key=len)) in _bare(copied)
+
 
     def _reply_via_copy(self, window: dict) -> str | None:
         """The reply as the application itself would give it, or `None`.
