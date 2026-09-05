@@ -652,3 +652,69 @@ def test_a_failed_step_does_not_abandon_work_that_can_still_run():
         Runtime(), mission_control, ExecutionStatus(), "obj-1", 5.0
     )
     assert turned, "the mission was abandoned while work could still run"
+class TestARefusalSaysWhichPartItCouldNotPreserve:
+    """The refusal already knew; nobody read it.
+
+    Measured live on 2026-09-04. Three product runs refused a request to
+    create a folder and a text file. The log said only:
+
+        I could not preserve every part of your request as independently
+        verifiable requirements
+
+    which names the CHECK, not the part. `PlanRefusal.detail` was
+    carrying the answer -- `the obligation audit was not a JSON object` --
+    and this bridge read `reason` and discarded `detail`, so diagnosing a
+    five-minute founder-facing failure needed a probe into the Brain to
+    recover something the refusal had already computed.
+    """
+
+    class _RefusalWithDetail:
+        reason = "I could not preserve every part of your request."
+        detail = "the obligation audit was not a JSON object"
+
+    def _run(self):
+        mission_service = _FakeMissionService(
+            _FakeOutcome(accepted=False, refusal=self._RefusalWithDetail())
+        )
+        status = ExecutionStatus()
+        result = kd._submit_objective(
+            mission_service, _FakeRuntime(), 
+            _FakeMissionControl([_FakeObjective()], _FakeFounderState()),
+            status, "do something",
+        )
+        return result, status
+
+    def test_the_detail_reaches_the_developer_diagnostic(self):
+        _, status = self._run()
+        assert any(
+            "the obligation audit was not a JSON object" in err
+            for err in status.errors
+        ), "the one field that explains the refusal was dropped again"
+
+    def test_the_founder_still_never_reads_the_internals(self):
+        """The hygiene rule this must not break.
+
+        Surfacing the diagnostic is worth nothing if it leaks: a founder
+        reading "not a JSON object" learns about our plumbing and nothing
+        they can act on.
+        """
+        result, _ = self._run()
+        assert "JSON" not in result["reply"]
+        assert "obligation audit" not in result["reply"]
+        assert result["reply"]
+
+    def test_a_refusal_without_a_detail_is_unchanged(self):
+        """Most refusals carry no detail, and they must look exactly as
+        they did -- no empty brackets, no trailing punctuation."""
+        mission_service = _FakeMissionService(
+            _FakeOutcome(accepted=False, refusal=_FakeRefusal("no eligible provider"))
+        )
+        status = ExecutionStatus()
+        kd._submit_objective(
+            mission_service, _FakeRuntime(),
+            _FakeMissionControl([_FakeObjective()], _FakeFounderState()),
+            status, "do something",
+        )
+        assert "no eligible provider" in status.errors[-1]
+        assert "[" not in status.errors[-1]
+

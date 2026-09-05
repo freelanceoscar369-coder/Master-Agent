@@ -2912,9 +2912,29 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
         # whatever Memory already recorded). Only the sentence the founder
         # reads is rewritten — a founder should never be shown "HTTP 503"
         # or a provider's internal prose.
-        logging.warning("objective refused: %s", reason)
+        # `reason` says a refusal happened; `detail` says WHICH part of the
+        # request could not be preserved -- the structural issues and the
+        # merged, lost or invented obligations behind it. Only `reason` was
+        # ever read, so the one field that explains the refusal was computed
+        # and dropped here.
+        #
+        # Measured live on 2026-09-04: two runs refused a request to create
+        # a folder and a text file. The log said "I could not preserve every
+        # part of your request as independently verifiable requirements",
+        # which names the check and not the part. Diagnosis needed a probe
+        # into the Brain to recover something the refusal was already
+        # carrying.
+        #
+        # The founder-facing sentence is deliberately unchanged: it is still
+        # built from `reason` alone, so nobody reads our internals.
+        detail = (
+            getattr(outcome.refusal, "detail", "") or ""
+            if outcome.refusal is not None else ""
+        )
+        diagnostic = f"{reason} [{detail}]" if detail else reason
+        logging.warning("objective refused: %s", diagnostic)
         status.message = _founder_refusal_sentence(reason)
-        status.errors.append(reason)
+        status.errors.append(diagnostic)
         return _founder_reply(status, status.message)
 
     objective_id = outcome.objective_id
