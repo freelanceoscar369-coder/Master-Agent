@@ -592,6 +592,14 @@ class DesktopAppReasoningProvider(ModelProvider):
         except (UiaUnavailable, UiaTargetNotFound):
             response_baseline = {}
 
+        # How many turns the transcript is showing BEFORE we submit.
+        #
+        # A per-message `Copy` affordance appears once per turn, so this
+        # count is the one fact about freshness that a stale page cannot
+        # fake: until it grows, this turn's reply has not rendered,
+        # whatever the window otherwise appears to say.
+        copy_baseline = self._copy_control_count(window)
+
         # 4. Submit — verified, not assumed. Prefers Enter (the common,
         # fastest case); if that produces no visible sign of submission
         # within a bounded wait, Enter is not assumed to be this
@@ -630,7 +638,7 @@ class DesktopAppReasoningProvider(ModelProvider):
         #
         # Strictly an improvement or nothing -- the settled reconstruction
         # stands unless copying produced something real.
-        copied = self._reply_via_copy(window)
+        copied = self._reply_via_copy(window, copy_baseline)
         if (
             copied
             and self._copy_is_this_turn(copied, response_text)
@@ -979,7 +987,21 @@ class DesktopAppReasoningProvider(ModelProvider):
         return _bare(max(runs, key=len)) in _bare(copied)
 
 
-    def _reply_via_copy(self, window: dict) -> str | None:
+    def _copy_control_count(self, window: dict) -> int:
+        """How many turns the transcript is showing, or -1 if unknown.
+
+        -1 disables the freshness gate rather than blocking every
+        copy: an application without the affordance, or a window we
+        could not read, must keep working exactly as before.
+        """
+        try:
+            return len(self._uia.named_controls(
+                window["handle"], name_exact="Copy", control_type=50000,
+            ))
+        except Exception:  # noqa: BLE001 -- an unknown count is not a failure
+            return -1
+
+    def _reply_via_copy(self, window: dict, copy_baseline: int = -1) -> str | None:
         """The reply as the application itself would give it, or `None`.
 
         Never raises and never partially succeeds: either the clipboard
@@ -993,9 +1015,25 @@ class DesktopAppReasoningProvider(ModelProvider):
         """
         try:
             handle = window["handle"]
-            button = self._uia.find_last(handle, name_exact="Copy", control_type=50000)
-            if button is None:
+            controls = self._uia.named_controls(
+                handle, name_exact="Copy", control_type=50000,
+            )
+            if not controls:
                 return None
+            # THE freshness proof. Measured live: the requirement
+            # VALIDATION stage received a byte-identical reply to the
+            # stage that produced the requirements -- same sha256, two
+            # different prompts. It parsed, it carried the right key,
+            # and it was the answer to the previous question.
+            #
+            # The earlier guard compared the copy against the settled
+            # reconstruction, which is internal consistency, not
+            # freshness: when BOTH are stale they agree and it passes.
+            # A new turn adds a new `Copy`, and a stale page cannot
+            # produce one.
+            if copy_baseline >= 0 and len(controls) <= copy_baseline:
+                return None
+            button = controls[-1]
 
             sentinel = f"__kalpavriksha_copy_{uuid.uuid4().hex}__"
             written = self._clipboard.write(sentinel)

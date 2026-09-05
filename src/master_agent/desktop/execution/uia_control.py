@@ -504,12 +504,27 @@ class UiaAutomationBridge:
         first. Returns `None` rather than raising: a missing affordance is
         an ordinary answer here, and the caller has a fallback.
         """
+        matches = self.named_controls(
+            window_handle, name_exact=name_exact, control_type=control_type,
+        )
+        return matches[-1] if matches else None
+
+    def named_controls(self, window_handle: int, *, name_exact: str,
+                       control_type: int | None = None) -> list:
+        """Every element with this exact name, in document order.
+
+        A per-message affordance appears once per turn, so how MANY there
+        are is how many turns the transcript is showing. That count is a
+        freshness signal a caller can take before submitting and check
+        again afterwards: if it has not grown, this turn's message has not
+        rendered yet, whatever else the window appears to be saying.
+        """
         try:
             root = self._root(window_handle)
             candidates = self._descendants(root)
         except UiaUnavailable:
-            return None
-        found = None
+            return []
+        found = []
         wanted = name_exact.casefold()
         for element in candidates:
             try:
@@ -519,7 +534,7 @@ class UiaAutomationBridge:
                     continue
             except Exception:  # noqa: BLE001 -- an unreadable element is not a match
                 continue
-            found = element
+            found.append(element)
         return found
 
 

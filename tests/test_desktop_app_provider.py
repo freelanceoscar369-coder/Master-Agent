@@ -661,11 +661,18 @@ class _FakeClipboard:
 class _CopyBridge:
     """Only what `_reply_via_copy` touches."""
 
-    def __init__(self, button=object(), clicks_land=True, clipboard=None):
+    def __init__(self, button=object(), clicks_land=True, clipboard=None, turns=2):
         self._button = button
         self._clicks_land = clicks_land
         self._clipboard = clipboard
         self.clicked = 0
+        #: How many per-message affordances the transcript is showing.
+        self.turns = turns
+
+    def named_controls(self, handle, *, name_exact, control_type=None):
+        """One control per turn, and this fake is showing one more turn
+        than the caller's baseline unless a test says otherwise."""
+        return [] if self._button is None else [object()] * self.turns
 
     def find_last(self, handle, *, name_exact, control_type=None):
         return self._button
@@ -788,4 +795,75 @@ class TestACopiedReplyMustBeThisTurns:
         """With no run long enough to identify the turn, this guard must
         stand aside rather than block every copy."""
         assert DesktopAppReasoningProvider._copy_is_this_turn("anything", "short") is True
+
+class TestAStaleTranscriptCannotAnswerThisTurn:
+    """The founder's own observation, pinned.
+
+    Measured live 2026-09-05, run 6:
+
+        call 6  brain_semantic_requirements_correction  prompt 4051
+        call 7  brain_semantic_requirement_validation   prompt 5149
+                -- byte-identical replies, sha256 a35ffe279242441f
+
+    The stage that VALIDATES the requirements was handed the reply of the
+    stage that PRODUCED them. It parsed, it carried the right top-level
+    key, and it answered the previous question. A validation that
+    validates itself is the most expensive kind of false success.
+
+    The previous guard compared the copy against the settled
+    reconstruction. That is internal consistency, not freshness: when the
+    page has not moved on, BOTH are stale and they agree. A new turn adds
+    a new per-message affordance, and a stale page cannot produce one.
+    """
+
+    def _provider(self, bridge, clipboard):
+        provider = _provider_for_copy()
+        provider._uia = bridge
+        provider._clipboard = clipboard
+        provider._COPY_SETTLE_SECONDS = 0.4
+        provider._COPY_POLL_SECONDS = 0.01
+        return provider
+
+    def test_a_transcript_that_has_not_grown_yields_nothing(self):
+        clipboard = _FakeClipboard()
+        bridge = _CopyBridge(clipboard=clipboard, turns=3)
+        provider = self._provider(bridge, clipboard)
+
+        # Three affordances before submitting, three after: this turn's
+        # reply has not rendered, whatever else the window shows.
+        assert provider._reply_via_copy({"handle": 1}, 3) is None
+        assert bridge.clicked == 0, "nothing may be clicked on a stale transcript"
+
+    def test_a_grown_transcript_is_this_turn(self):
+        clipboard = _FakeClipboard()
+        bridge = _CopyBridge(clipboard=clipboard, turns=4)
+        provider = self._provider(bridge, clipboard)
+
+        assert provider._reply_via_copy({"handle": 1}, 3) == (
+            '{"regions":[],"anchors":[],"valid":true}'
+        )
+
+    def test_an_unknown_baseline_does_not_block_copying(self):
+        """-1 means we could not count before submitting. That must not
+        veto every copy -- it returns the behaviour to what it was."""
+        clipboard = _FakeClipboard()
+        provider = self._provider(_CopyBridge(clipboard=clipboard, turns=1), clipboard)
+
+        assert provider._reply_via_copy({"handle": 1}, -1) is not None
+
+    def test_the_count_is_read_from_the_window_not_assumed(self):
+        clipboard = _FakeClipboard()
+        provider = self._provider(_CopyBridge(clipboard=clipboard, turns=7), clipboard)
+
+        assert provider._copy_control_count({"handle": 1}) == 7
+
+    def test_an_unreadable_window_reports_unknown_rather_than_zero(self):
+        """Zero would look like an empty transcript and let every later
+        copy through as "grown". Unknown disables the gate honestly."""
+        class _Broken:
+            def named_controls(self, *a, **k):
+                raise RuntimeError("window went away")
+
+        provider = self._provider(_Broken(), _FakeClipboard())
+        assert provider._copy_control_count({"handle": 1}) == -1
 
