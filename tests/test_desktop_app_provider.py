@@ -867,3 +867,50 @@ class TestAStaleTranscriptCannotAnswerThisTurn:
         provider = self._provider(_Broken(), _FakeClipboard())
         assert provider._copy_control_count({"handle": 1}) == -1
 
+class TestOnlyARunningApplicationIsAvailable:
+    """One question must not open three applications.
+
+    Measured live 2026-09-05: a single reasoning call was ranked across
+    four installed desktop AI applications and the executor walked the
+    ranking, launching ChatGPT, then Perplexity, then Kimi. The founder
+    asked one question and got three windows.
+
+    An application already running carries the founder's own
+    authenticated session, which is the thing worth reusing. A closed one
+    offers nothing a fresh launch would not have to build anyway, and
+    opening it is a side effect on their desktop that no objective asked
+    for.
+    """
+
+    def _provider_with(self, processes):
+        provider = _provider(_chatgpt_spec())
+        app = types.SimpleNamespace(
+            key="chatgpt", launchable=True, install_source="msix",
+            launch_target="shell:appsfolder/x",
+        )
+        provider._resolve_app_record = lambda inventory: app
+        provider._context = types.SimpleNamespace(
+            cached=types.SimpleNamespace(processes=processes),
+        )
+        return provider
+
+    def test_a_running_application_is_available(self):
+        running = [types.SimpleNamespace(owner="chatgpt", pid=1)]
+        assert self._provider_with(running).availability().reachable is True
+
+    def test_an_installed_but_closed_application_is_not_available(self):
+        assert self._provider_with([]).availability().reachable is False
+
+    def test_another_application_running_does_not_make_this_one_available(self):
+        """Ownership, not merely 'some AI app is open'."""
+        other = [types.SimpleNamespace(owner="perplexity", pid=2)]
+        assert self._provider_with(other).availability().reachable is False
+
+    def test_not_running_is_said_differently_from_not_installed(self):
+        """A founder reading 'not running' knows what to do about it,
+        which is not true of a flat 'unavailable'."""
+        detail = self._provider_with([]).availability().detail
+        assert detail == mod.NOT_RUNNING
+        assert detail != mod.NOT_INSTALLED
+        assert "not running" in detail
+

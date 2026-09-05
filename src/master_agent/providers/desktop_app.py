@@ -95,6 +95,10 @@ COPY_RETRIEVAL_ENABLED = False
 PROVIDER_VERSION = "1.0.0"
 
 NOT_INSTALLED = "not installed on this machine"
+NOT_RUNNING = (
+    "installed but not running; Kalpavriksha reuses a session the founder "
+    "already has open rather than opening applications they did not ask for"
+)
 NO_LAUNCH_TARGET = "installed but no usable launch target was discovered"
 LAUNCH_FAILED = "the application did not report a real, visible window"
 COMPOSER_NOT_FOUND = "no semantic composer target was found (classic control or UIA element)"
@@ -420,7 +424,44 @@ class DesktopAppReasoningProvider(ModelProvider):
         app = self._resolve_app_record(inventory)
         if app is None or not app.launchable:
             return Availability(self._spec.provider_id, False, detail=NOT_INSTALLED)
+        # **Installed is not the same as reachable.**
+        #
+        # This reported every INSTALLED application as available, so
+        # the Broker ranked four of them for one question and the
+        # executor walked the ranking, launching each in turn.
+        # Measured live: a single reasoning call opened ChatGPT, then
+        # Perplexity, then Kimi -- three applications the founder had
+        # not asked for, for one question that needed one answer.
+        #
+        # An application already running carries the founder's own
+        # authenticated session, which is the thing worth reusing. One
+        # that is closed offers nothing a fresh launch would not have
+        # to build from scratch, and launching it is a side effect on
+        # the founder's desktop that no objective asked for.
+        #
+        # Not installed and not running are DIFFERENT answers, and both
+        # are said plainly: a founder reading 'not running' knows what
+        # to do about it, which is not true of 'unavailable'.
+        if not self._is_running(inventory, app):
+            return Availability(
+                self._spec.provider_id, False, detail=NOT_RUNNING,
+            )
         return Availability(self._spec.provider_id, True, detail=app.install_source)
+
+    def _is_running(self, inventory, app) -> bool:
+        """Does this application have a live process right now?
+
+        The same ownership test `_launch_or_focus` already uses to
+        decide whether it needs to start anything -- asked earlier, so
+        the answer can prevent the launch instead of following it.
+        """
+        key = getattr(app, "key", None)
+        if key is None:
+            return False
+        return any(
+            getattr(process, "owner", None) == key
+            for process in getattr(inventory, "processes", ()) or ()
+        )
 
     def _resolve_app_record(self, inventory):
         if self._spec.inventory_key:
