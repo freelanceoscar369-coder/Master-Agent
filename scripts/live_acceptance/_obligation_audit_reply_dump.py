@@ -44,6 +44,28 @@ def main() -> int:
     mission_service = pipeline[0]
     layer = mission_service.intent_layer
 
+    # Also trace the reconstruction itself: a reply that arrives as a
+    # fragment is either a fragment on the page or a fragment we made.
+    # Only the rows the sorter was handed can tell those apart.
+    from master_agent.desktop.execution.uia_control import UiaAutomationBridge
+
+    order_original = UiaAutomationBridge._in_reading_order
+
+    def order_traced(kept):
+        rows = list(kept)
+        if rows:
+            print(f"  [reading order: {len(rows)} row(s), document order]", flush=True)
+            for top, left, text in rows:
+                flat = ascii_of(" ".join(text.split()))
+                print(f"    top={top:>6} left={left:>6} len={len(text):>5} | {flat[:90]}",
+                      flush=True)
+        else:
+            print("  [reading order: 0 rows -- falling back to single region]",
+                  flush=True)
+        return order_original(rows)
+
+    UiaAutomationBridge._in_reading_order = staticmethod(order_traced)
+
     original = type(layer)._reasoned_json
     calls = {"n": 0}
 
@@ -104,6 +126,7 @@ def main() -> int:
         print(f"  reasoning calls made: {calls['n']}")
     finally:
         type(layer)._reasoned_json = original
+        UiaAutomationBridge._in_reading_order = order_original
     return 0
 
 

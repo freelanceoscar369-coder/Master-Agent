@@ -34,10 +34,12 @@ from is reuse, not a parallel implementation.
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any
 
 from master_agent.ai_infrastructure.catalog import DESKTOP, PROVIDER_CATALOG, ProviderSpec, is_coding_agent
 from master_agent.desktop.actions import DesktopContext
+from master_agent.desktop.execution.clipboard import ClipboardExecutive
 from master_agent.desktop.execution.keyboard import KeyboardController
 from master_agent.desktop.execution.mouse import MouseController
 from master_agent.desktop.execution.text_control import (
@@ -344,6 +346,9 @@ class DesktopAppReasoningProvider(ModelProvider):
         self._uia = UiaAutomationBridge()
         self._windows = Win32WindowBackend()
         self._mouse = MouseController()
+        #: Reading a reply back the way the application offers it.
+        #: The lane already spends the clipboard to paste prompts.
+        self._clipboard = ClipboardExecutive()
         self._sessions = ReasoningSessionManager(self._uia, self._mouse)
 
     # ---- identity ---------------------------------------------------------
@@ -606,6 +611,27 @@ class DesktopAppReasoningProvider(ModelProvider):
         if response_text is None:
             return failure(self._spec.provider_id, TIMED_OUT, RESPONSE_TIMEOUT,
                             latency_ms=self._elapsed_ms(started), **session_detail)
+
+        # The application will hand over its own reply, exactly, if asked.
+        #
+        # Reconstruction can only ever see what is RENDERED. Measured live
+        # on 2026-09-05, a Stage 1 audit reply came back with rows at
+        # top=-121 -- scrolled above the viewport -- and its leading
+        # `{"regions":[...]` was absent from the accessibility tree
+        # altogether. No ordering or exclusion rule recovers text the
+        # window never drew, and the reply parsed as prose rather than as
+        # the JSON the Brain asked for.
+        #
+        # A per-message `Copy` button is the application's own answer to
+        # "give me that text", which is what a founder would click. It
+        # costs the clipboard, and this lane already spends it: `paste()`
+        # replaces the clipboard to submit every long prompt.
+        #
+        # Strictly an improvement or nothing -- the settled reconstruction
+        # stands unless copying produced something real.
+        copied = self._reply_via_copy(window)
+        if copied and len(copied.strip()) >= len(response_text.strip()):
+            response_text = copied
         # Whitespace-normalized comparison, not raw `.strip()`: a rich-text
         # composer reflows pasted whitespace (blank lines collapsed,
         # indentation moved — see `uia_control.py`'s own finding). Leftover
@@ -899,6 +925,52 @@ class DesktopAppReasoningProvider(ModelProvider):
             except (UiaTargetNotFound, UiaUnavailable):
                 continue
         return None
+
+    #: How long to wait for the clipboard to show the copy actually
+    #: happened. A button click is instant; the write behind it is not
+    #: always synchronous, and reading too eagerly returns the sentinel.
+    _COPY_SETTLE_SECONDS = 2.5
+    _COPY_POLL_SECONDS = 0.15
+
+    def _reply_via_copy(self, window: dict) -> str | None:
+        """The reply as the application itself would give it, or `None`.
+
+        Never raises and never partially succeeds: either the clipboard
+        provably changed to something non-empty because of our click, or
+        this answers `None` and the caller keeps what it already had.
+
+        The sentinel is what makes that provable. Reading the clipboard
+        after a click and trusting whatever is there would return the
+        founder's own previous clipboard whenever the click missed --
+        silently, and looking exactly like a reply.
+        """
+        try:
+            handle = window["handle"]
+            button = self._uia.find_last(handle, name_exact="Copy", control_type=50000)
+            if button is None:
+                return None
+
+            sentinel = f"__kalpavriksha_copy_{uuid.uuid4().hex}__"
+            written = self._clipboard.write(sentinel)
+            if not getattr(written, "success", False):
+                return None
+
+            if not self._uia.click(button, self._mouse):
+                return None
+
+            deadline = time.monotonic() + self._COPY_SETTLE_SECONDS
+            while time.monotonic() < deadline:
+                time.sleep(self._COPY_POLL_SECONDS)
+                read = self._clipboard.read()
+                if not read.success:
+                    continue
+                text = (read.output or {}).get("text") or ""
+                if text and text != sentinel:
+                    return text
+            return None
+        except Exception:  # noqa: BLE001 -- an optional improvement never fails a turn
+            return None
+
 
     @staticmethod
     def _reply_window_seconds(budget: Any) -> float:

@@ -493,6 +493,36 @@ class UiaAutomationBridge:
             f"automation_id={automation_id!r}"
         )
 
+    def find_last(self, window_handle: int, *, name_exact: str,
+                  control_type: int | None = None):
+        """The LAST element with this exact name, in document order.
+
+        `find()` answers with the first match, which for a chat transcript
+        is the OLDEST message's control. A per-message affordance -- the
+        `Copy` button beside a reply -- appears once per turn, so the one
+        belonging to the turn that just finished is the last, not the
+        first. Returns `None` rather than raising: a missing affordance is
+        an ordinary answer here, and the caller has a fallback.
+        """
+        try:
+            root = self._root(window_handle)
+            candidates = self._descendants(root)
+        except UiaUnavailable:
+            return None
+        found = None
+        wanted = name_exact.casefold()
+        for element in candidates:
+            try:
+                if (element.CurrentName or "").casefold() != wanted:
+                    continue
+                if control_type is not None and element.CurrentControlType != control_type:
+                    continue
+            except Exception:  # noqa: BLE001 -- an unreadable element is not a match
+                continue
+            found = element
+        return found
+
+
     def find_composer(self, window_handle: int, retries: int = 2, retry_delay_seconds: float = 0.6):
         """Last-resort heuristic (see module docstring) for when a
         caller has no name/AutomationId hint: the smallest focusable,

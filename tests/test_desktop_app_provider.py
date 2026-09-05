@@ -634,3 +634,113 @@ class TestReplyWindowHonoursTheBudget:
         signature = inspect.signature(DesktopAppReasoningProvider._await_response)
         assert "budget" in signature.parameters
 
+def _provider_for_copy():
+    return DesktopAppReasoningProvider(_chatgpt_spec(), context=DesktopContext(probe=None))
+
+
+class _FakeClipboard:
+    """The real `ClipboardExecutive` shape: output={"text": ...}."""
+
+    def __init__(self, on_copy=None):
+        self.text = "the founder's own clipboard, untouched"
+        self._on_copy = on_copy
+        self.writes = []
+
+    def write(self, text):
+        self.writes.append(text)
+        self.text = text
+        return types.SimpleNamespace(success=True, output={"written_characters": len(text)})
+
+    def read(self):
+        return types.SimpleNamespace(success=True, output={"text": self.text})
+
+    def copy_happened(self, text):
+        self.text = text
+
+
+class _CopyBridge:
+    """Only what `_reply_via_copy` touches."""
+
+    def __init__(self, button=object(), clicks_land=True, clipboard=None):
+        self._button = button
+        self._clicks_land = clicks_land
+        self._clipboard = clipboard
+        self.clicked = 0
+
+    def find_last(self, handle, *, name_exact, control_type=None):
+        return self._button
+
+    def click(self, element, mouse):
+        self.clicked += 1
+        if self._clicks_land and self._clipboard is not None:
+            self._clipboard.copy_happened('{"regions":[],"anchors":[],"valid":true}')
+        return self._clicks_land
+
+
+class TestTheApplicationHandsOverItsOwnReply:
+    """Reconstruction can only see what is RENDERED.
+
+    Measured live on 2026-09-05: a Stage 1 audit reply carried rows at
+    top=-121 -- scrolled above the viewport -- and its leading
+    `{"regions":[...]` was not in the accessibility tree at all. No
+    ordering or exclusion rule recovers text the window never drew.
+    """
+
+    def _provider(self, bridge, clipboard):
+        provider = _provider_for_copy()
+        provider._uia = bridge
+        provider._clipboard = clipboard
+        provider._COPY_SETTLE_SECONDS = 0.4
+        provider._COPY_POLL_SECONDS = 0.01
+        return provider
+
+    def test_the_copied_reply_is_returned(self):
+        clipboard = _FakeClipboard()
+        bridge = _CopyBridge(clipboard=clipboard)
+        provider = self._provider(bridge, clipboard)
+
+        assert provider._reply_via_copy({"handle": 1}) == (
+            '{"regions":[],"anchors":[],"valid":true}'
+        )
+        assert bridge.clicked == 1
+
+    def test_a_click_that_did_not_land_returns_nothing(self):
+        """The failure this must never turn into a reply.
+
+        Without the sentinel, reading the clipboard after a missed click
+        hands back whatever the founder had copied earlier -- silently,
+        and shaped exactly like an answer.
+        """
+        clipboard = _FakeClipboard()
+        before = clipboard.text
+        provider = self._provider(_CopyBridge(clicks_land=False, clipboard=clipboard),
+                                  clipboard)
+
+        assert provider._reply_via_copy({"handle": 1}) is None
+        assert before not in (provider._reply_via_copy({"handle": 1}) or "")
+
+    def test_no_copy_affordance_is_an_ordinary_no(self):
+        """Applications without the button must keep working."""
+        clipboard = _FakeClipboard()
+        provider = self._provider(_CopyBridge(button=None, clipboard=clipboard), clipboard)
+
+        assert provider._reply_via_copy({"handle": 1}) is None
+
+    def test_the_sentinel_is_never_mistaken_for_the_reply(self):
+        """A click that lands but copies nothing leaves our own marker
+        on the clipboard. Returning that would be a fake success wearing
+        a hex string."""
+        clipboard = _FakeClipboard()
+
+        class _EmptyCopy(_CopyBridge):
+            def click(self, element, mouse):
+                self.clicked += 1
+                return True  # landed, but the app wrote nothing
+
+        provider = self._provider(_EmptyCopy(clipboard=clipboard), clipboard)
+        result = provider._reply_via_copy({"handle": 1})
+
+        assert result is None
+        assert clipboard.writes, "the sentinel must actually have been written"
+        assert not (result or "").startswith("__kalpavriksha_copy_")
+
