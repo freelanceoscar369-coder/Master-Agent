@@ -3245,6 +3245,17 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
             )
         return _founder_reply(status, status.message)
     if final_progress is not None and not final_progress.unresolved:
+        # Close the thread this mission opened, HERE -- where verified
+        # completion is actually established. One record answers both
+        # "what did you decide" and "and were you right"; two records
+        # answer neither, because nothing says they are the same
+        # mission.
+        try:
+            mission_service.note_mission_outcome(
+                status.objective_id, status="verified", verification="matched",
+            )
+        except Exception:  # noqa: BLE001 -- a closed thread is not the mission
+            pass
         # `state.result` is still recorded -- other consumers legitimately
         # want the last Task result -- but it is no longer what the founder
         # is told the MISSION did.
@@ -3306,17 +3317,6 @@ def _submit_objective(mission_service, runtime, mission_control, status, text: s
     # missing.
     if status.requires_founder_completion or status.status == AWAITING_FOUNDER_COMPLETION:
         done = _mission_report(mission_service, status.objective_id)
-        # Close the thread this mission opened. One record answers
-        # both 'what did you decide' and 'and were you right'; two
-        # records answer neither, because nothing says they are the
-        # same mission.
-        try:
-            mission_service.note_mission_outcome(
-                status.objective_id, status="verified",
-                verification="matched" if done else "unreconstructed",
-            )
-        except Exception:  # noqa: BLE001 -- a closed thread is not the mission
-            pass
         status.message = (
             f"{done} Ready for your review." if done
             else "The work finished, but I can't reconstruct a verified "
