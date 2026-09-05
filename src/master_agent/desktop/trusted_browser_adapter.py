@@ -318,13 +318,64 @@ class DesktopTrustedBrowser:
         return self.navigate(url)
 
     def navigate(self, url: str) -> TrustedBrowserResult:
+        """Type the address, CONFIRM it, and only then commit.
+
+        Measured live 2026-09-05: the founder's browser ended on
+        `gemini.google.com/ap` -- one character short of `/app` -- and a
+        real 404. An address bar is not an ordinary text field: it
+        autocompletes while you type, and a suggestion can consume or
+        replace the last keystroke. Pressing Enter without reading it back
+        commits to whatever the omnibox decided, which is how a reasoning
+        call navigated the founder's window to a page that does not exist.
+
+        Enter is the irreversible half of this operation, so it is the
+        half that gets the check. An address that does not read back as
+        the one asked for is an uncertain target, and an uncertain target
+        gets zero input.
+        """
         typed = self.type_into(_ADDRESS_BAR, url)
         if not typed.ok:
             return TrustedBrowserResult(False, f"could not reach the address bar: {typed.detail}")
+        settled = self._address_matches(url)
+        if not settled:
+            return TrustedBrowserResult(
+                False,
+                f"the address bar did not read back as {url!r}; nothing was "
+                f"committed",
+            )
         entered = self.press("enter")
         if not entered.ok:
             return entered
         return TrustedBrowserResult(True, f"navigated to {url}")
+
+    def _address_matches(self, url: str) -> bool:
+        """Does the address bar hold the address we asked for?
+
+        Compared without the scheme and without a trailing slash, because
+        the omnibox displays what it likes -- it hides `https://` and it
+        may or may not keep a trailing separator. Those are presentation.
+        A missing character is not.
+        """
+        element = self.find(_ADDRESS_BAR)
+        if element is None:
+            return False
+        shown = (getattr(element, "name", "") or "").strip()
+        try:
+            observed = self._run("read_text", application=self._application,
+                                 target_name_contains=_ADDRESS_BAR)
+            if observed.success and observed.output:
+                shown = str(observed.output.get("text") or shown)
+        except Exception:  # noqa: BLE001 -- an unreadable bar is not a match
+            return False
+
+        def _bare(value: str) -> str:
+            value = (value or "").strip().rstrip("/")
+            for scheme in ("https://", "http://"):
+                if value.startswith(scheme):
+                    value = value[len(scheme):]
+            return value.casefold()
+
+        return bool(shown) and _bare(shown) == _bare(url)
 
     # ---- observation ----------------------------------------------------
 
