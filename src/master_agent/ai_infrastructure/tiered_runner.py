@@ -78,6 +78,7 @@ from typing import Any
 #: Named from the workload vocabulary rather than spelled here, so the two
 #: cannot drift apart.
 from master_agent.ai_infrastructure.workload import INTERACTIVE as INTERACTIVE_CLASS
+from master_agent.providers.response import UNAVAILABLE
 
 #: Provider ids belonging to each tier. Populated once, from the same
 #: declarative `PROVIDER_CATALOG` every provider in this system is
@@ -95,6 +96,21 @@ TIER_BROWSER = "browser"
 #: The one attempt an interactive turn gets: every provider at once, ranked
 #: by the Broker rather than pre-ordered by locality here.
 TIER_ANY = "any"
+
+
+
+#: Outcomes that mean the provider was never actually asked.
+#:
+#: `UNAVAILABLE` is the transport saying it could not reach the provider
+#: at all -- no prompt was delivered, no window driven, nothing spent. Any
+#: other failure means the request WAS put to it and the answer was no
+#: good, which is a different fact and belongs to the Brain.
+_NEVER_INVOKED_OUTCOMES = frozenset({UNAVAILABLE})
+
+
+def _never_invoked(outcome: Any) -> bool:
+    """Was this provider unreachable, rather than asked and unhelpful?"""
+    return str(getattr(outcome, "outcome", "") or "") in _NEVER_INVOKED_OUTCOMES
 
 
 def _acceptable(outcome: Any) -> bool:
@@ -353,6 +369,27 @@ class TieredPromptRunner:
                 # A refusal before any provider was even selected (e.g.
                 # `NO_PROVIDER_AVAILABLE`) — nothing left to exclude and
                 # retry within this tier.
+                break
+            if not _never_invoked(outcome):
+                # **Invoked and failed is not the same as unreachable.**
+                #
+                # Measured live 2026-09-05: one Brain sub-call walked
+                # ChatGPT -> Perplexity -> Kimi -> the web lane, four of
+                # the founder's applications driven for one question,
+                # because each was invoked, timed out, and this loop
+                # quietly asked for the next one.
+                #
+                # A provider that could not be REACHED was never asked,
+                # so asking someone else is still one question. A
+                # provider that WAS asked and failed is a method
+                # failure, and ADR-0027 gives that to the Brain to
+                # adjudicate -- retry, another resource, another
+                # method, clarification, or an honest stop. It does not
+                # give it to a loop.
+                #
+                # So the failure goes back with its evidence, and any
+                # change of provider becomes a new, explicit, recorded
+                # selection rather than a silent one.
                 break
             remaining.discard(provider_id)
         return outcome, considered
