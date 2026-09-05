@@ -87,6 +87,15 @@ class EventType(str, Enum):
     # honest way to report.
     MISSION_UNDERSTANDING_STARTED = "mission_understanding_started"
     MISSION_PLANNING_STARTED = "mission_planning_started"
+    #: The Brain's own decision record for one mission -- what it
+    #: decided and why, never how. Emitted BEFORE the work starts, so
+    #: a mission that decides instantly still says what it decided;
+    #: reconstructing it from a successful outcome afterwards would be
+    #: a rationalisation, not a decision.
+    MISSION_DECISION_RECORDED = "mission_decision_recorded"
+    #: The same thread, later. One mission owns one thread, and it is
+    #: updated rather than replaced.
+    MISSION_DECISION_UPDATED = "mission_decision_updated"
 
     # --- Founder completion (Task 2.5, MB028.1's own shape reused for a
     # different question). Not a capability-risk approval — Rule 5 is not

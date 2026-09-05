@@ -138,6 +138,11 @@ class MissionService:
     history: PlanHistory | None = None
     memory: Any = None
     _counter: int = field(default=0, repr=False)
+    #: One decision record per mission, kept by mission id so it can
+    #: be retrieved after the mission finishes. Fresh mission, fresh
+    #: thread -- reuse here would be the stale-record defect again,
+    #: wearing a decision's clothes.
+    _threads: dict = field(default_factory=dict, repr=False)
 
     def start(
         self, objective: Intent | str, *, objective_id: str | None = None
@@ -466,6 +471,21 @@ class MissionService:
         except Exception:  # noqa: BLE001 -- an unframed mission still runs
             pass
 
+        # **A mission that decides instantly still decided something.**
+        #
+        # `frame_for` answers None for a DIRECT mission, correctly:
+        # ADR-0027 says a folder must not deliberate. But 'did not
+        # deliberate' is not 'has nothing to account for'. Without a
+        # record here the fastest, cheapest, most certain missions are
+        # the only ones that reach the founder unable to say what they
+        # decided or why -- and from outside, that is indistinguishable
+        # from never having thought at all.
+        #
+        # Written BEFORE planning, because this is where the decision
+        # was reached. Building it afterwards from a successful outcome
+        # would be a rationalisation wearing a decision's clothes.
+        self._record_direct_decision(intent, task_id, objective_id, text)
+
 
         if frame is not None:
             micro_trace.append({
@@ -677,6 +697,19 @@ class MissionService:
                 provider_id=outcome.provider_id,
             )
 
+        # The thread was minted at the decision, before a mission id
+        # existed. Bind it to the mission now -- the SAME thread,
+        # updated, never a second one. One mission, one thread.
+        thread = (getattr(intent, "context", None) or {}).get("reasoning_thread")
+        if isinstance(thread, dict) and submitted is not None:
+            thread["mission_id"] = submitted.objective_id
+            thread["status"] = "executing"
+            self._threads[submitted.objective_id] = thread
+            self._publish_phase_payload(
+                EventType.MISSION_DECISION_UPDATED, task_id,
+                submitted.objective_id, thread,
+            )
+
         # Return accepted outcome; mission outcome will be reported via events
         return MissionOutcome(
             status=ACCEPTED,
@@ -693,6 +726,99 @@ class MissionService:
         )
 
     # ---- Task 2.5 phase reporting ------------------------------------
+
+    def _record_direct_decision(
+        self, intent: Any, task_id: str, objective_id: str | None, text: str,
+    ) -> dict | None:
+        """The Reasoning thread for a DIRECT mission, minted and published.
+
+        Deterministic and free: the fields come from the founder's own
+        words and from requirements already derived without a model. No
+        provider is consulted, which is the whole point -- the decision
+        being recorded is that none was needed.
+
+        A fresh thread id per mission, never reused. Stale-thread reuse
+        would be the same class of defect as the stale-reply contamination
+        this system has already been bitten by: a record that looks right
+        and belongs to the turn before.
+        """
+        context = getattr(intent, "context", None)
+        if not isinstance(context, dict):
+            return None
+        eligibility = context.get("direct_eligibility")
+        if not isinstance(eligibility, dict) or not eligibility.get("eligible"):
+            return None
+        try:
+            from datetime import UTC, datetime
+            from uuid import uuid4
+
+            from master_agent.brain.deliberation import direct_decision_record
+
+            record = direct_decision_record(
+                thread_id=uuid4().hex[:12],
+                objective=text,
+                requirements=getattr(intent, "requirements", ()) or (),
+                mission_id=objective_id,
+                created_at=datetime.now(UTC).isoformat(),
+            )
+            context["reasoning_thread"] = record
+            self._publish_phase_payload(
+                EventType.MISSION_DECISION_RECORDED, task_id, objective_id, record,
+            )
+            return record
+        except Exception:  # noqa: BLE001 -- a mission still runs unrecorded
+            return None
+
+    def _publish_phase_payload(
+        self, event_type: Any, task_id: str, objective_id: str | None, payload: dict,
+    ) -> None:
+        """`_publish_phase` carries an objective string; this carries a
+        record. Same bus, same honesty about a missing one."""
+        bus = getattr(self.mission_control, "bus", None)
+        if bus is None:
+            return
+        from master_agent.mission_control.events import Event
+
+        bus.publish(
+            Event(
+                event_type=event_type,
+                source="mission_service",
+                task_id=task_id,
+                objective_id=objective_id,
+                payload=dict(payload),
+            )
+        )
+
+    def reasoning_thread(self, mission_id: str) -> dict | None:
+        """This mission's decision record, after the fact.
+
+        Retrievable by mission id and only by mission id: a thread that
+        could be fetched without naming the mission is a thread that can
+        be handed to the wrong one, which is the stale-record defect this
+        system has already paid for once.
+        """
+        thread = self._threads.get(mission_id)
+        return dict(thread) if thread else None
+
+    def note_mission_outcome(
+        self, mission_id: str, *, status: str, verification: str = "",
+    ) -> dict | None:
+        """Close the same thread this mission opened.
+
+        Updated, never replaced: the decision that started the mission and
+        what became of it belong to one record, or the record answers
+        "what did you decide" without answering "and were you right".
+        """
+        thread = self._threads.get(mission_id)
+        if thread is None:
+            return None
+        thread["status"] = status
+        if verification:
+            thread["verification"] = verification
+        self._publish_phase_payload(
+            EventType.MISSION_DECISION_UPDATED, "", mission_id, thread,
+        )
+        return dict(thread)
 
     def _publish_phase(
         self, event_type: Any, task_id: str, objective_id: str | None, objective_text: str

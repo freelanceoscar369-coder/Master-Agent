@@ -734,6 +734,69 @@ def serves(ground: str, requirement_id: str) -> bool:
     return bool(requirement_id) and ground in UTILITY_GROUNDS
 
 
+
+#: The decision a fully-dictated local objective reaches, in words a
+#: founder can read. Constant because it is the same decision every time:
+#: nothing here is generated, and nothing here is model output.
+DIRECT_DECISION = "Execute fully-dictated deterministic local objective"
+DIRECT_WHY = (
+    "Intent is sufficiently specified; deterministic capability path "
+    "exists; external reasoning would not improve requirement satisfaction"
+)
+
+
+def direct_decision_record(
+    *,
+    thread_id: str,
+    objective: str,
+    requirements: Sequence[Any] = (),
+    next_target: str = "Planner/direct",
+    capability_class: str = "Filesystem/local deterministic",
+    created_at: str = "",
+    mission_id: str | None = None,
+) -> dict[str, Any]:
+    """The Reasoning thread a DIRECT mission owns, before it executes.
+
+    A material mission must be able to say what it decided and why, and
+    that has to be as true of the missions that decide instantly as of
+    the ones that deliberate. A folder mission reaching the founder with
+    no decision record is indistinguishable, from the outside, from a
+    mission that never thought at all.
+
+    Deterministic and free: every field here is either the founder's own
+    words, the requirements already derived without a model, or a
+    constant. No provider is consulted to produce it -- which is the
+    point, since the decision being recorded is precisely that no
+    provider was needed.
+
+    Product-safe by construction. It records WHAT was decided and WHY,
+    never how a model got there, because there is no model and because
+    ADR-0026 forbids a reasoning transcript reaching the founder either
+    way.
+    """
+    return {
+        "reasoning_thread_id": thread_id,
+        "mission_id": mission_id,
+        "depth": DIRECT,
+        "model_required": False,
+        "objective": objective,
+        "requirements": [
+            {
+                "requirement_id": getattr(r, "requirement_id", ""),
+                "description": getattr(r, "description", ""),
+            }
+            for r in requirements
+        ],
+        "decision": DIRECT_DECISION,
+        "why": DIRECT_WHY,
+        "next_target": next_target,
+        "selected_capability_class": capability_class,
+        "uncertainty": "NONE",
+        "created_at": created_at,
+        "status": "decided",
+    }
+
+
 def depth_for(
     *,
     capability_is_deterministic: bool = False,

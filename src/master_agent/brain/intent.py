@@ -2574,6 +2574,17 @@ class IntentLayer:
             self._record_requirement_admission(
                 intent, self._deterministic_admission(requirements),
             )
+            # What the Brain concluded, for the mission's own decision
+            # record. Stated here because HERE is where it was
+            # concluded -- a later layer inferring it from a plan
+            # would be reading the outcome, not the decision.
+            context = getattr(intent, "context", None)
+            if isinstance(context, dict):
+                context["direct_eligibility"] = {
+                    "eligible": True,
+                    "model_required": False,
+                    "effects": list(dictated),
+                }
             return requirements
 
         # Preserve the established no-reasoner composition used by offline
