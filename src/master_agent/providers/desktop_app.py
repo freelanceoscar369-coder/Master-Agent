@@ -71,6 +71,27 @@ from master_agent.providers.response import (
     failure,
 )
 
+#: Copy-retrieval is WITHDRAWN from the live path.
+#:
+#: It fixed real truncation -- all four Brain calls parsed for the first
+#: time -- and then produced a worse defect: a stale `Copy` handed back
+#: the PREVIOUS turn's answer, complete and well-formed, to the stage
+#: that was supposed to validate it.
+#:
+#: The freshness gate written against that counts per-message `Copy`
+#: controls before and after the turn. Measured live on 2026-09-05, that
+#: count is 0 on a full transcript and stays 0: the affordance is
+#: hover-dependent, so it never enters the accessibility tree unaided.
+#: The gate therefore fails closed on every turn. Copying was not made
+#: fresh; it was made impossible, and leaving it in place would read as
+#: a working fallback that silently never runs.
+#:
+#: Re-enable only when current-turn identity is proven by something two
+#: stale sources cannot jointly satisfy. A hover-dependent control is
+#: not that.
+COPY_RETRIEVAL_LIVE_PROVEN = False
+COPY_RETRIEVAL_ENABLED = False
+
 PROVIDER_VERSION = "1.0.0"
 
 NOT_INSTALLED = "not installed on this machine"
@@ -638,7 +659,10 @@ class DesktopAppReasoningProvider(ModelProvider):
         #
         # Strictly an improvement or nothing -- the settled reconstruction
         # stands unless copying produced something real.
-        copied = self._reply_via_copy(window, copy_baseline)
+        copied = (
+            self._reply_via_copy(window, copy_baseline)
+            if COPY_RETRIEVAL_ENABLED else None
+        )
         if (
             copied
             and self._copy_is_this_turn(copied, response_text)
