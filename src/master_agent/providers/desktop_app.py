@@ -695,6 +695,7 @@ class DesktopAppReasoningProvider(ModelProvider):
         # merely because Enter was pressed.
         response_text = self._await_response(
             window, marked_prompt, response_baseline, budget,
+            turn_marker=session.session_marker,
         )
         if response_text is None:
             return failure(self._spec.provider_id, TIMED_OUT, RESPONSE_TIMEOUT,
@@ -1169,6 +1170,7 @@ class DesktopAppReasoningProvider(ModelProvider):
 
     def _await_response(
         self, window: dict, prompt: str, baseline: dict, budget: Any = None,
+        turn_marker: str = "",
     ) -> str | None:
         """Poll for a genuinely new, settled response — not merely
         `find_main_content()`'s "biggest text region," which was
@@ -1218,7 +1220,8 @@ class DesktopAppReasoningProvider(ModelProvider):
                 # reconstruction, so a streaming answer settles only once
                 # every line has arrived.
                 text = self._uia.find_new_response(
-                    handle, baseline, exclude_text=prompt, turn=turn
+                    handle, baseline, exclude_text=prompt, turn=turn,
+                    turn_marker=turn_marker,
                 )
             except (UiaUnavailable, UiaTargetNotFound):
                 text = None

@@ -62,7 +62,8 @@ class FakeUiaBridge:
     def find_new_content(self, handle, baseline, exclude_text=""):
         return self._texts.pop(0) if self._texts else None
 
-    def find_new_response(self, handle, baseline, exclude_text="", min_height=8, turn=None):
+    def find_new_response(self, handle, baseline, exclude_text="", min_height=8,
+                          turn=None, turn_marker=""):
         """`_await_response()` reconstructs the WHOLE reply now, so this
         fake answers the same question the real bridge does. Each entry in
         `new_content_texts` is one complete reading, exactly as before --
@@ -476,7 +477,7 @@ class TestSessionEstablishmentIntegration:
         provider._write_prompt = lambda window, prompt, keyboard: True
         provider._submit = lambda window, keyboard: True
         provider._await_response = (
-            lambda window, prompt, baseline, budget=None:
+            lambda window, prompt, baseline, budget=None, turn_marker="":
             "a genuine reply from the application"
         )
 
@@ -485,6 +486,38 @@ class TestSessionEstablishmentIntegration:
         assert result.ok is True
         assert "session_marker" in result.detail
         assert "Kalpavriksha Reasoning" in result.detail["session_marker"]
+
+    def test_the_turn_marker_reaches_reply_reconstruction(self):
+        """The wiring, not the mechanism.
+
+        `find_new_response()` can only read the scrollback safely when it
+        is told which turn is being waited on, and the only thing that
+        says so is this call's own session marker. Computed, embedded in
+        the prompt, and then not handed on is the exact half-finished
+        shape this whole lane keeps producing -- so it is asserted where
+        it is consumed.
+        """
+        provider = self._wired_provider(session_ok=True)
+        provider._write_prompt = lambda window, prompt, keyboard: True
+        provider._submit = lambda window, keyboard: True
+        seen = {}
+
+        class _Uia:
+            def snapshot_text_regions(self, handle):
+                return {}
+
+            def find_new_response(self, handle, baseline, exclude_text="",
+                                  min_height=8, turn=None, turn_marker=""):
+                seen["turn_marker"] = turn_marker
+                return "a genuine reply from the application"
+
+        provider._uia = _Uia()
+
+        result = provider.complete("some reasoning prompt")
+
+        assert result.ok is True
+        assert seen["turn_marker"] == result.detail["session_marker"]
+        assert seen["turn_marker"], "an empty marker reads the viewport only"
 
     def test_response_is_never_awaited_when_submission_is_not_verified(self):
         """Section 4's own rule, extended to submission: never treated as

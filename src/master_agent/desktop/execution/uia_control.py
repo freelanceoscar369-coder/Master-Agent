@@ -670,7 +670,8 @@ class UiaAutomationBridge:
                 time.sleep(retry_delay_seconds)
         raise UiaTargetNotFound(f"no text-bearing content region found in window {window_handle}")
 
-    def _text_region_candidates(self, root, win_rect, min_height: int):
+    def _text_region_candidates(self, root, win_rect, min_height: int,
+                                include_offscreen: bool = False):
         """Shared scan behind `snapshot_text_regions()`/`find_new_content()`:
         every visible, text-bearing descendant at least `min_height` tall
         (clipped to the window's own bounds — see `find_composer()`'s own
@@ -694,7 +695,30 @@ class UiaAutomationBridge:
         composer, not content); a genuine response region is a static
         text/document element, never an editable control. Excluding
         focusable candidates here is the structural mirror of that same
-        distinction, not a guess specific to any one application."""
+        distinction, not a guess specific to any one application.
+
+        **`include_offscreen` -- visibility is the wrong question for a
+        reply.** Both filters below are visibility tests: the `IsOffscreen`
+        property, and a height clipped to the window's own bounds. For
+        "which region changed" visibility is exactly right -- a founder
+        cannot be shown what is not drawn. For "reconstruct this turn's
+        answer" it is wrong, because a reply taller than the window is, by
+        definition, mostly not on screen.
+
+        Measured live on 2026-09-05, mid-reply, in ChatGPT Desktop: 470
+        text-bearing elements carried content, 14 survived these two
+        filters, and 454 were dropped by the `IsOffscreen` flag alone --
+        349 of them scrolled entirely above the viewport, with their
+        complete text present in the tree, the reply's own opening
+        `{"regions": [` among them. Nothing was virtualised away and
+        nothing needed scrolling back into view: the text was there and
+        this scan refused to look at it. That is how a long obligation
+        audit reached the Brain as "not a JSON object" -- the head of the
+        answer had simply scrolled up.
+
+        So the reply path asks for the transcript as it stands, and takes
+        each element's own height rather than the clipped one. Every other
+        caller keeps the visibility rule untouched."""
         regions: dict[tuple[int, int, int, int], tuple[Any, str]] = {}
         for element in self._descendants(root):
             try:
@@ -703,10 +727,15 @@ class UiaAutomationBridge:
                 has_text = bool(element.GetCurrentPropertyValue(_IS_TEXT_PATTERN_AVAILABLE_PROPERTY_ID))
                 if not has_text:
                     continue
-                if bool(element.GetCurrentPropertyValue(_IS_OFFSCREEN_PROPERTY_ID)):
+                if not include_offscreen and bool(
+                    element.GetCurrentPropertyValue(_IS_OFFSCREEN_PROPERTY_ID)
+                ):
                     continue
                 rect = element.CurrentBoundingRectangle
-                height = min(rect.bottom, win_rect.bottom) - max(rect.top, win_rect.top)
+                if include_offscreen:
+                    height = rect.bottom - rect.top
+                else:
+                    height = min(rect.bottom, win_rect.bottom) - max(rect.top, win_rect.top)
                 if height < min_height:
                     continue
                 key = (rect.left, rect.top, rect.right, rect.bottom)
@@ -981,6 +1010,7 @@ class UiaAutomationBridge:
         exclude_text: str = "",
         min_height: int = 8,
         turn: "ResponseTurn | None" = None,
+        turn_marker: str = "",
     ) -> str | None:
         """The whole assistant reply as TEXT, or `None`.
 
@@ -1029,7 +1059,8 @@ class UiaAutomationBridge:
         stops changing -- never because one child happened to be stable.
         """
         lines = self._reply_lines(
-            window_handle, baseline, exclude_text, min_height, turn
+            window_handle, baseline, exclude_text, min_height, turn,
+            turn_marker,
         )
         if not lines:
             # Nothing below this turn's prompt. Fall back to the
@@ -1056,6 +1087,29 @@ class UiaAutomationBridge:
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _from_this_turn(regions: dict, marker_norm: str):
+        """`regions` from this turn's marker onward, or `None`.
+
+        The marker is minted per call and written into the prompt's own
+        visible text, so it occurs exactly once in the transcript. The
+        LAST occurrence is taken anyway: it costs nothing, and if a
+        marker ever were repeated the most recent one is the turn being
+        waited on.
+
+        `None`, not `{}`, when the marker is absent -- "I could not find
+        this turn" and "this turn is empty" call for different answers,
+        and the caller falls back to the viewport for the first.
+        """
+        items = list(regions.items())
+        found = -1
+        for index, (_key, (_element, text)) in enumerate(items):
+            if marker_norm and marker_norm in _normalize_whitespace(text or ""):
+                found = index
+        if found < 0:
+            return None
+        return dict(items[found:])
+
     def _reply_lines(
         self,
         window_handle: int,
@@ -1063,6 +1117,7 @@ class UiaAutomationBridge:
         exclude_text: str,
         min_height: int,
         turn: "ResponseTurn | None" = None,
+        turn_marker: str = "",
     ) -> list[str]:
         """This turn's reply, one entry per rendered leaf, in reading
         order — top to bottom, then left to right for anything sharing a
@@ -1074,9 +1129,38 @@ class UiaAutomationBridge:
         baseline_texts = {
             _normalize_whitespace(t) for t in baseline.values() if t and t.strip()
         }
-        all_regions = self._text_region_candidates(root, win_rect, min_height)
+        # **The transcript, bounded to this turn -- or nothing wider than
+        # the viewport at all.**
+        #
+        # Scrolled-away rows keep their full text in the accessibility
+        # tree (see `_text_region_candidates`'s own live census), so a
+        # reply taller than the window is readable. What makes reading it
+        # SAFE is knowing where this turn starts, and the only fact that
+        # settles that is `turn_marker`: a per-call, unique, timestamped
+        # identity written into the prompt's own visible text. A repeated
+        # prompt cannot be told from its earlier self -- the characters
+        # are identical -- and anchoring on one would hand the previous
+        # exchange back as this reply.
+        #
+        # So the wider scan is taken only when that identity is present
+        # AND located. Otherwise this stays exactly where it was: the
+        # visible viewport, which is the conservative answer.
+        all_regions = None
+        if turn_marker.strip():
+            all_regions = self._from_this_turn(
+                self._text_region_candidates(
+                    root, win_rect, min_height, include_offscreen=True),
+                _normalize_whitespace(turn_marker),
+            )
+        if all_regions is None:
+            all_regions = self._text_region_candidates(root, win_rect, min_height)
 
-        prompt_floor = win_rect.top
+        # `None` until this turn's own prompt is located. It used to start
+        # at the window's top edge, which doubled as "no floor yet" -- a
+        # coordinate that stops meaning anything once rows above the
+        # viewport are eligible, because a long reply's prompt sits at a
+        # NEGATIVE top and would never beat it.
+        prompt_floor: int | None = None
         prompt_echo: set[str] = set()
         if exclude_norm:
             # **A reply that quotes the prompt is not the prompt.**
@@ -1120,7 +1204,8 @@ class UiaAutomationBridge:
                 # once, so it can be echoed once.
                 if norm != exclude_norm and len(norm) < _PROMPT_FRAGMENT_MIN_CHARS:
                     continue
-                prompt_floor = max(prompt_floor, key[3])
+                prompt_floor = (key[3] if prompt_floor is None
+                                else max(prompt_floor, key[3]))
                 prompt_echo.add(norm)
                 spent = echoed + len(norm)
 
@@ -1158,7 +1243,7 @@ class UiaAutomationBridge:
         # exchange, everything below it was produced by this turn. With no
         # floor located, the content-set stays in force, which is the
         # conservative answer.
-        floor_established = prompt_floor > win_rect.top
+        floor_established = prompt_floor is not None
         if floor_established and turn is not None:
             turn.anchored = True
 
