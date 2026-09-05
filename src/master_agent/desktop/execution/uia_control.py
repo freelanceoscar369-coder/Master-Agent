@@ -171,12 +171,12 @@ _MAX_CLEARED_CHARS = 80
 #: (17 and 20 characters), so composer chrome cannot reach it either.
 _PROMPT_FRAGMENT_MIN_CHARS = 24
 
-#: How much of a region its own children must account for before it is
-#: treated as a container whose text already IS the whole reply, rather
-#: than one fragment of a reply that happens to contain some short
-#: neighbours. Three short names inside their own block reach 93%; the
-#: `:[]` and `}` runs of a JSON reply reach 0.3% of the 1,279-character
-#: object they sit inside.
+#: How much of the REST of a reply one region must account for before it
+#: is treated as a container whose text already IS the whole reply,
+#: rather than one fragment that happens to contain a few short
+#: neighbours. A block holding three short names accounts for all of
+#: them; the run `:[]` inside a 103-run reply accounts for almost none
+#: of it, however completely those two characters "contain" a bracket.
 _CONTAINER_SHARE = 0.6
 #: A generation-in-progress notice is new content below this turn's own
 #: prompt, so nothing structural distinguishes it from the reply -- and
@@ -1087,23 +1087,28 @@ class UiaAutomationBridge:
         # every line twice. Containment decides, exactly as
         # `find_new_content()` decides it: two or more held fragments.
         #
-        # A container is made OF its children, so they account for
-        # essentially all of it. Counting containment alone does not say
-        # that. A reply arriving as a sequence of inline runs --
-        # `{"regions"`, `:[...]`, `,"anchors"`, `:[]`, `}` -- has one-
-        # and three-character pieces that occur inside every large piece,
-        # so the count reaches two immediately and a single middle
-        # fragment is returned as though it were the whole answer. Asking
-        # what SHARE of the candidate its children make up separates the
-        # two cleanly: three short names inside their own block cover
-        # nearly all of it; two punctuation runs inside a 1,279-character
-        # object cover a third of one percent.
+        # A container IS the whole reply, so it must hold essentially all
+        # the rest of it. Counting containment alone does not say that,
+        # and the difference is not academic. Measured live on
+        # 2026-09-05, a streaming audit reply arrived as 103 runs, many
+        # of them one or two characters; the three-character run `:[]`
+        # "contains" `[`, `]` and `:`, reached a count of two instantly,
+        # and was returned as the model's entire answer. The Brain was
+        # told the audit was not a JSON object, about three characters.
+        #
+        # So the question is not how much of the CANDIDATE its children
+        # cover -- a short candidate is trivially covered -- but how much
+        # of everything else it accounts for. Three short names inside
+        # their own block account for all of it; `:[]` inside a
+        # 3,000-character reply accounts for a tenth of a percent.
         normalised = [_normalize_whitespace(line) for line in lines]
+        elsewhere = sum(len(line) for line in normalised)
         for index, candidate in enumerate(normalised):
             held = [other for j, other in enumerate(normalised)
                     if j != index and other and other in candidate]
-            if (len(held) >= 2 and candidate
-                    and sum(len(h) for h in held) >= _CONTAINER_SHARE * len(candidate)):
+            rest = elsewhere - len(candidate)
+            if (len(held) >= 2 and rest > 0
+                    and sum(len(h) for h in held) >= _CONTAINER_SHARE * rest):
                 return lines[index]
 
         return "\n".join(lines)

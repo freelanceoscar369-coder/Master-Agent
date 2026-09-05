@@ -225,3 +225,48 @@ class TestARunIsNotMistakenForTheWholeAnswer:
         result = _audit_reconstruct()
         assert result != ANSWER[1][1]
         assert ',"valid"' in result
+
+
+class TestAThreeCharacterRunIsNotTheWholeAnswer:
+    """Measured live on 2026-09-05: a streaming audit reply arrived as
+    103 runs, many of them one or two characters. `:[]` "contains" `[`,
+    `]` and `:`, so a containment count reached two on the shortest run
+    in the reply and returned it as the model's entire answer. The Brain
+    was told the audit was not a JSON object -- about three characters.
+    """
+
+    TINY_PROMPT = MARKER_NOW + "\n\nsay something"
+
+    def _runs(self, texts):
+        elements = [
+            FakeUiaElement(name="m", has_text=True, rect=(0, 0, 400, 30),
+                           text=MARKER_NOW, is_offscreen=True),
+            FakeUiaElement(name="p", has_text=True, rect=(0, 40, 400, 70),
+                           text="say something", is_offscreen=True),
+        ]
+        elements += [
+            FakeUiaElement(name=f"r{i}", has_text=True,
+                           rect=(i * 7, 100 + i, 400, 130 + i), text=text,
+                           is_offscreen=True)
+            for i, text in enumerate(texts)
+        ]
+        bridge = _bridge_with_elements(elements, window_rect=(0, 0, 400, 900))
+        return bridge.find_new_response(
+            1, {}, exclude_text=self.TINY_PROMPT, min_height=8,
+            turn_marker=MARKER_NOW,
+        )
+
+    def test_the_shortest_run_does_not_swallow_the_reply(self):
+        runs = ['{"regions"', ":[", "]", ":[]", ',"valid"', ":false", "}",
+                'the reason this matters is that the answer is long']
+        result = self._runs(runs)
+        assert result != ":[]"
+        assert "the reason this matters" in result
+
+    def test_a_real_container_is_still_preferred_over_repeating_it(self):
+        """Unchanged behaviour: a block that holds its own lines is the
+        reply, and returning it alongside its children says everything
+        twice."""
+        result = self._runs(["GardenLog SproutNote PlotPad",
+                             "GardenLog", "SproutNote", "PlotPad"])
+        assert result == "GardenLog SproutNote PlotPad"
